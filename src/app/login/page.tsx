@@ -50,7 +50,8 @@ export default function LoginPage() {
   useEffect(() => {
     if (IS_PRODUCTION && status === "unauthenticated") {
       const timer = setTimeout(() => {
-        const callbackUrl = encodeURIComponent(`${BI_URL}/api/auth/wp-callback`);
+        // Use window.location.origin to guarantee the correct domain regardless of build-time env vars
+        const callbackUrl = encodeURIComponent(`${window.location.origin}/api/auth/wp-callback`);
         const wpLoginUrl = `${WP_LOGIN_URL_CLIENT}?redirect_to=${callbackUrl}`;
         window.location.href = wpLoginUrl;
       }, 2000);
