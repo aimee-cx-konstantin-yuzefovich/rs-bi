@@ -1,0 +1,325 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Institutional Brand Colors */
+  --color-brand-blue: #1A52A3;
+  --color-brand-blue-hover: #1546A0;
+  --color-brand-blue-light: #E8EFF8;
+  --color-brand-orange: #FF7A1F;
+  --color-brand-orange-hover: #E86E15;
+  --color-brand-orange-light: #FFF1E5;
+  --color-surface-light: #F8F9FA;
+  --color-surface-card: #FFFFFF;
+  --color-text-primary: rgba(0, 0, 0, 0.87);
+  --color-text-secondary: rgba(0, 0, 0, 0.54);
+  --color-border-light: #E2E8F0;
+}
+
+:root {
+  --radius: 0.25rem; /* 4px institutional rounding */
+  --background: #F0F2F5;
+  --foreground: rgba(0, 0, 0, 0.87);
+  --card: #FFFFFF;
+  --card-foreground: rgba(0, 0, 0, 0.87);
+  --popover: #FFFFFF;
+  --popover-foreground: rgba(0, 0, 0, 0.87);
+  --primary: #1A52A3;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F1F5F9;
+  --secondary-foreground: rgba(0, 0, 0, 0.87);
+  --muted: #F1F5F9;
+  --muted-foreground: rgba(0, 0, 0, 0.54);
+  --accent: #FF7A1F;
+  --accent-foreground: #FFFFFF;
+  --destructive: #EF4444;
+  --border: #E2E8F0;
+  --input: #E2E8F0;
+  --ring: #1A52A3;
+  --chart-1: #1A52A3;
+  --chart-2: #FF7A1F;
+  --chart-3: #10B981;
+  --chart-4: #6366F1;
+  --chart-5: #F43F5E;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: rgba(0, 0, 0, 0.87);
+  --sidebar-primary: #1A52A3;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F1F5F9;
+  --sidebar-accent-foreground: #1A52A3;
+  --sidebar-border: #E2E8F0;
+  --sidebar-ring: #1A52A3;
+  /* Header gradient */
+  --header-from: #0D2B5E;
+  --header-to: #1A52A3;
+  --header-text: #FFFFFF;
+  --header-text-muted: rgba(255, 255, 255, 0.7);
+}
+
+.dark {
+  --background: #0A0F1A;
+  --foreground: rgba(255, 255, 255, 0.92);
+  --card: #141B2D;
+  --card-foreground: rgba(255, 255, 255, 0.92);
+  --popover: #141B2D;
+  --popover-foreground: rgba(255, 255, 255, 0.92);
+  --primary: #3B82F6;
+  --primary-foreground: #FFFFFF;
+  --secondary: #1E293B;
+  --secondary-foreground: rgba(255, 255, 255, 0.92);
+  --muted: #1E293B;
+  --muted-foreground: rgba(255, 255, 255, 0.54);
+  --accent: #FB923C;
+  --accent-foreground: #FFFFFF;
+  --destructive: #EF4444;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #3B82F6;
+  --chart-1: #3B82F6;
+  --chart-2: #FB923C;
+  --chart-3: #34D399;
+  --chart-4: #818CF8;
+  --chart-5: #FB7185;
+  --sidebar: #141B2D;
+  --sidebar-foreground: rgba(255, 255, 255, 0.92);
+  --sidebar-primary: #3B82F6;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #1E293B;
+  --sidebar-accent-foreground: #3B82F6;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #3B82F6;
+  /* Header gradient - dark */
+  --header-from: #060D1F;
+  --header-to: #0D1F3C;
+  --header-text: #FFFFFF;
+  --header-text-muted: rgba(255, 255, 255, 0.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ─── Custom Scrollbar ─── */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ─── Data Table ─── */
+.data-table th {
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 2;
+}
+
+.data-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease;
+}
+
+.data-table tbody tr {
+  transition: background 0.15s ease;
+}
+
+.data-table tbody tr:hover td {
+  background: var(--muted);
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ─── Animations ─── */
+@keyframes sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.sync-pulse {
+  animation: sync-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in {
+  animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.4) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ─── Header Gradient ─── */
+.header-gradient {
+  background: linear-gradient(135deg, var(--header-from), var(--header-to));
+}
+
+/* ─── Stat card accent bar ─── */
+.stat-accent-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-accent-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 0 0 2px 2px;
+}
+
+.stat-accent-bar-blue::before { background: #1A52A3; }
+.stat-accent-bar-green::before { background: #10B981; }
+.stat-accent-bar-orange::before { background: #FF7A1F; }
+.stat-accent-bar-violet::before { background: #7C3AED; }
+
+/* ─── Sort indicator animation ─── */
+.sort-icon-enter {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ─── Filter badge pulse ─── */
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 122, 31, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(255, 122, 31, 0); }
+}
+
+.filter-badge-pulse {
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+/* ─── No-scrollbar (for horizontal filter row) ─── */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ─── Terminal Loading Screen Animations ─── */
+@keyframes terminal-line-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-terminal-line {
+  animation: terminal-line-in 0.2s ease-out both;
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-blink-cursor {
+  animation: blink-cursor 0.8s step-end infinite;
+}

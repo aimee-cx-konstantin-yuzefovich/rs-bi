@@ -1,0 +1,655 @@
+"use client";
+
+import { useDashboardStore, type FieldInfo, type DealData } from "@/store/dashboard-store";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import {
+  AlertCircle,
+  Database,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  Filter,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
+
+/**
+ * SECURITY NOTE: All cell values are rendered as JSX text content.
+ * React automatically escapes HTML entities in JSX text (<td>{value}</td>),
+ * which prevents XSS attacks even if CRM data contains malicious scripts.
+ * We do NOT use dangerouslySetInnerHTML anywhere in this component.
+ */
+export function DataTable() {
+  const {
+    deals,
+    dealsLoading,
+    dealsError,
+    dealsTotal,
+    fields,
+    selectedColumns,
+    searchQuery,
+    currentPage,
+    pageSize,
+    setCurrentPage,
+    setPageSize,
+    columnSort,
+    toggleColumnSort,
+    columnFilters,
+    setColumnFilter,
+    clearColumnFilter,
+    clearAllColumnFilters,
+  } = useDashboardStore();
+
+  const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus filter input when activated
+  useEffect(() => {
+    if (activeFilterCol && filterInputRef.current) {
+      filterInputRef.current.focus();
+    }
+  }, [activeFilterCol]);
+
+  const fieldMap = useMemo(
+    () => new Map(fields.map((f) => [f.id, f])),
+    [fields]
+  );
+
+  // Resolve display value for a cell (handles list values, arrays, etc.)
+  const resolveValue = useCallback(
+    (deal: DealData, colId: string): string => {
+      const raw = deal[colId];
+      const field = fieldMap.get(colId);
+
+      if (raw === null || raw === undefined || raw === "") return "";
+
+      // Resolve enumeration list values
+      if (field?.listValues && raw) {
+        // Handle multiple values (arrays)
+        if (Array.isArray(raw)) {
+          return raw
+            .map((v) => {
+              const listVal = field.listValues?.find((lv) => lv.ID === String(v));
+              return listVal?.VALUE || String(v);
+            })
+            .join(", ");
+        }
+        const val = String(raw);
+        const listVal = field.listValues.find((lv) => lv.ID === val);
+        if (listVal) return listVal.VALUE;
+      }
+
+      // Format arrays
+      if (Array.isArray(raw)) {
+        return raw.join(", ");
+      }
+
+      return String(raw);
+    },
+    [fieldMap]
+  );
+
+  // Get raw comparable value for sorting
+  const getSortValue = useCallback(
+    (deal: DealData, colId: string): string | number => {
+      const field = fieldMap.get(colId);
+      const raw = deal[colId];
+
+      if (raw === null || raw === undefined || raw === "") return "";
+
+      // For numeric types, parse as number for proper sorting
+      if (
+        field?.type === "double" ||
+        field?.type === "integer" ||
+        field?.type === "money"
+      ) {
+        const num = parseFloat(String(raw));
+        return isNaN(num) ? 0 : num;
+      }
+
+      // For date types, use timestamp for sorting
+      if (field?.type === "date" || field?.type === "datetime") {
+        const d = new Date(String(raw));
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      }
+
+      // For enumeration, resolve to display value for alphabetical sort
+      if (field?.listValues && raw) {
+        return resolveValue(deal, colId);
+      }
+
+      return String(raw).toLowerCase();
+    },
+    [fieldMap, resolveValue]
+  );
+
+  // Apply global search
+  const searchedDeals = useMemo(() => {
+    if (!searchQuery.trim()) return deals;
+    const q = searchQuery.toLowerCase();
+    return deals.filter((deal) =>
+      Object.entries(deal).some(([key, val]) => {
+        const resolved = resolveValue(deal, key);
+        return resolved.toLowerCase().includes(q);
+      })
+    );
+  }, [deals, searchQuery, resolveValue]);
+
+  // Apply column filters
+  const filteredDeals = useMemo(() => {
+    if (columnFilters.length === 0) return searchedDeals;
+
+    return searchedDeals.filter((deal) =>
+      columnFilters.every((filter) => {
+        if (!filter.value.trim()) return true;
+        const resolved = resolveValue(deal, filter.columnId);
+        return resolved.toLowerCase().includes(filter.value.toLowerCase());
+      })
+    );
+  }, [searchedDeals, columnFilters, resolveValue]);
+
+  // Apply column sorting
+  const sortedDeals = useMemo(() => {
+    if (!columnSort.direction || !columnSort.columnId) return filteredDeals;
+
+    const colId = columnSort.columnId;
+    const dir = columnSort.direction === "asc" ? 1 : -1;
+
+    return [...filteredDeals].sort((a, b) => {
+      const aVal = getSortValue(a, colId);
+      const bVal = getSortValue(b, colId);
+
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        return (aVal - bVal) * dir;
+      }
+
+      const aStr = String(aVal);
+      const bStr = String(bVal);
+      return aStr.localeCompare(bStr, "ru") * dir;
+    });
+  }, [filteredDeals, columnSort, getSortValue]);
+
+  // Pagination
+  const totalPages = Math.ceil(sortedDeals.length / pageSize);
+  const paginatedDeals = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedDeals.slice(start, start + pageSize);
+  }, [sortedDeals, currentPage, pageSize]);
+
+  const columns =
+    selectedColumns.length > 0
+      ? selectedColumns
+      : deals.length > 0
+      ? Object.keys(deals[0]).slice(0, 8)
+      : [];
+
+  const activeFilterCount = columnFilters.filter((f) => f.value.trim()).length;
+
+  // Loading state
+  if (dealsLoading && deals.length === 0) {
+    return (
+      <div className="flex-1 p-4 sm:p-6">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-9 w-64 rounded-md" />
+          </div>
+          <div className="rounded-md border border-border overflow-hidden">
+            <div className="bg-muted/50 p-3 flex gap-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-4 w-24 rounded" />
+              ))}
+            </div>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
+              <div key={row} className="p-3 flex gap-4 border-t border-border">
+                {[1, 2, 3, 4, 5].map((col) => (
+                  <Skeleton key={col} className="h-4 w-20 rounded" />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (dealsError) {
+    return (
+      <div className="flex-1 p-4 sm:p-6">
+        <Alert variant="destructive" className="rounded-md">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Ошибка загрузки данных: {dealsError}
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  // Empty state
+  if (deals.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center space-y-4 animate-fade-in">
+          <div className="mx-auto h-16 w-16 rounded-2xl bg-muted flex items-center justify-center">
+            <Database className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold">Нет данных</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Нажмите «Синхронизация» для загрузки сделок из CRM
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 mx-4 sm:mx-6 mb-4">
+      {/* Table container card */}
+      <div className="flex-1 flex flex-col min-h-0 rounded-md border border-border bg-card shadow-sm overflow-hidden">
+        {/* Filter bar */}
+        <div className="px-4 py-2 border-b border-border bg-card flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            {activeFilterCount > 0 && (
+              <>
+                <Badge variant="secondary" className="text-[10px] gap-1 h-6 filter-badge-pulse bg-brand-orange/10 text-brand-orange border-brand-orange/20">
+                  <Filter className="h-2.5 w-2.5" />
+                  {activeFilterCount}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearAllColumnFilters}
+                  className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground px-2"
+                >
+                  <X className="h-2.5 w-2.5" />
+                  Сбросить
+                </Button>
+              </>
+            )}
+          </div>
+          <div className="text-[10px] text-muted-foreground tabular-nums ml-auto">
+            {sortedDeals.length.toLocaleString("ru-RU")} из {dealsTotal.toLocaleString("ru-RU")}
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full custom-scrollbar">
+            <div className="min-w-full">
+              <table className="data-table w-full border-collapse">
+                <thead>
+                  <tr>
+                    {columns.map((colId) => {
+                      const field = fieldMap.get(colId);
+                      const isSorted = columnSort.columnId === colId;
+                      const hasFilter = columnFilters.some(
+                        (f) => f.columnId === colId && f.value.trim()
+                      );
+                      const isFilterActive = activeFilterCol === colId;
+                      const isNumeric = field?.type === "double" || field?.type === "integer" || field?.type === "money";
+                      const isDate = field?.type === "date" || field?.type === "datetime";
+
+                      return (
+                        <th key={colId} className="text-left group">
+                          <div className="flex items-center gap-1">
+                            {/* Sort button */}
+                            <button
+                              onClick={() => toggleColumnSort(colId)}
+                              className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+                              title={
+                                isNumeric
+                                  ? isSorted
+                                    ? columnSort.direction === "asc"
+                                      ? "По возрастанию чисел (нажмите для убывания)"
+                                      : "По убыванию чисел (нажмите для сброса)"
+                                    : "Сортировка по числам"
+                                  : isDate
+                                  ? isSorted
+                                    ? columnSort.direction === "asc"
+                                      ? "По возрастанию дат (нажмите для убывания)"
+                                      : "По убыванию дат (нажмите для сброса)"
+                                    : "Сортировка по датам"
+                                  : isSorted
+                                  ? columnSort.direction === "asc"
+                                    ? "По алфавиту А→Я (нажмите для Я→А)"
+                                    : "По алфавиту Я→А (нажмите для сброса)"
+                                  : "Сортировка по алфавиту"
+                              }
+                            >
+                              <span className="truncate max-w-[160px]">{field?.title || colId}</span>
+                              {isSorted && columnSort.direction === "asc" && (
+                                <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter" />
+                              )}
+                              {isSorted && columnSort.direction === "desc" && (
+                                <ArrowDown className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter" />
+                              )}
+                              {!isSorted && (
+                                <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity flex-shrink-0" />
+                              )}
+                            </button>
+
+                            {/* Column filter toggle */}
+                            <button
+                              onClick={() =>
+                                setActiveFilterCol(isFilterActive ? null : colId)
+                              }
+                              className={`p-0.5 rounded transition-all ${
+                                hasFilter
+                                  ? "text-brand-orange filter-badge-pulse"
+                                  : "opacity-0 group-hover:opacity-40 hover:!opacity-70"
+                              }`}
+                              title="Фильтр по столбцу"
+                            >
+                              <Filter className="h-2.5 w-2.5" />
+                            </button>
+                          </div>
+
+                          {/* Per-column filter input */}
+                          {isFilterActive && (
+                            <div className="mt-1.5 animate-fade-in">
+                              <div className="relative">
+                                <Input
+                                  ref={filterInputRef}
+                                  placeholder={`Фильтр...`}
+                                  value={
+                                    columnFilters.find((f) => f.columnId === colId)
+                                      ?.value || ""
+                                  }
+                                  onChange={(e) =>
+                                    setColumnFilter(colId, e.target.value)
+                                  }
+                                  className="h-6 text-[11px] rounded-sm pr-6 bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-1"
+                                />
+                                {(columnFilters.find((f) => f.columnId === colId)
+                                  ?.value || "") && (
+                                  <button
+                                    onClick={() => clearColumnFilter(colId)}
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                  >
+                                    <X className="h-2.5 w-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedDeals.map((deal, idx) => {
+                    const dealId = deal.ID || deal.id || idx;
+                    return (
+                      <tr key={String(dealId)}>
+                        {columns.map((colId) => {
+                          const resolved = resolveValue(deal, colId);
+                          return (
+                            <td key={colId} title={resolved}>
+                              <CellValue
+                                raw={deal[colId]}
+                                resolved={resolved}
+                                field={fieldMap.get(colId)}
+                              />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </div>
+
+        {/* Pagination */}
+        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between">
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="tabular-nums">
+              {((currentPage - 1) * pageSize) + 1}–{Math.min(currentPage * pageSize, sortedDeals.length)} из {sortedDeals.length}
+            </span>
+            {(searchQuery || activeFilterCount > 0) && (
+              <Badge variant="outline" className="text-[10px] h-5 font-normal">
+                из {dealsTotal}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground hidden sm:inline">Строк:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="h-7 rounded-sm border-0 bg-muted/80 text-[11px] px-1.5 py-0 focus:ring-1 cursor-pointer"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-sm"
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage <= 1}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-[11px] text-muted-foreground min-w-[50px] text-center tabular-nums">
+                {currentPage} / {Math.max(1, totalPages)}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-sm"
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CellValue({
+  raw,
+  resolved,
+  field,
+}: {
+  raw: string | string[] | number | null;
+  resolved: string;
+  field?: FieldInfo;
+}) {
+  if (!resolved) {
+    return <span className="text-muted-foreground/30">—</span>;
+  }
+
+  // Boolean / char fields
+  if (field?.type === "char" || field?.type === "boolean") {
+    if (raw === "Y" || raw === "1" || String(raw) === "true") {
+      return (
+        <Badge className="bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px] h-5 rounded-sm border-0 font-medium">
+          Да
+        </Badge>
+      );
+    }
+    if (raw === "N" || raw === "0" || String(raw) === "false") {
+      return (
+        <Badge variant="secondary" className="text-[10px] h-5 rounded-sm font-normal">
+          Нет
+        </Badge>
+      );
+    }
+  }
+
+  // Money type — formatted with currency
+  if (field?.type === "money" && raw) {
+    const parts = String(raw).split("|");
+    const amount = parseFloat(parts[0]);
+    const currency = parts[1] || "";
+    if (!isNaN(amount)) {
+      return (
+        <span className="font-mono text-xs tabular-nums font-semibold text-foreground">
+          {amount.toLocaleString("ru-RU", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}{" "}
+          <span className="text-muted-foreground font-normal">{currency}</span>
+        </span>
+      );
+    }
+  }
+
+  // Numeric fields (double, integer)
+  if (field?.type === "double" || field?.type === "integer") {
+    const num = parseFloat(resolved);
+    if (!isNaN(num) && field?.type === "double") {
+      return (
+        <span className="font-mono text-xs tabular-nums font-medium">
+          {num.toLocaleString("ru-RU", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      );
+    }
+    if (!isNaN(num) && field?.type === "integer") {
+      return (
+        <span className="font-mono text-xs tabular-nums">
+          {Math.round(num).toLocaleString("ru-RU")}
+        </span>
+      );
+    }
+  }
+
+  // Opportunity field
+  if (field?.id === "OPPORTUNITY") {
+    const num = parseFloat(resolved);
+    if (!isNaN(num)) {
+      return (
+        <span className="font-mono text-xs tabular-nums font-semibold text-foreground">
+          {num.toLocaleString("ru-RU", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      );
+    }
+  }
+
+  // Date fields
+  if (
+    field?.type === "date" ||
+    field?.type === "datetime" ||
+    field?.id === "DATE_CREATE" ||
+    field?.id === "DATE_MODIFY"
+  ) {
+    const d = new Date(resolved);
+    if (!isNaN(d.getTime())) {
+      const dateStr = d.toLocaleDateString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+      const timeStr =
+        field?.type === "datetime"
+          ? ` ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
+          : "";
+      return (
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          {dateStr}
+          {timeStr}
+        </span>
+      );
+    }
+  }
+
+  // Payment status — colored badges
+  if (field?.id === "UF_CRM_1584464068013") {
+    const statusColors: Record<string, string> = {
+      "Не оплачен": "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+      "Выставлен счет": "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+      "Ожидает подтверждения": "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+      "Платеж проведен": "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
+      "Ошибка": "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300",
+      "Оплачен": "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+      "Возвращен": "bg-gray-50 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400",
+    };
+    const colorClass = statusColors[resolved];
+    if (colorClass) {
+      return (
+        <Badge className={`${colorClass} text-[10px] h-5 rounded-sm border-0 font-medium`}>
+          {resolved}
+        </Badge>
+      );
+    }
+  }
+
+  // Stage — colored badges
+  if (field?.id === "STAGE_ID") {
+    const stageColors: Record<string, string> = {
+      "Новая": "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+      "Подготовка": "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
+      "Счёт выставлен": "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+      "В работе": "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
+      "Сделка успешна": "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+      "Сделка провалена": "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    };
+    const colorClass = stageColors[resolved];
+    if (colorClass) {
+      return (
+        <Badge className={`${colorClass} text-[10px] h-5 rounded-sm border-0 font-medium`}>
+          {resolved}
+        </Badge>
+      );
+    }
+  }
+
+  // Enumeration with list values — show as subtle badge for short values
+  if (field?.listValues && field.listValues.length <= 8) {
+    const isKnownValue = field.listValues.some(
+      (lv) => lv.VALUE === resolved || resolved.includes(lv.VALUE)
+    );
+    if (isKnownValue && resolved.length <= 35) {
+      return (
+        <Badge
+          variant="secondary"
+          className="text-[10px] h-5 rounded-sm font-normal max-w-[200px] truncate bg-muted/80"
+        >
+          {resolved}
+        </Badge>
+      );
+    }
+  }
+
+  // Address type
+  if (field?.type === "address") {
+    return (
+      <span className="text-xs truncate max-w-[220px] block text-muted-foreground" title={resolved}>
+        {resolved}
+      </span>
+    );
+  }
+
+  // Default — React auto-escapes JSX text, preventing XSS from CRM data
+  return <span className="text-xs">{resolved}</span>;
+}

@@ -1,0 +1,33 @@
+# ─── RusSilica BI Terminal — Docker Compose для продакшна ───
+#
+# Использование:
+#   docker compose up -d        — запустить
+#   docker compose logs -f      — смотреть логи
+#   docker compose down         — остановить
+#
+# ВАЖНО: Создайте .env файл с BITRIX_WEBHOOK_URL перед запуском!
+
+services:
+  bi-terminal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: russilica-bi-terminal
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"  # Только localhost — nginx проксирует наружу
+    env_file:
+      - .env  # BITRIX_WEBHOOK_URL берётся из .env файла
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - bi-data:/app/db  # Персистентные данные SQLite
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/bitrix/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  bi-data:
