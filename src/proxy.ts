@@ -172,9 +172,16 @@ function getClientIp(request: NextRequest): string {
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // SECURITY: Force HTTPS protocol header in production to ensure NextAuth sets secure cookies
+  // even if the reverse proxy (LiteSpeed) fails to pass the X-Forwarded-Proto header.
+  const requestHeaders = new Headers(request.headers);
+  if (IS_PRODUCTION) {
+    requestHeaders.set("x-forwarded-proto", "https");
+  }
+
   // ─── Login page: Cache-Control headers ───
   if (pathname === "/login") {
-    const response = NextResponse.next();
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       response.headers.set(key, value);
     }
@@ -192,7 +199,7 @@ export function proxy(request: NextRequest) {
   // CSP_DIRECTIVES here too, both CSPs would be enforced and the stricter
   // one (script-src 'self') would block the inline script, breaking SSO.
   if (pathname === "/api/auth/wp-callback") {
-    const response = NextResponse.next();
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       response.headers.set(key, value);
     }
@@ -275,7 +282,7 @@ export function proxy(request: NextRequest) {
     }
 
     // Process API request
-    const response = NextResponse.next();
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
 
     // Add rate limit headers
     response.headers.set("X-RateLimit-Limit", String(rateConfig.max));
@@ -305,7 +312,7 @@ export function proxy(request: NextRequest) {
   }
 
   // ─── Non-API Routes: Security headers only ───
-  const response = NextResponse.next();
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
 
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     response.headers.set(key, value);
