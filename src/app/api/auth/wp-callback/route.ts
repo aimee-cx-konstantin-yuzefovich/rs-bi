@@ -108,8 +108,11 @@ function buildSsoHtml(email: string, ssoToken: string): string {
     <input type="hidden" name="password" value="${safeToken}" />
   </form>
   <script>
-    fetch('/api/auth/csrf')
-      .then(res => res.json())
+    fetch('/api/auth/csrf?t=' + new Date().getTime(), { credentials: 'include', cache: 'no-store' })
+      .then(res => {
+        if (!res.ok) throw new Error('HTTP status ' + res.status);
+        return res.json();
+      })
       .then(data => {
         if (data.csrfToken) {
           const form = document.getElementById('sso-form');
@@ -118,12 +121,14 @@ function buildSsoHtml(email: string, ssoToken: string): string {
           input.name = 'csrfToken';
           input.value = data.csrfToken;
           form.appendChild(input);
+          document.getElementById('sso-form').submit();
+        } else {
+          document.body.innerHTML += '<div style="color:red; margin-top:20px; font-size:12px;">Error: No CSRF token received. Response: ' + JSON.stringify(data) + '</div>';
         }
-        document.getElementById('sso-form').submit();
       })
       .catch(err => {
         console.error('Failed to fetch CSRF token', err);
-        document.getElementById('sso-form').submit(); // Try anyway
+        document.body.innerHTML += '<div style="color:red; margin-top:20px; font-size:12px;">Error fetching CSRF: ' + err.message + '</div>';
       });
   </script>
 </body>

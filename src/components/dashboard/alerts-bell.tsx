@@ -10,6 +10,7 @@ import {
   TrendingDown,
   FileWarning,
   TrendingUp,
+  CheckCheck,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -47,7 +48,7 @@ const severityStyles: Record<string, { border: string; icon: string; bg: string 
 };
 
 export function AlertsBell() {
-  const { allDeals, setPipelineFilter } = useDashboardStore();
+  const { allDeals, setPipelineFilter, lastReadAlertsAt, lastSyncAt, markAlertsAsRead } = useDashboardStore();
   const [open, setOpen] = useState(false);
 
   const alerts = useMemo<AlertItem[]>(() => {
@@ -93,7 +94,7 @@ export function AlertsBell() {
         id: "unpaid-large",
         icon: AlertTriangle,
         title: "Неоплаченные крупные сделки",
-        description: `${unpaidLarge.length} неоплаченных сделок на сумму ${Math.round(totalUnpaid).toLocaleString("ru-RU")} \u20BD — кассовый разрыв`,
+        description: `${unpaidLarge.length} неоплаченных сделок на сумму ${Math.round(totalUnpaid).toLocaleString("ru-RU")} \u20BD`,
         severity: "destructive",
         count: unpaidLarge.length,
         pipelineValue: "in_work",
@@ -175,12 +176,21 @@ export function AlertsBell() {
     return result;
   }, [allDeals]);
 
-  const totalCount = alerts.reduce((sum, a) => sum + a.count, 0);
+  // The badge count is now the number of alert categories, not the sum of deals
+  const categoriesCount = alerts.length;
+  
+  // Show badge if there are alerts AND they haven't been read since the last sync
+  const hasUnreadAlerts = categoriesCount > 0 && (!lastReadAlertsAt || (lastSyncAt && lastSyncAt > lastReadAlertsAt));
 
   const handleAlertClick = (alert: AlertItem) => {
     if (alert.pipelineValue) {
       setPipelineFilter(alert.pipelineValue);
     }
+    setOpen(false);
+  };
+
+  const handleMarkAsRead = () => {
+    markAlertsAsRead();
     setOpen(false);
   };
 
@@ -192,9 +202,9 @@ export function AlertsBell() {
           aria-label="Уведомления"
         >
           <Bell className="h-3.5 w-3.5" />
-          {totalCount > 0 && (
+          {hasUnreadAlerts && (
             <Badge className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[9px] font-bold rounded-full bg-red-500 text-white border-0 p-0 flex items-center justify-center">
-              {totalCount > 99 ? "99+" : totalCount}
+              {categoriesCount}
             </Badge>
           )}
         </button>
@@ -206,9 +216,9 @@ export function AlertsBell() {
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
           <span className="text-sm font-semibold text-foreground">Уведомления</span>
-          {totalCount > 0 && (
+          {categoriesCount > 0 && (
             <Badge variant="secondary" className="text-[10px] h-5 rounded-sm font-medium">
-              {totalCount}
+              {categoriesCount}
             </Badge>
           )}
         </div>
@@ -257,11 +267,17 @@ export function AlertsBell() {
         </div>
 
         {/* Footer */}
-        <div className="border-t border-border px-3 py-2">
-          <span className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
-            Показать все
-          </span>
-        </div>
+        {alerts.length > 0 && (
+          <div className="border-t border-border px-3 py-2">
+            <button
+              onClick={handleMarkAsRead}
+              className="flex items-center justify-center gap-1.5 w-full text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors py-1"
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              Отметить все прочитанными
+            </button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );

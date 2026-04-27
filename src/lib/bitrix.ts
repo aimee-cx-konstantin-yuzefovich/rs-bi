@@ -17,6 +17,9 @@ const ALLOWED_METHODS = new Set([
   "crm.deal.fields",
   "crm.deal.list",
   "crm.deal.get",
+  "crm.company.fields",
+  "crm.company.list",
+  "crm.activity.list",
   "crm.stage.list",
   "crm.status.list",
   "crm.currency.list",
@@ -132,7 +135,7 @@ export async function bitrixGet<T = unknown>(
       // Sanitize parameter keys — only allow safe characters
       Object.entries(params).forEach(([key, value]) => {
         // Prevent injection via parameter keys
-        if (!/^[a-zA-Z0-9_>=<]+$/.test(key)) {
+        if (!/^[a-zA-Z0-9_>=<\[\]]+$/.test(key)) {
           console.warn(`[Bitrix24] Rejected invalid param key: ${key}`);
           return;
         }
@@ -231,7 +234,6 @@ export const SYSTEM_FIELDS_TO_EXCLUDE = new Set([
   "MOVED_BY_ID",
   "MODIFY_BY_ID",
   "CREATED_BY_ID",
-  "ASSIGNED_BY_ID",
   "LEAD_ID",
   "COMPANY_ID",
   "CONTACT_ID",
@@ -270,6 +272,16 @@ export const SYSTEM_FIELDS_TO_EXCLUDE = new Set([
   // Source descriptions — usually empty or noise
   "SOURCE_DESCRIPTION",
   "SEARCH_INDEX",
+
+  // Explicitly requested to be removed from UI
+  "DATE_CREATE",
+  "TITLE",
+  "TAX_VALUE",
+  "UF_CRM_692573380C4F0", // Импорт базы
+  "UF_CRM_1774878993375", // Количество счетов (из 1С)
+  "UF_CRM_6915D8C25162A", // Номер карты лояльности
+  "UF_CRM_69257337E7E9B", // Причина закрытия Лида
+  "UF_CRM_1774878835644", // Сумма счетов (из 1С)
 ]);
 
 /**
@@ -277,11 +289,11 @@ export const SYSTEM_FIELDS_TO_EXCLUDE = new Set([
  * Uses both the explicit set and pattern matching for *_ID fields.
  */
 export function isSystemField(fieldId: string, fieldMeta?: Record<string, unknown>): boolean {
-  // Custom fields (UF_CRM_*) are NEVER system fields — always keep them
-  if (fieldId.startsWith("UF_CRM_")) return false;
-
-  // Explicitly excluded fields
+  // Explicitly excluded fields (checked first so we can exclude specific UF_CRM_* fields)
   if (SYSTEM_FIELDS_TO_EXCLUDE.has(fieldId)) return true;
+
+  // Custom fields (UF_CRM_*) are NEVER system fields — always keep them (unless explicitly excluded above)
+  if (fieldId.startsWith("UF_CRM_")) return false;
 
   // Fields ending with _ID that are not custom — these are internal references
   if (fieldId.endsWith("_ID") && !fieldId.startsWith("UF_")) return true;

@@ -54,7 +54,7 @@ setInterval(() => {
 const RATE_LIMITS = {
   api: { max: IS_PRODUCTION ? 40 : 60, windowMs: 60_000 },
   status: { max: IS_PRODUCTION ? 10 : 20, windowMs: 60_000 },
-  auth: { max: IS_PRODUCTION ? 5 : 20, windowMs: 60_000 },
+  auth: { max: IS_PRODUCTION ? 50 : 20, windowMs: 60_000 }, // Increased for debugging
   admin: { max: IS_PRODUCTION ? 10 : 30, windowMs: 60_000 },
   default: { max: IS_PRODUCTION ? 80 : 120, windowMs: 60_000 },
 } as const;

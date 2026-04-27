@@ -105,6 +105,7 @@ interface DashboardState {
 
   // New state fields for header features
   lastSyncAt: number | null;
+  lastReadAlertsAt: number | null;
   pipelineFilter: string;
   responsibleFilter: string;
   viewMode: "table" | "cards" | "kanban";
@@ -114,6 +115,16 @@ interface DashboardState {
 
   // User name mapping (ID -> Name) for responsible persons
   userNames: Record<string, string>;
+
+  // Company data mapping (ID -> Company Data)
+  companiesData: Record<string, any>;
+
+  // Activities data mapping (Deal ID -> { last: ActivityData, next: ActivityData })
+  activitiesData: Record<string, any>;
+
+  // Export data
+  exportData: string[][];
+  exportColumns: string[];
 
   // ─── Actions ───
   checkConfig: () => Promise<void>;
@@ -145,6 +156,10 @@ interface DashboardState {
   setConnectionStatus: (status: "checking" | "connected" | "demo" | "disconnected") => void;
   setAppLoaded: (loaded: boolean) => void;
   fetchUserNames: () => Promise<void>;
+  fetchCompaniesData: () => Promise<void>;
+  fetchActivitiesData: () => Promise<void>;
+  markAlertsAsRead: () => void;
+  setExportData: (data: string[][], columns: string[]) => void;
 }
 
 function getDateFilterRange(filter: DateFilter): Record<string, string> {
@@ -182,14 +197,20 @@ function getDateFilterRange(filter: DateFilter): Record<string, string> {
 }
 
 const DEFAULT_COLUMNS = [
-  "TITLE",
-  "OPPORTUNITY",
-  "CURRENCY_ID",
-  "DATE_CREATE",
-  "STAGE_ID",
+  "BEGINDATE", // Дата начала
+  "DATE_MODIFY", // Дата изменения
+  "CLOSEDATE", // Дата завершения
+  "ASSIGNED_BY_ID", // Ответственный
+  "ACTIVITY_LAST", // Последнее дело
+  "ACTIVITY_NEXT", // Следующий шаг
+  "UF_CRM_69257BBACD471", // Тип продукта
+  "OPPORTUNITY", // Сумма
+  "COMPANY_TITLE", // Наименование компании
+  "COMPANY_UF_CRM_1777326239557", // Выручка компании (млн руб/год)
+  "UF_CRM_1774879911841", // Потребление (тн/год)
   "UF_CRM_6915D8C2C31D0", // Отрасль
-  "UF_CRM_69259C45EC14B", // Регион
-  "UF_CRM_1584464068013", // Статус оплаты
+  "UF_CRM_6915D8C328208", // Направление
+  "COMMENTS", // Комментарий
 ];
 
 export const useDashboardStore = create<DashboardState>()(
@@ -233,6 +254,7 @@ export const useDashboardStore = create<DashboardState>()(
 
       // New state fields
       lastSyncAt: null,
+      lastReadAlertsAt: null,
       pipelineFilter: "all",
       responsibleFilter: "all",
       viewMode: "table",
@@ -240,6 +262,10 @@ export const useDashboardStore = create<DashboardState>()(
       appLoaded: false,
       savedViews: [],
       userNames: {},
+      companiesData: {},
+      activitiesData: {},
+      exportData: [],
+      exportColumns: [],
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -287,7 +313,7 @@ export const useDashboardStore = create<DashboardState>()(
           if (data.fields.length === 0) {
             set({ fields: DEMO_FIELDS, fieldsLoading: false, isDemoMode: true });
           } else {
-            set({ fields: data.fields, fieldsLoading: false, isDemoMode: false });
+            set({ fields: data.fields, fieldsLoading: false, isDemoMode: false, isConfigured: true });
           }
 
           const currentSelected = get().selectedColumns;
@@ -314,7 +340,7 @@ export const useDashboardStore = create<DashboardState>()(
       },
 
       fetchDeals: async () => {
-        set({ dealsLoading: true, dealsError: null });
+        set({ dealsLoading: true, dealsError: null, activitiesData: {}, companiesData: {} });
         try {
           const { dateFilter, selectedColumns } = get();
           const filter = getDateFilterRange(dateFilter);
@@ -332,6 +358,8 @@ export const useDashboardStore = create<DashboardState>()(
           if (!select.includes("STAGE_ID")) select.push("STAGE_ID");
           if (!select.includes("OPPORTUNITY")) select.push("OPPORTUNITY");
           if (!select.includes("CURRENCY_ID")) select.push("CURRENCY_ID");
+          if (!select.includes("COMPANY_ID")) select.push("COMPANY_ID");
+          if (!select.includes("COMPANY_TITLE")) select.push("COMPANY_TITLE");
           // Required for unpaid deals alert (payment status):
           if (!select.includes("UF_CRM_1584464068013")) select.push("UF_CRM_1584464068013");
 
@@ -362,11 +390,16 @@ export const useDashboardStore = create<DashboardState>()(
             dealsLoading: false,
             isDemoMode: false,
             connectionStatus: "connected",
+            isConfigured: true,
             lastSyncAt: Date.now(),
           });
           get().applyClientFilters();
           // Fetch user names for responsible persons (non-blocking)
           get().fetchUserNames();
+          // Fetch companies data (non-blocking)
+          get().fetchCompaniesData();
+          // Fetch activities data (non-blocking)
+          get().fetchActivitiesData();
         } catch (error) {
           const demoDeals = generateDemoDeals(150);
           set({
@@ -395,7 +428,11 @@ export const useDashboardStore = create<DashboardState>()(
         get().applyClientFilters();
       },
 
-      setSelectedColumns: (columns) => set({ selectedColumns: columns }),
+      setSelectedColumns: (columns) => {
+        set({ selectedColumns: columns });
+        get().fetchActivitiesData();
+        get().fetchCompaniesData();
+      },
 
       toggleColumn: (columnId) => {
         const { selectedColumns } = get();
@@ -404,6 +441,12 @@ export const useDashboardStore = create<DashboardState>()(
           set({ selectedColumns: selectedColumns.filter((c) => c !== columnId) });
         } else {
           set({ selectedColumns: [...selectedColumns, columnId] });
+          // Fetch data for the new column if needed
+          if (columnId === "ACTIVITY_LAST" || columnId === "ACTIVITY_NEXT") {
+            get().fetchActivitiesData();
+          } else if (columnId.startsWith("COMPANY_")) {
+            get().fetchCompaniesData();
+          }
         }
       },
 
@@ -587,11 +630,15 @@ export const useDashboardStore = create<DashboardState>()(
           currentPage: 1,
         });
         get().applyClientFilters();
+        get().fetchActivitiesData();
+        get().fetchCompaniesData();
       },
 
       setConnectionStatus: (status) => set({ connectionStatus: status }),
 
       setAppLoaded: (loaded) => set({ appLoaded: loaded }),
+
+      markAlertsAsRead: () => set({ lastReadAlertsAt: Date.now() }),
 
       fetchUserNames: async () => {
         const { isDemoMode, allDeals, userNames } = get();
@@ -634,6 +681,102 @@ export const useDashboardStore = create<DashboardState>()(
           console.warn("[Dashboard] Failed to fetch user names");
         }
       },
+
+      fetchCompaniesData: async () => {
+        const { isDemoMode, allDeals, companiesData, selectedColumns } = get();
+
+        if (isDemoMode) return;
+
+        // Check if any company fields are selected
+        const hasCompanyFields = selectedColumns.some(col => col.startsWith("COMPANY_"));
+        if (!hasCompanyFields) return;
+
+        // Collect unique company IDs from deals
+        const uniqueIds = [...new Set(
+          allDeals.map((d) => String(d.COMPANY_ID || "")).filter(Boolean)
+        )];
+
+        if (uniqueIds.length === 0) return;
+
+        // Only fetch IDs we don't already have data for
+        const missingIds = uniqueIds.filter((id) => !companiesData[id]);
+        if (missingIds.length === 0) return;
+
+        // Determine which company fields to fetch based on selected columns
+        const companyFieldsToSelect = selectedColumns
+          .filter(col => col.startsWith("COMPANY_"))
+          .map(col => col.replace("COMPANY_", ""));
+        
+        if (!companyFieldsToSelect.includes("TITLE")) {
+          companyFieldsToSelect.push("TITLE");
+        }
+
+        try {
+          const response = await fetchWithTimeout("/api/bitrix/companies", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ids: missingIds,
+              select: companyFieldsToSelect,
+            }),
+          });
+
+          if (!response.ok) {
+            console.warn("[Dashboard] Failed to fetch companies data: API returned", response.status);
+            return;
+          }
+          const data = await response.json();
+          if (data.success && data.companies) {
+            set({ companiesData: { ...companiesData, ...data.companies } });
+          }
+        } catch {
+          console.warn("[Dashboard] Failed to fetch companies data");
+        }
+      },
+
+      fetchActivitiesData: async () => {
+        const { isDemoMode, allDeals, activitiesData, selectedColumns } = get();
+
+        if (isDemoMode) return;
+
+        // Check if any activity fields are selected
+        const hasActivityFields = selectedColumns.includes("ACTIVITY_LAST") || selectedColumns.includes("ACTIVITY_NEXT");
+        if (!hasActivityFields) return;
+
+        // Collect unique deal IDs
+        const uniqueIds = [...new Set(
+          allDeals.map((d) => String(d.ID || d.id || "")).filter(Boolean)
+        )];
+
+        if (uniqueIds.length === 0) return;
+
+        // Only fetch IDs we don't already have data for
+        const missingIds = uniqueIds.filter((id) => !activitiesData[id]);
+        if (missingIds.length === 0) return;
+
+        try {
+          const response = await fetchWithTimeout("/api/bitrix/activities", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              dealIds: missingIds,
+            }),
+          });
+
+          if (!response.ok) {
+            console.warn("[Dashboard] Failed to fetch activities data: API returned", response.status);
+            return;
+          }
+          const data = await response.json();
+          if (data.success && data.activities) {
+            set({ activitiesData: { ...activitiesData, ...data.activities } });
+          }
+        } catch {
+          console.warn("[Dashboard] Failed to fetch activities data");
+        }
+      },
+
+      setExportData: (data, columns) => set({ exportData: data, exportColumns: columns }),
     }),
     {
       name: "bitrix-bi-dashboard",
@@ -645,6 +788,7 @@ export const useDashboardStore = create<DashboardState>()(
         responsibleFilter: state.responsibleFilter,
         viewMode: state.viewMode,
         savedViews: state.savedViews,
+        lastReadAlertsAt: state.lastReadAlertsAt,
       }),
     }
   )

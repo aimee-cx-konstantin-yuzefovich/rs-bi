@@ -102,7 +102,7 @@ export function ResponsibleFilter() {
                 <Check className="h-3 w-3 text-brand-orange" />
               )}
             </span>
-            <span className="flex-1 truncate">{option.name}</span>
+            <span className="flex-1 truncate ответственный-имя">{option.name}</span>
             <span className="text-[10px] text-muted-foreground tabular-nums">
               {option.count}
             </span>

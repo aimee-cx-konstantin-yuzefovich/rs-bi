@@ -8,7 +8,7 @@
  * - Also supports Caddy proxy headers as alternative
  *
  * Three auth methods in production:
- * 1. HMAC SSO token (from wp-callback auto-submit form)
+ * 1. HMAC SSO token (from Headless API or wp-callback)
  * 2. Caddy proxy headers (alternative, for advanced setups)
  * 3. Dev password (development mode only)
  *
@@ -87,8 +87,12 @@ if (IS_PRODUCTION && !PROXY_SECRET) {
 // ─── Corporate Email Domain Restriction (defense-in-depth) ───
 
 const ALLOWED_EMAIL_DOMAINS = ["russilica.ru"];
+const ALLOWED_SPECIFIC_EMAILS = ["constantinejozefowicz@gmail.com"];
 
 export function isCorporateEmail(email: string): boolean {
+  if (ALLOWED_SPECIFIC_EMAILS.includes(email.toLowerCase())) {
+    return true;
+  }
   const domain = email.split("@")[1]?.toLowerCase();
   return ALLOWED_EMAIL_DOMAINS.includes(domain);
 }
@@ -111,8 +115,9 @@ async function auditLog(event: string, details: Record<string, unknown>, ip?: st
         details: JSON.stringify(details),
       },
     });
-  } catch {
+  } catch (error) {
     // Never let audit log failure break authentication
+    console.error("[AUDIT LOG ERROR]", error);
   }
 }
 
@@ -136,16 +141,21 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials, req) {
         // Get client IP for audit
-        const ip = req?.headers?.get("x-forwarded-for")?.split(",")[0]?.trim()
-          || req?.headers?.get("x-real-ip")?.trim()
+        const headers = req?.headers as Record<string, string> | undefined;
+        const ip = headers?.["x-forwarded-for"]?.split(",")[0]?.trim()
+          || headers?.["x-real-ip"]?.trim()
           || "unknown";
 
+        console.log("[AUTH DEBUG] Authorize called with credentials:", credentials ? "YES" : "NO");
+        console.log("[AUTH DEBUG] Request headers:", headers);
+
         // ═══════════════════════════════════════════════════════════
-        // METHOD 1: HMAC SSO Token (from wp-callback auto-submit)
+        // METHOD 1: HMAC SSO Token (from Headless API or wp-callback)
         // The password field contains: wp-sso-hmac:{email}:{role}:{ts}:{sig}
         // ═══════════════════════════════════════════════════════════
 
         if (credentials?.password?.startsWith("wp-sso-hmac:")) {
+          console.log("[AUTH DEBUG] Processing HMAC token");
           if (!isProxySecretConfigured()) {
             await auditLog("LOGIN_BLOCKED_NO_SECRET", { reason: "proxy_secret_not_configured" }, ip);
             return null;
@@ -269,6 +279,9 @@ export const authOptions: NextAuthOptions = {
     maxAge: 8 * 60 * 60,
   },
 
+  secret: NEXTAUTH_SECRET,
+  useSecureCookies: IS_PRODUCTION,
+
   pages: {
     signIn: "/login",
     error: "/login",
@@ -286,43 +299,13 @@ export const authOptions: NextAuthOptions = {
 
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id;
-        session.user.role = token.role;
+        session.user.id = token.id as string;
+        session.user.role = token.role as string;
       }
       return session;
     },
   },
 
-  cookies: {
-    sessionToken: {
-      name: `${IS_PRODUCTION ? "__Host-" : ""}next-auth.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: IS_PRODUCTION,
-      },
-    },
-    callbackUrl: {
-      name: `${IS_PRODUCTION ? "__Host-" : ""}next-auth.callback-url`,
-      options: {
-        sameSite: "lax",
-        path: "/",
-        secure: IS_PRODUCTION,
-        httpOnly: true,
-      },
-    },
-    csrfToken: {
-      name: `${IS_PRODUCTION ? "__Host-" : ""}next-auth.csrf-token`,
-      options: {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: IS_PRODUCTION,
-      },
-    },
-  },
-
-  debug: !IS_PRODUCTION,
+  debug: true, // Временно включите для продакшена
   theme: undefined,
 };

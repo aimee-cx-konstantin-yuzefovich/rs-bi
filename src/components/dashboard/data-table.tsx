@@ -45,6 +45,10 @@ export function DataTable() {
     setColumnFilter,
     clearColumnFilter,
     clearAllColumnFilters,
+    userNames,
+    companiesData,
+    activitiesData,
+    setExportData,
   } = useDashboardStore();
 
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
@@ -70,6 +74,63 @@ export function DataTable() {
 
       if (raw === null || raw === undefined || raw === "") return "";
 
+      // Special handling for responsible person
+      if (colId === "ASSIGNED_BY_ID") {
+        const id = String(raw);
+        return userNames[id] || `ID ${id}`;
+      }
+
+      // Special handling for activities
+      if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
+        const dealId = String(deal.ID || deal.id || "");
+        if (!dealId || !activitiesData[dealId]) return "";
+        
+        const activity = colId === "ACTIVITY_LAST" ? activitiesData[dealId].last : activitiesData[dealId].next;
+        if (!activity) return "";
+
+        const dateStr = activity.DEADLINE || activity.CREATED;
+        const formattedDate = dateStr ? new Date(dateStr).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) : "";
+        
+        const text = activity.DESCRIPTION ? `${activity.SUBJECT} — ${activity.DESCRIPTION}` : activity.SUBJECT;
+        // Strip HTML tags from description if any
+        const cleanText = text.replace(/<[^>]*>?/gm, '');
+        
+        return `${formattedDate ? formattedDate + ": " : ""}${cleanText}`;
+      }
+
+      // Special handling for company fields
+      if (colId.startsWith("COMPANY_")) {
+        const companyId = String(deal.COMPANY_ID || "");
+        if (!companyId || !companiesData[companyId]) return "";
+        
+        const companyFieldId = colId.replace("COMPANY_", "");
+        const company = companiesData[companyId];
+        const rawCompanyVal = company[companyFieldId];
+        
+        if (rawCompanyVal === null || rawCompanyVal === undefined || rawCompanyVal === "") return "";
+        
+        // Resolve enumeration list values for company fields if needed
+        if (field?.listValues && rawCompanyVal) {
+          if (Array.isArray(rawCompanyVal)) {
+            return rawCompanyVal
+              .map((v) => {
+                const listVal = field.listValues?.find((lv) => lv.ID === String(v));
+                return listVal?.VALUE || String(v);
+              })
+              .join(", ");
+          }
+          const val = String(rawCompanyVal);
+          const listVal = field.listValues.find((lv) => lv.ID === val);
+          if (listVal) return listVal.VALUE;
+        }
+
+        if (Array.isArray(rawCompanyVal)) {
+          return rawCompanyVal.join(", ");
+        }
+
+        return String(rawCompanyVal);
+      }
+
       // Resolve enumeration list values
       if (field?.listValues && raw) {
         // Handle multiple values (arrays)
@@ -93,7 +154,7 @@ export function DataTable() {
 
       return String(raw);
     },
-    [fieldMap]
+    [fieldMap, userNames, companiesData, activitiesData]
   );
 
   // Get raw comparable value for sorting
@@ -125,6 +186,11 @@ export function DataTable() {
         return resolveValue(deal, colId);
       }
 
+      // Special handling for responsible person sorting
+      if (colId === "ASSIGNED_BY_ID") {
+        return resolveValue(deal, colId).toLowerCase();
+      }
+
       return String(raw).toLowerCase();
     },
     [fieldMap, resolveValue]
@@ -134,13 +200,20 @@ export function DataTable() {
   const searchedDeals = useMemo(() => {
     if (!searchQuery.trim()) return deals;
     const q = searchQuery.toLowerCase();
-    return deals.filter((deal) =>
-      Object.entries(deal).some(([key, val]) => {
+    return deals.filter((deal) => {
+      // Check responsible person name first
+      const assignedById = String(deal.ASSIGNED_BY_ID || "");
+      if (assignedById && userNames[assignedById]) {
+        if (userNames[assignedById].toLowerCase().includes(q)) return true;
+      }
+
+      // Check all other fields
+      return Object.entries(deal).some(([key, val]) => {
         const resolved = resolveValue(deal, key);
         return resolved.toLowerCase().includes(q);
-      })
-    );
-  }, [deals, searchQuery, resolveValue]);
+      });
+    });
+  }, [deals, searchQuery, resolveValue, userNames]);
 
   // Apply column filters
   const filteredDeals = useMemo(() => {
@@ -183,12 +256,75 @@ export function DataTable() {
     return sortedDeals.slice(start, start + pageSize);
   }, [sortedDeals, currentPage, pageSize]);
 
-  const columns =
-    selectedColumns.length > 0
-      ? selectedColumns
-      : deals.length > 0
-      ? Object.keys(deals[0]).slice(0, 8)
-      : [];
+  const columns = useMemo(() => {
+    if (selectedColumns.length > 0 && fields.length > 0) {
+      // Only render columns that exist in the fields metadata (prevents rendering excluded/deleted fields from persisted state)
+      return selectedColumns.filter((colId) => fieldMap.has(colId));
+    }
+    if (selectedColumns.length > 0) {
+      return selectedColumns; // Fallback while fields are loading
+    }
+    if (deals.length > 0) {
+      return Object.keys(deals[0]).slice(0, 8);
+    }
+    return [];
+  }, [selectedColumns, fields.length, fieldMap, deals]);
+
+  // Update export data whenever sorted deals or columns change
+  useEffect(() => {
+    if (sortedDeals.length === 0 || columns.length === 0) {
+      setExportData([], []);
+      return;
+    }
+
+    const exportColumns = columns.map((colId) => fieldMap.get(colId)?.title || colId);
+    const exportData = sortedDeals.map((deal) =>
+      columns.map((colId) => {
+        const raw = deal[colId];
+        const resolved = resolveValue(deal, colId);
+        const field = fieldMap.get(colId);
+        
+        if (!resolved) return "";
+
+        if (field?.type === "char" || field?.type === "boolean") {
+          if (raw === "Y" || raw === "1" || String(raw) === "true") return "Да";
+          if (raw === "N" || raw === "0" || String(raw) === "false") return "Нет";
+        }
+
+        if (field?.type === "money" && raw) {
+          const parts = String(raw).split("|");
+          const amount = parseFloat(parts[0]);
+          const currency = parts[1] || "";
+          if (!isNaN(amount)) {
+            return `${amount.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+          }
+        }
+
+        if (field?.type === "double" || field?.type === "integer" || field?.id === "OPPORTUNITY") {
+          const num = parseFloat(resolved);
+          if (!isNaN(num)) {
+            if (field?.type === "integer") {
+              return Math.round(num).toLocaleString("ru-RU");
+            }
+            return num.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+        }
+
+        if (field?.type === "date" || field?.type === "datetime" || field?.id === "DATE_CREATE" || field?.id === "DATE_MODIFY") {
+          const d = new Date(resolved);
+          if (!isNaN(d.getTime())) {
+            const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+            const timeStr = field?.type === "datetime" ? ` ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "";
+            return `${dateStr}${timeStr}`;
+          }
+        }
+
+        return resolved;
+      })
+    );
+
+    setExportData(exportData, exportColumns);
+  }, [sortedDeals, columns, fieldMap, resolveValue, setExportData]);
 
   const activeFilterCount = columnFilters.filter((f) => f.value.trim()).length;
 
@@ -286,9 +422,13 @@ export function DataTable() {
         <div className="flex-1 min-h-0 overflow-hidden">
           <ScrollArea className="h-full custom-scrollbar">
             <div className="min-w-full">
-              <table className="data-table w-full border-collapse">
-                <thead>
+              <table className="data-table w-full border-separate border-spacing-0">
+                <thead className="sticky top-0 z-20 bg-card shadow-sm">
                   <tr>
+                    {/* Fixed Row Number Column */}
+                    <th className="text-center sticky left-0 z-30 bg-card border-r border-b border-border w-10 min-w-[40px] px-2">
+                      №
+                    </th>
                     {columns.map((colId) => {
                       const field = fieldMap.get(colId);
                       const isSorted = columnSort.columnId === colId;
@@ -300,7 +440,7 @@ export function DataTable() {
                       const isDate = field?.type === "date" || field?.type === "datetime";
 
                       return (
-                        <th key={colId} className="text-left group">
+                        <th key={colId} className="text-left group bg-card border-b border-border">
                           <div className="flex items-center gap-1">
                             {/* Sort button */}
                             <button
@@ -390,8 +530,15 @@ export function DataTable() {
                 <tbody>
                   {paginatedDeals.map((deal, idx) => {
                     const dealId = deal.ID || deal.id || idx;
+                    const rowIndex = (currentPage - 1) * pageSize + idx + 1;
                     return (
                       <tr key={String(dealId)}>
+                        {/* Fixed Row Number Cell */}
+                        <td className="sticky left-0 z-10 bg-card border-r border-border text-center px-2">
+                          <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
+                            {rowIndex}
+                          </span>
+                        </td>
                         {columns.map((colId) => {
                           const resolved = resolveValue(deal, colId);
                           return (
@@ -508,12 +655,12 @@ function CellValue({
     const currency = parts[1] || "";
     if (!isNaN(amount)) {
       return (
-        <span className="font-mono text-xs tabular-nums font-semibold text-foreground">
+        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
           {amount.toLocaleString("ru-RU", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           })}{" "}
-          <span className="text-muted-foreground font-normal">{currency}</span>
+          <span>{currency}</span>
         </span>
       );
     }
@@ -524,7 +671,7 @@ function CellValue({
     const num = parseFloat(resolved);
     if (!isNaN(num) && field?.type === "double") {
       return (
-        <span className="font-mono text-xs tabular-nums font-medium">
+        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
           {num.toLocaleString("ru-RU", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -534,7 +681,7 @@ function CellValue({
     }
     if (!isNaN(num) && field?.type === "integer") {
       return (
-        <span className="font-mono text-xs tabular-nums">
+        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
           {Math.round(num).toLocaleString("ru-RU")}
         </span>
       );
@@ -546,7 +693,7 @@ function CellValue({
     const num = parseFloat(resolved);
     if (!isNaN(num)) {
       return (
-        <span className="font-mono text-xs tabular-nums font-semibold text-foreground">
+        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
           {num.toLocaleString("ru-RU", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -575,7 +722,7 @@ function CellValue({
           ? ` ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
           : "";
       return (
-        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
           {dateStr}
           {timeStr}
         </span>
@@ -645,6 +792,15 @@ function CellValue({
   if (field?.type === "address") {
     return (
       <span className="text-xs truncate max-w-[220px] block text-muted-foreground" title={resolved}>
+        {resolved}
+      </span>
+    );
+  }
+
+  // Activities
+  if (field?.id === "ACTIVITY_LAST" || field?.id === "ACTIVITY_NEXT") {
+    return (
+      <span className="text-xs truncate max-w-[250px] block" title={resolved}>
         {resolved}
       </span>
     );

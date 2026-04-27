@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback } from "react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Search, X } from "lucide-react";
 
@@ -14,25 +14,6 @@ export function GlobalSearch() {
     inputRef.current?.focus();
   }, [setSearchQuery]);
 
-  // Ctrl+K / Cmd+K shortcut
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
-        e.preventDefault();
-        setMobileExpanded(true);
-        setTimeout(() => inputRef.current?.focus(), 50);
-      }
-      if (e.key === "Escape") {
-        if (searchQuery === "") {
-          setMobileExpanded(false);
-          inputRef.current?.blur();
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [searchQuery]);
-
   // Search input component (shared between desktop and mobile)
   const searchInput = (
     <div className="relative flex items-center">
@@ -42,7 +23,7 @@ export function GlobalSearch() {
         type="text"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        placeholder="Поиск по всем полям... (Ctrl+K)"
+        placeholder="Поиск по всем полям..."
         className="h-7 w-full sm:w-56 lg:w-64 rounded-md bg-white/[0.07] border border-white/10 text-white/80 placeholder:text-white/30 text-xs pl-7 pr-6 outline-none focus-visible:border-white/25 focus-visible:ring-1 focus-visible:ring-white/20 transition-all"
         onBlur={() => {
           if (searchQuery === "" && window.innerWidth < 640) {

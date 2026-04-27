@@ -65,30 +65,7 @@ export default function DashboardPage() {
 
   // Show loading while checking auth
   if (status === "loading") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3 animate-fade-in">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-            <BarChart3 className="h-5 w-5 text-white" />
-          </div>
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          {authLoadingTimedOut && (
-            <div className="flex flex-col items-center gap-2 mt-4 animate-fade-in">
-              <p className="text-sm text-muted-foreground">Загрузка длится дольше обычного...</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => window.location.reload()}
-                className="gap-2"
-              >
-                <AlertCircle className="h-3.5 w-3.5" />
-                Обновить страницу
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // Don't render dashboard for unauthenticated users
@@ -108,7 +85,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
                 <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
                 <span className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-                  Демо-режим — подключите BITRIX_WEBHOOK_URL в .env для реальных данных
+                  Демо-режим — Обратитесь к администратору для подключения реальных данных
                 </span>
               </div>
             </div>

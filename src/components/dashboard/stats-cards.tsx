@@ -2,11 +2,11 @@
 
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Card, CardContent } from "@/components/ui/card";
-import { TrendingUp, DollarSign, Hash, Clock, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { TrendingUp, RussianRuble, Hash, Clock, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { useMemo } from "react";
 
 export function StatsCards() {
-  const { deals, dealsLoading } = useDashboardStore();
+  const { deals, allDeals, dealsLoading, dateFilter, pipelineFilter, responsibleFilter } = useDashboardStore();
 
   const stats = useMemo(() => {
     if (deals.length === 0) return null;
@@ -19,75 +19,54 @@ export function StatsCards() {
       return sum + (isNaN(val) ? 0 : val);
     }, 0);
 
-    // Average deal
-    const avgDeal = totalDeals > 0 ? totalOpportunity / totalDeals : 0;
+    // Average deal (calculated only on deals with non-zero opportunity for mathematical accuracy)
+    const dealsWithValue = deals.filter(d => parseFloat(String(d.OPPORTUNITY || "0")) > 0);
+    const avgDeal = dealsWithValue.length > 0 ? totalOpportunity / dealsWithValue.length : 0;
 
-    // Recent deals (last 7 days)
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-
-    const recentDeals = deals.filter((deal) => {
-      const dc = deal.DATE_CREATE;
-      if (!dc) return false;
-      try {
-        const d = new Date(String(dc));
-        return d >= weekAgo;
-      } catch {
-        return false;
-      }
-    }).length;
-
-    const prevWeekDeals = deals.filter((deal) => {
-      const dc = deal.DATE_CREATE;
-      if (!dc) return false;
-      try {
-        const d = new Date(String(dc));
-        return d >= twoWeeksAgo && d < weekAgo;
-      } catch {
-        return false;
-      }
-    }).length;
-
-    // Week over week change
-    // Edge case: if prev week had 0 deals and current week has deals,
-    // we can't calculate a meaningful percentage — show "new" indicator instead
-    let wowChange = 0;
-    let wowIsNew = false;
-    if (prevWeekDeals > 0) {
-      wowChange = ((recentDeals - prevWeekDeals) / prevWeekDeals) * 100;
-    } else if (recentDeals > 0) {
-      wowIsNew = true; // No prior data to compare
-    }
-
-    // Won/lost deals — Win Rate is calculated only on CLOSED deals (won + lost),
-    // not on all deals (which would include in-progress deals and skew the metric)
+    // Won/lost deals — Win Rate is calculated as percentage of won deals out of total deals
     const wonDeals = deals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
       return stage === "WON";
     }).length;
-    const lostDeals = deals.filter((deal) => {
-      const stage = String(deal.STAGE_ID || "");
-      return stage === "LOSE";
-    }).length;
-    const closedDeals = wonDeals + lostDeals;
-    const winRate = closedDeals > 0 ? (wonDeals / closedDeals) * 100 : 0;
+    const winRate = totalDeals > 0 ? (wonDeals / totalDeals) * 100 : 0;
 
     // Currency
-    const currency =
-      deals[0]?.CURRENCY_ID || deals[0]?.CURRENCY || "RUB";
+    const currency = deals[0]?.CURRENCY_ID || deals[0]?.CURRENCY || "RUB";
+
+    // ─── Dynamic "New Deals" Calculation ───
+    let periodTitle = "За период";
+
+    if (dateFilter.preset === "all") {
+      periodTitle = "За всё время";
+    } else {
+      const now = new Date();
+      let days = 7;
+      let currentStart: Date;
+      let currentEnd: Date;
+      
+      if (dateFilter.preset === "custom" && dateFilter.customFrom && dateFilter.customTo) {
+        currentStart = new Date(dateFilter.customFrom);
+        currentEnd = new Date(dateFilter.customTo);
+        days = Math.round((currentEnd.getTime() - currentStart.getTime()) / (1000 * 60 * 60 * 24));
+        if (days === 0) days = 1; // Prevent division by zero if same day selected
+      } else {
+        if (dateFilter.preset === "14days") days = 14;
+        else if (dateFilter.preset === "30days") days = 30;
+        else if (dateFilter.preset === "90days") days = 90;
+      }
+
+      periodTitle = `За ${days} ${getDaysWord(days)}`;
+    }
 
     return {
       totalDeals,
       totalOpportunity,
       avgDeal,
-      recentDeals,
-      wowChange,
-      wowIsNew,
       winRate,
       currency: String(currency),
+      periodTitle,
     };
-  }, [deals]);
+  }, [deals, allDeals, dateFilter, pipelineFilter, responsibleFilter]);
 
   if (!stats || deals.length === 0) return null;
 
@@ -104,8 +83,8 @@ export function StatsCards() {
     {
       title: "Общая сумма",
       value: formatMoney(stats.totalOpportunity, stats.currency),
-      subtitle: stats.currency,
-      icon: DollarSign,
+      subtitle: "за выбранный период", // Neutral text replacing duplicate currency
+      icon: RussianRuble, // Changed from DollarSign to RussianRuble
       accentBar: "stat-accent-bar-green",
       iconColor: "text-emerald-600 dark:text-emerald-400",
       iconBg: "bg-emerald-50 dark:bg-emerald-900/25",
@@ -120,29 +99,9 @@ export function StatsCards() {
       iconBg: "bg-brand-orange/8 dark:bg-brand-orange/15",
     },
     {
-      title: "За 7 дней",
-      value: stats.recentDeals.toLocaleString("ru-RU"),
-      subtitle: (
-        <span className="flex items-center gap-0.5">
-          {stats.wowIsNew ? (
-            <span className="text-brand-blue font-medium text-[10px]">новые</span>
-          ) : stats.wowChange >= 0 ? (
-            <>
-              <ArrowUpRight className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-              <span className="text-emerald-600 dark:text-emerald-400">
-                {Math.abs(stats.wowChange).toFixed(0)}%
-              </span>
-            </>
-          ) : (
-            <>
-              <ArrowDownRight className="h-3 w-3 text-red-500 dark:text-red-400" />
-              <span className="text-red-500 dark:text-red-400">
-                {Math.abs(stats.wowChange).toFixed(0)}%
-              </span>
-            </>
-          )}
-        </span>
-      ),
+      title: stats.periodTitle, // Dynamic title based on global filter
+      value: stats.totalDeals.toLocaleString("ru-RU"), // New deals in current period = total deals in current period
+      subtitle: "новые",
       icon: Clock,
       accentBar: "stat-accent-bar-violet",
       iconColor: "text-violet-600 dark:text-violet-400",
@@ -190,4 +149,14 @@ function formatMoney(value: number, currency: string): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }) + " " + currency;
+}
+
+function getDaysWord(days: number): string {
+  const lastDigit = days % 10;
+  const lastTwoDigits = days % 100;
+  
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 19) return "дней";
+  if (lastDigit === 1) return "день";
+  if (lastDigit >= 2 && lastDigit <= 4) return "дня";
+  return "дней";
 }
