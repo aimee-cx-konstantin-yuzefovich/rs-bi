@@ -41,7 +41,7 @@ const SSO_PAGE_CSP = [
   "script-src 'unsafe-inline'",    // Required for auto-submit form
   "style-src 'unsafe-inline'",      // Required for spinner animation
   "form-action 'self'",             // Only allow form submission to same origin
-  "connect-src 'none'",             // No external connections needed
+  "connect-src 'self'",             // Required to fetch CSRF token
   "img-src 'none'",                 // No images
   "frame-ancestors 'none'",         // Prevent embedding
 ].join("; ");
@@ -108,7 +108,23 @@ function buildSsoHtml(email: string, ssoToken: string): string {
     <input type="hidden" name="password" value="${safeToken}" />
   </form>
   <script>
-    document.getElementById('sso-form').submit();
+    fetch('/api/auth/csrf')
+      .then(res => res.json())
+      .then(data => {
+        if (data.csrfToken) {
+          const form = document.getElementById('sso-form');
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'csrfToken';
+          input.value = data.csrfToken;
+          form.appendChild(input);
+        }
+        document.getElementById('sso-form').submit();
+      })
+      .catch(err => {
+        console.error('Failed to fetch CSRF token', err);
+        document.getElementById('sso-form').submit(); // Try anyway
+      });
   </script>
 </body>
 </html>`;
