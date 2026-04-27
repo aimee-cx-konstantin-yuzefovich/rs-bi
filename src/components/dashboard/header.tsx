@@ -12,42 +12,35 @@ import { LastSync } from "./last-sync";
 import { AlertsBell } from "./alerts-bell";
 import { PipelineFilter } from "./pipeline-filter";
 import { ResponsibleFilter } from "./responsible-filter";
-import { SavedViews } from "./saved-views";
 import { ConnectionHealth } from "./connection-health";
 import { RefreshCw, Download, Columns3, BarChart3, LogOut, User } from "lucide-react";
-import { exportToExcel } from "@/lib/export-utils";
+import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
+import Link from "next/link";
 
 export function Header() {
   const { data: session } = useSession();
-  const { dealsLoading, dealsTotal, syncData, deals, fields, selectedColumns, setColumnSelectorOpen } =
+  const { dealsLoading, syncData, exportData, exportColumns, setColumnSelectorOpen } =
     useDashboardStore();
 
   const handleSync = async () => {
     try {
       await syncData();
     } catch (error) {
-      // syncData has its own error handling (falls back to demo mode),
-      // but catch here to prevent unhandled promise rejection
       console.error("[Header] Sync error:", error);
     }
   };
 
   const handleExport = () => {
-    if (deals.length === 0) return;
-    exportToExcel(deals, fields, selectedColumns);
+    if (exportData.length === 0) return;
+    exportToExcelWysiwyg(exportData, exportColumns);
   };
 
   const handleLogout = () => {
     if (IS_PRODUCTION) {
-      // Production: redirect to WordPress logout
-      // NOTE: WordPress logout requires _wpnonce parameter to skip confirmation.
-      // Since this is a same-origin redirect, WP will show its logout confirmation page,
-      // which is acceptable for security. The user just clicks "Log Out" again.
       const wpLogoutUrl = WP_LOGIN_URL_CLIENT + "?action=logout";
       signOut({ callbackUrl: wpLogoutUrl });
     } else {
-      // Development: standard NextAuth logout
       signOut({ callbackUrl: "/login" });
     }
   };
@@ -55,10 +48,10 @@ export function Header() {
   return (
     <TooltipProvider delayDuration={300}>
       <header className="sticky top-0 z-30 header-gradient border-b border-white/10">
-        {/* Top row: Brand + Search + Actions */}
+        {/* Top row: Brand + Actions */}
         <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
           {/* Left: Brand */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
             <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
             <span className="text-sm font-semibold tracking-wide text-white">
               RusSilica
@@ -66,30 +59,33 @@ export function Header() {
             <span className="hidden sm:inline text-xs font-normal text-white/40">
               BI Terminal
             </span>
-          </div>
-
-          {/* Center: Search (always renders, shows icon on mobile, input on desktop) */}
-          <div className="flex-1 flex justify-center max-w-md mx-2">
-            <GlobalSearch />
-          </div>
+          </Link>
 
           {/* Right: Actions */}
-          <div className="flex items-center gap-0.5 shrink-0">
+          <div className="flex items-center gap-1 shrink-0 ml-auto">
+            {/* Sync button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleSync}
+              disabled={dealsLoading}
+              className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10"
+              title="Синхронизировать данные"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${dealsLoading ? "sync-pulse" : ""}`} />
+              <span className="hidden sm:inline">Синхр.</span>
+            </Button>
+
+            {/* Connection health */}
+            <ConnectionHealth />
+
             {/* Last sync time */}
-            <div className="hidden lg:block mr-1">
+            <div className="hidden lg:block">
               <LastSync />
             </div>
 
-            {/* Active filters badge */}
-            <div className="mr-0.5">
-              <ActiveFilters />
-            </div>
-
-            {/* Alerts bell */}
-            <AlertsBell />
-
             {/* Separator */}
-            <div className="w-px h-4 bg-white/10 mx-0.5" />
+            <div className="w-px h-4 bg-white/10 mx-1" />
 
             {/* Column selector */}
             <Button
@@ -107,38 +103,24 @@ export function Header() {
               variant="ghost"
               size="sm"
               onClick={handleExport}
-              disabled={deals.length === 0}
+              disabled={exportData.length === 0}
               className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/30"
             >
               <Download className="h-3.5 w-3.5" />
               <span className="hidden lg:inline">Экспорт</span>
             </Button>
 
-            {/* Saved views */}
-            <SavedViews />
+            {/* Separator */}
+            <div className="w-px h-4 bg-white/10 mx-1" />
 
-            {/* Sync button */}
-            <Button
-              size="sm"
-              onClick={handleSync}
-              disabled={dealsLoading}
-              className="h-7 gap-1.5 rounded bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-medium"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${dealsLoading ? "sync-pulse" : ""}`} />
-              <span className="hidden sm:inline">Синхр.</span>
-            </Button>
+            {/* Theme */}
+            <ThemeToggle />
+
+            {/* Alerts bell */}
+            <AlertsBell />
 
             {/* Separator */}
-            <div className="w-px h-4 bg-white/10 mx-0.5" />
-
-            {/* Connection health + Theme */}
-            <div className="flex items-center gap-1.5">
-              <ConnectionHealth />
-              <ThemeToggle />
-            </div>
-
-            {/* Separator */}
-            <div className="w-px h-4 bg-white/10 mx-0.5" />
+            <div className="w-px h-4 bg-white/10 mx-1" />
 
             {/* User info + Logout */}
             <div className="flex items-center gap-1.5">
@@ -166,28 +148,24 @@ export function Header() {
           </div>
         </div>
 
-        {/* Second row: Filters + Deal count */}
-        <div className="flex items-center justify-between px-3 sm:px-5 pb-2 pt-0.5 gap-2">
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            {/* Date filter */}
-            <DateFilter />
+        {/* Second row: Filters + Search */}
+        <div className="flex items-center px-3 sm:px-5 pb-2 pt-0.5 gap-2 overflow-x-auto no-scrollbar">
+          {/* Date filter */}
+          <DateFilter />
 
-            {/* Pipeline quick filter */}
-            <PipelineFilter />
+          {/* Pipeline quick filter */}
+          <PipelineFilter />
 
-            {/* Responsible filter */}
-            <ResponsibleFilter />
+          {/* Responsible filter */}
+          <ResponsibleFilter />
+
+          {/* Search (inline with filters) */}
+          <div className="flex-1 min-w-[200px] max-w-md">
+            <GlobalSearch />
           </div>
 
-          {/* Deal count */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/[0.07]">
-              <div className={`h-1.5 w-1.5 rounded-full ${dealsTotal > 0 ? "bg-emerald-400" : "bg-white/30"}`} />
-              <span className="text-[11px] text-white/60 font-medium tabular-nums whitespace-nowrap">
-                {dealsTotal > 0 ? `${dealsTotal.toLocaleString("ru-RU")} сделок` : "Нет данных"}
-              </span>
-            </div>
-          </div>
+          {/* Active filters badge */}
+          <ActiveFilters />
         </div>
 
       </header>
