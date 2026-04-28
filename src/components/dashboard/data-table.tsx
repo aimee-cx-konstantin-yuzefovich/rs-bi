@@ -391,20 +391,15 @@ function CellValue({
 }) {
   if (!resolved) {
     if (colId === "COMPANY_TITLE") {
-      console.warn("[TABLE DEBUG] Missing company title", {
-        dealId: deal?.ID,
-        companyId: deal?.COMPANY_ID,
-        dealCompanyTitle: deal?.COMPANY_TITLE,
-      });
+      const companyId = String(deal.COMPANY_ID || "").trim();
 
-      return (
-        <span
-          className="text-muted-foreground/30"
-          title="Company data missing (no COMPANY_TITLE or lookup failed)"
-        >
-          —
-        </span>
-      );
+      if (companyId) {
+        return (
+          <span className="text-muted-foreground" title={`Company ID: ${companyId}`}>
+            {`ID ${companyId}`}
+          </span>
+        );
+      }
     }
 
     return <span className="text-muted-foreground/30">—</span>;

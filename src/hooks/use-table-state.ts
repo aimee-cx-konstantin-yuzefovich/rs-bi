@@ -77,24 +77,29 @@ export function useTableState() {
       }
 
       if (colId.startsWith("COMPANY_")) {
+        const companyId = String(deal.COMPANY_ID || "");
+        if (!companyId) return "";
+
         let companyFieldId = colId.replace("COMPANY_", "");
         if (companyFieldId === "ID") companyFieldId = "TITLE";
 
-        const companyId = String(deal.COMPANY_ID || "");
-        if (!companyId) return "";
-        
         const company = companiesData[companyId];
-        
+
         if (!company) {
+          if (companyFieldId === "TITLE") return `ID ${companyId}`;
           return "";
         }
-        
+
         const rawCompanyVal = company[companyFieldId];
-        
+
         if (rawCompanyVal === null || rawCompanyVal === undefined || rawCompanyVal === "") {
+          if (companyFieldId === "TITLE") {
+            const title = String(company.TITLE || "").trim();
+            return title || `ID ${companyId}`;
+          }
           return "";
         }
-        
+
         if (field?.listValues && rawCompanyVal) {
           if (Array.isArray(rawCompanyVal)) {
             return rawCompanyVal

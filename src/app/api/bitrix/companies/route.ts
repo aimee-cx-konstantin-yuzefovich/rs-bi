@@ -4,85 +4,133 @@ import { requireAuth, isAuthError } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
-/**
- * POST /api/bitrix/companies
- * Fetches company data from Bitrix24.
- * Accepts { ids: string[], select: string[] } in the body.
- *
- * SECURITY: Requires authentication. Does NOT expose the webhook URL.
- */
+type CompanyRecord = Record<string, any>;
+
+const BATCH_SIZE = 50;
+const FALLBACK_GET_CONCURRENCY = 5;
+
+function normalizeIds(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  return [...new Set(
+    ids
+      .map((id) => String(id).trim())
+      .filter((id) => /^\d+$/.test(id) && id !== "0")
+  )];
+}
+
+function normalizeSelect(select: unknown): string[] {
+  const safe: string[] = ["ID", "TITLE"];
+
+  if (!Array.isArray(select)) return safe;
+
+  for (const item of select) {
+    if (typeof item !== "string") continue;
+    if (!/^[a-zA-Z0-9_]+$/.test(item)) continue;
+    safe.push(item);
+  }
+
+  return [...new Set(safe)];
+}
+
+function normalizeCompany(company: CompanyRecord, fallbackId: string): CompanyRecord {
+  const id = String(company?.ID ?? fallbackId);
+  const title = String(company?.TITLE ?? "").trim();
+
+  return {
+    ...company,
+    ID: id,
+    TITLE: title,
+  };
+}
+
+async function fetchCompanyById(id: string, select: string[]): Promise<CompanyRecord | null> {
+  try {
+    const data = await bitrixPost<{ result?: CompanyRecord } | CompanyRecord>(
+      "crm.company.get",
+      { ID: id, SELECT: select }
+    );
+
+    const result = (data as { result?: CompanyRecord }).result ?? (data as CompanyRecord);
+    if (!result || typeof result !== "object") return null;
+
+    return normalizeCompany(result, id);
+  } catch (error) {
+    console.error(`[Companies API] crm.company.get failed for ID=${id}:`, error);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
-  // ─── SECURITY: Require authentication ───
   const authResult = await requireAuth();
   if (isAuthError(authResult)) return authResult;
 
   try {
-    const body = await request.json();
-    const { ids, select } = body;
+    const body = await request.json().catch(() => ({}));
+    const ids = normalizeIds(body?.ids);
+    const select = normalizeSelect(body?.select);
 
-    const ALLOWED_FIELDS = [
-      "ID",
-      "TITLE",
-      "ASSIGNED_BY_ID",
-      "COMPANY_TYPE",
-      "INDUSTRY",
-      "REVENUE",
-      "CURRENCY_ID",
-      "EMPLOYEES",
-      "COMMENTS",
-      "DATE_CREATE",
-      "DATE_MODIFY",
-      "IS_MY_COMPANY"
-    ];
-
-    const safeSelect = (select || []).filter((field: string) =>
-      ALLOWED_FIELDS.includes(field) || field.startsWith("UF_CRM_")
-    );
-
-    if (safeSelect.length === 0) {
-      return NextResponse.json({ error: "Invalid fields" }, { status: 400 });
-    }
-
-    if (!Array.isArray(ids) || ids.length === 0) {
+    if (ids.length === 0) {
       return NextResponse.json({ success: true, companies: {} });
     }
 
-    // Validate ids
-    const validIds = ids.filter((id) => /^\d+$/.test(String(id).trim()));
-    if (validIds.length === 0) {
-      return NextResponse.json({ success: true, companies: {} });
+    const companiesMap: Record<string, CompanyRecord> = {};
+    for (const id of ids) {
+      companiesMap[id] = { ID: id, TITLE: "" };
     }
 
-    // Fetch companies in batches of 50 (Bitrix24 limit for list methods)
-    const companiesMap: Record<string, any> = {};
-    
-    // Initialize all requested IDs with empty objects to prevent re-fetching missing companies
-    for (const id of validIds) {
-      companiesMap[id] = {};
-    }
+    // 1) Batch list lookup
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const batchIds = ids.slice(i, i + BATCH_SIZE);
 
-    const batchSize = 50;
-
-    for (let i = 0; i < validIds.length; i += batchSize) {
-      const batchIds = validIds.slice(i, i + batchSize);
-      
       try {
-        const data = await bitrixPost<{ result: Array<any> }>(
+        const data = await bitrixPost<{ result?: CompanyRecord[] }>(
           "crm.company.list",
           {
             FILTER: { "@ID": batchIds },
-            SELECT: safeSelect,
+            SELECT: select,
           }
         );
 
         if (Array.isArray(data.result)) {
           for (const company of data.result) {
-            companiesMap[company.ID] = company;
+            const normalized = normalizeCompany(company, String(company?.ID ?? ""));
+            companiesMap[normalized.ID] = {
+              ...companiesMap[normalized.ID],
+              ...normalized,
+            };
           }
         }
       } catch (error) {
-        console.error(`[Companies API] Failed to fetch companies batch:`, error);
+        console.error(`[Companies API] Failed to fetch batch`, { batchIds, error });
       }
+    }
+
+    // 2) Fallback per-ID get for unresolved titles
+    const unresolvedIds = ids.filter((id) => !String(companiesMap[id]?.TITLE || "").trim());
+
+    for (let i = 0; i < unresolvedIds.length; i += FALLBACK_GET_CONCURRENCY) {
+      const chunk = unresolvedIds.slice(i, i + FALLBACK_GET_CONCURRENCY);
+
+      const results = await Promise.allSettled(
+        chunk.map((id) => fetchCompanyById(id, select))
+      );
+
+      for (let j = 0; j < results.length; j++) {
+        const id = chunk[j];
+        const res = results[j];
+
+        if (res.status === "fulfilled" && res.value) {
+          companiesMap[id] = {
+            ...companiesMap[id],
+            ...res.value,
+          };
+        }
+      }
+    }
+
+    // 3) Final normalization: never return undefined TITLE
+    for (const id of ids) {
+      companiesMap[id] = normalizeCompany(companiesMap[id] || {}, id);
     }
 
     return NextResponse.json({ success: true, companies: companiesMap });
