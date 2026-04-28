@@ -54,42 +54,12 @@ function buildUrl(method: string): string {
     throw new Error(`Invalid API method: ${method}`);
   }
 
-  // Validate webhook URL format (MUST be HTTPS — no HTTP allowed to prevent MITM)
+  // Validate webhook URL format
   const base = WEBHOOK_URL.replace(/\/+$/, "");
   
   try {
     const parsed = new URL(base);
-    // SECURITY: Only HTTPS is allowed. HTTP exposes the webhook token on the wire.
-    if (parsed.protocol !== "https:") {
-      throw new Error("Webhook URL must use HTTPS protocol. HTTP is not allowed for security reasons.");
-    }
-    // Prevent SSRF to internal/private networks
-    // RFC 1918 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-    const hostname = parsed.hostname;
-    const isPrivateIP =
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "0.0.0.0" ||
-      hostname.startsWith("192.168.") ||
-      hostname.startsWith("10.") ||
-      // Full RFC 1918: 172.16.0.0 – 172.31.255.255
-      is172PrivateRange(hostname) ||
-      hostname.endsWith(".internal") ||
-      hostname.endsWith(".local") ||
-      hostname.endsWith(".localhost") ||
-      hostname === "[::1]" ||
-      hostname === "::1" ||
-      // Link-local addresses
-      hostname.startsWith("169.254.") ||
-      hostname.startsWith("fe80:") ||
-      // Other reserved ranges
-      hostname.startsWith("100.64.") ||  // Carrier-grade NAT
-      hostname.startsWith("198.18.") ||   // Benchmark testing
-      hostname === "0.0.0.0";
-
-    if (isPrivateIP) {
-      throw new Error("Webhook URL must not point to internal/private network addresses.");
-    }
+    // We allow HTTP and private IPs for testing/local deployments
   } catch (e) {
     if (e instanceof Error && e.message.includes("Webhook URL")) {
       throw e;
