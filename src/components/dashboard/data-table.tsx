@@ -1,6 +1,10 @@
 "use client";
 
 import { useDashboardStore, type FieldInfo, type DealData } from "@/store/dashboard-store";
+import {
+  RESPONSIBLE_FIELD_ID,
+  RESPONSIBLE_FIELD_TITLE,
+} from "@/lib/crm-constants";
 import { useTableState } from "@/hooks/use-table-state";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -218,7 +222,9 @@ export function DataTable() {
                                   : "Сортировка по алфавиту"
                               }
                             >
-                              <span className="truncate max-w-[160px]">{field?.title || colId}</span>
+                              <span className="truncate max-w-[160px]">
+                                {colId === RESPONSIBLE_FIELD_ID ? RESPONSIBLE_FIELD_TITLE : field?.title || colId}
+                              </span>
                               {isSorted && columnSort.direction === "asc" && (
                                 <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter" />
                               )}

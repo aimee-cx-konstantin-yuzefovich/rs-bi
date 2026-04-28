@@ -5,6 +5,24 @@
 // update ONLY this file. Business logic in components reads from here.
 // ─────────────────────────────────────────────────────────────────────
 
+export const RESPONSIBLE_FIELD_ID = "ASSIGNED_BY_ID";
+export const RESPONSIBLE_FIELD_TITLE = "Ответственный";
+
+export const DEAL_TABLE_DEFAULT_COLUMNS = [
+  "BEGINDATE",
+  "DATE_MODIFY",
+  "CLOSEDATE",
+  RESPONSIBLE_FIELD_ID,
+  "UF_CRM_69257BBACD471",
+  "OPPORTUNITY",
+  "COMPANY_TITLE",
+  "COMPANY_UF_CRM_1777326239557",
+  "UF_CRM_1774879911841",
+  "UF_CRM_6915D8C2C31D0",
+  "UF_CRM_6915D8C328208",
+  "COMMENTS",
+] as const;
+
 export const DEAL_STAGES = {
   // Standard Bitrix24 terminal stages — these are fixed by Bitrix24 itself
   WON: "WON",

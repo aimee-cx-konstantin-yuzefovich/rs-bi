@@ -39,7 +39,7 @@ function isSortableType(type: string): boolean {
  * Priority: formLabel > listLabel > filterLabel > title > fieldId
  */
 function getFieldTitle(fieldId: string, meta: BitrixField): string {
-  if (fieldId === "ASSIGNED_BY_ID") return "Ответственный менеджер";
+  if (fieldId === "ASSIGNED_BY_ID") return "Ответственный";
   if (meta.formLabel) return meta.formLabel;
   if (meta.listLabel) return meta.listLabel;
   if (meta.filterLabel) return meta.filterLabel;

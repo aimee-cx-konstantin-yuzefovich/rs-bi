@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DEMO_FIELDS, generateDemoDeals } from "@/lib/demo-data";
+import {
+  DEAL_TABLE_DEFAULT_COLUMNS,
+  RESPONSIBLE_FIELD_ID,
+} from "@/lib/crm-constants";
 
 // ─── Client-side fetch timeout (prevents infinite loading spinner) ───
 // Server-side bitrix helpers already have 15s/30s timeouts,
@@ -192,20 +196,7 @@ function getDateFilterRange(filter: DateFilter): Record<string, string> {
   return bitrixFilter;
 }
 
-export const DEFAULT_COLUMNS = [
-  "BEGINDATE", // Дата начала
-  "DATE_MODIFY", // Дата изменения
-  "CLOSEDATE", // Дата завершения
-  "ASSIGNED_BY_ID", // Ответственный
-  "UF_CRM_69257BBACD471", // Тип продукта
-  "OPPORTUNITY", // Сумма
-  "COMPANY_TITLE", // Наименование компании
-  "COMPANY_UF_CRM_1777326239557", // Выручка компании (млн руб/год)
-  "UF_CRM_1774879911841", // Потребление (тн/год)
-  "UF_CRM_6915D8C2C31D0", // Отрасль
-  "UF_CRM_6915D8C328208", // Направление
-  "COMMENTS", // Комментарий
-];
+export const DEFAULT_COLUMNS = [...DEAL_TABLE_DEFAULT_COLUMNS];
 
 const sortColumns = (columns: string[]) => {
   return [...columns].sort((a, b) => {
@@ -340,15 +331,15 @@ export const useDashboardStore = create<DashboardState>()(
             } else {
               set({ selectedColumns: availableDefaults });
             }
-          } else if (!currentSelected.includes("ASSIGNED_BY_ID")) {
-            // Migration: Ensure ASSIGNED_BY_ID is present after CLOSEDATE
+          } else if (!currentSelected.includes(RESPONSIBLE_FIELD_ID)) {
+            // Migration: Ensure responsible column is present after CLOSEDATE
             const closeDateIndex = currentSelected.indexOf("CLOSEDATE");
             if (closeDateIndex !== -1) {
               const newColumns = [...currentSelected];
-              newColumns.splice(closeDateIndex + 1, 0, "ASSIGNED_BY_ID");
+              newColumns.splice(closeDateIndex + 1, 0, RESPONSIBLE_FIELD_ID);
               set({ selectedColumns: newColumns });
             } else {
-              set({ selectedColumns: [...currentSelected, "ASSIGNED_BY_ID"] });
+              set({ selectedColumns: [...currentSelected, RESPONSIBLE_FIELD_ID] });
             }
           }
         } catch (error) {
@@ -383,6 +374,7 @@ export const useDashboardStore = create<DashboardState>()(
           if (!select.includes("ID")) select.push("ID");
           // Required by filters/alerts/stats even if not in selectedColumns:
           if (!select.includes("ASSIGNED_BY_ID")) select.push("ASSIGNED_BY_ID");
+          if (!select.includes("ASSIGNED_BY_NAME")) select.push("ASSIGNED_BY_NAME");
           if (!select.includes("DATE_MODIFY")) select.push("DATE_MODIFY");
           if (!select.includes("STAGE_ID")) select.push("STAGE_ID");
           if (!select.includes("OPPORTUNITY")) select.push("OPPORTUNITY");

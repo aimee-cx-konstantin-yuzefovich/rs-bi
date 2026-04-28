@@ -1,5 +1,6 @@
 import { useMemo, useCallback } from "react";
 import { useDashboardStore, type DealData } from "@/store/dashboard-store";
+import { RESPONSIBLE_FIELD_ID } from "@/lib/crm-constants";
 
 export function useTableState() {
   const {
@@ -26,9 +27,12 @@ export function useTableState() {
 
       if (raw === null || raw === undefined || raw === "") return "";
 
-      if (colId === "ASSIGNED_BY_ID") {
+      if (colId === RESPONSIBLE_FIELD_ID) {
         const id = String(raw);
-        return userNames[id] || `ID ${id}`;
+        const userName = userNames[id]?.trim();
+        const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
+
+        return userName || dealName || `ID ${id}`;
       }
 
       if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
@@ -139,7 +143,7 @@ export function useTableState() {
         return resolveValue(deal, colId);
       }
 
-      if (colId === "ASSIGNED_BY_ID") {
+      if (colId === RESPONSIBLE_FIELD_ID) {
         return resolveValue(deal, colId).toLowerCase();
       }
 
@@ -157,8 +161,10 @@ export function useTableState() {
     const q = searchQuery.toLowerCase();
     return deals.filter((deal) => {
       const assignedById = String(deal.ASSIGNED_BY_ID || "");
-      if (assignedById && userNames[assignedById]) {
-        if (userNames[assignedById].toLowerCase().includes(q)) return true;
+      if (assignedById) {
+        const responsibleName =
+          userNames[assignedById] || String(deal.ASSIGNED_BY_NAME || "");
+        if (responsibleName.toLowerCase().includes(q)) return true;
       }
 
       const companyId = String(deal.COMPANY_ID || "");

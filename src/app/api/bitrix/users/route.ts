@@ -36,9 +36,10 @@ export async function GET(request: NextRequest) {
 
         if (Array.isArray(data.result)) {
           for (const user of data.result) {
-            const fullName = [user.NAME, user.LAST_NAME]
+            const fullName = [user.NAME, user.LAST_NAME, user.SECOND_NAME]
               .filter(Boolean)
-              .join(" ");
+              .join(" ")
+              .trim();
             userMap[user.ID] = fullName || `ID ${user.ID}`;
           }
         }
