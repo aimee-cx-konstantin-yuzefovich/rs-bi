@@ -8,8 +8,6 @@
  * - Error sanitization: raw API errors are logged server-side only, generic errors returned to client
  */
 
-const WEBHOOK_URL = process.env.BITRIX_WEBHOOK_URL;
-
 /**
  * Allowed Bitrix24 API methods (allowlist to prevent SSRF)
  */
@@ -45,6 +43,8 @@ function is172PrivateRange(hostname: string): boolean {
  * Validates method against allowlist to prevent SSRF.
  */
 function buildUrl(method: string): string {
+  const WEBHOOK_URL = process.env.BITRIX_WEBHOOK_URL;
+  
   if (!WEBHOOK_URL) {
     throw new Error("CRM integration is not configured.");
   }
