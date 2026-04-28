@@ -133,6 +133,7 @@ interface DashboardState {
   loadDemoData: () => void;
   setSelectedColumns: (columns: string[]) => void;
   toggleColumn: (columnId: string) => void;
+  reorderColumns: (startIndex: number, endIndex: number) => void;
   setColumnSelectorOpen: (open: boolean) => void;
   setDateFilter: (filter: DateFilter) => void;
   setSearchQuery: (query: string) => void;
@@ -210,6 +211,20 @@ export const DEFAULT_COLUMNS = [
   "UF_CRM_6915D8C328208", // Направление
   "COMMENTS", // Комментарий
 ];
+
+const sortColumns = (columns: string[]) => {
+  return [...columns].sort((a, b) => {
+    const indexA = DEFAULT_COLUMNS.indexOf(a);
+    const indexB = DEFAULT_COLUMNS.indexOf(b);
+    
+    if (indexA !== -1 && indexB !== -1) {
+      return indexA - indexB;
+    }
+    if (indexA !== -1) return -1;
+    if (indexB !== -1) return 1;
+    return 0;
+  });
+};
 
 export const useDashboardStore = create<DashboardState>()(
   persist(
@@ -333,6 +348,16 @@ export const useDashboardStore = create<DashboardState>()(
             } else {
               set({ selectedColumns: [...availableDefaults, ...otherFields] });
             }
+          } else if (!currentSelected.includes("ASSIGNED_BY_ID")) {
+            // Migration: Ensure ASSIGNED_BY_ID is present after CLOSEDATE
+            const closeDateIndex = currentSelected.indexOf("CLOSEDATE");
+            if (closeDateIndex !== -1) {
+              const newColumns = [...currentSelected];
+              newColumns.splice(closeDateIndex + 1, 0, "ASSIGNED_BY_ID");
+              set({ selectedColumns: newColumns });
+            } else {
+              set({ selectedColumns: [...currentSelected, "ASSIGNED_BY_ID"] });
+            }
           }
         } catch (error) {
           set({
@@ -453,6 +478,14 @@ export const useDashboardStore = create<DashboardState>()(
             get().fetchCompaniesData();
           }
         }
+      },
+
+      reorderColumns: (startIndex, endIndex) => {
+        const { selectedColumns } = get();
+        const result = Array.from(selectedColumns);
+        const [removed] = result.splice(startIndex, 1);
+        result.splice(endIndex, 0, removed);
+        set({ selectedColumns: result });
       },
 
       setColumnSelectorOpen: (open) => set({ columnSelectorOpen: open }),
@@ -688,7 +721,7 @@ export const useDashboardStore = create<DashboardState>()(
 
         // Collect unique company IDs from deals
         const uniqueIds = [...new Set(
-          allDeals.map((d) => String(d.COMPANY_ID || "")).filter(Boolean)
+          allDeals.map((d) => String(d.COMPANY_ID || "")).filter((id) => id && id !== "0")
         )];
 
         if (uniqueIds.length === 0) return;

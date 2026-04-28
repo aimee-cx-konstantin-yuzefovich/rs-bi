@@ -12,13 +12,13 @@ export interface DealsRequestBody {
 }
 
 // ─── Input Validation Constants ───
-const MAX_SELECT_FIELDS = 60;
-const MAX_FILTER_KEYS = 15;
-const MAX_START_VALUE = 10000;
-const MAX_ORDER_KEYS = 3;
-const MAX_FILTER_VALUE_LENGTH = 500; // Prevent oversized filter values
+const MAX_SELECT_FIELDS = 200;
+const MAX_FILTER_KEYS = 50;
+const MAX_START_VALUE = 100000;
+const MAX_ORDER_KEYS = 10;
+const MAX_FILTER_VALUE_LENGTH = 1000; // Prevent oversized filter values
 const ALLOWED_ORDER_DIRECTIONS = new Set(["ASC", "DESC"]);
-const SAFE_FIELD_NAME_PATTERN = /^[A-Z0-9_]+(\.[A-Z_]+)?$/;
+const SAFE_FIELD_NAME_PATTERN = /^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)?$/;
 
 /**
  * Validate and sanitize the request body for deals endpoint.
@@ -64,7 +64,7 @@ function validateDealsRequest(body: unknown): DealsRequestBody {
     }
     for (const key of filterKeys) {
       // Validate filter key format (allow >=, <=, etc. prefixes)
-      if (!/^[><=!]*[A-Z0-9_]+$/.test(key)) {
+      if (!/^[><=!]*[a-zA-Z0-9_]+$/.test(key)) {
         throw new Error("Invalid key in 'filter' parameter");
       }
       const value = (raw.filter as Record<string, unknown>)[key];
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
       fetched: allDeals.length,
     });
   } catch (error) {
-    console.error("[Deals API Error]", error);
+    console.error("[Deals API Error] Full error details:", error);
 
     // Return sanitized error message to client
     const message = error instanceof Error ? error.message : "Failed to fetch deals";

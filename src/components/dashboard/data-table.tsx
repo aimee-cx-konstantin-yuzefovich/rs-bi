@@ -101,13 +101,25 @@ export function DataTable() {
       // Special handling for company fields
       if (colId.startsWith("COMPANY_")) {
         const companyId = String(deal.COMPANY_ID || "");
-        if (!companyId || !companiesData[companyId]) return "";
+        if (!companyId) return "";
         
-        const companyFieldId = colId.replace("COMPANY_", "");
+        let companyFieldId = colId.replace("COMPANY_", "");
+        // Treat COMPANY_ID as COMPANY_TITLE for display purposes
+        if (companyFieldId === "ID") companyFieldId = "TITLE";
+        
         const company = companiesData[companyId];
+        
+        if (!company) {
+          if (companyFieldId === "TITLE") return `ID ${companyId}`;
+          return "";
+        }
+        
         const rawCompanyVal = company[companyFieldId];
         
-        if (rawCompanyVal === null || rawCompanyVal === undefined || rawCompanyVal === "") return "";
+        if (rawCompanyVal === null || rawCompanyVal === undefined || rawCompanyVal === "") {
+          if (companyFieldId === "TITLE") return `ID ${companyId}`;
+          return "";
+        }
         
         // Resolve enumeration list values for company fields if needed
         if (field?.listValues && rawCompanyVal) {
@@ -191,6 +203,11 @@ export function DataTable() {
         return resolveValue(deal, colId).toLowerCase();
       }
 
+      // Special handling for company fields sorting
+      if (colId.startsWith("COMPANY_")) {
+        return resolveValue(deal, colId).toLowerCase();
+      }
+
       return String(raw).toLowerCase();
     },
     [fieldMap, resolveValue]
@@ -207,13 +224,20 @@ export function DataTable() {
         if (userNames[assignedById].toLowerCase().includes(q)) return true;
       }
 
+      // Check company name
+      const companyId = String(deal.COMPANY_ID || "");
+      if (companyId) {
+        const companyName = companiesData[companyId]?.TITLE || `ID ${companyId}`;
+        if (companyName.toLowerCase().includes(q)) return true;
+      }
+
       // Check all other fields
       return Object.entries(deal).some(([key, val]) => {
         const resolved = resolveValue(deal, key);
         return resolved.toLowerCase().includes(q);
       });
     });
-  }, [deals, searchQuery, resolveValue, userNames]);
+  }, [deals, searchQuery, resolveValue, userNames, companiesData]);
 
   // Apply column filters
   const filteredDeals = useMemo(() => {

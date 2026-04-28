@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
         if (Array.isArray(data.result)) {
           for (const user of data.result) {
-            const fullName = [user.LAST_NAME, user.NAME, user.SECOND_NAME]
+            const fullName = [user.NAME, user.LAST_NAME]
               .filter(Boolean)
               .join(" ");
             userMap[user.ID] = fullName || `ID ${user.ID}`;

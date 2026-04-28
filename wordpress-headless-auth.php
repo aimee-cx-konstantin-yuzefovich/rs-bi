@@ -13,6 +13,14 @@ if (!defined('ABSPATH')) {
 class RusSilica_Headless_Auth {
     public function __construct() {
         add_action('login_form_headless_auth', [$this, 'handle_auth_request']);
+        add_action('login_form_headless_logout', [$this, 'handle_logout_request']);
+    }
+
+    public function handle_logout_request() {
+        wp_logout();
+        $redirect_to = isset($_GET['redirect_to']) ? esc_url_raw($_GET['redirect_to']) : home_url();
+        wp_safe_redirect($redirect_to);
+        exit;
     }
 
     public function handle_auth_request() {

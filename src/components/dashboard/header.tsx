@@ -38,7 +38,8 @@ export function Header() {
 
   const handleLogout = () => {
     if (IS_PRODUCTION) {
-      const wpLogoutUrl = WP_LOGIN_URL_CLIENT + "?action=logout";
+      const redirectUrl = encodeURIComponent(window.location.origin + "/login");
+      const wpLogoutUrl = WP_LOGIN_URL_CLIENT + "?action=headless_logout&redirect_to=" + redirectUrl;
       signOut({ callbackUrl: wpLogoutUrl });
     } else {
       signOut({ callbackUrl: "/login" });
