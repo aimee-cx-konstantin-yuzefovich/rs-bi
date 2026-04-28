@@ -420,7 +420,7 @@ export function DataTable() {
 
         {/* Table */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ScrollArea className="h-full custom-scrollbar">
+          <div className="h-full overflow-auto custom-scrollbar">
             <div className="min-w-full">
               <table className="data-table w-full border-separate border-spacing-0">
                 <thead className="sticky top-0 z-20 bg-card shadow-sm">
@@ -557,8 +557,7 @@ export function DataTable() {
                 </tbody>
               </table>
             </div>
-            <ScrollBar orientation="horizontal" />
-          </ScrollArea>
+          </div>
         </div>
 
         {/* Pagination */}
