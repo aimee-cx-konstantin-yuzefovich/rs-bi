@@ -51,13 +51,34 @@ export function useTableState() {
         return `${formattedDate ? formattedDate + ": " : ""}${cleanText}`;
       }
 
+      if (colId === "COMPANY_TITLE") {
+        // 1. Prefer direct value from deal (fast path)
+        const directTitle = String(deal.COMPANY_TITLE || "").trim();
+        if (directTitle) return directTitle;
+
+        // 2. Fallback to companiesData via COMPANY_ID
+        const companyId = String(deal.COMPANY_ID || "").trim();
+        if (companyId && companiesData?.[companyId]) {
+          const companyTitle = String(companiesData[companyId].TITLE || "").trim();
+          if (companyTitle) return companyTitle;
+        }
+
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[COMPANY DEBUG]", {
+            dealId: deal.ID,
+            companyId: deal.COMPANY_ID,
+            dealCompanyTitle: deal.COMPANY_TITLE,
+            hasCompaniesData: !!companiesData?.[deal.COMPANY_ID as string],
+          });
+        }
+
+        // 3. No data → return empty (CellValue will render dash)
+        return "";
+      }
+
       if (colId.startsWith("COMPANY_")) {
         let companyFieldId = colId.replace("COMPANY_", "");
         if (companyFieldId === "ID") companyFieldId = "TITLE";
-
-        if (companyFieldId === "TITLE" && deal.COMPANY_TITLE) {
-          return String(deal.COMPANY_TITLE);
-        }
 
         const companyId = String(deal.COMPANY_ID || "");
         if (!companyId) return "";
