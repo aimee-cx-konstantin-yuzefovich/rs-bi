@@ -423,10 +423,10 @@ export function DataTable() {
           <div className="h-full overflow-auto custom-scrollbar">
             <div className="min-w-full">
               <table className="data-table w-full border-separate border-spacing-0">
-                <thead className="sticky top-0 z-20 bg-card shadow-sm">
+                <thead className="bg-card shadow-sm">
                   <tr>
                     {/* Fixed Row Number Column */}
-                    <th className="text-center sticky left-0 z-30 bg-card border-r border-b border-border w-10 min-w-[40px] px-2">
+                    <th className="text-center sticky top-0 left-0 z-30 bg-card border-r border-b border-border w-10 min-w-[40px] px-2">
                       №
                     </th>
                     {columns.map((colId) => {
@@ -440,7 +440,7 @@ export function DataTable() {
                       const isDate = field?.type === "date" || field?.type === "datetime";
 
                       return (
-                        <th key={colId} className="text-left group bg-card border-b border-border">
+                        <th key={colId} className="text-left sticky top-0 z-20 group bg-card border-b border-border">
                           <div className="flex items-center gap-1">
                             {/* Sort button */}
                             <button
