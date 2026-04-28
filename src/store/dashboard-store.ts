@@ -646,7 +646,7 @@ export const useDashboardStore = create<DashboardState>()(
       markAlertsAsRead: () => set({ lastReadAlertsAt: Date.now() }),
 
       fetchUserNames: async () => {
-        const { isDemoMode, allDeals, userNames } = get();
+        const { isDemoMode, userNames } = get();
 
         // In demo mode, use the demo responsible persons
         if (isDemoMode) {
@@ -659,19 +659,9 @@ export const useDashboardStore = create<DashboardState>()(
           return;
         }
 
-        // Collect unique responsible IDs from deals
-        const uniqueIds = [...new Set(
-          allDeals.map((d) => String(d.ASSIGNED_BY_ID || "")).filter(Boolean)
-        )];
-
-        if (uniqueIds.length === 0) return;
-
-        // Only fetch IDs we don't already have names for
-        const missingIds = uniqueIds.filter((id) => !userNames[id]);
-        if (missingIds.length === 0) return;
-
         try {
-          const response = await fetchWithTimeout(`/api/bitrix/users?ids=${missingIds.join(",")}`);
+          // Fetch all users
+          const response = await fetchWithTimeout(`/api/bitrix/users`);
 
           if (!response.ok) {
             console.warn("[Dashboard] Failed to fetch user names: API returned", response.status);

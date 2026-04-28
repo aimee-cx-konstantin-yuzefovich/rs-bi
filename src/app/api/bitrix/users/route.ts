@@ -6,9 +6,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/bitrix/users
- * Fetches responsible person names from Bitrix24.
- * Accepts optional ?ids=1,2,3 query parameter to fetch specific users.
- * If no ids provided, fetches all users (limited to 50).
+ * Fetches all responsible person names from Bitrix24 with pagination.
  *
  * SECURITY: Requires authentication. Does NOT expose the webhook URL.
  * It only returns user ID + Name pairs for display purposes.
@@ -18,58 +16,35 @@ export async function GET(request: NextRequest) {
   const authResult = await requireAuth();
   if (isAuthError(authResult)) return authResult;
   try {
-    const { searchParams } = new URL(request.url);
-    const idsParam = searchParams.get("ids");
+    const userMap: Record<string, string> = {};
+    let start = 0;
 
-    // Validate ids parameter — only allow comma-separated positive integers
-    if (idsParam) {
-      const ids = idsParam.split(",").filter((id) => /^\d+$/.test(id.trim()));
-      if (ids.length === 0 || ids.length > 50) {
-        return NextResponse.json(
-          { success: false, error: "Invalid or too many user IDs", users: {} },
-          { status: 400 }
-        );
-      }
-
-      const userMap: Record<string, string> = {};
-      
+    while (true) {
       try {
-        // Use POST to send a proper JSON body for the filter
-        const data = await bitrixPost<{ result: Array<{ ID: string; NAME: string; LAST_NAME: string }> }>(
-          "user.get",
-          { FILTER: { ID: ids } }
-        );
-        
+        const data = await bitrixPost<{
+          result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
+          next?: number;
+        }>("user.get", {
+          start,
+          // We don't strictly filter by ACTIVE because deals might be assigned to fired users
+        });
+
         if (Array.isArray(data.result)) {
           for (const user of data.result) {
-            const fullName = [user.NAME, user.LAST_NAME].filter(Boolean).join(" ");
-            userMap[user.ID] = fullName || `Пользователь ${user.ID}`;
+            const fullName = [user.LAST_NAME, user.NAME, user.SECOND_NAME]
+              .filter(Boolean)
+              .join(" ");
+            userMap[user.ID] = fullName || `ID ${user.ID}`;
           }
         }
-      } catch (error) {
-        console.error(`[Users API] Failed to fetch users batch:`, error);
-      }
 
-      // Fill in any missing IDs (if API failed or user not found)
-      for (const id of ids) {
-        if (!userMap[id]) {
-          userMap[id] = `ID ${id}`;
+        if (!data.next || !Array.isArray(data.result) || data.result.length < 50) {
+          break;
         }
-      }
-
-      return NextResponse.json({ success: true, users: userMap });
-    }
-
-    // No specific IDs — fetch all users
-    const data = await bitrixPost<{
-      result: Array<{ ID: string; NAME: string; LAST_NAME: string }>;
-    }>("user.get", { FILTER: { ACTIVE: true } });
-
-    const userMap: Record<string, string> = {};
-    if (Array.isArray(data.result)) {
-      for (const user of data.result) {
-        const fullName = [user.NAME, user.LAST_NAME].filter(Boolean).join(" ");
-        userMap[user.ID] = fullName || `Пользователь ${user.ID}`;
+        start = data.next;
+      } catch (e) {
+        console.error(`[Users API] Failed to fetch users batch at start ${start}:`, e);
+        break;
       }
     }
 
