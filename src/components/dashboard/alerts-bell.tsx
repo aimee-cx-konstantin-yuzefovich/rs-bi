@@ -59,7 +59,7 @@ export function AlertsBell() {
     const now = new Date();
     const result: AlertItem[] = [];
 
-    // 1. Stalled Deals (Зависшие сделки)
+    // 1. Stalled Deals
     const thirtyDaysAgo = new Date(now.getTime() - ALERT_THRESHOLDS.STALLED_DEAL_DAYS * 24 * 60 * 60 * 1000);
     const stalledDeals = allDeals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
@@ -82,10 +82,10 @@ export function AlertsBell() {
       });
     }
 
-    // 2. Unpaid Large Deals (Неоплаченные крупные сделки)
+    // 2. Unpaid Large Deals
     const unpaidLarge = allDeals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
-      if (stage !== DEAL_STAGES.INVOICE_SENT && stage !== "FINAL_INVOICE") return false;
+      if (stage !== DEAL_STAGES.INVOICE_SENT) return false;
       const opportunity = parseFloat(String(deal.OPPORTUNITY || "0"));
       return opportunity > ALERT_THRESHOLDS.LARGE_DEAL_MIN_AMOUNT;
     });
@@ -105,7 +105,7 @@ export function AlertsBell() {
       });
     }
 
-    // 3. Win Rate Drop (Снижение Win Rate)
+    // 3. Win Rate Drop
     const wonDeals = allDeals.filter((d) => String(d.STAGE_ID) === DEAL_STAGES.WON);
     const lostDeals = allDeals.filter((d) => String(d.STAGE_ID) === DEAL_STAGES.LOST);
     const totalClosed = wonDeals.length + lostDeals.length;
@@ -124,7 +124,7 @@ export function AlertsBell() {
       }
     }
 
-    // 4. Large Deals Stuck in Negotiation (Крупные сделки на согласовании)
+    // 4. Large Deals Stuck in Negotiation
     const fourteenDaysAgo = new Date(now.getTime() - ALERT_THRESHOLDS.STUCK_NEGOTIATION_DAYS * 24 * 60 * 60 * 1000);
     const stuckLarge = allDeals.filter((deal) => {
       const opportunity = parseFloat(String(deal.OPPORTUNITY || "0"));
@@ -153,7 +153,7 @@ export function AlertsBell() {
       });
     }
 
-    // 5. New Deals This Week (Новые сделки за неделю)
+    // 5. New Deals This Week
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const newThisWeek = allDeals.filter((deal) => {
       const createStr = String(deal.DATE_CREATE || "");

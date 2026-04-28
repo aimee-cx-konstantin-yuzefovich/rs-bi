@@ -8,7 +8,7 @@ export function ConfigBanner() {
   const { isConfigured, isDemoMode } = useDashboardStore();
   const [dismissed, setDismissed] = useState(false);
 
-  if (dismissed || isConfigured === null) return null;
+  if (dismissed || isConfigured === null || isDemoMode) return null;
 
   if (isConfigured && !isDemoMode) {
     return (

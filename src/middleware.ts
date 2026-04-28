@@ -5,8 +5,8 @@ import { IS_PRODUCTION } from "@/lib/config";
 /**
  * Security Proxy — RusSilica BI Terminal
  *
- * In Next.js 16, the file convention is `proxy.ts` (not `middleware.ts`).
- * The export MUST be named `proxy` for Next.js 16 to recognize it.
+ * In Next.js 16, the file convention is `middleware.ts`.
+ * The export MUST be named `middleware` for Next.js 16 to recognize it.
  *
  * WordPress SSO Architecture:
  * - Caddy reverse proxy adds auth headers to every request
@@ -34,25 +34,31 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
+declare global {
+  var __rateLimitInterval: NodeJS.Timeout | undefined;
+}
+
 const rateLimitMap = new Map<string, RateLimitEntry>();
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
 
 // Cleanup old entries every 60 seconds
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of rateLimitMap.entries()) {
-    if (now > entry.resetAt) {
-      rateLimitMap.delete(key);
+if (!globalThis.__rateLimitInterval) {
+  globalThis.__rateLimitInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitMap.entries()) {
+      if (now > entry.resetAt) {
+        rateLimitMap.delete(key);
+      }
     }
-  }
-  if (rateLimitMap.size > MAX_RATE_LIMIT_ENTRIES) {
-    const entries = [...rateLimitMap.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
-    const toDelete = entries.slice(0, entries.length - MAX_RATE_LIMIT_ENTRIES);
-    for (const [key] of toDelete) {
-      rateLimitMap.delete(key);
+    if (rateLimitMap.size > MAX_RATE_LIMIT_ENTRIES) {
+      const entries = [...rateLimitMap.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
+      const toDelete = entries.slice(0, entries.length - MAX_RATE_LIMIT_ENTRIES);
+      for (const [key] of toDelete) {
+        rateLimitMap.delete(key);
+      }
     }
-  }
-}, 60_000);
+  }, 60_000);
+}
 
 // Different rate limits per endpoint type
 const RATE_LIMITS = {

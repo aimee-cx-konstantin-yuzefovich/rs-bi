@@ -31,7 +31,7 @@ export const DEAL_STAGES = {
   // Custom pipeline stages — verify these match your Bitrix24 funnel settings
   NEW: "NEW",
   PREPARATION: "PREPARATION",
-  INVOICE_SENT: "PREPAYMENT_INVOICE",  // "Счёт выставлен"
+  INVOICE_SENT: "PREPAYMENT_INVOICE",
   IN_PROGRESS: "EXECUTING",
 } as const;
 

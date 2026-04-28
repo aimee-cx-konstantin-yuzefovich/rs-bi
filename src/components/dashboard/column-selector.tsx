@@ -75,7 +75,7 @@ export function ColumnSelector() {
   const handleReset = () => {
     const availableDefaults = DEFAULT_COLUMNS.filter((col) =>
       fields.some((f) => f.id === col)
-    );
+    ) as string[];
     const otherFields = fields
       .map((f) => f.id)
       .filter((id) => !availableDefaults.includes(id));

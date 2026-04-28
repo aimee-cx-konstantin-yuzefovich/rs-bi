@@ -21,7 +21,7 @@ const AUTH_LOADING_TIMEOUT_MS = 15_000;
 export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const { checkConfig, fetchFields, fetchDeals, isDemoMode, appLoaded } = useDashboardStore();
+  const { checkConfig, fetchFields, fetchDeals, isDemoMode, appLoaded, dealsError, syncData } = useDashboardStore();
   const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
 
   // Redirect unauthenticated users to login
@@ -32,6 +32,7 @@ export default function DashboardPage() {
   }, [status, router]);
 
   // Handle session invalidation (password changed, account deactivated, etc.)
+  // Note: session.error is not currently set by auth callbacks, but kept for future use
   useEffect(() => {
     if (session && session.error === "SessionInvalid") {
       router.replace("/login");
@@ -80,6 +81,26 @@ export default function DashboardPage() {
         <Header />
         <main className="flex-1 flex flex-col min-h-0">
           <ConfigBanner />
+          {dealsError && (
+            <div className="px-4 sm:px-6 pt-3 animate-fade-in">
+              <div className="flex items-center justify-between px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                  <span className="text-sm text-red-800 dark:text-red-300 font-medium">
+                    {dealsError}
+                  </span>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => syncData()}
+                  className="border-red-200 hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400"
+                >
+                  Повторить
+                </Button>
+              </div>
+            </div>
+          )}
           {isDemoMode && (
             <div className="px-4 sm:px-6 pt-3 animate-fade-in">
               <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">

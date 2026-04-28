@@ -20,21 +20,44 @@ export async function GET(request: NextRequest) {
     let start = 0;
     let iterations = 0;
     const MAX_ITERATIONS = 50; // 50 * 50 = 2500 users max
-
-    while (iterations < MAX_ITERATIONS) {
-      iterations++;
-      try {
-        const data = await bitrixPost<{
-          result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
-          next?: number;
-        }>("user.get", {
-          start,
-          // We don't strictly filter by ACTIVE because deals might be assigned to fired users
-        });
-
-        console.log(`[Users API] Fetched batch at start ${start}, got ${data.result?.length || 0} users`);
-
-        if (Array.isArray(data.result)) {
+    
+    // First request to get total count
+    const initialData = await bitrixPost<{
+      result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
+      total?: number;
+      next?: number;
+    }>("user.get", { start: 0 });
+    
+    if (Array.isArray(initialData.result)) {
+      for (const user of initialData.result) {
+        const fullName = [user.NAME, user.LAST_NAME, user.SECOND_NAME]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        userMap[user.ID] = fullName || `ID ${user.ID}`;
+      }
+    }
+    
+    const total = initialData.total || 0;
+    const promises = [];
+    
+    // Fetch remaining pages in parallel
+    if (total > 50) {
+      const remainingPages = Math.min(Math.ceil(total / 50) - 1, MAX_ITERATIONS - 1);
+      for (let i = 1; i <= remainingPages; i++) {
+        promises.push(
+          bitrixPost<{
+            result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
+          }>("user.get", { start: i * 50 }).catch(e => {
+            console.error(`[Users API] Failed to fetch users batch at start ${i * 50}:`, e);
+            return null;
+          })
+        );
+      }
+      
+      const results = await Promise.all(promises);
+      for (const data of results) {
+        if (data && Array.isArray(data.result)) {
           for (const user of data.result) {
             const fullName = [user.NAME, user.LAST_NAME, user.SECOND_NAME]
               .filter(Boolean)
@@ -43,14 +66,6 @@ export async function GET(request: NextRequest) {
             userMap[user.ID] = fullName || `ID ${user.ID}`;
           }
         }
-
-        if (!data.next || !Array.isArray(data.result) || data.result.length < 50) {
-          break;
-        }
-        start = data.next;
-      } catch (e) {
-        console.error(`[Users API] Failed to fetch users batch at start ${start}:`, e);
-        break;
       }
     }
 

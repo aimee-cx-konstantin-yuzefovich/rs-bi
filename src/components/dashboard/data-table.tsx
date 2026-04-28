@@ -6,7 +6,6 @@ import {
   RESPONSIBLE_FIELD_TITLE,
 } from "@/lib/crm-constants";
 import { useTableState } from "@/hooks/use-table-state";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -21,9 +20,10 @@ import {
   ArrowUpDown,
   Filter,
   X,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 
 /**
  * SECURITY NOTE: All cell values are rendered as JSX text content.
@@ -37,6 +37,8 @@ export function DataTable() {
     dealsLoading,
     dealsError,
     dealsTotal,
+    dealsTruncated,
+    dealsFetched,
     fields,
     selectedColumns,
     searchQuery,
@@ -50,9 +52,6 @@ export function DataTable() {
     setColumnFilter,
     clearColumnFilter,
     clearAllColumnFilters,
-    userNames,
-    companiesData,
-    activitiesData,
   } = useDashboardStore();
 
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
@@ -69,8 +68,6 @@ export function DataTable() {
     fieldMap,
     resolveValue,
     getSortValue,
-    searchedDeals,
-    filteredDeals,
     sortedDeals,
     columns,
   } = useTableState();
@@ -127,6 +124,24 @@ export function DataTable() {
 
   // Empty state
   if (deals.length === 0) {
+    if (searchQuery || activeFilterCount > 0) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-4 animate-fade-in">
+            <div className="mx-auto h-16 w-16 rounded-2xl bg-muted flex items-center justify-center">
+              <Filter className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold">Ничего не найдено</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Попробуйте изменить параметры поиска или фильтры
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 animate-fade-in">
@@ -169,8 +184,16 @@ export function DataTable() {
               </>
             )}
           </div>
-          <div className="text-[10px] text-muted-foreground tabular-nums ml-auto">
-            {sortedDeals.length.toLocaleString("ru-RU")} из {dealsTotal.toLocaleString("ru-RU")}
+          <div className="text-[10px] text-muted-foreground tabular-nums ml-auto flex items-center gap-2">
+            {dealsTruncated && (
+              <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1" title="Показаны не все сделки. Уточните фильтры.">
+                <AlertTriangle className="h-3 w-3" />
+                Показаны первые {dealsFetched.toLocaleString("ru-RU")}
+              </span>
+            )}
+            <span>
+              {sortedDeals.length.toLocaleString("ru-RU")} из {dealsTotal.toLocaleString("ru-RU")}
+            </span>
           </div>
         </div>
 
@@ -286,6 +309,13 @@ export function DataTable() {
                   </tr>
                 </thead>
                 <tbody>
+                  {paginatedDeals.length === 0 && (searchQuery || activeFilterCount > 0) && (
+                    <tr>
+                      <td colSpan={columns.length + 1} className="text-center py-8 text-muted-foreground">
+                        Ничего не найдено по фильтрам
+                      </td>
+                    </tr>
+                  )}
                   {paginatedDeals.map((deal, idx) => {
                     const dealId = deal.ID || deal.id || idx;
                     const rowIndex = (currentPage - 1) * pageSize + idx + 1;

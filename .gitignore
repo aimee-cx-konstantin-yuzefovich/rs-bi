@@ -38,6 +38,7 @@ next-env.d.ts
 deploy-prod.zip
 db/custom.db
 db/audit.db
+prisma/db/
 .roo/
 .kilo/
 agent-ctx/

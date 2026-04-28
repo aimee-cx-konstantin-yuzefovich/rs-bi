@@ -4,7 +4,6 @@ import { useSession, signOut } from "next-auth/react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { useTableState } from "@/hooks/use-table-state";
 import { Button } from "@/components/ui/button";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeToggle } from "./theme-toggle";
 import { DateFilter } from "./date-filter";
 import { GlobalSearch } from "./global-search";
@@ -88,19 +87,19 @@ export function Header() {
 
   const handleLogout = () => {
     if (IS_PRODUCTION) {
-      const redirectUrl = encodeURIComponent(window.location.origin + "/login");
-      const wpLogoutUrl = WP_LOGIN_URL_CLIENT + "?action=headless_logout&redirect_to=" + redirectUrl;
-      signOut({ callbackUrl: wpLogoutUrl });
+      const u = new URL(WP_LOGIN_URL_CLIENT);
+      u.searchParams.set("action", "headless_logout");
+      u.searchParams.set("redirect_to", `${window.location.origin}/login`);
+      signOut({ callbackUrl: u.toString() });
     } else {
       signOut({ callbackUrl: "/login" });
     }
   };
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <header className="z-30 header-gradient border-b border-white/10">
-        {/* Top row: Brand + Actions */}
-        <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
+    <header className="z-30 header-gradient border-b border-white/10">
+      {/* Top row: Brand + Actions */}
+      <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
           {/* Left: Brand */}
           <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
             <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
@@ -220,6 +219,5 @@ export function Header() {
         </div>
 
       </header>
-    </TooltipProvider>
   );
 }

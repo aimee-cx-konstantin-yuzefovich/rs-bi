@@ -17,8 +17,21 @@ class RusSilica_Headless_Auth {
     }
 
     public function handle_logout_request() {
-        wp_logout();
+        // Limit to logged-in users (prevents abuse for arbitrary visitors).
+        if ( is_user_logged_in() ) {
+            wp_logout();
+        }
+
         $redirect_to = isset($_GET['redirect_to']) ? esc_url_raw($_GET['redirect_to']) : home_url();
+
+        // Allow the BI terminal host explicitly.
+        add_filter('allowed_redirect_hosts', function ($hosts) {
+            $hosts[] = parse_url(home_url(), PHP_URL_HOST);
+            // Add any extra hosts the BI terminal could be served from:
+            $hosts[] = 'bi-terminal.rus-silica.com';
+            return $hosts;
+        });
+
         wp_safe_redirect($redirect_to);
         exit;
     }

@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // SECURITY: Remove X-Powered-By header to prevent server fingerprinting
   poweredByHeader: false,
-  // Security headers and rate limiting are handled in src/proxy.ts (Next.js 16 convention)
+  // Security headers and rate limiting are handled in src/middleware.ts (Next.js 16 convention)
 };
 
 export default nextConfig;

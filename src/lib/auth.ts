@@ -122,6 +122,10 @@ async function auditLog(event: string, details: Record<string, unknown>, ip?: st
         details: JSON.stringify(details),
       },
     });
+
+    // Compliance note: Audit logs are persisted indefinitely.
+    // Consider adding a cron job or periodic cleanup task to delete logs older than 90 days:
+    // DELETE FROM "AuditLog" WHERE "createdAt" < datetime('now', '-90 days');
   } catch (error) {
     // Never let audit log failure break authentication
     console.error("[AUDIT LOG ERROR]", error);
@@ -153,8 +157,8 @@ export const authOptions: NextAuthOptions = {
           || headers?.["x-real-ip"]?.trim()
           || "unknown";
 
-        console.log("[AUTH DEBUG] Authorize called with credentials:", credentials ? "YES" : "NO");
-        if (!IS_PRODUCTION) {
+        if (shouldLog) console.log("[AUTH DEBUG] Authorize called with credentials:", credentials ? "YES" : "NO");
+        if (!IS_PRODUCTION && shouldLog) {
           console.log("[AUTH DEBUG] Request metadata:", {
             hasAuthHeader: !!headers?.["authorization"],
             hasCookie: !!headers?.["cookie"],
@@ -168,7 +172,7 @@ export const authOptions: NextAuthOptions = {
         // ═══════════════════════════════════════════════════════════
 
         if (credentials?.password?.startsWith("wp-sso-hmac:")) {
-          console.log("[AUTH DEBUG] Processing HMAC token");
+          if (shouldLog) console.log("[AUTH DEBUG] Processing HMAC token");
           if (!isProxySecretConfigured()) {
             await auditLog("LOGIN_BLOCKED_NO_SECRET", { reason: "proxy_secret_not_configured" }, ip);
             return null;
@@ -213,7 +217,7 @@ export const authOptions: NextAuthOptions = {
 
         if (IS_PRODUCTION) {
           const TRUSTED_PROXY_IPS = process.env.TRUSTED_PROXY_IPS?.split(",") || ["127.0.0.1", "::1"];
-          if (!TRUSTED_PROXY_IPS.some(trusted => ip.includes(trusted))) {
+          if (!TRUSTED_PROXY_IPS.includes(ip)) {
             await auditLog("LOGIN_BLOCKED_UNTRUSTED_PROXY", { reason: "untrusted_proxy_ip", ip }, ip);
             return null;
           }
@@ -323,6 +327,6 @@ export const authOptions: NextAuthOptions = {
     },
   },
 
-  debug: !IS_PRODUCTION, // Временно включите для продакшена
+  debug: false,
   theme: undefined,
 };

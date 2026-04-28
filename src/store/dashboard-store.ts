@@ -90,6 +90,8 @@ interface DashboardState {
   dealsLoading: boolean;
   dealsError: string | null;
   dealsTotal: number;
+  dealsTruncated: boolean;
+  dealsFetched: number;
 
   // Date filter
   dateFilter: DateFilter;
@@ -122,9 +124,11 @@ interface DashboardState {
 
   // Company data mapping (ID -> Company Data)
   companiesData: Record<string, any>;
+  companiesDataFetchedAt: Record<string, number>;
 
   // Activities data mapping (Deal ID -> { last: ActivityData, next: ActivityData })
   activitiesData: Record<string, any>;
+  activitiesDataFetchedAt: Record<string, number>;
 
   // ─── Actions ───
   checkConfig: () => Promise<void>;
@@ -196,7 +200,7 @@ function getDateFilterRange(filter: DateFilter): Record<string, string> {
   return bitrixFilter;
 }
 
-export const DEFAULT_COLUMNS = [...DEAL_TABLE_DEFAULT_COLUMNS];
+export const DEFAULT_COLUMNS = [...DEAL_TABLE_DEFAULT_COLUMNS] as string[];
 
 const sortColumns = (columns: string[]) => {
   return [...columns].sort((a, b) => {
@@ -234,6 +238,8 @@ export const useDashboardStore = create<DashboardState>()(
       dealsLoading: false,
       dealsError: null,
       dealsTotal: 0,
+      dealsTruncated: false,
+      dealsFetched: 0,
 
       // Date filter
       dateFilter: { preset: "all" },
@@ -262,7 +268,9 @@ export const useDashboardStore = create<DashboardState>()(
       savedViews: [],
       userNames: {},
       companiesData: {},
+      companiesDataFetchedAt: {},
       activitiesData: {},
+      activitiesDataFetchedAt: {},
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -316,12 +324,9 @@ export const useDashboardStore = create<DashboardState>()(
           const currentSelected = get().selectedColumns;
           const availableFields = get().fields;
           
-          const isOldDefault = currentSelected.length === 14 && currentSelected.includes("ACTIVITY_LAST");
-          const isNewDefault = currentSelected.length === DEFAULT_COLUMNS.length && DEFAULT_COLUMNS.every((col) => currentSelected.includes(col));
-          
-          const isGenuineUserCustomisation = !isOldDefault && !isNewDefault && currentSelected.length > 0;
-
-          if (!isGenuineUserCustomisation && availableFields.length > 0) {
+          // Migration logic is now handled by Zustand persist migrate function
+          // We just need to make sure we have valid columns selected
+          if (currentSelected.length === 0 && availableFields.length > 0) {
             const availableDefaults = DEFAULT_COLUMNS.filter((col) =>
               availableFields.some((f) => f.id === col)
             );
@@ -330,16 +335,6 @@ export const useDashboardStore = create<DashboardState>()(
               set({ selectedColumns: [availableFields[0].id] });
             } else {
               set({ selectedColumns: availableDefaults });
-            }
-          } else if (!currentSelected.includes(RESPONSIBLE_FIELD_ID)) {
-            // Migration: Ensure responsible column is present after CLOSEDATE
-            const closeDateIndex = currentSelected.indexOf("CLOSEDATE");
-            if (closeDateIndex !== -1) {
-              const newColumns = [...currentSelected];
-              newColumns.splice(closeDateIndex + 1, 0, RESPONSIBLE_FIELD_ID);
-              set({ selectedColumns: newColumns });
-            } else {
-              set({ selectedColumns: [...currentSelected, RESPONSIBLE_FIELD_ID] });
             }
           }
         } catch (error) {
@@ -406,6 +401,8 @@ export const useDashboardStore = create<DashboardState>()(
           set({
             allDeals: data.deals,
             dealsTotal: data.total,
+            dealsTruncated: data.truncated || false,
+            dealsFetched: data.fetched || data.deals.length,
             dealsLoading: false,
             isDemoMode: false,
             connectionStatus: "connected",
@@ -420,26 +417,12 @@ export const useDashboardStore = create<DashboardState>()(
           // Fetch activities data (non-blocking)
           get().fetchActivitiesData();
         } catch (error) {
-          const { isDemoMode } = get();
-          if (isDemoMode) {
-            const demoDeals = generateDemoDeals(150);
-            set({
-              allDeals: demoDeals,
-              dealsTotal: demoDeals.length,
-              dealsLoading: false,
-              dealsError: null,
-              connectionStatus: "demo",
-            });
-            get().applyClientFilters();
-            // Fetch demo user names
-            get().fetchUserNames();
-          } else {
-            set({
-              dealsLoading: false,
-              dealsError: "Failed to load data",
-              connectionStatus: "disconnected",
-            });
-          }
+          const message = error instanceof Error ? error.message : "Не удалось загрузить данные";
+          set({
+            dealsLoading: false,
+            dealsError: message,
+            connectionStatus: "disconnected",
+          });
         }
       },
 
@@ -560,7 +543,10 @@ export const useDashboardStore = create<DashboardState>()(
         set({ deals: filtered, currentPage: newPage });
       },
 
-      setSearchQuery: (query) => set({ searchQuery: query, currentPage: 1 }),
+      setSearchQuery: (query) => {
+        set({ searchQuery: query, currentPage: 1 });
+        get().applyClientFilters();
+      },
 
       setColumnSort: (sort) => set({ columnSort: sort, currentPage: 1 }),
 
@@ -731,8 +717,15 @@ export const useDashboardStore = create<DashboardState>()(
 
         if (uniqueIds.length === 0) return;
 
-        // Only fetch IDs we don't already have data for
-        const missingIds = uniqueIds.filter((id) => !companiesData[id]);
+        // Only fetch IDs we don't already have data for or if data is older than 5 minutes
+        const now = Date.now();
+        const missingIds = uniqueIds.filter((id) => {
+          const cached = companiesData[id];
+          const fetchedAt = get().companiesDataFetchedAt[id];
+          if (!cached) return true;
+          if (!fetchedAt || now - fetchedAt > 5 * 60 * 1000) return true;
+          return false;
+        });
         if (missingIds.length === 0) return;
 
         // Determine which company fields to fetch based on selected columns
@@ -760,13 +753,23 @@ export const useDashboardStore = create<DashboardState>()(
           }
           const data = await response.json();
           if (data.success && data.companies) {
-            const newCompaniesData = { ...companiesData, ...data.companies };
-            // Prune cache to only keep companies present in allDeals
-            const validCompanyIds = new Set(get().allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
-            for (const id in newCompaniesData) {
-              if (!validCompanyIds.has(id)) delete newCompaniesData[id];
-            }
-            set({ companiesData: newCompaniesData });
+            set((state) => {
+              const newCompaniesData = { ...state.companiesData, ...data.companies };
+              const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
+              const now = Date.now();
+              for (const id in data.companies) {
+                newCompaniesDataFetchedAt[id] = now;
+              }
+              // Prune cache to only keep companies present in allDeals
+              const validCompanyIds = new Set(state.allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
+              for (const id in newCompaniesData) {
+                if (!validCompanyIds.has(id)) {
+                  delete newCompaniesData[id];
+                  delete newCompaniesDataFetchedAt[id];
+                }
+              }
+              return { companiesData: newCompaniesData, companiesDataFetchedAt: newCompaniesDataFetchedAt };
+            });
           }
         } catch {
           console.warn("[Dashboard] Failed to fetch companies data");
@@ -789,8 +792,15 @@ export const useDashboardStore = create<DashboardState>()(
 
         if (uniqueIds.length === 0) return;
 
-        // Only fetch IDs we don't already have data for
-        const missingIds = uniqueIds.filter((id) => !activitiesData[id]);
+        // Only fetch IDs we don't already have data for or if data is older than 5 minutes
+        const now = Date.now();
+        const missingIds = uniqueIds.filter((id) => {
+          const cached = activitiesData[id];
+          const fetchedAt = get().activitiesDataFetchedAt[id];
+          if (!cached) return true;
+          if (!fetchedAt || now - fetchedAt > 5 * 60 * 1000) return true;
+          return false;
+        });
         if (missingIds.length === 0) return;
 
         try {
@@ -808,13 +818,23 @@ export const useDashboardStore = create<DashboardState>()(
           }
           const data = await response.json();
           if (data.success && data.activities) {
-            const newActivitiesData = { ...activitiesData, ...data.activities };
-            // Prune cache to only keep deals present in allDeals
-            const validDealIds = new Set(get().allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
-            for (const id in newActivitiesData) {
-              if (!validDealIds.has(id)) delete newActivitiesData[id];
-            }
-            set({ activitiesData: newActivitiesData });
+            set((state) => {
+              const newActivitiesData = { ...state.activitiesData, ...data.activities };
+              const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+              const now = Date.now();
+              for (const id in data.activities) {
+                newActivitiesDataFetchedAt[id] = now;
+              }
+              // Prune cache to only keep deals present in allDeals
+              const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
+              for (const id in newActivitiesData) {
+                if (!validDealIds.has(id)) {
+                  delete newActivitiesData[id];
+                  delete newActivitiesDataFetchedAt[id];
+                }
+              }
+              return { activitiesData: newActivitiesData, activitiesDataFetchedAt: newActivitiesDataFetchedAt };
+            });
           }
         } catch {
           console.warn("[Dashboard] Failed to fetch activities data");
@@ -823,6 +843,33 @@ export const useDashboardStore = create<DashboardState>()(
     }),
     {
       name: "bitrix-bi-dashboard",
+      version: 2,
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0 || version === 1) {
+          // Migration from older versions
+          const state = persistedState as DashboardState;
+          if (state.selectedColumns) {
+            const currentSelected = state.selectedColumns;
+            const isOldDefault = currentSelected.length === 14 && currentSelected.includes("ACTIVITY_LAST");
+            const isNewDefault = currentSelected.length === DEFAULT_COLUMNS.length && DEFAULT_COLUMNS.every((col) => currentSelected.includes(col));
+            const isGenuineUserCustomisation = !isOldDefault && !isNewDefault && currentSelected.length > 0;
+            
+            if (!isGenuineUserCustomisation) {
+              state.selectedColumns = DEFAULT_COLUMNS;
+            } else if (!currentSelected.includes(RESPONSIBLE_FIELD_ID)) {
+              const closeDateIndex = currentSelected.indexOf("CLOSEDATE");
+              if (closeDateIndex !== -1) {
+                const newColumns = [...currentSelected];
+                newColumns.splice(closeDateIndex + 1, 0, RESPONSIBLE_FIELD_ID);
+                state.selectedColumns = newColumns;
+              } else {
+                state.selectedColumns = [...currentSelected, RESPONSIBLE_FIELD_ID];
+              }
+            }
+          }
+        }
+        return persistedState;
+      },
       partialize: (state) => ({
         selectedColumns: state.selectedColumns,
         dateFilter: state.dateFilter,

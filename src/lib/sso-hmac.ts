@@ -94,6 +94,11 @@ export async function verifySsoToken(token: string): Promise<SsoTokenPayload | n
 
   // Check nonce to prevent replay attacks
   try {
+    // Cleanup old nonces (older than 10 minutes)
+    await db.usedNonce.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - 600_000) } }
+    }).catch(e => console.error("[SSO-HMAC] Nonce cleanup failed:", e));
+
     const existing = await db.usedNonce.findUnique({
       where: { nonce: signature }
     });
@@ -147,6 +152,11 @@ export async function verifySsoUrlParams(
 
   // Check nonce to prevent replay attacks
   try {
+    // Cleanup old nonces (older than 10 minutes)
+    await db.usedNonce.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - 600_000) } }
+    }).catch(e => console.error("[SSO-HMAC] Nonce cleanup failed:", e));
+
     const existing = await db.usedNonce.findUnique({
       where: { nonce: signature }
     });

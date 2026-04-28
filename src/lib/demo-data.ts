@@ -257,6 +257,7 @@ export function generateDemoDeals(count: number = 150): Record<string, string | 
     const isWon = Math.random() > 0.6;
     const isLost = !isWon && Math.random() > 0.7;
     const stage = isWon ? "WON" : isLost ? "LOSE" : randomItem(STAGES.slice(0, 4));
+    const responsible = randomItem(RESPONSIBLE_PERSONS);
 
     deals.push({
       ID: String(1000 + i),
@@ -271,8 +272,6 @@ export function generateDemoDeals(count: number = 150): Record<string, string | 
       CLOSEDATE: isWon || isLost ? randomDate(30) : "",
       COMMENTS: Math.random() > 0.7 ? "Требуется согласование с техническим отделом" : "",
       SOURCE_ID: Math.random() > 0.5 ? "WEB" : "CALL",
-      ASSIGNED_BY_ID: randomItem(RESPONSIBLE_PERSONS).ID,
-      ASSIGNED_BY_NAME: randomItem(RESPONSIBLE_PERSONS).NAME,
       DATE_CREATE: randomDatetime(90),
       DATE_MODIFY: randomDatetime(30),
 
@@ -312,6 +311,8 @@ export function generateDemoDeals(count: number = 150): Record<string, string | 
       UF_CRM_1774880017: Math.random() > 0.7 ? "Требуется анализ пробы перед отгрузкой" : "",
       UF_CRM_1774880111684: Math.random() > 0.7 ? "1" : "0",
       UF_CRM_1774880251970: isLost ? randomItem(REFUSAL_REASONS) : "",
+      ASSIGNED_BY_ID: responsible.ID,
+      ASSIGNED_BY_NAME: responsible.NAME,
     });
   }
 

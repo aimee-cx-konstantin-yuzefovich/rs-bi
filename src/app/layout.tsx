@@ -28,9 +28,6 @@ export const metadata: Metadata = {
   title: "Корпоративный BI-терминал RusSilica | CRM-аналитика в реальном времени",
   description:
     "BI-терминал RusSilica — аналитика продаж Bitrix24 в реальном времени: сделки, фильтры, воронки, ответственные, KPI-карточки и экспорт таблиц.",
-  icons: {
-    icon: "/russilica-logo.png",
-  },
   robots: {
     index: false,
     follow: false,

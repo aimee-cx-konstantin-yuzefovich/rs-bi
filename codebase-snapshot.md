@@ -41,8 +41,6 @@ The content is organized as follows:
 
 <directory_structure>
 prisma/
-  db/
-    audit.db
   schema.prisma
 public/
   robots.txt
@@ -453,7 +451,7 @@ export function ConfigBanner() {
   const { isConfigured, isDemoMode } = useDashboardStore();
   const [dismissed, setDismissed] = useState(false);
 
-  if (dismissed || isConfigured === null) return null;
+  if (dismissed || isConfigured === null || isDemoMode) return null;
 
   if (isConfigured && !isDemoMode) {
     return (
@@ -6688,7 +6686,7 @@ import type {
 } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+const TOAST_REMOVE_DELAY = 5000
 
 type ToasterToast = ToastProps & {
   id: string
@@ -7178,6 +7176,8 @@ export function generateDemoDeals(count: number = 150): Record<string, string | 
       DATE_CREATE: randomDatetime(90),
       DATE_MODIFY: randomDatetime(30),
 
+      const responsible = randomItem(RESPONSIBLE_PERSONS);
+
       // Custom fields
       UF_CRM_1584459653509: randomItem(SKLADS),
       UF_CRM_1584459666824: randomDate(60),
@@ -7214,6 +7214,8 @@ export function generateDemoDeals(count: number = 150): Record<string, string | 
       UF_CRM_1774880017: Math.random() > 0.7 ? "Требуется анализ пробы перед отгрузкой" : "",
       UF_CRM_1774880111684: Math.random() > 0.7 ? "1" : "0",
       UF_CRM_1774880251970: isLost ? randomItem(REFUSAL_REASONS) : "",
+      ASSIGNED_BY_ID: responsible.ID,
+      ASSIGNED_BY_NAME: responsible.NAME,
     });
   }
 
@@ -7320,6 +7322,7 @@ next-env.d.ts
 deploy-prod.zip
 db/custom.db
 db/audit.db
+prisma/db/
 .roo/
 .kilo/
 agent-ctx/
@@ -7466,54 +7469,59 @@ CMD ["node", "server.js"]
 </file>
 
 <file path="eslint.config.mjs">
-import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
-import nextTypescript from "eslint-config-next/typescript";
+import { FlatCompat } from "@eslint/eslintrc";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
-  rules: {
-    // TypeScript rules
-    "@typescript-eslint/no-explicit-any": "off",
-    "@typescript-eslint/no-unused-vars": "off",
-    "@typescript-eslint/no-non-null-assertion": "off",
-    "@typescript-eslint/ban-ts-comment": "off",
-    "@typescript-eslint/prefer-as-const": "off",
-    "@typescript-eslint/no-unused-disable-directive": "off",
-    
-    // React rules
-    "react-hooks/exhaustive-deps": "off",
-    "react-hooks/purity": "off",
-    "react/no-unescaped-entities": "off",
-    "react/display-name": "off",
-    "react/prop-types": "off",
-    "react-compiler/react-compiler": "off",
-    
-    // Next.js rules
-    "@next/next/no-img-element": "off",
-    "@next/next/no-html-link-for-pages": "off",
-    
-    // General JavaScript rules
-    "prefer-const": "off",
-    "no-unused-vars": "off",
-    "no-console": "off",
-    "no-debugger": "off",
-    "no-empty": "off",
-    "no-irregular-whitespace": "off",
-    "no-case-declarations": "off",
-    "no-fallthrough": "off",
-    "no-mixed-spaces-and-tabs": "off",
-    "no-redeclare": "off",
-    "no-undef": "off",
-    "no-unreachable": "off",
-    "no-useless-escape": "off",
+const compat = new FlatCompat({
+  baseDirectory: __dirname,
+});
+
+const eslintConfig = [
+  ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      // TypeScript rules
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unused-vars": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/ban-ts-comment": "off",
+      "@typescript-eslint/prefer-as-const": "off",
+      "@typescript-eslint/no-unused-disable-directive": "off",
+      
+      // React rules
+      "react-hooks/exhaustive-deps": "off",
+      "react-hooks/purity": "off",
+      "react/no-unescaped-entities": "off",
+      "react/display-name": "off",
+      "react/prop-types": "off",
+      "react-compiler/react-compiler": "off",
+      
+      // Next.js rules
+      "@next/next/no-img-element": "off",
+      "@next/next/no-html-link-for-pages": "off",
+      
+      // General JavaScript rules
+      "prefer-const": "off",
+      "no-unused-vars": "off",
+      "no-console": "off",
+      "no-debugger": "off",
+      "no-empty": "off",
+      "no-irregular-whitespace": "off",
+      "no-case-declarations": "off",
+      "no-fallthrough": "off",
+      "no-mixed-spaces-and-tabs": "off",
+      "no-redeclare": "off",
+      "no-undef": "off",
+      "no-unreachable": "off",
+      "no-useless-escape": "off",
+    },
   },
-}, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
-}];
+  { ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"] }
+];
 
 export default eslintConfig;
 </file>
@@ -7532,7 +7540,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // SECURITY: Remove X-Powered-By header to prevent server fingerprinting
   poweredByHeader: false,
-  // Security headers and rate limiting are handled in src/proxy.ts (Next.js 16 convention)
+  // Security headers and rate limiting are handled in src/middleware.ts (Next.js 16 convention)
 };
 
 export default nextConfig;
@@ -7551,7 +7559,6 @@ import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
 
 const config: Config = {
-    darkMode: "class",
     content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -7665,8 +7672,7 @@ test();
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -8312,6 +8318,7 @@ Stage Summary:
 <file path="src/app/api/auth/wp-login/route.ts">
 import { NextResponse } from "next/server";
 import { WP_LOGIN_URL } from "@/lib/config.server";
+import dns from "dns/promises";
 
 export async function POST(request: Request) {
   try {
@@ -8333,19 +8340,27 @@ export async function POST(request: Request) {
       throw new Error("WP_LOGIN_URL must use HTTPS");
     }
     const hostname = parsedUrl.hostname;
-    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
-    const isAwsMetadata = hostname === '169.254.169.254';
-    const isPrivate = hostname.startsWith('10.') || hostname.startsWith('192.168.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
+    
+    // Resolve hostname to IP to prevent DNS rebinding and check actual IP
+    const lookupResult = await dns.lookup(hostname);
+    const ip = lookupResult.address;
+    
+    const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0';
+    const isAwsMetadata = ip === '169.254.169.254';
+    const isPrivate = ip.startsWith('10.') || ip.startsWith('192.168.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip);
+    
     if (isLocalhost || isAwsMetadata || isPrivate) {
       throw new Error("WP_LOGIN_URL cannot point to private IP ranges or localhost");
     }
 
-    const apiUrl = `${wpBaseUrl}/wp-login.php?action=headless_auth`;
+    // Connect directly to the resolved IP to prevent DNS rebinding
+    const apiUrl = `https://${ip}${parsedUrl.pathname}/wp-login.php?action=headless_auth`;
 
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Host": hostname, // Pass the original hostname
       },
       body: JSON.stringify({ email, password }),
       cache: "no-store",
@@ -8880,9 +8895,6 @@ export const metadata: Metadata = {
   title: "Корпоративный BI-терминал RusSilica | CRM-аналитика в реальном времени",
   description:
     "BI-терминал RusSilica — аналитика продаж Bitrix24 в реальном времени: сделки, фильтры, воронки, ответственные, KPI-карточки и экспорт таблиц.",
-  icons: {
-    icon: "/russilica-logo.png",
-  },
   robots: {
     index: false,
     follow: false,
@@ -8961,6 +8973,7 @@ export default function DashboardPage() {
   }, [status, router]);
 
   // Handle session invalidation (password changed, account deactivated, etc.)
+  // Note: session.error is not currently set by auth callbacks, but kept for future use
   useEffect(() => {
     if (session && session.error === "SessionInvalid") {
       router.replace("/login");
@@ -9240,6 +9253,14 @@ export function LoadingScreen() {
   const [fadingOut, setFadingOut] = useState(false);
   const [timestamps, setTimestamps] = useState<string[]>([]);
   const cancelledRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (appLoaded) return;
@@ -9249,7 +9270,7 @@ export function LoadingScreen() {
 
     const scheduleTimer = (fn: () => void, ms: number) => {
       const id = setTimeout(() => {
-        if (!cancelledRef.current) fn();
+        if (!cancelledRef.current && isMountedRef.current) fn();
       }, ms);
       timers.push(id);
       return id;
@@ -9269,7 +9290,7 @@ export function LoadingScreen() {
       } else {
         // All lines shown — wait for data to finish loading before fading out.
         const waitForData = () => {
-          if (cancelledRef.current) return;
+          if (cancelledRef.current || !isMountedRef.current) return;
           
           // Get latest state directly from the store to avoid useEffect re-runs
           const state = useDashboardStore.getState();
@@ -9277,7 +9298,9 @@ export function LoadingScreen() {
           if (!state.fieldsLoading && !state.dealsLoading) {
             setFadingOut(true);
             scheduleTimer(() => {
-              setAppLoaded(true);
+              if (isMountedRef.current && !cancelledRef.current) {
+                setAppLoaded(true);
+              }
             }, 500);
           } else {
             // Data still loading — check again in 200ms
@@ -9292,10 +9315,12 @@ export function LoadingScreen() {
 
     // Safety timeout: force load after 10s even if data hasn't arrived
     scheduleTimer(() => {
-      if (!cancelledRef.current && !useDashboardStore.getState().appLoaded) {
+      if (!cancelledRef.current && isMountedRef.current && !useDashboardStore.getState().appLoaded) {
         setFadingOut(true);
         scheduleTimer(() => {
-          setAppLoaded(true);
+          if (isMountedRef.current && !cancelledRef.current) {
+            setAppLoaded(true);
+          }
         }, 500);
       }
     }, 10_000);
@@ -9456,7 +9481,7 @@ export function ResponsibleFilter() {
                 <Check className="h-3 w-3 text-brand-orange" />
               )}
             </span>
-            <span className="flex-1 truncate ответственный-имя">{option.name}</span>
+            <span className="flex-1 truncate">{option.name}</span>
             <span className="text-[10px] text-muted-foreground tabular-nums">
               {option.count}
             </span>
@@ -9494,12 +9519,17 @@ export function StatsCards() {
     const dealsWithValue = deals.filter(d => parseFloat(String(d.OPPORTUNITY || "0")) > 0);
     const avgDeal = dealsWithValue.length > 0 ? totalOpportunity / dealsWithValue.length : 0;
 
-    // Won/lost deals — Win Rate is calculated as percentage of won deals out of total deals
+    // Won/lost deals — Win Rate is calculated as percentage of won deals out of total closed deals
     const wonDeals = deals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
       return stage === "WON";
     }).length;
-    const winRate = totalDeals > 0 ? (wonDeals / totalDeals) * 100 : 0;
+    const lostDeals = deals.filter((deal) => {
+      const stage = String(deal.STAGE_ID || "");
+      return stage === "LOSE";
+    }).length;
+    const totalClosed = wonDeals + lostDeals;
+    const winRate = totalClosed > 0 ? (wonDeals / totalClosed) * 100 : 0;
 
     // Currency
     const currency = deals[0]?.CURRENCY_ID || deals[0]?.CURRENCY || "RUB";
@@ -9849,7 +9879,7 @@ export const DEAL_STAGES = {
   // Custom pipeline stages — verify these match your Bitrix24 funnel settings
   NEW: "NEW",
   PREPARATION: "PREPARATION",
-  INVOICE_SENT: "PREPAYMENT_INVOICE",  // "Счёт выставлен"
+  INVOICE_SENT: "PREPAYMENT_INVOICE",
   IN_PROGRESS: "EXECUTING",
 } as const;
 
@@ -9881,7 +9911,6 @@ export const ALERT_THRESHOLDS = {
 
 <file path="src/lib/export-utils.ts">
 import * as XLSX from "xlsx";
-import type { FieldInfo, DealData } from "@/store/dashboard-store";
 
 /**
  * Export deals data to Excel (.xlsx) file.
@@ -9916,99 +9945,6 @@ export function exportToExcelWysiwyg(
   const dateStr = now.toISOString().slice(0, 10);
   XLSX.writeFile(wb, `russilica_deals_${dateStr}.xlsx`);
 }
-
-/**
- * Legacy export (kept for compatibility if needed)
- */
-export function exportToExcel(
-  deals: DealData[],
-  fields: FieldInfo[],
-  selectedColumns: string[]
-): void {
-  if (deals.length === 0) return;
-
-  const fieldMap = new Map(fields.map((f) => [f.id, f]));
-
-  const columns =
-    selectedColumns.length > 0 ? selectedColumns : Object.keys(deals[0] || {});
-
-  // Header row: use human-readable titles
-  const headers = columns.map((col) => {
-    const field = fieldMap.get(col);
-    return field?.title || col;
-  });
-
-  // Data rows: resolve list values where possible
-  const rows = deals.map((deal) =>
-    columns.map((col) => {
-      const raw = deal[col];
-      const field = fieldMap.get(col);
-
-      if (raw === null || raw === undefined || raw === "") return "";
-
-      // Handle arrays (multiple enumeration values)
-      if (Array.isArray(raw)) {
-        if (field?.listValues) {
-          return raw
-            .map((v) => {
-              const listVal = field.listValues?.find((lv) => lv.ID === String(v));
-              return listVal?.VALUE || String(v);
-            })
-            .join(", ");
-        }
-        return raw.join(", ");
-      }
-
-      // Resolve single enumeration values
-      if (field?.listValues && raw) {
-        const val = String(raw);
-        const listVal = field.listValues.find((lv) => lv.ID === val);
-        if (listVal) return listVal.VALUE;
-      }
-
-      // Handle money format (amount|currency)
-      if (field?.type === "money" && raw) {
-        const parts = String(raw).split("|");
-        const amount = parseFloat(parts[0]);
-        const currency = parts[1] || "";
-        if (!isNaN(amount)) {
-          return `${amount.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
-        }
-      }
-
-      // Handle boolean
-      if (field?.type === "boolean" || field?.type === "char") {
-        if (raw === "Y" || raw === "1") return "Да";
-        if (raw === "N" || raw === "0") return "Нет";
-      }
-
-      return String(raw);
-    })
-  );
-
-  // Create workbook and worksheet
-  const wsData = [headers, ...rows];
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  // Auto-size columns
-  const colWidths = headers.map((header, idx) => {
-    const maxLen = Math.max(
-      header.length,
-      ...rows.slice(0, 100).map((row) => String(row[idx] || "").length)
-    );
-    return { wch: Math.min(Math.max(maxLen + 2, 10), 60) };
-  });
-  ws["!cols"] = colWidths;
-
-  // Create workbook
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Сделки");
-
-  // Generate and download
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `russilica_deals_${dateStr}.xlsx`);
-}
 </file>
 
 <file path="src/middleware.ts">
@@ -10019,8 +9955,8 @@ import { IS_PRODUCTION } from "@/lib/config";
 /**
  * Security Proxy — RusSilica BI Terminal
  *
- * In Next.js 16, the file convention is `proxy.ts` (not `middleware.ts`).
- * The export MUST be named `proxy` for Next.js 16 to recognize it.
+ * In Next.js 16, the file convention is `middleware.ts`.
+ * The export MUST be named `middleware` for Next.js 16 to recognize it.
  *
  * WordPress SSO Architecture:
  * - Caddy reverse proxy adds auth headers to every request
@@ -10048,25 +9984,31 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
+declare global {
+  var __rateLimitInterval: NodeJS.Timeout | undefined;
+}
+
 const rateLimitMap = new Map<string, RateLimitEntry>();
 const MAX_RATE_LIMIT_ENTRIES = 10_000;
 
 // Cleanup old entries every 60 seconds
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of rateLimitMap.entries()) {
-    if (now > entry.resetAt) {
-      rateLimitMap.delete(key);
+if (!globalThis.__rateLimitInterval) {
+  globalThis.__rateLimitInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitMap.entries()) {
+      if (now > entry.resetAt) {
+        rateLimitMap.delete(key);
+      }
     }
-  }
-  if (rateLimitMap.size > MAX_RATE_LIMIT_ENTRIES) {
-    const entries = [...rateLimitMap.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
-    const toDelete = entries.slice(0, entries.length - MAX_RATE_LIMIT_ENTRIES);
-    for (const [key] of toDelete) {
-      rateLimitMap.delete(key);
+    if (rateLimitMap.size > MAX_RATE_LIMIT_ENTRIES) {
+      const entries = [...rateLimitMap.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
+      const toDelete = entries.slice(0, entries.length - MAX_RATE_LIMIT_ENTRIES);
+      for (const [key] of toDelete) {
+        rateLimitMap.delete(key);
+      }
     }
-  }
-}, 60_000);
+  }, 60_000);
+}
 
 // Different rate limits per endpoint type
 const RATE_LIMITS = {
@@ -10764,6 +10706,7 @@ export async function POST(request: NextRequest) {
         const data = await bitrixPost<{ result?: CompanyRecord[] }>(
           "crm.company.list",
           {
+            // The "@ID" operator is a Bitrix-specific filter operator that matches multiple values (IN array)
             FILTER: { "@ID": batchIds },
             SELECT: select,
           }
@@ -11299,7 +11242,7 @@ export function AlertsBell() {
     const now = new Date();
     const result: AlertItem[] = [];
 
-    // 1. Stalled Deals (Зависшие сделки)
+    // 1. Stalled Deals
     const thirtyDaysAgo = new Date(now.getTime() - ALERT_THRESHOLDS.STALLED_DEAL_DAYS * 24 * 60 * 60 * 1000);
     const stalledDeals = allDeals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
@@ -11322,10 +11265,10 @@ export function AlertsBell() {
       });
     }
 
-    // 2. Unpaid Large Deals (Неоплаченные крупные сделки)
+    // 2. Unpaid Large Deals
     const unpaidLarge = allDeals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
-      if (stage !== DEAL_STAGES.INVOICE_SENT && stage !== "FINAL_INVOICE") return false;
+      if (stage !== DEAL_STAGES.INVOICE_SENT) return false;
       const opportunity = parseFloat(String(deal.OPPORTUNITY || "0"));
       return opportunity > ALERT_THRESHOLDS.LARGE_DEAL_MIN_AMOUNT;
     });
@@ -11345,7 +11288,7 @@ export function AlertsBell() {
       });
     }
 
-    // 3. Win Rate Drop (Снижение Win Rate)
+    // 3. Win Rate Drop
     const wonDeals = allDeals.filter((d) => String(d.STAGE_ID) === DEAL_STAGES.WON);
     const lostDeals = allDeals.filter((d) => String(d.STAGE_ID) === DEAL_STAGES.LOST);
     const totalClosed = wonDeals.length + lostDeals.length;
@@ -11364,7 +11307,7 @@ export function AlertsBell() {
       }
     }
 
-    // 4. Large Deals Stuck in Negotiation (Крупные сделки на согласовании)
+    // 4. Large Deals Stuck in Negotiation
     const fourteenDaysAgo = new Date(now.getTime() - ALERT_THRESHOLDS.STUCK_NEGOTIATION_DAYS * 24 * 60 * 60 * 1000);
     const stuckLarge = allDeals.filter((deal) => {
       const opportunity = parseFloat(String(deal.OPPORTUNITY || "0"));
@@ -11393,7 +11336,7 @@ export function AlertsBell() {
       });
     }
 
-    // 5. New Deals This Week (Новые сделки за неделю)
+    // 5. New Deals This Week
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const newThisWeek = allDeals.filter((deal) => {
       const createStr = String(deal.DATE_CREATE || "");
@@ -11625,6 +11568,11 @@ export async function verifySsoToken(token: string): Promise<SsoTokenPayload | n
 
   // Check nonce to prevent replay attacks
   try {
+    // Cleanup old nonces (older than 10 minutes)
+    await db.usedNonce.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - 600_000) } }
+    }).catch(e => console.error("[SSO-HMAC] Nonce cleanup failed:", e));
+
     const existing = await db.usedNonce.findUnique({
       where: { nonce: signature }
     });
@@ -11678,6 +11626,11 @@ export async function verifySsoUrlParams(
 
   // Check nonce to prevent replay attacks
   try {
+    // Cleanup old nonces (older than 10 minutes)
+    await db.usedNonce.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - 600_000) } }
+    }).catch(e => console.error("[SSO-HMAC] Nonce cleanup failed:", e));
+
     const existing = await db.usedNonce.findUnique({
       where: { nonce: signature }
     });
@@ -11740,7 +11693,7 @@ export function timingSafeEqualString(a: string, b: string): boolean {
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
+    "start": "NODE_ENV=production node .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
@@ -12373,8 +12326,8 @@ export const authOptions: NextAuthOptions = {
           || headers?.["x-real-ip"]?.trim()
           || "unknown";
 
-        console.log("[AUTH DEBUG] Authorize called with credentials:", credentials ? "YES" : "NO");
-        if (!IS_PRODUCTION) {
+        if (shouldLog) console.log("[AUTH DEBUG] Authorize called with credentials:", credentials ? "YES" : "NO");
+        if (!IS_PRODUCTION && shouldLog) {
           console.log("[AUTH DEBUG] Request metadata:", {
             hasAuthHeader: !!headers?.["authorization"],
             hasCookie: !!headers?.["cookie"],
@@ -12388,7 +12341,7 @@ export const authOptions: NextAuthOptions = {
         // ═══════════════════════════════════════════════════════════
 
         if (credentials?.password?.startsWith("wp-sso-hmac:")) {
-          console.log("[AUTH DEBUG] Processing HMAC token");
+          if (shouldLog) console.log("[AUTH DEBUG] Processing HMAC token");
           if (!isProxySecretConfigured()) {
             await auditLog("LOGIN_BLOCKED_NO_SECRET", { reason: "proxy_secret_not_configured" }, ip);
             return null;
@@ -12543,7 +12496,7 @@ export const authOptions: NextAuthOptions = {
     },
   },
 
-  debug: !IS_PRODUCTION, // Временно включите для продакшена
+  debug: false,
   theme: undefined,
 };
 </file>
@@ -12576,7 +12529,7 @@ import { WP_LOGIN_URL } from "@/lib/config.server";
  * - Timing-safe comparison prevents timing attacks
  * - Corporate email domain check (defense-in-depth)
  * - HTML-encoding of user-supplied data prevents XSS
- * - Rate limiting via proxy.ts
+ * - Rate limiting via middleware.ts
  */
 
 /**
@@ -12590,7 +12543,7 @@ import { WP_LOGIN_URL } from "@/lib/config.server";
  */
 const SSO_PAGE_CSP = [
   "default-src 'none'",
-  "script-src 'unsafe-inline'",    // Required for auto-submit form
+  "script-src 'self' 'unsafe-inline'",    // Required for auto-submit form
   "style-src 'unsafe-inline'",      // Required for spinner animation
   "form-action 'self'",             // Only allow form submission to same origin
   "connect-src 'self'",             // Required to fetch CSRF token
@@ -12776,10 +12729,11 @@ async function handleWpCallback(request: NextRequest) {
       const biRole = mapWpRoleToBiRole(payload.role);
       if (shouldLog) console.log(`[WP-SSO] HMAC auth success: role=${biRole}`);
       // Generate internal SSO token for the auto-submit form
+      // We reuse the timestamp from the verified payload to maintain the original 5-minute window
       const ssoToken = generateSsoToken({
         email,
         role: biRole,
-        timestamp: Math.floor(Date.now() / 1000),
+        timestamp: payload.timestamp,
       });
 
       return new NextResponse(
@@ -13069,6 +13023,7 @@ export async function POST(request: NextRequest) {
       total: bitrixTotal,
       truncated,
       fetched: allDeals.length,
+      warning: truncated ? "Данные усечены. Показаны последние 1000 сделок." : undefined
     });
   } catch (error) {
     console.error("[Deals API Error] Full error details:", error);
@@ -13107,7 +13062,6 @@ import { useSession, signOut } from "next-auth/react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { useTableState } from "@/hooks/use-table-state";
 import { Button } from "@/components/ui/button";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeToggle } from "./theme-toggle";
 import { DateFilter } from "./date-filter";
 import { GlobalSearch } from "./global-search";
@@ -13200,10 +13154,9 @@ export function Header() {
   };
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <header className="z-30 header-gradient border-b border-white/10">
-        {/* Top row: Brand + Actions */}
-        <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
+    <header className="z-30 header-gradient border-b border-white/10">
+      {/* Top row: Brand + Actions */}
+      <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
           {/* Left: Brand */}
           <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
             <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
@@ -13323,7 +13276,6 @@ export function Header() {
         </div>
 
       </header>
-    </TooltipProvider>
   );
 }
 </file>
@@ -13868,11 +13820,11 @@ export const SYSTEM_FIELDS_TO_EXCLUDE = new Set([
   "DATE_CREATE",
   "TITLE",
   "TAX_VALUE",
-  "UF_CRM_692573380C4F0", // Импорт базы
-  "UF_CRM_1774878993375", // Количество счетов (из 1С)
-  "UF_CRM_6915D8C25162A", // Номер карты лояльности
-  "UF_CRM_69257337E7E9B", // Причина закрытия Лида
-  "UF_CRM_1774878835644", // Сумма счетов (из 1С)
+  "UF_CRM_692573380C4F0",
+  "UF_CRM_1774878993375",
+  "UF_CRM_6915D8C25162A",
+  "UF_CRM_69257337E7E9B",
+  "UF_CRM_1774878835644",
 ]);
 
 /**
@@ -13972,21 +13924,44 @@ export async function GET(request: NextRequest) {
     let start = 0;
     let iterations = 0;
     const MAX_ITERATIONS = 50; // 50 * 50 = 2500 users max
-
-    while (iterations < MAX_ITERATIONS) {
-      iterations++;
-      try {
-        const data = await bitrixPost<{
-          result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
-          next?: number;
-        }>("user.get", {
-          start,
-          // We don't strictly filter by ACTIVE because deals might be assigned to fired users
-        });
-
-        console.log(`[Users API] Fetched batch at start ${start}, got ${data.result?.length || 0} users`);
-
-        if (Array.isArray(data.result)) {
+    
+    // First request to get total count
+    const initialData = await bitrixPost<{
+      result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
+      total?: number;
+      next?: number;
+    }>("user.get", { start: 0 });
+    
+    if (Array.isArray(initialData.result)) {
+      for (const user of initialData.result) {
+        const fullName = [user.NAME, user.LAST_NAME, user.SECOND_NAME]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        userMap[user.ID] = fullName || `ID ${user.ID}`;
+      }
+    }
+    
+    const total = initialData.total || 0;
+    const promises = [];
+    
+    // Fetch remaining pages in parallel
+    if (total > 50) {
+      const remainingPages = Math.min(Math.ceil(total / 50) - 1, MAX_ITERATIONS - 1);
+      for (let i = 1; i <= remainingPages; i++) {
+        promises.push(
+          bitrixPost<{
+            result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
+          }>("user.get", { start: i * 50 }).catch(e => {
+            console.error(`[Users API] Failed to fetch users batch at start ${i * 50}:`, e);
+            return null;
+          })
+        );
+      }
+      
+      const results = await Promise.all(promises);
+      for (const data of results) {
+        if (data && Array.isArray(data.result)) {
           for (const user of data.result) {
             const fullName = [user.NAME, user.LAST_NAME, user.SECOND_NAME]
               .filter(Boolean)
@@ -13995,14 +13970,6 @@ export async function GET(request: NextRequest) {
             userMap[user.ID] = fullName || `ID ${user.ID}`;
           }
         }
-
-        if (!data.next || !Array.isArray(data.result) || data.result.length < 50) {
-          break;
-        }
-        start = data.next;
-      } catch (e) {
-        console.error(`[Users API] Failed to fetch users batch at start ${start}:`, e);
-        break;
       }
     }
 
@@ -14343,12 +14310,9 @@ export const useDashboardStore = create<DashboardState>()(
           const currentSelected = get().selectedColumns;
           const availableFields = get().fields;
           
-          const isOldDefault = currentSelected.length === 14 && currentSelected.includes("ACTIVITY_LAST");
-          const isNewDefault = currentSelected.length === DEFAULT_COLUMNS.length && DEFAULT_COLUMNS.every((col) => currentSelected.includes(col));
-          
-          const isGenuineUserCustomisation = !isOldDefault && !isNewDefault && currentSelected.length > 0;
-
-          if (!isGenuineUserCustomisation && availableFields.length > 0) {
+          // Migration logic is now handled by Zustand persist migrate function
+          // We just need to make sure we have valid columns selected
+          if (currentSelected.length === 0 && availableFields.length > 0) {
             const availableDefaults = DEFAULT_COLUMNS.filter((col) =>
               availableFields.some((f) => f.id === col)
             );
@@ -14357,16 +14321,6 @@ export const useDashboardStore = create<DashboardState>()(
               set({ selectedColumns: [availableFields[0].id] });
             } else {
               set({ selectedColumns: availableDefaults });
-            }
-          } else if (!currentSelected.includes(RESPONSIBLE_FIELD_ID)) {
-            // Migration: Ensure responsible column is present after CLOSEDATE
-            const closeDateIndex = currentSelected.indexOf("CLOSEDATE");
-            if (closeDateIndex !== -1) {
-              const newColumns = [...currentSelected];
-              newColumns.splice(closeDateIndex + 1, 0, RESPONSIBLE_FIELD_ID);
-              set({ selectedColumns: newColumns });
-            } else {
-              set({ selectedColumns: [...currentSelected, RESPONSIBLE_FIELD_ID] });
             }
           }
         } catch (error) {
@@ -14587,7 +14541,10 @@ export const useDashboardStore = create<DashboardState>()(
         set({ deals: filtered, currentPage: newPage });
       },
 
-      setSearchQuery: (query) => set({ searchQuery: query, currentPage: 1 }),
+      setSearchQuery: (query) => {
+        set({ searchQuery: query });
+        get().applyClientFilters();
+      },
 
       setColumnSort: (sort) => set({ columnSort: sort, currentPage: 1 }),
 
@@ -14787,13 +14744,15 @@ export const useDashboardStore = create<DashboardState>()(
           }
           const data = await response.json();
           if (data.success && data.companies) {
-            const newCompaniesData = { ...companiesData, ...data.companies };
-            // Prune cache to only keep companies present in allDeals
-            const validCompanyIds = new Set(get().allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
-            for (const id in newCompaniesData) {
-              if (!validCompanyIds.has(id)) delete newCompaniesData[id];
-            }
-            set({ companiesData: newCompaniesData });
+            set((state) => {
+              const newCompaniesData = { ...state.companiesData, ...data.companies };
+              // Prune cache to only keep companies present in allDeals
+              const validCompanyIds = new Set(state.allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
+              for (const id in newCompaniesData) {
+                if (!validCompanyIds.has(id)) delete newCompaniesData[id];
+              }
+              return { companiesData: newCompaniesData };
+            });
           }
         } catch {
           console.warn("[Dashboard] Failed to fetch companies data");
@@ -14835,13 +14794,15 @@ export const useDashboardStore = create<DashboardState>()(
           }
           const data = await response.json();
           if (data.success && data.activities) {
-            const newActivitiesData = { ...activitiesData, ...data.activities };
-            // Prune cache to only keep deals present in allDeals
-            const validDealIds = new Set(get().allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
-            for (const id in newActivitiesData) {
-              if (!validDealIds.has(id)) delete newActivitiesData[id];
-            }
-            set({ activitiesData: newActivitiesData });
+            set((state) => {
+              const newActivitiesData = { ...state.activitiesData, ...data.activities };
+              // Prune cache to only keep deals present in allDeals
+              const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
+              for (const id in newActivitiesData) {
+                if (!validDealIds.has(id)) delete newActivitiesData[id];
+              }
+              return { activitiesData: newActivitiesData };
+            });
           }
         } catch {
           console.warn("[Dashboard] Failed to fetch activities data");
@@ -14850,6 +14811,33 @@ export const useDashboardStore = create<DashboardState>()(
     }),
     {
       name: "bitrix-bi-dashboard",
+      version: 2,
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0 || version === 1) {
+          // Migration from older versions
+          const state = persistedState as DashboardState;
+          if (state.selectedColumns) {
+            const currentSelected = state.selectedColumns;
+            const isOldDefault = currentSelected.length === 14 && currentSelected.includes("ACTIVITY_LAST");
+            const isNewDefault = currentSelected.length === DEFAULT_COLUMNS.length && DEFAULT_COLUMNS.every((col) => currentSelected.includes(col));
+            const isGenuineUserCustomisation = !isOldDefault && !isNewDefault && currentSelected.length > 0;
+            
+            if (!isGenuineUserCustomisation) {
+              state.selectedColumns = DEFAULT_COLUMNS;
+            } else if (!currentSelected.includes(RESPONSIBLE_FIELD_ID)) {
+              const closeDateIndex = currentSelected.indexOf("CLOSEDATE");
+              if (closeDateIndex !== -1) {
+                const newColumns = [...currentSelected];
+                newColumns.splice(closeDateIndex + 1, 0, RESPONSIBLE_FIELD_ID);
+                state.selectedColumns = newColumns;
+              } else {
+                state.selectedColumns = [...currentSelected, RESPONSIBLE_FIELD_ID];
+              }
+            }
+          }
+        }
+        return persistedState;
+      },
       partialize: (state) => ({
         selectedColumns: state.selectedColumns,
         dateFilter: state.dateFilter,
@@ -14995,6 +14983,24 @@ export function DataTable() {
 
   // Empty state
   if (deals.length === 0) {
+    if (searchQuery || activeFilterCount > 0) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-4 animate-fade-in">
+            <div className="mx-auto h-16 w-16 rounded-2xl bg-muted flex items-center justify-center">
+              <Filter className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold">Ничего не найдено</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Попробуйте изменить параметры поиска или фильтры
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 animate-fade-in">
@@ -15154,6 +15160,13 @@ export function DataTable() {
                   </tr>
                 </thead>
                 <tbody>
+                  {paginatedDeals.length === 0 && (searchQuery || activeFilterCount > 0) && (
+                    <tr>
+                      <td colSpan={columns.length + 1} className="text-center py-8 text-muted-foreground">
+                        Ничего не найдено по фильтрам
+                      </td>
+                    </tr>
+                  )}
                   {paginatedDeals.map((deal, idx) => {
                     const dealId = deal.ID || deal.id || idx;
                     const rowIndex = (currentPage - 1) * pageSize + idx + 1;

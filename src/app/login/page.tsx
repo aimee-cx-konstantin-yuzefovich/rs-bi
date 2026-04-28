@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { signIn, getCsrfToken, useSession } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, AlertCircle, Loader2 } from "lucide-react";
 import { IS_PRODUCTION } from "@/lib/config";
@@ -21,16 +21,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [csrfToken, setCsrfToken] = useState<string | null>(null);
-
-  // Fetch CSRF token on mount
-  useEffect(() => {
-    let cancelled = false;
-    getCsrfToken().then(token => {
-      if (!cancelled) setCsrfToken(token ?? null);
-    });
-    return () => { cancelled = true; };
-  }, []);
 
   // If already authenticated, redirect to dashboard
   useEffect(() => {
@@ -80,7 +70,6 @@ export default function LoginPage() {
         email,
         password: authPassword,
         redirect: false,
-        csrfToken: csrfToken || undefined,
       });
 
       if (result?.error) {
@@ -182,11 +171,6 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
-
-            {/* Hidden CSRF token field */}
-            {csrfToken && (
-              <input type="hidden" name="csrfToken" value={csrfToken} />
-            )}
 
             {/* Submit button */}
             <button

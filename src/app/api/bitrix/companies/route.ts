@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
         const data = await bitrixPost<{ result?: CompanyRecord[] }>(
           "crm.company.list",
           {
+            // The "@ID" operator is a Bitrix-specific filter operator that matches multiple values (IN array)
             FILTER: { "@ID": batchIds },
             SELECT: select,
           }

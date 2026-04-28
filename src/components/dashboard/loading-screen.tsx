@@ -30,8 +30,17 @@ export function LoadingScreen() {
   const { appLoaded, setAppLoaded } = useDashboardStore();
   const [visibleLines, setVisibleLines] = useState(0);
   const [fadingOut, setFadingOut] = useState(false);
+  const fadingOutRef = useRef(false);
   const [timestamps, setTimestamps] = useState<string[]>([]);
   const cancelledRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (appLoaded) return;
@@ -41,7 +50,7 @@ export function LoadingScreen() {
 
     const scheduleTimer = (fn: () => void, ms: number) => {
       const id = setTimeout(() => {
-        if (!cancelledRef.current) fn();
+        if (!cancelledRef.current && isMountedRef.current) fn();
       }, ms);
       timers.push(id);
       return id;
@@ -61,15 +70,19 @@ export function LoadingScreen() {
       } else {
         // All lines shown — wait for data to finish loading before fading out.
         const waitForData = () => {
-          if (cancelledRef.current) return;
+          if (cancelledRef.current || !isMountedRef.current) return;
           
           // Get latest state directly from the store to avoid useEffect re-runs
           const state = useDashboardStore.getState();
           
           if (!state.fieldsLoading && !state.dealsLoading) {
+            if (fadingOutRef.current) return;
+            fadingOutRef.current = true;
             setFadingOut(true);
             scheduleTimer(() => {
-              setAppLoaded(true);
+              if (isMountedRef.current && !cancelledRef.current) {
+                setAppLoaded(true);
+              }
             }, 500);
           } else {
             // Data still loading — check again in 200ms
@@ -84,10 +97,14 @@ export function LoadingScreen() {
 
     // Safety timeout: force load after 10s even if data hasn't arrived
     scheduleTimer(() => {
-      if (!cancelledRef.current && !useDashboardStore.getState().appLoaded) {
+      if (!cancelledRef.current && isMountedRef.current && !useDashboardStore.getState().appLoaded) {
+        if (fadingOutRef.current) return;
+        fadingOutRef.current = true;
         setFadingOut(true);
         scheduleTimer(() => {
-          setAppLoaded(true);
+          if (isMountedRef.current && !cancelledRef.current) {
+            setAppLoaded(true);
+          }
         }, 500);
       }
     }, 10_000);

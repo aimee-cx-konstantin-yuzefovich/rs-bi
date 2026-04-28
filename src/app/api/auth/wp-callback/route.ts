@@ -25,7 +25,7 @@ import { WP_LOGIN_URL } from "@/lib/config.server";
  * - Timing-safe comparison prevents timing attacks
  * - Corporate email domain check (defense-in-depth)
  * - HTML-encoding of user-supplied data prevents XSS
- * - Rate limiting via proxy.ts
+ * - Rate limiting via middleware.ts
  */
 
 /**
@@ -39,7 +39,7 @@ import { WP_LOGIN_URL } from "@/lib/config.server";
  */
 const SSO_PAGE_CSP = [
   "default-src 'none'",
-  "script-src 'unsafe-inline'",    // Required for auto-submit form
+  "script-src 'self' 'unsafe-inline'",    // Required for auto-submit form
   "style-src 'unsafe-inline'",      // Required for spinner animation
   "form-action 'self'",             // Only allow form submission to same origin
   "connect-src 'self'",             // Required to fetch CSRF token
@@ -225,10 +225,11 @@ async function handleWpCallback(request: NextRequest) {
       const biRole = mapWpRoleToBiRole(payload.role);
       if (shouldLog) console.log(`[WP-SSO] HMAC auth success: role=${biRole}`);
       // Generate internal SSO token for the auto-submit form
+      // We reuse the timestamp from the verified payload to maintain the original 5-minute window
       const ssoToken = generateSsoToken({
         email,
         role: biRole,
-        timestamp: Math.floor(Date.now() / 1000),
+        timestamp: payload.timestamp,
       });
 
       return new NextResponse(
@@ -309,6 +310,7 @@ async function handleWpCallback(request: NextRequest) {
   // ═══════════════════════════════════════════════════════════
 
   if (shouldLog) console.log(`[WP-SSO] No valid auth, redirecting to WordPress login.`);
-  const callbackUrl = encodeURIComponent(`${biUrl}/api/auth/wp-callback`);
-  return NextResponse.redirect(`${WP_LOGIN_URL}?redirect_to=${callbackUrl}`);
+  const u = new URL(WP_LOGIN_URL);
+  u.searchParams.set("redirect_to", `${biUrl}/api/auth/wp-callback`);
+  return NextResponse.redirect(u.toString());
 }

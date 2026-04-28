@@ -23,12 +23,17 @@ export function StatsCards() {
     const dealsWithValue = deals.filter(d => parseFloat(String(d.OPPORTUNITY || "0")) > 0);
     const avgDeal = dealsWithValue.length > 0 ? totalOpportunity / dealsWithValue.length : 0;
 
-    // Won/lost deals — Win Rate is calculated as percentage of won deals out of total deals
+    // Won/lost deals — Win Rate is calculated as percentage of won deals out of total closed deals
     const wonDeals = deals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
       return stage === "WON";
     }).length;
-    const winRate = totalDeals > 0 ? (wonDeals / totalDeals) * 100 : 0;
+    const lostDeals = deals.filter((deal) => {
+      const stage = String(deal.STAGE_ID || "");
+      return stage === "LOSE";
+    }).length;
+    const totalClosed = wonDeals + lostDeals;
+    const winRate = totalClosed > 0 ? (wonDeals / totalClosed) * 100 : 0;
 
     // Currency
     const currency = deals[0]?.CURRENCY_ID || deals[0]?.CURRENCY || "RUB";

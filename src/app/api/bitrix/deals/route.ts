@@ -201,6 +201,7 @@ export async function POST(request: NextRequest) {
       total: bitrixTotal,
       truncated,
       fetched: allDeals.length,
+      warning: truncated ? "Данные усечены. Показаны последние 1000 сделок." : undefined
     });
   } catch (error) {
     console.error("[Deals API Error] Full error details:", error);
