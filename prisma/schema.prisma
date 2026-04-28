@@ -31,3 +31,12 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_logs")
 }
+
+// ─── SSO Replay Protection ───
+// Stores nonces from SSO tokens to prevent replay attacks.
+model UsedNonce {
+  nonce     String   @id
+  createdAt DateTime @default(now())
+
+  @@map("used_nonces")
+}

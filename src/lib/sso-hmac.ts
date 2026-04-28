@@ -17,6 +17,7 @@
  */
 
 import { createHmac, timingSafeEqual, createHash } from "crypto";
+import { db } from "@/lib/db";
 
 const PROXY_SECRET = process.env.PROXY_SECRET || "";
 const MAX_TOKEN_AGE_SECONDS = 300; // 5 minutes
@@ -51,7 +52,7 @@ export function generateSsoToken(payload: SsoTokenPayload): string {
  *
  * Token format: wp-sso-hmac:{email}:{role}:{timestamp}:{signature}
  */
-export function verifySsoToken(token: string): SsoTokenPayload | null {
+export async function verifySsoToken(token: string): Promise<SsoTokenPayload | null> {
   if (!PROXY_SECRET) return null;
 
   // Must start with our prefix
@@ -91,6 +92,23 @@ export function verifySsoToken(token: string): SsoTokenPayload | null {
     return null;
   }
 
+  // Check nonce to prevent replay attacks
+  try {
+    const existing = await db.usedNonce.findUnique({
+      where: { nonce: signature }
+    });
+    if (existing) {
+      console.warn(`[SSO-HMAC] Replay attack detected for nonce: ${signature}`);
+      return null;
+    }
+    await db.usedNonce.create({
+      data: { nonce: signature }
+    });
+  } catch (error) {
+    console.error("[SSO-HMAC] Error checking nonce:", error);
+    return null;
+  }
+
   return { email, role, timestamp };
 }
 
@@ -98,12 +116,12 @@ export function verifySsoToken(token: string): SsoTokenPayload | null {
  * Verify HMAC from URL parameters (used by wp-callback).
  * Parameters: email, role, ts (timestamp in seconds), sig (hex signature)
  */
-export function verifySsoUrlParams(
+export async function verifySsoUrlParams(
   email: string,
   role: string,
   timestampStr: string,
   signature: string
-): SsoTokenPayload | null {
+): Promise<SsoTokenPayload | null> {
   if (!PROXY_SECRET) return null;
   if (!email || !role || !timestampStr || !signature) return null;
 
@@ -124,6 +142,23 @@ export function verifySsoUrlParams(
   try {
     if (!timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expectedSignature, "hex"))) return null;
   } catch {
+    return null;
+  }
+
+  // Check nonce to prevent replay attacks
+  try {
+    const existing = await db.usedNonce.findUnique({
+      where: { nonce: signature }
+    });
+    if (existing) {
+      console.warn(`[SSO-HMAC] Replay attack detected for nonce: ${signature}`);
+      return null;
+    }
+    await db.usedNonce.create({
+      data: { nonce: signature }
+    });
+  } catch (error) {
+    console.error("[SSO-HMAC] Error checking nonce:", error);
     return null;
   }
 

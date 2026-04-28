@@ -154,7 +154,13 @@ export const authOptions: NextAuthOptions = {
           || "unknown";
 
         console.log("[AUTH DEBUG] Authorize called with credentials:", credentials ? "YES" : "NO");
-        console.log("[AUTH DEBUG] Request headers:", headers);
+        if (!IS_PRODUCTION) {
+          console.log("[AUTH DEBUG] Request metadata:", {
+            hasAuthHeader: !!headers?.["authorization"],
+            hasCookie: !!headers?.["cookie"],
+            ip: headers?.["x-forwarded-for"] ?? "unknown",
+          });
+        }
 
         // ═══════════════════════════════════════════════════════════
         // METHOD 1: HMAC SSO Token (from Headless API or wp-callback)
@@ -168,7 +174,7 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          const payload = verifySsoToken(credentials.password);
+          const payload = await verifySsoToken(credentials.password);
 
           if (!payload) {
             await auditLog("LOGIN_BLOCKED_INVALID_HMAC", { reason: "invalid_or_expired_hmac_token", email: credentials.email }, ip);
@@ -206,6 +212,12 @@ export const authOptions: NextAuthOptions = {
         // ═══════════════════════════════════════════════════════════
 
         if (IS_PRODUCTION) {
+          const TRUSTED_PROXY_IPS = process.env.TRUSTED_PROXY_IPS?.split(",") || ["127.0.0.1", "::1"];
+          if (!TRUSTED_PROXY_IPS.some(trusted => ip.includes(trusted))) {
+            await auditLog("LOGIN_BLOCKED_UNTRUSTED_PROXY", { reason: "untrusted_proxy_ip", ip }, ip);
+            return null;
+          }
+
           const proxySecret = headers?.["x-proxy-secret"];
           const headerEmail = headers?.["x-auth-user-email"];
           const headerRole = headers?.["x-auth-user-role"];

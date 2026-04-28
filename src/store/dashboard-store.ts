@@ -352,12 +352,19 @@ export const useDashboardStore = create<DashboardState>()(
             }
           }
         } catch (error) {
-          set({
-            fields: DEMO_FIELDS,
-            fieldsLoading: false,
-            isDemoMode: true,
-            fieldsError: null,
-          });
+          const { isDemoMode } = get();
+          if (isDemoMode) {
+            set({
+              fields: DEMO_FIELDS,
+              fieldsLoading: false,
+              fieldsError: null,
+            });
+          } else {
+            set({
+              fieldsLoading: false,
+              fieldsError: "Failed to load fields",
+            });
+          }
         }
       },
 
@@ -421,18 +428,26 @@ export const useDashboardStore = create<DashboardState>()(
           // Fetch activities data (non-blocking)
           get().fetchActivitiesData();
         } catch (error) {
-          const demoDeals = generateDemoDeals(150);
-          set({
-            allDeals: demoDeals,
-            dealsTotal: demoDeals.length,
-            dealsLoading: false,
-            isDemoMode: true,
-            dealsError: null,
-            connectionStatus: "demo",
-          });
-          get().applyClientFilters();
-          // Fetch demo user names
-          get().fetchUserNames();
+          const { isDemoMode } = get();
+          if (isDemoMode) {
+            const demoDeals = generateDemoDeals(150);
+            set({
+              allDeals: demoDeals,
+              dealsTotal: demoDeals.length,
+              dealsLoading: false,
+              dealsError: null,
+              connectionStatus: "demo",
+            });
+            get().applyClientFilters();
+            // Fetch demo user names
+            get().fetchUserNames();
+          } else {
+            set({
+              dealsLoading: false,
+              dealsError: "Failed to load data",
+              connectionStatus: "disconnected",
+            });
+          }
         }
       },
 
@@ -543,10 +558,17 @@ export const useDashboardStore = create<DashboardState>()(
           filtered = filtered.filter((deal) => String(deal.ASSIGNED_BY_ID || "") === responsibleFilter);
         }
 
-        set({ deals: filtered });
+        const { pageSize, currentPage } = get();
+        const totalPages = Math.ceil(filtered.length / pageSize);
+        let newPage = currentPage;
+        if (currentPage > totalPages) {
+          newPage = totalPages || 1;
+        }
+
+        set({ deals: filtered, currentPage: newPage });
       },
 
-      setSearchQuery: (query) => set({ searchQuery: query }),
+      setSearchQuery: (query) => set({ searchQuery: query, currentPage: 1 }),
 
       setColumnSort: (sort) => set({ columnSort: sort, currentPage: 1 }),
 

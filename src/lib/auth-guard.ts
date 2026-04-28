@@ -120,7 +120,7 @@ export async function persistAuditLog(
       data: {
         event,
         email: email || null,
-        role: typeof details?.role === "string" ? details.role : null,
+        role: typeof details?.role === "string" ? details.role : (typeof details?.actualRole === "string" ? details.actualRole : "unknown"),
         targetId: targetId || null,
         ip: ip || null,
         details: details ? JSON.stringify(details) : null,

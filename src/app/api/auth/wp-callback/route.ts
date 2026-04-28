@@ -207,7 +207,7 @@ async function handleWpCallback(request: NextRequest) {
   const sigParam = searchParams.get("sig");
 
   if (emailParam && roleParam && tsParam && sigParam) {
-    const payload = verifySsoUrlParams(emailParam, roleParam, tsParam, sigParam);
+    const payload = await verifySsoUrlParams(emailParam, roleParam, tsParam, sigParam);
 
     if (payload) {
       const email = payload.email.toLowerCase().trim();

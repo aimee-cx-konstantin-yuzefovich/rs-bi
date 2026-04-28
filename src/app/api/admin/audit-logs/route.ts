@@ -62,14 +62,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Validate limit and offset — parseInt returns NaN for non-numeric strings
-    const rawLimit = parseInt(searchParams.get("limit") || "100", 10);
-    const rawOffset = parseInt(searchParams.get("offset") || "0", 10);
+    // Validate limit and offset
+    const parsedLimit = Number(searchParams.get("limit"));
+    const parsedOffset = Number(searchParams.get("offset"));
 
-    // Ensure offset is non-negative — a negative offset is meaningless
-    // for pagination and could cause unexpected database behaviour.
-    const limit = Math.min(Number.isNaN(rawLimit) ? 100 : Math.max(1, rawLimit), 500);
-    const offset = Number.isNaN(rawOffset) ? 0 : Math.max(0, rawOffset);
+    const limit = Number.isFinite(parsedLimit) && searchParams.has("limit")
+      ? Math.max(0, Math.min(parsedLimit, 500))
+      : 100;
+
+    const offset = Number.isFinite(parsedOffset) && searchParams.has("offset")
+      ? Math.max(0, parsedOffset)
+      : 0;
 
     const where: Record<string, unknown> = {};
     if (eventParam) where.event = eventParam;

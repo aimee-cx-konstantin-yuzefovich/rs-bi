@@ -48,11 +48,15 @@ export function useTableState() {
       }
 
       if (colId.startsWith("COMPANY_")) {
-        const companyId = String(deal.COMPANY_ID || "");
-        if (!companyId) return "";
-        
         let companyFieldId = colId.replace("COMPANY_", "");
         if (companyFieldId === "ID") companyFieldId = "TITLE";
+
+        if (companyFieldId === "TITLE" && deal.COMPANY_TITLE) {
+          return String(deal.COMPANY_TITLE);
+        }
+
+        const companyId = String(deal.COMPANY_ID || "");
+        if (!companyId) return "";
         
         const company = companiesData[companyId];
         

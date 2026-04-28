@@ -188,10 +188,13 @@ export async function POST(request: NextRequest) {
       pageCount++;
     }
 
+    const truncated = bitrixTotal > allDeals.length;
+
     return NextResponse.json({
       success: true,
       deals: allDeals,
       total: bitrixTotal,
+      truncated,
       fetched: allDeals.length,
     });
   } catch (error) {

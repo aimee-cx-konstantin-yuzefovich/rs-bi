@@ -73,6 +73,13 @@ export function DataTable() {
 
   const activeFilterCount = columnFilters.filter((f) => f.value.trim()).length;
 
+  const totalPages = Math.ceil(sortedDeals.length / pageSize);
+
+  const paginatedDeals = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedDeals.slice(start, start + pageSize);
+  }, [sortedDeals, currentPage, pageSize]);
+
   // Loading state
   if (dealsLoading && deals.length === 0) {
     return (
@@ -292,6 +299,8 @@ export function DataTable() {
                                 raw={deal[colId]}
                                 resolved={resolved}
                                 field={fieldMap.get(colId)}
+                                deal={deal}
+                                colId={colId}
                               />
                             </td>
                           );
@@ -365,13 +374,20 @@ function CellValue({
   raw,
   resolved,
   field,
+  deal,
+  colId,
 }: {
   raw: string | string[] | number | null;
   resolved: string;
   field?: FieldInfo;
+  deal?: any;
+  colId?: string;
 }) {
   if (!resolved) {
-    return <span className="text-muted-foreground/30">—</span>;
+    if (colId === "COMPANY_TITLE") {
+      console.warn(`[Diagnostics] Empty COMPANY_TITLE for deal ${deal?.ID}. COMPANY_ID: ${deal?.COMPANY_ID}, COMPANY_TITLE in deal: ${deal?.COMPANY_TITLE}`);
+    }
+    return <span className="text-muted-foreground/30" title={colId === "COMPANY_TITLE" ? "Company data missing" : undefined}>—</span>;
   }
 
   // Boolean / char fields

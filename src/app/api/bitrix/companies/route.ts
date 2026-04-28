@@ -20,6 +20,29 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { ids, select } = body;
 
+    const ALLOWED_FIELDS = [
+      "ID",
+      "TITLE",
+      "ASSIGNED_BY_ID",
+      "COMPANY_TYPE",
+      "INDUSTRY",
+      "REVENUE",
+      "CURRENCY_ID",
+      "EMPLOYEES",
+      "COMMENTS",
+      "DATE_CREATE",
+      "DATE_MODIFY",
+      "IS_MY_COMPANY"
+    ];
+
+    const safeSelect = (select || []).filter((field: string) =>
+      ALLOWED_FIELDS.includes(field) || field.startsWith("UF_CRM_")
+    );
+
+    if (safeSelect.length === 0) {
+      return NextResponse.json({ error: "Invalid fields" }, { status: 400 });
+    }
+
     if (!Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ success: true, companies: {} });
     }
@@ -48,7 +71,7 @@ export async function POST(request: NextRequest) {
           "crm.company.list",
           {
             FILTER: { "@ID": batchIds },
-            SELECT: select || ["*"],
+            SELECT: safeSelect,
           }
         );
 

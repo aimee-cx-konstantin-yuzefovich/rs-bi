@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixPost } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
+import pLimit from "p-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -55,16 +56,17 @@ export async function POST(request: NextRequest) {
       const batchIds = validIds.slice(i, i + batchSize);
       
       try {
+        const limit = pLimit(5);
         // Fetch activities for each deal in parallel
         const activityPromises = batchIds.map(dealId => 
-          bitrixPost<{ result: ActivityData[] }>(
+          limit(() => bitrixPost<{ result: ActivityData[] }>(
             "crm.activity.list",
             {
               FILTER: { OWNER_TYPE_ID: 2, OWNER_ID: dealId },
               SELECT: ["ID", "OWNER_ID", "SUBJECT", "COMPLETED", "DESCRIPTION", "DEADLINE", "CREATED", "AUTHOR_ID", "RESPONSIBLE_ID", "TYPE_ID", "PROVIDER_ID", "PROVIDER_TYPE_ID"],
               ORDER: { CREATED: "DESC" },
             }
-          )
+          ))
         );
 
         const results = await Promise.allSettled(activityPromises);
