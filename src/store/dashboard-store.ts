@@ -196,13 +196,11 @@ function getDateFilterRange(filter: DateFilter): Record<string, string> {
   return bitrixFilter;
 }
 
-const DEFAULT_COLUMNS = [
+export const DEFAULT_COLUMNS = [
   "BEGINDATE", // Дата начала
   "DATE_MODIFY", // Дата изменения
   "CLOSEDATE", // Дата завершения
   "ASSIGNED_BY_ID", // Ответственный
-  "ACTIVITY_LAST", // Последнее дело
-  "ACTIVITY_NEXT", // Следующий шаг
   "UF_CRM_69257BBACD471", // Тип продукта
   "OPPORTUNITY", // Сумма
   "COMPANY_TITLE", // Наименование компании
@@ -318,15 +316,22 @@ export const useDashboardStore = create<DashboardState>()(
 
           const currentSelected = get().selectedColumns;
           const availableFields = get().fields;
-          if (currentSelected.length === 0 && availableFields.length > 0) {
+          
+          const isOldDefault = currentSelected.length === 14 && currentSelected.includes("ACTIVITY_LAST");
+          const isNewDefault = currentSelected.length === DEFAULT_COLUMNS.length && currentSelected.every((col, i) => col === DEFAULT_COLUMNS[i]);
+          
+          if ((currentSelected.length === 0 || isOldDefault || isNewDefault) && availableFields.length > 0) {
             const availableDefaults = DEFAULT_COLUMNS.filter((col) =>
               availableFields.some((f) => f.id === col)
             );
-            if (availableDefaults.length === 0) {
-              const first5 = availableFields.slice(0, 5).map((f) => f.id);
-              set({ selectedColumns: first5 });
+            const otherFields = availableFields
+              .map((f) => f.id)
+              .filter((id) => !availableDefaults.includes(id));
+            
+            if (availableDefaults.length === 0 && otherFields.length > 0) {
+              set({ selectedColumns: otherFields });
             } else {
-              set({ selectedColumns: availableDefaults });
+              set({ selectedColumns: [...availableDefaults, ...otherFields] });
             }
           }
         } catch (error) {

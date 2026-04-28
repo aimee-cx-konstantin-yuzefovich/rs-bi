@@ -1,6 +1,6 @@
 "use client";
 
-import { useDashboardStore, type FieldInfo } from "@/store/dashboard-store";
+import { useDashboardStore, type FieldInfo, DEFAULT_COLUMNS } from "@/store/dashboard-store";
 import {
   Sheet,
   SheetContent,
@@ -46,16 +46,18 @@ export function ColumnSelector() {
   };
 
   const handleReset = () => {
-    setSelectedColumns([
-      "TITLE",
-      "OPPORTUNITY",
-      "CURRENCY_ID",
-      "DATE_CREATE",
-      "STAGE_ID",
-      "UF_CRM_6915D8C2C31D0",
-      "UF_CRM_69259C45EC14B",
-      "UF_CRM_1584464068013",
-    ]);
+    const availableDefaults = DEFAULT_COLUMNS.filter((col) =>
+      fields.some((f) => f.id === col)
+    );
+    const otherFields = fields
+      .map((f) => f.id)
+      .filter((id) => !availableDefaults.includes(id));
+    
+    if (availableDefaults.length === 0 && otherFields.length > 0) {
+      setSelectedColumns(otherFields);
+    } else {
+      setSelectedColumns([...availableDefaults, ...otherFields]);
+    }
   };
 
   // Group fields: standard vs custom
