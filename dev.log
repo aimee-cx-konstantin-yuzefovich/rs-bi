@@ -3,7 +3,8 @@
 - Network:       http://192.168.1.2:3000
 - Environments: .env
 ✓ Ready in 2.4s
-⚠ Slow filesystem detected. The benchmark took 799ms. If /Users/constantinej⚠ Slow filesystem detected. The benchmark took 799ms. If /Users/constantinejozefowicz/Documents/Russilica BI Analytics/.next/dev is a network drive, consider moving it to a
-local folder.
-See more: https://nextjs.org/docs/app/guides/local-development
+
+etwork:       http://192.168.1.2:3000
+- Environments: .env
+✓ Ready in 2.4s
 
