@@ -122,10 +122,6 @@ interface DashboardState {
   // Activities data mapping (Deal ID -> { last: ActivityData, next: ActivityData })
   activitiesData: Record<string, any>;
 
-  // Export data
-  exportData: string[][];
-  exportColumns: string[];
-
   // ─── Actions ───
   checkConfig: () => Promise<void>;
   fetchFields: () => Promise<void>;
@@ -160,7 +156,6 @@ interface DashboardState {
   fetchCompaniesData: () => Promise<void>;
   fetchActivitiesData: () => Promise<void>;
   markAlertsAsRead: () => void;
-  setExportData: (data: string[][], columns: string[]) => void;
 }
 
 function getDateFilterRange(filter: DateFilter): Record<string, string> {
@@ -277,8 +272,6 @@ export const useDashboardStore = create<DashboardState>()(
       userNames: {},
       companiesData: {},
       activitiesData: {},
-      exportData: [],
-      exportColumns: [],
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -333,20 +326,19 @@ export const useDashboardStore = create<DashboardState>()(
           const availableFields = get().fields;
           
           const isOldDefault = currentSelected.length === 14 && currentSelected.includes("ACTIVITY_LAST");
-          const isNewDefault = currentSelected.length === DEFAULT_COLUMNS.length && currentSelected.every((col, i) => col === DEFAULT_COLUMNS[i]);
+          const isNewDefault = currentSelected.length === DEFAULT_COLUMNS.length && DEFAULT_COLUMNS.every((col) => currentSelected.includes(col));
           
-          if ((currentSelected.length === 0 || isOldDefault || isNewDefault) && availableFields.length > 0) {
+          const isGenuineUserCustomisation = !isOldDefault && !isNewDefault && currentSelected.length > 0;
+
+          if (!isGenuineUserCustomisation && availableFields.length > 0) {
             const availableDefaults = DEFAULT_COLUMNS.filter((col) =>
               availableFields.some((f) => f.id === col)
             );
-            const otherFields = availableFields
-              .map((f) => f.id)
-              .filter((id) => !availableDefaults.includes(id));
             
-            if (availableDefaults.length === 0 && otherFields.length > 0) {
-              set({ selectedColumns: otherFields });
+            if (availableDefaults.length === 0) {
+              set({ selectedColumns: [availableFields[0].id] });
             } else {
-              set({ selectedColumns: [...availableDefaults, ...otherFields] });
+              set({ selectedColumns: availableDefaults });
             }
           } else if (!currentSelected.includes("ASSIGNED_BY_ID")) {
             // Migration: Ensure ASSIGNED_BY_ID is present after CLOSEDATE
@@ -390,8 +382,6 @@ export const useDashboardStore = create<DashboardState>()(
           if (!select.includes("CURRENCY_ID")) select.push("CURRENCY_ID");
           if (!select.includes("COMPANY_ID")) select.push("COMPANY_ID");
           if (!select.includes("COMPANY_TITLE")) select.push("COMPANY_TITLE");
-          // Required for unpaid deals alert (payment status):
-          if (!select.includes("UF_CRM_1584464068013")) select.push("UF_CRM_1584464068013");
 
           const response = await fetchWithTimeout("/api/bitrix/deals", {
             method: "POST",
@@ -460,8 +450,10 @@ export const useDashboardStore = create<DashboardState>()(
 
       setSelectedColumns: (columns) => {
         set({ selectedColumns: columns });
-        get().fetchActivitiesData();
-        get().fetchCompaniesData();
+        if (!get().isDemoMode) {
+          get().fetchActivitiesData();
+          get().fetchCompaniesData();
+        }
       },
 
       toggleColumn: (columnId) => {
@@ -621,7 +613,6 @@ export const useDashboardStore = create<DashboardState>()(
         // where fetchDeals depends on selectedColumns that may be updated by fetchFields
         await get().fetchFields();
         await get().fetchDeals();
-        set({ lastSyncAt: Date.now() });
       },
 
       // ─── Actions (header features) ───
@@ -755,7 +746,13 @@ export const useDashboardStore = create<DashboardState>()(
           }
           const data = await response.json();
           if (data.success && data.companies) {
-            set({ companiesData: { ...companiesData, ...data.companies } });
+            const newCompaniesData = { ...companiesData, ...data.companies };
+            // Prune cache to only keep companies present in allDeals
+            const validCompanyIds = new Set(get().allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
+            for (const id in newCompaniesData) {
+              if (!validCompanyIds.has(id)) delete newCompaniesData[id];
+            }
+            set({ companiesData: newCompaniesData });
           }
         } catch {
           console.warn("[Dashboard] Failed to fetch companies data");
@@ -797,14 +794,18 @@ export const useDashboardStore = create<DashboardState>()(
           }
           const data = await response.json();
           if (data.success && data.activities) {
-            set({ activitiesData: { ...activitiesData, ...data.activities } });
+            const newActivitiesData = { ...activitiesData, ...data.activities };
+            // Prune cache to only keep deals present in allDeals
+            const validDealIds = new Set(get().allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
+            for (const id in newActivitiesData) {
+              if (!validDealIds.has(id)) delete newActivitiesData[id];
+            }
+            set({ activitiesData: newActivitiesData });
           }
         } catch {
           console.warn("[Dashboard] Failed to fetch activities data");
         }
       },
-
-      setExportData: (data, columns) => set({ exportData: data, exportColumns: columns }),
     }),
     {
       name: "bitrix-bi-dashboard",

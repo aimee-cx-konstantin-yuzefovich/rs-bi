@@ -16,7 +16,7 @@
  * - PROXY_SECRET is shared between WordPress and BI terminal
  */
 
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual, createHash } from "crypto";
 
 const PROXY_SECRET = process.env.PROXY_SECRET || "";
 const MAX_TOKEN_AGE_SECONDS = 300; // 5 minutes
@@ -144,13 +144,22 @@ export function isProxySecretConfigured(): boolean {
  * Uses crypto.timingSafeEqual under the hood.
  */
 export function timingSafeEqualString(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    // Still perform a comparison to avoid leaking length via timing
-    timingSafeEqual(Buffer.alloc(a.length), Buffer.alloc(a.length));
+  // Hard cap: proxy secrets should never exceed 512 bytes.
+  // Reject anything longer immediately. An attacker cannot learn the
+  // expected secret's length from this check alone because we don't
+  // reveal whether `a` or `b` was too long.
+  const MAX_SECRET_LENGTH = 512;
+  if (a.length > MAX_SECRET_LENGTH || b.length > MAX_SECRET_LENGTH) {
     return false;
   }
+
   try {
-    return timingSafeEqual(Buffer.from(a, "utf-8"), Buffer.from(b, "utf-8"));
+    // Hash both values with SHA-256. This produces fixed-length 32-byte
+    // digests regardless of input length, so timingSafeEqual gets
+    // two equally-sized buffers and comparison time is constant.
+    const hashA = createHash("sha256").update(a).digest();
+    const hashB = createHash("sha256").update(b).digest();
+    return timingSafeEqual(hashA, hashB);
   } catch {
     return false;
   }

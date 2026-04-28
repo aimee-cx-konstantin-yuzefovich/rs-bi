@@ -13,6 +13,10 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import {
+  DEAL_STAGES,
+  ALERT_THRESHOLDS,
+} from "@/lib/crm-constants";
 
 interface AlertItem {
   id: string;
@@ -56,10 +60,10 @@ export function AlertsBell() {
     const result: AlertItem[] = [];
 
     // 1. Stalled Deals (Зависшие сделки)
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - ALERT_THRESHOLDS.STALLED_DEAL_DAYS * 24 * 60 * 60 * 1000);
     const stalledDeals = allDeals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
-      if (stage === "WON" || stage === "LOSE") return false;
+      if (stage === DEAL_STAGES.WON || stage === DEAL_STAGES.LOST) return false;
       const modifyStr = String(deal.DATE_MODIFY || "");
       if (!modifyStr) return false;
       const modifyDate = new Date(modifyStr);
@@ -71,7 +75,7 @@ export function AlertsBell() {
         id: "stalled",
         icon: Clock,
         title: "Зависшие сделки",
-        description: `${stalledDeals.length} сделок без движения более 30 дней — требуется внимание менеджера`,
+        description: `${stalledDeals.length} сделок без движения более ${ALERT_THRESHOLDS.STALLED_DEAL_DAYS} дней — требуется внимание менеджера`,
         severity: "warning",
         count: stalledDeals.length,
         pipelineValue: "in_work",
@@ -80,10 +84,10 @@ export function AlertsBell() {
 
     // 2. Unpaid Large Deals (Неоплаченные крупные сделки)
     const unpaidLarge = allDeals.filter((deal) => {
-      const paymentStatus = String(deal.UF_CRM_1584464068013 || "");
-      if (paymentStatus !== "103" && paymentStatus !== "105") return false;
+      const stage = String(deal.STAGE_ID || "");
+      if (stage !== DEAL_STAGES.INVOICE_SENT && stage !== "FINAL_INVOICE") return false;
       const opportunity = parseFloat(String(deal.OPPORTUNITY || "0"));
-      return opportunity > 500000;
+      return opportunity > ALERT_THRESHOLDS.LARGE_DEAL_MIN_AMOUNT;
     });
     if (unpaidLarge.length > 0) {
       const totalUnpaid = unpaidLarge.reduce(
@@ -102,12 +106,12 @@ export function AlertsBell() {
     }
 
     // 3. Win Rate Drop (Снижение Win Rate)
-    const wonDeals = allDeals.filter((d) => String(d.STAGE_ID) === "WON");
-    const lostDeals = allDeals.filter((d) => String(d.STAGE_ID) === "LOSE");
+    const wonDeals = allDeals.filter((d) => String(d.STAGE_ID) === DEAL_STAGES.WON);
+    const lostDeals = allDeals.filter((d) => String(d.STAGE_ID) === DEAL_STAGES.LOST);
     const totalClosed = wonDeals.length + lostDeals.length;
-    if (totalClosed >= 5) {
+    if (totalClosed >= ALERT_THRESHOLDS.MIN_CLOSED_DEALS_FOR_WIN_RATE) {
       const winRate = (wonDeals.length / totalClosed) * 100;
-      if (winRate < 20) {
+      if (winRate < ALERT_THRESHOLDS.WIN_RATE_WARNING_THRESHOLD) {
         result.push({
           id: "winrate",
           icon: TrendingDown,
@@ -115,18 +119,18 @@ export function AlertsBell() {
           description: `Win Rate упал до ${winRate.toFixed(1)}% — ниже нормы для промышленных продаж`,
           severity: "warning",
           count: 1,
-          pipelineValue: "WON",
+          pipelineValue: DEAL_STAGES.WON,
         });
       }
     }
 
     // 4. Large Deals Stuck in Negotiation (Крупные сделки на согласовании)
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(now.getTime() - ALERT_THRESHOLDS.STUCK_NEGOTIATION_DAYS * 24 * 60 * 60 * 1000);
     const stuckLarge = allDeals.filter((deal) => {
       const opportunity = parseFloat(String(deal.OPPORTUNITY || "0"));
-      if (opportunity <= 1000000) return false;
+      if (opportunity <= ALERT_THRESHOLDS.STUCK_LARGE_DEAL_MIN_AMOUNT) return false;
       const stage = String(deal.STAGE_ID || "");
-      if (stage !== "PREPARATION" && stage !== "PREPAYMENT_INVOICE") return false;
+      if (stage !== DEAL_STAGES.PREPARATION && stage !== DEAL_STAGES.INVOICE_SENT) return false;
       const modifyStr = String(deal.DATE_MODIFY || "");
       if (!modifyStr) return false;
       const modifyDate = new Date(modifyStr);

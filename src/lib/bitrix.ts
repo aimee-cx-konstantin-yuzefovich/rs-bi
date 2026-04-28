@@ -59,7 +59,18 @@ function buildUrl(method: string): string {
   
   try {
     const parsed = new URL(base);
-    // We allow HTTP and private IPs for testing/local deployments
+    if (parsed.protocol !== 'https:') {
+      throw new Error("Webhook URL must use HTTPS");
+    }
+    
+    const hostname = parsed.hostname;
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
+    const isAwsMetadata = hostname === '169.254.169.254';
+    const isPrivate = hostname.startsWith('10.') || hostname.startsWith('192.168.') || is172PrivateRange(hostname);
+
+    if (isLocalhost || isAwsMetadata || isPrivate) {
+      throw new Error("Webhook URL cannot point to private IP ranges or localhost");
+    }
   } catch (e) {
     if (e instanceof Error && e.message.includes("Webhook URL")) {
       throw e;
@@ -105,7 +116,7 @@ export async function bitrixGet<T = unknown>(
       // Sanitize parameter keys — only allow safe characters
       Object.entries(params).forEach(([key, value]) => {
         // Prevent injection via parameter keys
-        if (!/^[a-zA-Z0-9_>=<\[\]]+$/.test(key)) {
+        if (!/^[a-zA-Z0-9_>=<\[\]@%!]+$/.test(key)) {
           console.warn(`[Bitrix24] Rejected invalid param key: ${key}`);
           return;
         }
@@ -159,7 +170,7 @@ export async function bitrixPost<T = unknown>(
           continue;
         }
         // Validate key format — only allow safe characters
-        if (!/^[a-zA-Z0-9_>=<\[\]]+$/.test(key)) {
+        if (!/^[a-zA-Z0-9_>=<\[\]@%!]+$/.test(key)) {
           console.warn(`[Bitrix24] Rejected invalid body key: ${key}`);
           continue;
         }

@@ -1,0 +1,3 @@
+{
+  "/api/bitrix/deals/route": "app/api/bitrix/deals/route.js"
+}

@@ -18,8 +18,11 @@ export async function GET(request: NextRequest) {
   try {
     const userMap: Record<string, string> = {};
     let start = 0;
+    let iterations = 0;
+    const MAX_ITERATIONS = 50; // 50 * 50 = 2500 users max
 
-    while (true) {
+    while (iterations < MAX_ITERATIONS) {
+      iterations++;
       try {
         const data = await bitrixPost<{
           result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;

@@ -1,0 +1,33 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── RusSilica BI Terminal — Audit Log ───
+// Persistent security audit trail — survives server restarts.
+// WordPress manages users, so we store email/role directly
+// instead of referencing a local User table.
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  event     String                // LOGIN_SUCCESS, LOGIN_FAILED, DATA_EXPORT, etc.
+  email     String?               // User email (from WordPress SSO)
+  role      String?               // User role at the time of action
+  targetId  String?               // Target entity (for admin operations)
+  ip        String?               // Client IP address
+  details   String?               // JSON string with additional context
+  createdAt DateTime @default(now())
+
+  @@index([event])
+  @@index([email])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

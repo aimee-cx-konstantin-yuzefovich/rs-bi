@@ -128,8 +128,8 @@ export async function POST(request: NextRequest) {
 
   try {
     // Limit request body size to 10KB to prevent DoS via oversized payloads
-    const contentLength = request.headers.get("content-length");
-    if (contentLength && parseInt(contentLength, 10) > 10_000) {
+    const rawBody = await request.text();
+    if (rawBody.length > 10_000) {
       return NextResponse.json(
         { success: false, error: "Request body too large", deals: [], total: 0 },
         { status: 413 }
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
     // Parse and validate request body
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(rawBody);
     } catch {
       return NextResponse.json(
         { success: false, error: "Invalid JSON in request body", deals: [], total: 0 },

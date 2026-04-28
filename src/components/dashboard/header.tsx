@@ -2,6 +2,7 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useDashboardStore } from "@/store/dashboard-store";
+import { useTableState } from "@/hooks/use-table-state";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeToggle } from "./theme-toggle";
@@ -17,11 +18,13 @@ import { RefreshCw, Download, Columns3, BarChart3, LogOut, User } from "lucide-r
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
 import Link from "next/link";
+import { useCallback } from "react";
 
 export function Header() {
   const { data: session } = useSession();
-  const { dealsLoading, syncData, exportData, exportColumns, setColumnSelectorOpen } =
+  const { dealsLoading, syncData, setColumnSelectorOpen } =
     useDashboardStore();
+  const { sortedDeals, columns, fieldMap, resolveValue } = useTableState();
 
   const handleSync = async () => {
     try {
@@ -31,10 +34,57 @@ export function Header() {
     }
   };
 
-  const handleExport = () => {
-    if (exportData.length === 0) return;
+  const handleExport = useCallback(() => {
+    if (sortedDeals.length === 0 || columns.length === 0) return;
+
+    const exportColumns = columns.map((colId) => fieldMap.get(colId)?.title || colId);
+    const exportData = sortedDeals.map((deal) =>
+      columns.map((colId) => {
+        const raw = deal[colId];
+        const resolved = resolveValue(deal, colId);
+        const field = fieldMap.get(colId);
+        
+        if (!resolved) return "";
+
+        if (field?.type === "char" || field?.type === "boolean") {
+          if (raw === "Y" || raw === "1" || String(raw) === "true") return "Да";
+          if (raw === "N" || raw === "0" || String(raw) === "false") return "Нет";
+        }
+
+        if (field?.type === "money" && raw) {
+          const parts = String(raw).split("|");
+          const amount = parseFloat(parts[0]);
+          const currency = parts[1] || "";
+          if (!isNaN(amount)) {
+            return `${amount.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+          }
+        }
+
+        if (field?.type === "double" || field?.type === "integer" || field?.id === "OPPORTUNITY") {
+          const num = parseFloat(resolved);
+          if (!isNaN(num)) {
+            if (field?.type === "integer") {
+              return Math.round(num).toLocaleString("ru-RU");
+            }
+            return num.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+        }
+
+        if (field?.type === "date" || field?.type === "datetime" || field?.id === "DATE_CREATE" || field?.id === "DATE_MODIFY") {
+          const d = new Date(resolved);
+          if (!isNaN(d.getTime())) {
+            const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+            const timeStr = field?.type === "datetime" ? ` ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "";
+            return `${dateStr}${timeStr}`;
+          }
+        }
+
+        return resolved;
+      })
+    );
+
     exportToExcelWysiwyg(exportData, exportColumns);
-  };
+  }, [sortedDeals, columns, fieldMap, resolveValue]);
 
   const handleLogout = () => {
     if (IS_PRODUCTION) {
@@ -104,7 +154,7 @@ export function Header() {
               variant="ghost"
               size="sm"
               onClick={handleExport}
-              disabled={exportData.length === 0}
+              disabled={sortedDeals.length === 0}
               className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/30"
             >
               <Download className="h-3.5 w-3.5" />

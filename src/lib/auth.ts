@@ -97,6 +97,13 @@ export function isCorporateEmail(email: string): boolean {
   return ALLOWED_EMAIL_DOMAINS.includes(domain);
 }
 
+// ─── Role Mapping (Single Source of Truth) ───
+
+export function mapWpRoleToBiRole(wpRole: string | undefined | null): string {
+  const role = wpRole?.toLowerCase().trim() || "user";
+  return role === "administrator" || role === "admin" ? "admin" : "user";
+}
+
 // ─── Audit Logging (persisted to DB) ───
 
 async function auditLog(event: string, details: Record<string, unknown>, ip?: string): Promise<void> {
@@ -182,7 +189,7 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          const biRole = payload.role === "administrator" || payload.role === "admin" ? "admin" : "user";
+          const biRole = mapWpRoleToBiRole(payload.role);
 
           await auditLog("LOGIN_SUCCESS_WP_SSO", { email, role: biRole, ip, source: "wordpress_sso_hmac" }, ip);
 
@@ -199,20 +206,18 @@ export const authOptions: NextAuthOptions = {
         // ═══════════════════════════════════════════════════════════
 
         if (IS_PRODUCTION) {
-          const proxySecret = req?.headers?.get("x-proxy-secret");
-          const headerEmail = req?.headers?.get("x-auth-user-email");
-          const headerRole = req?.headers?.get("x-auth-user-role");
+          const proxySecret = headers?.["x-proxy-secret"];
+          const headerEmail = headers?.["x-auth-user-email"];
+          const headerRole = headers?.["x-auth-user-role"];
 
           if (proxySecret && PROXY_SECRET && timingSafeEqualString(proxySecret, PROXY_SECRET) && headerEmail) {
             const email = headerEmail.toLowerCase().trim();
-            const role = headerRole?.toLowerCase().trim() || "user";
-
             if (!isCorporateEmail(email)) {
               await auditLog("LOGIN_DOMAIN_BLOCKED", { email, reason: "non_corporate_domain_proxy" }, ip);
               return null;
             }
 
-            const biRole = role === "administrator" || role === "admin" ? "admin" : "user";
+            const biRole = mapWpRoleToBiRole(headerRole);
 
             await auditLog("LOGIN_SUCCESS_WP_SSO", { email, role: biRole, ip, source: "wordpress_sso_proxy" }, ip);
 
@@ -306,6 +311,6 @@ export const authOptions: NextAuthOptions = {
     },
   },
 
-  debug: true, // Временно включите для продакшена
+  debug: !IS_PRODUCTION, // Временно включите для продакшена
   theme: undefined,
 };

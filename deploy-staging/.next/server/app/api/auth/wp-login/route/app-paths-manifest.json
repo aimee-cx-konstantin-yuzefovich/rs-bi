@@ -1,0 +1,3 @@
+{
+  "/api/auth/wp-login/route": "app/api/auth/wp-login/route.js"
+}

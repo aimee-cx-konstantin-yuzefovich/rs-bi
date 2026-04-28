@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { WP_LOGIN_URL } from "@/lib/config";
+import { WP_LOGIN_URL } from "@/lib/config.server";
 
 export async function POST(request: Request) {
   try {
@@ -14,6 +14,20 @@ export async function POST(request: Request) {
     }
 
     const wpBaseUrl = WP_LOGIN_URL.replace(/\/wp-login\.php.*$/, "");
+    
+    // SSRF Protection
+    const parsedUrl = new URL(wpBaseUrl);
+    if (parsedUrl.protocol !== "https:") {
+      throw new Error("WP_LOGIN_URL must use HTTPS");
+    }
+    const hostname = parsedUrl.hostname;
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
+    const isAwsMetadata = hostname === '169.254.169.254';
+    const isPrivate = hostname.startsWith('10.') || hostname.startsWith('192.168.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
+    if (isLocalhost || isAwsMetadata || isPrivate) {
+      throw new Error("WP_LOGIN_URL cannot point to private IP ranges or localhost");
+    }
+
     const apiUrl = `${wpBaseUrl}/wp-login.php?action=headless_auth`;
 
     const response = await fetch(apiUrl, {
@@ -23,6 +37,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({ email, password }),
       cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
     });
 
     const text = await response.text();

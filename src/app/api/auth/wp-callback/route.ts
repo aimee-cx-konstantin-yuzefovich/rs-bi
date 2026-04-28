@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isCorporateEmail } from "@/lib/auth";
+import { isCorporateEmail, mapWpRoleToBiRole } from "@/lib/auth";
 import { verifySsoUrlParams, generateSsoToken, isProxySecretConfigured, timingSafeEqualString } from "@/lib/sso-hmac";
-import { IS_PRODUCTION, WP_LOGIN_URL, shouldLog } from "@/lib/config";
+import { IS_PRODUCTION, shouldLog } from "@/lib/config";
+import { WP_LOGIN_URL } from "@/lib/config.server";
 
 /**
  * GET /api/auth/wp-callback — WordPress SSO Callback
@@ -123,12 +124,18 @@ function buildSsoHtml(email: string, ssoToken: string): string {
           form.appendChild(input);
           document.getElementById('sso-form').submit();
         } else {
-          document.body.innerHTML += '<div style="color:red; margin-top:20px; font-size:12px;">Error: No CSRF token received. Response: ' + JSON.stringify(data) + '</div>';
+          const errDiv = document.createElement('div');
+          errDiv.style.cssText = 'color:red; margin-top:20px; font-size:12px;';
+          errDiv.textContent = 'Error: No CSRF token received. Response: ' + JSON.stringify(data);
+          document.body.appendChild(errDiv);
         }
       })
       .catch(err => {
         console.error('Failed to fetch CSRF token', err);
-        document.body.innerHTML += '<div style="color:red; margin-top:20px; font-size:12px;">Error fetching CSRF: ' + err.message + '</div>';
+        const errDiv = document.createElement('div');
+        errDiv.style.cssText = 'color:red; margin-top:20px; font-size:12px;';
+        errDiv.textContent = 'Error fetching CSRF: ' + err.message;
+        document.body.appendChild(errDiv);
       });
   </script>
 </body>
@@ -215,7 +222,7 @@ async function handleWpCallback(request: NextRequest) {
       }
 
       // Map WP role to BI role (unknown roles → "user" for security)
-      const biRole = payload.role === "administrator" || payload.role === "admin" ? "admin" : "user";
+      const biRole = mapWpRoleToBiRole(payload.role);
       if (shouldLog) console.log(`[WP-SSO] HMAC auth success: role=${biRole}`);
       // Generate internal SSO token for the auto-submit form
       const ssoToken = generateSsoToken({
@@ -271,8 +278,7 @@ async function handleWpCallback(request: NextRequest) {
         );
       }
 
-      const role = headerRole?.toLowerCase().trim() || "user";
-      const biRole = role === "administrator" || role === "admin" ? "admin" : "user";
+      const biRole = mapWpRoleToBiRole(headerRole);
       if (shouldLog) console.log(`[WP-SSO] Proxy header auth success: role=${biRole}`);
 
       // Generate internal SSO token

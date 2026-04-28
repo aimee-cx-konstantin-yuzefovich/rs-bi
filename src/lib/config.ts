@@ -14,10 +14,6 @@ export const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 // ─── WordPress SSO URLs ───
 
-/** Server-side WP login URL (from server-only env var) */
-export const WP_LOGIN_URL =
-  process.env.WP_LOGIN_URL || "https://bi-terminal.rus-silica.com/wp-login.php";
-
 /** Client-side WP login URL (from NEXT_PUBLIC_ env var) */
 export const WP_LOGIN_URL_CLIENT =
   process.env.NEXT_PUBLIC_WP_LOGIN_URL || "https://bi-terminal.rus-silica.com/wp-login.php";

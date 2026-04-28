@@ -4,6 +4,25 @@ import { requireAdmin, isAuthError } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
+// Define a strict allowlist of known event types.
+// This prevents log pollution and makes log analysis reliable.
+const VALID_AUDIT_EVENTS = new Set([
+  "LOGIN_SUCCESS_WP_SSO",
+  "LOGIN_SUCCESS_DEV",
+  "LOGIN_FAILED",
+  "LOGIN_BLOCKED_NO_SECRET",
+  "LOGIN_BLOCKED_INVALID_HMAC",
+  "LOGIN_BLOCKED_EMAIL_MISMATCH",
+  "LOGIN_BLOCKED_NO_AUTH",
+  "LOGIN_DOMAIN_BLOCKED",
+  "UNAUTHORIZED_ADMIN_ACCESS",
+  "DATA_EXPORT",
+]);
+
+// A simple email shape check — not RFC 5322 compliant,
+// but sufficient to reject garbage input like HTML or scripts.
+const EMAIL_PATTERN = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+
 /**
  * GET /api/admin/audit-logs — View audit logs (admin only)
  *
@@ -23,18 +42,38 @@ export async function GET(request: NextRequest) {
     if (isAuthError(authResult)) return authResult;
 
     const { searchParams } = new URL(request.url);
-    const event = searchParams.get("event");
-    const email = searchParams.get("email");
+    const eventParam = searchParams.get("event");
+    const emailParam = searchParams.get("email");
+
+    // Validate event against known values — reject unknown event types
+    // rather than silently ignoring them, to surface misconfigured clients.
+    if (eventParam && !VALID_AUDIT_EVENTS.has(eventParam)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid event filter value" },
+        { status: 400 }
+      );
+    }
+
+    // Validate email format if provided
+    if (emailParam && !EMAIL_PATTERN.test(emailParam)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid email filter format" },
+        { status: 400 }
+      );
+    }
 
     // Validate limit and offset — parseInt returns NaN for non-numeric strings
     const rawLimit = parseInt(searchParams.get("limit") || "100", 10);
     const rawOffset = parseInt(searchParams.get("offset") || "0", 10);
-    const limit = Math.min(Number.isNaN(rawLimit) ? 100 : rawLimit, 500);
-    const offset = Number.isNaN(rawOffset) ? 0 : rawOffset;
+
+    // Ensure offset is non-negative — a negative offset is meaningless
+    // for pagination and could cause unexpected database behaviour.
+    const limit = Math.min(Number.isNaN(rawLimit) ? 100 : Math.max(1, rawLimit), 500);
+    const offset = Number.isNaN(rawOffset) ? 0 : Math.max(0, rawOffset);
 
     const where: Record<string, unknown> = {};
-    if (event) where.event = event;
-    if (email) where.email = email;
+    if (eventParam) where.event = eventParam;
+    if (emailParam) where.email = emailParam;
 
     const [logs, total] = await Promise.all([
       db.auditLog.findMany({
