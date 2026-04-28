@@ -47,7 +47,7 @@ export function Header() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <header className="sticky top-0 z-30 header-gradient border-b border-white/10">
+      <header className="z-30 header-gradient border-b border-white/10">
         {/* Top row: Brand + Actions */}
         <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
           {/* Left: Brand */}

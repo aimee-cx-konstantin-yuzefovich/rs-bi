@@ -2,8 +2,8 @@
 - Local:         http://localhost:3000
 - Network:       http://192.168.1.2:3000
 - Environments: .env
-✓ Ready in 6.1s
-⚠ Slow filesystem detected. The benchmark took 301ms. If /Users/constantinejozefowicz/Documents/Russilica BI Analytics/.next/dev is a network drive, consider moving it to a local folder.
+✓ Ready in 3.3s
+⚠ Slow filesystem detected. The benchmark took 229ms. If /Users/constantinej⚠ Slow filesystem detected. The benchmark took 229ms. If /Users/constantinejozefowicz/Documents/Russilica BI Analytics/.next/dev is a network drive, consider moving it to a
+local folder.
 See more: https://nextjs.org/docs/app/guides/local-development
 
-○ Compiling /api/bitrix/users ...
