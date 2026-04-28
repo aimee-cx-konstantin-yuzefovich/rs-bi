@@ -29,6 +29,8 @@ export async function GET(request: NextRequest) {
           // We don't strictly filter by ACTIVE because deals might be assigned to fired users
         });
 
+        console.log(`[Users API] Fetched batch at start ${start}, got ${data.result?.length || 0} users`);
+
         if (Array.isArray(data.result)) {
           for (const user of data.result) {
             const fullName = [user.LAST_NAME, user.NAME, user.SECOND_NAME]
@@ -48,6 +50,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    console.log(`[Users API] Total users fetched: ${Object.keys(userMap).length}`);
     return NextResponse.json({ success: true, users: userMap });
   } catch (error) {
     console.error("[Users API Error]", error);

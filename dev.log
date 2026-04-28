@@ -6,3 +6,4 @@
 ⚠ Slow filesystem detected. The benchmark took 301ms. If /Users/constantinejozefowicz/Documents/Russilica BI Analytics/.next/dev is a network drive, consider moving it to a local folder.
 See more: https://nextjs.org/docs/app/guides/local-development
 
+○ Compiling /api/bitrix/users ...

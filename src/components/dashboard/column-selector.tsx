@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { Columns3, Search, RotateCcw, Check, X, ArrowUpDown } from "lucide-react";
+import { Columns3, Search, RotateCcw, Check, X } from "lucide-react";
 import { useState, useMemo } from "react";
 
 export function ColumnSelector() {
@@ -60,9 +60,9 @@ export function ColumnSelector() {
     }
   };
 
-  // Group fields: standard vs custom
-  const standardFields = filteredFields.filter((f) => !f.id.startsWith("UF_CRM_"));
-  const customFields = filteredFields.filter((f) => f.id.startsWith("UF_CRM_"));
+  // Group fields: deal vs company
+  const dealFields = filteredFields.filter((f) => !f.id.startsWith("COMPANY_"));
+  const companyFields = filteredFields.filter((f) => f.id.startsWith("COMPANY_"));
 
   return (
     <Sheet open={columnSelectorOpen} onOpenChange={setColumnSelectorOpen}>
@@ -138,37 +138,37 @@ export function ColumnSelector() {
               </div>
             ) : (
               <>
-                {/* Standard fields */}
-                {standardFields.length > 0 && (
+                {/* Deal fields */}
+                {dealFields.length > 0 && (
                   <>
                     <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                      Стандартные ({standardFields.length})
+                      Сделка ({dealFields.length})
                     </div>
-                    {standardFields.map((field) => (
+                    {dealFields.map((field) => (
                       <ColumnItem
                         key={field.id}
                         field={field}
                         checked={selectedColumns.includes(field.id)}
                         onToggle={() => toggleColumn(field.id)}
+                        isCustom={field.id.startsWith("UF_CRM_")}
                       />
                     ))}
                   </>
                 )}
 
-                {/* Custom fields */}
-                {customFields.length > 0 && (
+                {/* Company fields */}
+                {companyFields.length > 0 && (
                   <>
-                    <div className="px-2 py-1.5 mt-2 text-[10px] font-bold text-brand-orange uppercase tracking-widest flex items-center gap-1.5">
-                      <ArrowUpDown className="h-2.5 w-2.5" />
-                      Кастомные ({customFields.length})
+                    <div className="px-2 py-1.5 mt-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                      Компания ({companyFields.length})
                     </div>
-                    {customFields.map((field) => (
+                    {companyFields.map((field) => (
                       <ColumnItem
                         key={field.id}
                         field={field}
                         checked={selectedColumns.includes(field.id)}
                         onToggle={() => toggleColumn(field.id)}
-                        isCustom
+                        isCustom={field.id.startsWith("COMPANY_UF_CRM_")}
                       />
                     ))}
                   </>
