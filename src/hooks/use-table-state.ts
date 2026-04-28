@@ -61,14 +61,12 @@ export function useTableState() {
         const company = companiesData[companyId];
         
         if (!company) {
-          if (companyFieldId === "TITLE") return `ID ${companyId}`;
           return "";
         }
         
         const rawCompanyVal = company[companyFieldId];
         
         if (rawCompanyVal === null || rawCompanyVal === undefined || rawCompanyVal === "") {
-          if (companyFieldId === "TITLE") return `ID ${companyId}`;
           return "";
         }
         

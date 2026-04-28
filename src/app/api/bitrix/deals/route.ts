@@ -52,6 +52,11 @@ function validateDealsRequest(body: unknown): DealsRequestBody {
     });
   }
 
+  // Force COMPANY_TITLE to be requested so the frontend can use it as a fallback
+  if (!select.includes("COMPANY_TITLE") && !select.includes("*")) {
+    select.push("COMPANY_TITLE");
+  }
+
   // Validate `filter`
   let filter: Record<string, string | string[]> = {};
   if (raw.filter !== undefined) {
