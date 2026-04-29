@@ -769,7 +769,9 @@ export const useDashboardStore = create<DashboardState>()(
               const newCompaniesData = { ...state.companiesData, ...data.companies };
               const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
               const now = Date.now();
-              for (const id in data.companies) {
+              
+              // ✅ Mark ALL requested IDs as fetched to prevent infinite loops
+              for (const id of missingIds) {
                 newCompaniesDataFetchedAt[id] = now;
               }
               // Prune cache to only keep companies present in allDeals
@@ -840,7 +842,9 @@ export const useDashboardStore = create<DashboardState>()(
               const newActivitiesData = { ...state.activitiesData, ...data.activities };
               const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
               const now = Date.now();
-              for (const id in data.activities) {
+              
+              // ✅ Mark ALL requested IDs as fetched to prevent infinite loops
+              for (const id of missingIds) {
                 newActivitiesDataFetchedAt[id] = now;
               }
               // Prune cache to only keep deals present in allDeals
