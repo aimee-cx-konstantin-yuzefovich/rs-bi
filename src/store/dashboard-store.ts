@@ -125,10 +125,12 @@ interface DashboardState {
   // Company data mapping (ID -> Company Data)
   companiesData: Record<string, any>;
   companiesDataFetchedAt: Record<string, number>;
+  companiesDataLoading: boolean;
 
   // Activities data mapping (Deal ID -> { last: ActivityData, next: ActivityData })
   activitiesData: Record<string, any>;
   activitiesDataFetchedAt: Record<string, number>;
+  activitiesDataLoading: boolean;
 
   // ─── Actions ───
   checkConfig: () => Promise<void>;
@@ -269,8 +271,10 @@ export const useDashboardStore = create<DashboardState>()(
       userNames: {},
       companiesData: {},
       companiesDataFetchedAt: {},
+      companiesDataLoading: false,
       activitiesData: {},
       activitiesDataFetchedAt: {},
+      activitiesDataLoading: false,
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -728,6 +732,8 @@ export const useDashboardStore = create<DashboardState>()(
         });
         if (missingIds.length === 0) return;
 
+        set({ companiesDataLoading: true });
+
         // Determine which company fields to fetch based on selected columns
         const companyFieldsToSelect = selectedColumns
           .filter(col => col.startsWith("COMPANY_"))
@@ -749,6 +755,7 @@ export const useDashboardStore = create<DashboardState>()(
 
           if (!response.ok) {
             console.warn("[Dashboard] Failed to fetch companies data: API returned", response.status);
+            set({ companiesDataLoading: false });
             return;
           }
           const data = await response.json();
@@ -768,11 +775,14 @@ export const useDashboardStore = create<DashboardState>()(
                   delete newCompaniesDataFetchedAt[id];
                 }
               }
-              return { companiesData: newCompaniesData, companiesDataFetchedAt: newCompaniesDataFetchedAt };
+              return { companiesData: newCompaniesData, companiesDataFetchedAt: newCompaniesDataFetchedAt, companiesDataLoading: false };
             });
+          } else {
+            set({ companiesDataLoading: false });
           }
         } catch {
           console.warn("[Dashboard] Failed to fetch companies data");
+          set({ companiesDataLoading: false });
         }
       },
 
@@ -803,6 +813,8 @@ export const useDashboardStore = create<DashboardState>()(
         });
         if (missingIds.length === 0) return;
 
+        set({ activitiesDataLoading: true });
+
         try {
           const response = await fetchWithTimeout("/api/bitrix/activities", {
             method: "POST",
@@ -814,6 +826,7 @@ export const useDashboardStore = create<DashboardState>()(
 
           if (!response.ok) {
             console.warn("[Dashboard] Failed to fetch activities data: API returned", response.status);
+            set({ activitiesDataLoading: false });
             return;
           }
           const data = await response.json();
@@ -833,11 +846,14 @@ export const useDashboardStore = create<DashboardState>()(
                   delete newActivitiesDataFetchedAt[id];
                 }
               }
-              return { activitiesData: newActivitiesData, activitiesDataFetchedAt: newActivitiesDataFetchedAt };
+              return { activitiesData: newActivitiesData, activitiesDataFetchedAt: newActivitiesDataFetchedAt, activitiesDataLoading: false };
             });
+          } else {
+            set({ activitiesDataLoading: false });
           }
         } catch {
           console.warn("[Dashboard] Failed to fetch activities data");
+          set({ activitiesDataLoading: false });
         }
       },
     }),

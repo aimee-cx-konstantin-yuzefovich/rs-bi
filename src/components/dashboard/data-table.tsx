@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState, useRef, useEffect } from "react";
+import { useEntityDrawerStore } from "@/store/entity-drawer-store";
 
 /**
  * SECURITY NOTE: All cell values are rendered as JSX text content.
@@ -426,16 +427,32 @@ function CellValue({
   deal?: any;
   colId?: string;
 }) {
+  const { companiesDataLoading, activitiesDataLoading } = useDashboardStore();
+  const openDrawer = useEntityDrawerStore((s) => s.open);
+
   if (!resolved) {
-    if (colId === "COMPANY_TITLE") {
+    if (colId === "COMPANY_TITLE" || colId?.startsWith("COMPANY_")) {
+      if (companiesDataLoading) {
+        return <Skeleton className="h-4 w-24 rounded" />;
+      }
       const companyId = String(deal.COMPANY_ID || "").trim();
 
       if (companyId) {
         return (
-          <span className="text-muted-foreground" title={`Company ID: ${companyId}`}>
+          <span 
+            className="text-muted-foreground cursor-pointer hover:underline" 
+            title={`Company ID: ${companyId}`}
+            onClick={() => openDrawer("company", companyId)}
+          >
             {`ID ${companyId}`}
           </span>
         );
+      }
+    }
+
+    if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
+      if (activitiesDataLoading) {
+        return <Skeleton className="h-4 w-32 rounded" />;
       }
     }
 
@@ -619,5 +636,33 @@ function CellValue({
   }
 
   // Default — React auto-escapes JSX text, preventing XSS from CRM data
+  if (colId === "COMPANY_TITLE") {
+    const companyId = String(deal.COMPANY_ID || "").trim();
+    if (companyId) {
+      return (
+        <span
+          className="text-xs cursor-pointer hover:underline text-brand-blue"
+          onClick={() => openDrawer("company", companyId)}
+        >
+          {resolved}
+        </span>
+      );
+    }
+  }
+
+  if (colId === "ASSIGNED_BY_ID") {
+    const userId = String(deal.ASSIGNED_BY_ID || "").trim();
+    if (userId) {
+      return (
+        <span
+          className="text-xs cursor-pointer hover:underline text-brand-blue"
+          onClick={() => openDrawer("responsible", userId)}
+        >
+          {resolved}
+        </span>
+      );
+    }
+  }
+
   return <span className="text-xs">{resolved}</span>;
 }

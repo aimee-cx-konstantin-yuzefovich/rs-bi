@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/dashboard/theme-provider";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { EntityDrawer } from "@/components/dashboard/entity-drawer";
 
 const roboto = Roboto({
   weight: ["400", "500", "700"],
@@ -62,6 +63,7 @@ export default function RootLayout({
             >
               {children}
               <Toaster />
+              <EntityDrawer />
             </ThemeProvider>
           </ErrorBoundary>
         </AuthProvider>

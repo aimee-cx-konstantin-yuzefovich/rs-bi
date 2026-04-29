@@ -5,7 +5,7 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
-RUN npm install --frozen-lockfile 2>/dev/null || npm install
+RUN npm ci
 
 # Этап 2: Сборка
 FROM node:20-alpine AS builder
