@@ -154,7 +154,7 @@ export function SavedViews() {
             </DropdownMenuItem>
           ))
         ) : (
-          savedViews.length === 0 && !isSaving && (
+          !isSaving && (
             <div className="px-2 py-3 text-center text-xs text-muted-foreground">
               Нет сохранённых видов
             </div>
