@@ -68,7 +68,6 @@ export function DataTable() {
   const {
     fieldMap,
     resolveValue,
-    getSortValue,
     sortedDeals,
     columns,
   } = useTableState();
