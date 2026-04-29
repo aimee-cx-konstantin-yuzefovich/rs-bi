@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixPost, type BitrixDealsResponse } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
+import pLimit from "p-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -170,28 +171,34 @@ export async function POST(request: NextRequest) {
 
     // Fetch all pages if there are more results
     let allDeals = data.result || [];
-    let nextStart = data.next;
     // Preserve the ACTUAL total from Bitrix24 (not just fetched count)
     // This is critical for the UI to show "X из Y" correctly when there are
     // more deals than our pagination limit can fetch
     const bitrixTotal = data.total ?? allDeals.length;
 
-    // Paginate to get all deals (limit to max 1000 to prevent overload)
-    let pageCount = 0;
-    const MAX_PAGES = 20; // 20 pages * 50 per page = 1000 deals max per request
+    if (data.next && bitrixTotal > 50) {
+      const limit = pLimit(5); // Max 5 concurrent requests to respect Bitrix limits
+      const promises = [];
+      const MAX_DEALS_TO_FETCH = 1000;
+      const targetTotal = Math.min(bitrixTotal, MAX_DEALS_TO_FETCH);
+      
+      // Generate promises for remaining pages
+      for (let offset = 50; offset < targetTotal; offset += 50) {
+        promises.push(
+          limit(() => bitrixPost<BitrixDealsResponse>("crm.deal.list", {
+            ...apiBody,
+            start: offset,
+          }))
+        );
+      }
 
-    while (nextStart && pageCount < MAX_PAGES) {
-      const pageData = await bitrixPost<BitrixDealsResponse>(
-        "crm.deal.list",
-        {
-          ...apiBody,
-          start: nextStart,
+      const results = await Promise.allSettled(promises);
+      
+      for (const res of results) {
+        if (res.status === "fulfilled" && res.value.result) {
+          allDeals = [...allDeals, ...res.value.result];
         }
-      );
-
-      allDeals = [...allDeals, ...(pageData.result || [])];
-      nextStart = pageData.next;
-      pageCount++;
+      }
     }
 
     const truncated = bitrixTotal > allDeals.length;

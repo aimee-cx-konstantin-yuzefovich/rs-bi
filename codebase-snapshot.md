@@ -3,6 +3,10 @@ This file is a merged representation of the entire codebase, combined into a sin
 <file_summary>
 This section contains a summary of this file.
 
+<project_description>
+RusSilica BI Terminal is a modern, high-performance Business Intelligence dashboard built with Next.js, Tailwind CSS, and Shadcn UI. It integrates deeply with Bitrix24 CRM to provide real-time analytics, deal tracking, and comprehensive data visualization. Key features include WordPress SSO authentication, advanced data filtering, customizable column views, and optimized parallel data fetching for handling large datasets efficiently.
+</project_description>
+
 <purpose>
 This file contains a packed representation of the entire repository's contents.
 It is designed to be easily consumable by AI systems for analysis, code review,
@@ -87,6 +91,7 @@ src/
       connection-health.tsx
       data-table.tsx
       date-filter.tsx
+      entity-drawer.tsx
       footer.tsx
       global-search.tsx
       header.tsx
@@ -149,9 +154,11 @@ src/
       tooltip.tsx
     error-boundary.tsx
   hooks/
+    use-company-details.ts
     use-mobile.ts
     use-table-state.ts
     use-toast.ts
+    use-user-details.ts
   lib/
     auth-guard.ts
     auth.ts
@@ -167,6 +174,7 @@ src/
     utils.ts
   store/
     dashboard-store.ts
+    entity-drawer-store.ts
   middleware.ts
 .env.example
 .gitflic-ci.yaml
@@ -176,9 +184,11 @@ Caddyfile
 components.json
 docker-compose.yml
 Dockerfile
+drawer-plan.md
 eslint.config.mjs
 next.config.ts
 package.json
+performance-fixes-plan.md
 plan.md
 postcss.config.mjs
 qa-fixes-plan.md
@@ -192,6 +202,32 @@ worklog.md
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="performance-fixes-plan.md">
+# Performance Remediation Plan
+
+This document outlines the steps to fix four critical performance bottlenecks identified in the RusSilica BI Terminal.
+
+## 1. Fix Massive N+1 API Query Problem in Activities
+**File:** `src/app/api/bitrix/activities/route.ts`
+- **Issue:** The current implementation fires a separate API request for every single deal, leading to rate limit errors (503/QUOTA_EXCEEDED) when loading many deals.
+- **Fix:** Update the API route to fetch activities for up to 50 deals in a single request using the `@OWNER_ID` filter. Group the returned activities back to their respective deals.
+
+## 2. Fix UI Freezing due to Zustand Subscription in Table Cells
+**File:** `src/components/dashboard/data-table.tsx`
+- **Issue:** `CellValue` component subscribes to the entire Zustand store without a selector, causing all cells to re-render on any state change (e.g., typing in search).
+- **Fix:** Extract `companiesDataLoading` and `activitiesDataLoading` using selectors at the top of the `DataTable` component. Pass these as props down to `CellValue` and remove the direct store subscription from `CellValue`.
+
+## 3. Fix CPU Hog in Global Search
+**File:** `src/hooks/use-table-state.ts`
+- **Issue:** Global search iterates over every key in the deal object, causing massive CPU usage (e.g., 100,000 function calls per keystroke for 1000 deals).
+- **Fix:** Move the `columns` memoization before `searchedDeals`. Update `searchedDeals` to only iterate over the currently visible `columns` instead of `Object.entries(deal)`.
+
+## 4. Fix Sequential Pagination Slowness
+**File:** `src/app/api/bitrix/deals/route.ts`
+- **Issue:** Fetching pages sequentially takes too long and risks hitting serverless timeouts.
+- **Fix:** Calculate required offsets based on the `total` count from the first request. Use `p-limit` and `Promise.allSettled` to fetch the remaining pages in parallel (up to 5 concurrent requests).
+</file>
 
 <file path="public/robots.txt">
 User-agent: *
@@ -590,6 +626,182 @@ export function DateFilter() {
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+  );
+}
+</file>
+
+<file path="src/components/dashboard/entity-drawer.tsx">
+"use client";
+
+import { useEntityDrawerStore } from "@/store/entity-drawer-store";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { useCompanyDetails } from "@/hooks/use-company-details";
+import { useUserDetails } from "@/hooks/use-user-details";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { ExternalLink } from "lucide-react";
+
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium">{value || "—"}</span>
+    </div>
+  );
+}
+
+function DealsPreview({ deals }: { deals: any[] }) {
+  if (!deals || deals.length === 0) {
+    return (
+      <div className="text-sm text-muted-foreground py-4">
+        No related deals found.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 mt-4">
+      <h3 className="text-sm font-semibold">Recent Deals ({deals.length})</h3>
+      <div className="space-y-2">
+        {deals.slice(0, 5).map((deal) => (
+          <div key={deal.ID} className="p-3 border rounded-md text-sm">
+            <div className="font-medium truncate">{deal.TITLE || `Deal #${deal.ID}`}</div>
+            <div className="text-muted-foreground text-xs mt-1 flex justify-between">
+              <span>Stage: {deal.STAGE_ID}</span>
+              {deal.OPPORTUNITY && (
+                <span>{deal.OPPORTUNITY} {deal.CURRENCY_ID}</span>
+              )}
+            </div>
+          </div>
+        ))}
+        {deals.length > 5 && (
+          <div className="text-xs text-muted-foreground text-center pt-2">
+            + {deals.length - 5} more deals
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OpenInCRMButton({ type, id }: { type: "company" | "user"; id: string }) {
+  const href = type === "company" 
+    ? `https://your-bitrix-domain.bitrix24.ru/crm/company/details/${id}/`
+    : `https://your-bitrix-domain.bitrix24.ru/company/personal/user/${id}/`;
+
+  return (
+    <Button variant="outline" className="w-full mt-4" asChild>
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        <ExternalLink className="w-4 h-4 mr-2" />
+        Open in CRM
+      </a>
+    </Button>
+  );
+}
+
+function CompanyDrawerContent({ companyId }: { companyId: string }) {
+  const { data, loading, error } = useCompanyDetails(companyId);
+
+  if (loading) {
+    return (
+      <div className="space-y-4 mt-6">
+        <Skeleton className="h-8 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+        <div className="grid grid-cols-2 gap-4 mt-6">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
+        <Skeleton className="h-32 w-full mt-6" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="text-sm text-destructive mt-6">
+        {error?.message || "Company not found"}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 mt-6">
+      <div>
+        <h2 className="text-xl font-semibold">{data.TITLE || `ID ${companyId}`}</h2>
+        <div className="text-sm text-muted-foreground mt-1">
+          Company ID: {companyId}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Revenue" value={data.REVENUE} />
+        <Field label="Industry" value={data.INDUSTRY} />
+      </div>
+
+      <DealsPreview deals={data.deals} />
+
+      <OpenInCRMButton type="company" id={companyId} />
+    </div>
+  );
+}
+
+function ResponsibleDrawerContent({ userId }: { userId: string }) {
+  const { data, loading, error } = useUserDetails(userId);
+
+  if (loading) {
+    return (
+      <div className="space-y-4 mt-6">
+        <Skeleton className="h-8 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
+        <Skeleton className="h-32 w-full mt-6" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="text-sm text-destructive mt-6">
+        {error?.message || "User not found"}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 mt-6">
+      <div>
+        <h2 className="text-xl font-semibold">{data.name || `ID ${userId}`}</h2>
+        <div className="text-sm text-muted-foreground mt-1">
+          User ID: {userId}
+        </div>
+      </div>
+
+      <DealsPreview deals={data.deals} />
+
+      <OpenInCRMButton type="user" id={userId} />
+    </div>
+  );
+}
+
+export function EntityDrawer() {
+  const { isOpen, entityType, entityId, close } = useEntityDrawerStore();
+
+  return (
+    <Sheet open={isOpen} onOpenChange={(v) => !v && close()}>
+      <SheetContent side="right" className="w-full sm:w-[520px] overflow-y-auto">
+        <SheetHeader className="sr-only">
+          <SheetTitle>Details</SheetTitle>
+          <SheetDescription>Entity details and related deals</SheetDescription>
+        </SheetHeader>
+        
+        {entityType === "company" && entityId && (
+          <CompanyDrawerContent companyId={entityId} />
+        )}
+
+        {entityType === "responsible" && entityId && (
+          <ResponsibleDrawerContent userId={entityId} />
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 </file>
@@ -6352,6 +6564,81 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 }
 </file>
 
+<file path="src/hooks/use-company-details.ts">
+import { useState, useEffect } from "react";
+
+export function useCompanyDetails(companyId: string) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!companyId) return;
+
+    let isMounted = true;
+
+    async function fetchDetails() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [companyRes, dealsRes] = await Promise.all([
+          fetch("/api/bitrix/companies", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ids: [companyId],
+              select: ["ID", "TITLE", "REVENUE", "INDUSTRY"]
+            })
+          }),
+          fetch("/api/bitrix/deals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              filter: { "=COMPANY_ID": companyId },
+              select: ["ID", "TITLE", "STAGE_ID", "OPPORTUNITY", "CURRENCY_ID"],
+              order: { DATE_CREATE: "DESC" }
+            })
+          })
+        ]);
+
+        if (!companyRes.ok) throw new Error("Failed to fetch company");
+        if (!dealsRes.ok) throw new Error("Failed to fetch deals");
+
+        const companyData = await companyRes.json();
+        const dealsData = await dealsRes.json();
+
+        if (isMounted) {
+          const company = companyData.companies?.[companyId];
+          if (!company) {
+            throw new Error("Company not found");
+          }
+          setData({
+            ...company,
+            deals: dealsData.deals || []
+          });
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err instanceof Error ? err : new Error("Unknown error"));
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [companyId]);
+
+  return { data, loading, error };
+}
+</file>
+
 <file path="src/hooks/use-mobile.ts">
 import * as React from "react"
 
@@ -6372,6 +6659,75 @@ export function useIsMobile() {
   }, [])
 
   return !!isMobile
+}
+</file>
+
+<file path="src/hooks/use-user-details.ts">
+import { useState, useEffect } from "react";
+
+export function useUserDetails(userId: string) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    let isMounted = true;
+
+    async function fetchDetails() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [usersRes, dealsRes] = await Promise.all([
+          fetch("/api/bitrix/users"),
+          fetch("/api/bitrix/deals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              filter: { "=ASSIGNED_BY_ID": userId },
+              select: ["ID", "TITLE", "STAGE_ID", "OPPORTUNITY", "CURRENCY_ID"],
+              order: { DATE_CREATE: "DESC" }
+            })
+          })
+        ]);
+
+        if (!usersRes.ok) throw new Error("Failed to fetch users");
+        if (!dealsRes.ok) throw new Error("Failed to fetch deals");
+
+        const usersData = await usersRes.json();
+        const dealsData = await dealsRes.json();
+
+        if (isMounted) {
+          const userName = usersData.users?.[userId];
+          if (!userName) {
+            throw new Error("User not found");
+          }
+          setData({
+            id: userId,
+            name: userName,
+            deals: dealsData.deals || []
+          });
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err instanceof Error ? err : new Error("Unknown error"));
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
+
+  return { data, loading, error };
 }
 </file>
 
@@ -6419,6 +6775,41 @@ import { twMerge } from "tailwind-merge"
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+</file>
+
+<file path="src/store/entity-drawer-store.ts">
+import { create } from "zustand";
+
+export type EntityType = "company" | "responsible";
+
+interface EntityDrawerState {
+  isOpen: boolean;
+  entityType: EntityType | null;
+  entityId: string | null;
+
+  open: (type: EntityType, id: string) => void;
+  close: () => void;
+}
+
+export const useEntityDrawerStore = create<EntityDrawerState>((set) => ({
+  isOpen: false,
+  entityType: null,
+  entityId: null,
+
+  open: (type, id) =>
+    set({
+      isOpen: true,
+      entityType: type,
+      entityId: id,
+    }),
+
+  close: () =>
+    set({
+      isOpen: false,
+      entityType: null,
+      entityId: null,
+    }),
+}));
 </file>
 
 <file path=".gitflic-ci.yaml">
@@ -6553,57 +6944,31 @@ volumes:
   bi-data:
 </file>
 
-<file path="Dockerfile">
-# ─── RusSilica BI Terminal — Production Dockerfile ───
-# Многоэтапная сборка для минимального образа
+<file path="drawer-plan.md">
+# Entity Click-Through Drawer Implementation Plan
 
-# Этап 1: Установка зависимостей
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json bun.lock* ./
-RUN npm ci
+## 1. Architecture & State
+- Create `src/store/entity-drawer-store.ts` using Zustand to manage drawer state (`isOpen`, `entityType`, `entityId`).
 
-# Этап 2: Сборка
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+## 2. Data Fetching (Hooks)
+- Create `src/hooks/use-company-details.ts` to fetch company data and related deals via existing `/api/bitrix/companies` and `/api/bitrix/deals` endpoints.
+- Create `src/hooks/use-user-details.ts` to fetch user data and related deals via existing `/api/bitrix/users` and `/api/bitrix/deals` endpoints.
 
-# Переменные сборки (не секретные)
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
+## 3. UI Components
+- Create `src/components/dashboard/entity-drawer.tsx` using shadcn/ui `Sheet`.
+- Implement `CompanyDrawerContent` displaying revenue, industry, related deals, and an "Open in CRM" button.
+- Implement `ResponsibleDrawerContent` displaying user details, related deals, and an "Open in CRM" button.
+- Ensure responsive behavior: full-screen on mobile, 520px right-side drawer on desktop.
 
-# BITRIX_WEBHOOK_URL НЕ передаётся при сборке — 
-# он будет передан только при запуске контейнера
-RUN npm run build
+## 4. Integration
+- Inject `<EntityDrawer />` into `src/app/layout.tsx`.
+- Update `src/components/dashboard/data-table.tsx` to make `COMPANY_TITLE` and `ASSIGNED_BY_ID` columns clickable, triggering the drawer.
 
-# Этап 3: Продакшн-запуск
-FROM node:20-alpine AS runner
-WORKDIR /app
-
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
-# Создаём непривилегированного пользователя
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
-
-# Копируем standalone-сборку
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-# Создаём директорию для SQLite
-RUN mkdir -p ./db && chown nextjs:nodejs ./db
-
-USER nextjs
-
-EXPOSE 3000
-
-# Запуск standalone-сервера
-CMD ["node", "server.js"]
+## 5. Edge Cases
+- Show Skeletons during loading.
+- Handle "Not found" errors.
+- Handle "No related deals" empty states.
+- Prevent opening if ID is missing.
 </file>
 
 <file path="postcss.config.mjs">
@@ -6656,6 +7021,10 @@ This file is a merged representation of the entire codebase, combined into a sin
 
 <file_summary>
 This section contains a summary of this file.
+
+<project_description>
+RusSilica BI Terminal is a modern, high-performance Business Intelligence dashboard built with Next.js, Tailwind CSS, and Shadcn UI. It integrates deeply with Bitrix24 CRM to provide real-time analytics, deal tracking, and comprehensive data visualization. Key features include WordPress SSO authentication, advanced data filtering, customizable column views, and optimized parallel data fetching for handling large datasets efficiently.
+</project_description>
 
 <purpose>
 This file contains a packed representation of the entire repository's contents.
@@ -18430,6 +18799,10 @@ This file is a merged representation of the entire codebase, combined into a sin
 
 <file_summary>
 This section contains a summary of this file.
+
+<project_description>
+RusSilica BI Terminal is a modern, high-performance Business Intelligence dashboard built with Next.js, Tailwind CSS, and Shadcn UI. It integrates deeply with Bitrix24 CRM to provide real-time analytics, deal tracking, and comprehensive data visualization. Key features include WordPress SSO authentication, advanced data filtering, customizable column views, and optimized parallel data fetching for handling large datasets efficiently.
+</project_description>
 
 <purpose>
 This file contains a packed representation of the entire repository's contents.
@@ -38961,6 +39334,59 @@ agent-ctx/
 skills/
 </file>
 
+<file path="Dockerfile">
+# ─── RusSilica BI Terminal — Production Dockerfile ───
+# Многоэтапная сборка для минимального образа
+
+# Этап 1: Установка зависимостей
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json bun.lock* ./
+RUN npm ci
+
+# Этап 2: Сборка
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Переменные сборки (не секретные)
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+# BITRIX_WEBHOOK_URL НЕ передаётся при сборке — 
+# он будет передан только при запуске контейнера
+RUN npm run build
+
+# Этап 3: Продакшн-запуск
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# Создаём непривилегированного пользователя
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Копируем standalone-сборку
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Создаём директорию для SQLite
+RUN mkdir -p ./db && chown nextjs:nodejs ./db
+
+USER nextjs
+
+EXPOSE 3000
+
+# Запуск standalone-сервера
+CMD ["node", "server.js"]
+</file>
+
 <file path="eslint.config.mjs">
 import { FlatCompat } from "@eslint/eslintrc";
 import { dirname } from "path";
@@ -39830,7 +40256,6 @@ export async function POST(request: Request) {
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixPost } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
-import pLimit from "p-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -39880,34 +40305,29 @@ export async function POST(request: NextRequest) {
     }
 
     const batchSize = 50;
-    const limit = pLimit(5);
 
     for (let i = 0; i < validIds.length; i += batchSize) {
       const batchIds = validIds.slice(i, i + batchSize);
       
       try {
-        // Fetch activities for each deal in parallel
-        const activityPromises = batchIds.map(dealId => 
-          limit(() => bitrixPost<{ result: ActivityData[] }>(
-            "crm.activity.list",
-            {
-              FILTER: { OWNER_TYPE_ID: 2, OWNER_ID: dealId },
-              SELECT: ["ID", "OWNER_ID", "SUBJECT", "COMPLETED", "DESCRIPTION", "DEADLINE", "CREATED", "AUTHOR_ID", "RESPONSIBLE_ID", "TYPE_ID", "PROVIDER_ID", "PROVIDER_TYPE_ID"],
-              ORDER: { CREATED: "DESC" },
-            }
-          ))
+        // Fetch activities for up to 50 deals in a SINGLE request
+        const data = await bitrixPost<{ result: ActivityData[] }>(
+          "crm.activity.list",
+          {
+            FILTER: { OWNER_TYPE_ID: 2, "@OWNER_ID": batchIds },
+            SELECT: ["ID", "OWNER_ID", "SUBJECT", "COMPLETED", "DESCRIPTION", "DEADLINE", "CREATED", "AUTHOR_ID", "RESPONSIBLE_ID", "TYPE_ID", "PROVIDER_ID", "PROVIDER_TYPE_ID"],
+            ORDER: { CREATED: "DESC" },
+          }
         );
 
-        const results = await Promise.allSettled(activityPromises);
-
-        results.forEach((result, index) => {
-          if (result.status === "fulfilled" && Array.isArray(result.value.result)) {
-            const dealId = batchIds[index];
-            for (const activity of result.value.result) {
-              activitiesMap[dealId].all.push(activity);
+        if (Array.isArray(data.result)) {
+          for (const activity of data.result) {
+            // Group the returned activities back to their respective deals
+            if (activitiesMap[activity.OWNER_ID]) {
+              activitiesMap[activity.OWNER_ID].all.push(activity);
             }
           }
-        });
+        }
       } catch (error) {
         console.error(`[Activities API] Failed to fetch activities batch:`, error);
       }
@@ -39946,80 +40366,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-</file>
-
-<file path="src/app/layout.tsx">
-import type { Metadata } from "next";
-import { Roboto, Nunito, Roboto_Mono } from "next/font/google";
-import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
-import { ThemeProvider } from "@/components/dashboard/theme-provider";
-import { AuthProvider } from "@/components/auth/auth-provider";
-import { ErrorBoundary } from "@/components/error-boundary";
-
-const roboto = Roboto({
-  weight: ["400", "500", "700"],
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-roboto",
-});
-
-const nunito = Nunito({
-  weight: ["400", "500", "600", "700"],
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-nunito",
-});
-
-const robotoMono = Roboto_Mono({
-  weight: ["400", "500"],
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-roboto-mono",
-});
-
-export const metadata: Metadata = {
-  title: "Корпоративный BI-терминал RusSilica | CRM-аналитика в реальном времени",
-  description:
-    "BI-терминал RusSilica — аналитика продаж Bitrix24 в реальном времени: сделки, фильтры, воронки, ответственные, KPI-карточки и экспорт таблиц.",
-  robots: {
-    index: false,
-    follow: false,
-    googleBot: {
-      index: false,
-      follow: false,
-      noimageindex: true,
-      "max-video-preview": -1,
-      "max-image-preview": "none",
-      "max-snippet": -1,
-    },
-  },
-};
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
-  return (
-    <html lang="ru" suppressHydrationWarning>
-      <body
-        className={`${roboto.variable} ${nunito.variable} ${robotoMono.variable} font-sans antialiased bg-background text-foreground`}
-      >
-        <AuthProvider>
-          <ErrorBoundary>
-            <ThemeProvider
-              attribute="class"
-              defaultTheme="light"
-              enableSystem={false}
-              storageKey="bitrix-bi-theme"
-            >
-              {children}
-              <Toaster />
-            </ThemeProvider>
-          </ErrorBoundary>
-        </AuthProvider>
-      </body>
-    </html>
-  );
 }
 </file>
 
@@ -41511,6 +41857,82 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+</file>
+
+<file path="src/app/layout.tsx">
+import type { Metadata } from "next";
+import { Roboto, Nunito, Roboto_Mono } from "next/font/google";
+import "./globals.css";
+import { Toaster } from "@/components/ui/toaster";
+import { ThemeProvider } from "@/components/dashboard/theme-provider";
+import { AuthProvider } from "@/components/auth/auth-provider";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { EntityDrawer } from "@/components/dashboard/entity-drawer";
+
+const roboto = Roboto({
+  weight: ["400", "500", "700"],
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-roboto",
+});
+
+const nunito = Nunito({
+  weight: ["400", "500", "600", "700"],
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-nunito",
+});
+
+const robotoMono = Roboto_Mono({
+  weight: ["400", "500"],
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-roboto-mono",
+});
+
+export const metadata: Metadata = {
+  title: "Корпоративный BI-терминал RusSilica | CRM-аналитика в реальном времени",
+  description:
+    "BI-терминал RusSilica — аналитика продаж Bitrix24 в реальном времени: сделки, фильтры, воронки, ответственные, KPI-карточки и экспорт таблиц.",
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true,
+      "max-video-preview": -1,
+      "max-image-preview": "none",
+      "max-snippet": -1,
+    },
+  },
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="ru" suppressHydrationWarning>
+      <body
+        className={`${roboto.variable} ${nunito.variable} ${robotoMono.variable} font-sans antialiased bg-background text-foreground`}
+      >
+        <AuthProvider>
+          <ErrorBoundary>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="light"
+              enableSystem={false}
+              storageKey="bitrix-bi-theme"
+            >
+              {children}
+              <Toaster />
+              <EntityDrawer />
+            </ThemeProvider>
+          </ErrorBoundary>
+        </AuthProvider>
+      </body>
+    </html>
   );
 }
 </file>
@@ -43245,98 +43667,6 @@ export function timingSafeEqualString(a: string, b: string): boolean {
 }
 </file>
 
-<file path="package.json">
-{
-  "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.2.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev -p 3000 2>&1 | tee dev.log",
-    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production node .next/standalone/server.js 2>&1 | tee server.log",
-    "lint": "eslint .",
-    "db:push": "prisma db push",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
-  },
-  "dependencies": {
-    "@dnd-kit/core": "^6.3.1",
-    "@dnd-kit/sortable": "^10.0.0",
-    "@dnd-kit/utilities": "^3.2.2",
-    "@hookform/resolvers": "^5.1.1",
-    "@prisma/client": "^6.11.1",
-    "@radix-ui/react-accordion": "^1.2.11",
-    "@radix-ui/react-alert-dialog": "^1.1.14",
-    "@radix-ui/react-aspect-ratio": "^1.1.7",
-    "@radix-ui/react-avatar": "^1.1.10",
-    "@radix-ui/react-checkbox": "^1.3.2",
-    "@radix-ui/react-collapsible": "^1.1.11",
-    "@radix-ui/react-context-menu": "^2.2.15",
-    "@radix-ui/react-dialog": "^1.1.14",
-    "@radix-ui/react-dropdown-menu": "^2.1.15",
-    "@radix-ui/react-hover-card": "^1.1.14",
-    "@radix-ui/react-label": "^2.1.7",
-    "@radix-ui/react-menubar": "^1.1.15",
-    "@radix-ui/react-navigation-menu": "^1.2.13",
-    "@radix-ui/react-popover": "^1.1.14",
-    "@radix-ui/react-progress": "^1.1.7",
-    "@radix-ui/react-radio-group": "^1.3.7",
-    "@radix-ui/react-scroll-area": "^1.2.9",
-    "@radix-ui/react-select": "^2.2.5",
-    "@radix-ui/react-separator": "^1.1.7",
-    "@radix-ui/react-slider": "^1.3.5",
-    "@radix-ui/react-slot": "^1.2.3",
-    "@radix-ui/react-switch": "^1.2.5",
-    "@radix-ui/react-tabs": "^1.1.12",
-    "@radix-ui/react-toast": "^1.2.14",
-    "@radix-ui/react-toggle": "^1.1.9",
-    "@radix-ui/react-toggle-group": "^1.1.10",
-    "@radix-ui/react-tooltip": "^1.2.7",
-    "@tanstack/react-query": "^5.82.0",
-    "@tanstack/react-table": "^8.21.3",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "cmdk": "^1.1.1",
-    "date-fns": "^4.1.0",
-    "embla-carousel-react": "^8.6.0",
-    "exceljs": "^4.4.0",
-    "framer-motion": "^12.23.2",
-    "input-otp": "^1.4.2",
-    "lucide-react": "^0.525.0",
-    "next": "^16.1.1",
-    "next-auth": "^4.24.11",
-    "next-themes": "^0.4.6",
-    "p-limit": "^7.3.0",
-    "prisma": "^6.11.1",
-    "react": "^19.0.0",
-    "react-day-picker": "^9.8.0",
-    "react-dom": "^19.0.0",
-    "react-hook-form": "^7.60.0",
-    "react-resizable-panels": "^3.0.3",
-    "recharts": "^2.15.4",
-    "sharp": "^0.34.3",
-    "sonner": "^2.0.6",
-    "tailwind-merge": "^3.3.1",
-    "tailwindcss-animate": "^1.0.7",
-    "vaul": "^1.1.2",
-    "zod": "^4.0.2",
-    "zustand": "^5.0.6"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "bun-types": "^1.3.4",
-    "eslint": "^9",
-    "eslint-config-next": "^16.1.1",
-    "tailwindcss": "^4",
-    "tw-animate-css": "^1.3.5",
-    "typescript": "^5"
-  }
-}
-</file>
-
 <file path="src/components/dashboard/header.tsx">
 "use client";
 
@@ -43909,6 +44239,98 @@ This file provides guidance to agents when working with code in this repository.
 - **ESLint**: Many standard rules (e.g., `no-explicit-any`, `exhaustive-deps`) are explicitly disabled in `eslint.config.mjs`. Do not try to fix these "violations".
 </file>
 
+<file path="package.json">
+{
+  "name": "nextjs_tailwind_shadcn_ts",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000 2>&1 | tee dev.log",
+    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "start": "NODE_ENV=production node .next/standalone/server.js 2>&1 | tee server.log",
+    "lint": "eslint .",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:reset": "prisma migrate reset"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@hookform/resolvers": "^5.1.1",
+    "@prisma/client": "^6.11.1",
+    "@radix-ui/react-accordion": "^1.2.11",
+    "@radix-ui/react-alert-dialog": "^1.1.14",
+    "@radix-ui/react-aspect-ratio": "^1.1.7",
+    "@radix-ui/react-avatar": "^1.1.10",
+    "@radix-ui/react-checkbox": "^1.3.2",
+    "@radix-ui/react-collapsible": "^1.1.11",
+    "@radix-ui/react-context-menu": "^2.2.15",
+    "@radix-ui/react-dialog": "^1.1.14",
+    "@radix-ui/react-dropdown-menu": "^2.1.15",
+    "@radix-ui/react-hover-card": "^1.1.14",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-menubar": "^1.1.15",
+    "@radix-ui/react-navigation-menu": "^1.2.13",
+    "@radix-ui/react-popover": "^1.1.14",
+    "@radix-ui/react-progress": "^1.1.7",
+    "@radix-ui/react-radio-group": "^1.3.7",
+    "@radix-ui/react-scroll-area": "^1.2.9",
+    "@radix-ui/react-select": "^2.2.5",
+    "@radix-ui/react-separator": "^1.1.7",
+    "@radix-ui/react-slider": "^1.3.5",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-switch": "^1.2.5",
+    "@radix-ui/react-tabs": "^1.1.12",
+    "@radix-ui/react-toast": "^1.2.14",
+    "@radix-ui/react-toggle": "^1.1.9",
+    "@radix-ui/react-toggle-group": "^1.1.10",
+    "@radix-ui/react-tooltip": "^1.2.7",
+    "@tanstack/react-query": "^5.82.0",
+    "@tanstack/react-table": "^8.21.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "date-fns": "^4.1.0",
+    "embla-carousel-react": "^8.6.0",
+    "exceljs": "^4.4.0",
+    "framer-motion": "^12.23.2",
+    "input-otp": "^1.4.2",
+    "lucide-react": "^0.525.0",
+    "next": "^16.1.1",
+    "next-auth": "^4.24.11",
+    "next-themes": "^0.4.6",
+    "p-limit": "^7.3.0",
+    "prisma": "^6.11.1",
+    "react": "^19.0.0",
+    "react-day-picker": "^9.8.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.60.0",
+    "react-resizable-panels": "^3.0.3",
+    "recharts": "^2.15.4",
+    "sharp": "^0.34.3",
+    "sonner": "^2.0.6",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss-animate": "^1.0.7",
+    "vaul": "^1.1.2",
+    "zod": "^4.0.2",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "bun-types": "^1.3.4",
+    "eslint": "^9",
+    "eslint-config-next": "^16.1.1",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.3.5",
+    "typescript": "^5"
+  }
+}
+</file>
+
 <file path="src/app/api/auth/wp-callback/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { isCorporateEmail, mapWpRoleToBiRole } from "@/lib/auth";
@@ -44232,6 +44654,7 @@ async function handleWpCallback(request: NextRequest) {
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixPost, type BitrixDealsResponse } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
+import pLimit from "p-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -44401,28 +44824,34 @@ export async function POST(request: NextRequest) {
 
     // Fetch all pages if there are more results
     let allDeals = data.result || [];
-    let nextStart = data.next;
     // Preserve the ACTUAL total from Bitrix24 (not just fetched count)
     // This is critical for the UI to show "X из Y" correctly when there are
     // more deals than our pagination limit can fetch
     const bitrixTotal = data.total ?? allDeals.length;
 
-    // Paginate to get all deals (limit to max 1000 to prevent overload)
-    let pageCount = 0;
-    const MAX_PAGES = 20; // 20 pages * 50 per page = 1000 deals max per request
+    if (data.next && bitrixTotal > 50) {
+      const limit = pLimit(5); // Max 5 concurrent requests to respect Bitrix limits
+      const promises = [];
+      const MAX_DEALS_TO_FETCH = 1000;
+      const targetTotal = Math.min(bitrixTotal, MAX_DEALS_TO_FETCH);
+      
+      // Generate promises for remaining pages
+      for (let offset = 50; offset < targetTotal; offset += 50) {
+        promises.push(
+          limit(() => bitrixPost<BitrixDealsResponse>("crm.deal.list", {
+            ...apiBody,
+            start: offset,
+          }))
+        );
+      }
 
-    while (nextStart && pageCount < MAX_PAGES) {
-      const pageData = await bitrixPost<BitrixDealsResponse>(
-        "crm.deal.list",
-        {
-          ...apiBody,
-          start: nextStart,
+      const results = await Promise.allSettled(promises);
+      
+      for (const res of results) {
+        if (res.status === "fulfilled" && res.value.result) {
+          allDeals = [...allDeals, ...res.value.result];
         }
-      );
-
-      allDeals = [...allDeals, ...(pageData.result || [])];
-      nextStart = pageData.next;
-      pageCount++;
+      }
     }
 
     const truncated = bitrixTotal > allDeals.length;
@@ -44641,6 +45070,19 @@ export function useTableState() {
     [fieldMap, resolveValue]
   );
 
+  const columns = useMemo(() => {
+    if (selectedColumns.length > 0 && fields.length > 0) {
+      return selectedColumns.filter((colId) => fieldMap.has(colId));
+    }
+    if (selectedColumns.length > 0) {
+      return selectedColumns;
+    }
+    if (deals.length > 0) {
+      return Object.keys(deals[0]).slice(0, 8);
+    }
+    return [];
+  }, [selectedColumns, fields.length, fieldMap, deals]);
+
   const searchedDeals = useMemo(() => {
     if (!searchQuery.trim()) return deals;
     const q = searchQuery.toLowerCase();
@@ -44658,12 +45100,12 @@ export function useTableState() {
         if (companyName.toLowerCase().includes(q)) return true;
       }
 
-      return Object.entries(deal).some(([key, val]) => {
-        const resolved = resolveValue(deal, key);
+      return columns.some((colId) => {
+        const resolved = resolveValue(deal, colId);
         return resolved.toLowerCase().includes(q);
       });
     });
-  }, [deals, searchQuery, resolveValue, userNames, companiesData]);
+  }, [deals, searchQuery, resolveValue, userNames, companiesData, columns]);
 
   const filteredDeals = useMemo(() => {
     if (columnFilters.length === 0) return searchedDeals;
@@ -44696,19 +45138,6 @@ export function useTableState() {
       return aStr.localeCompare(bStr, "ru") * dir;
     });
   }, [filteredDeals, columnSort, getSortValue]);
-
-  const columns = useMemo(() => {
-    if (selectedColumns.length > 0 && fields.length > 0) {
-      return selectedColumns.filter((colId) => fieldMap.has(colId));
-    }
-    if (selectedColumns.length > 0) {
-      return selectedColumns;
-    }
-    if (deals.length > 0) {
-      return Object.keys(deals[0]).slice(0, 8);
-    }
-    return [];
-  }, [selectedColumns, fields.length, fieldMap, deals]);
 
   return {
     fieldMap,
@@ -46087,6 +46516,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState, useRef, useEffect } from "react";
+import { useEntityDrawerStore } from "@/store/entity-drawer-store";
 
 /**
  * SECURITY NOTE: All cell values are rendered as JSX text content.
@@ -46116,6 +46546,9 @@ export function DataTable() {
     clearColumnFilter,
     clearAllColumnFilters,
   } = useDashboardStore();
+
+  const companiesDataLoading = useDashboardStore(s => s.companiesDataLoading);
+  const activitiesDataLoading = useDashboardStore(s => s.activitiesDataLoading);
 
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
@@ -46399,6 +46832,8 @@ export function DataTable() {
                                 field={fieldMap.get(colId)}
                                 deal={deal}
                                 colId={colId}
+                                companiesLoading={companiesDataLoading}
+                                activitiesLoading={activitiesDataLoading}
                               />
                             </td>
                           );
@@ -46481,25 +46916,33 @@ function CellValue({
   field,
   deal,
   colId,
+  companiesLoading,
+  activitiesLoading,
 }: {
   raw: string | string[] | number | null;
   resolved: string;
   field?: FieldInfo;
   deal?: any;
   colId?: string;
+  companiesLoading: boolean;
+  activitiesLoading: boolean;
 }) {
-  const { companiesDataLoading, activitiesDataLoading } = useDashboardStore();
+  const openDrawer = useEntityDrawerStore((s) => s.open);
 
   if (!resolved) {
     if (colId === "COMPANY_TITLE" || colId?.startsWith("COMPANY_")) {
-      if (companiesDataLoading) {
+      if (companiesLoading) {
         return <Skeleton className="h-4 w-24 rounded" />;
       }
       const companyId = String(deal.COMPANY_ID || "").trim();
 
       if (companyId) {
         return (
-          <span className="text-muted-foreground" title={`Company ID: ${companyId}`}>
+          <span 
+            className="text-muted-foreground cursor-pointer hover:underline" 
+            title={`Company ID: ${companyId}`}
+            onClick={() => openDrawer("company", companyId)}
+          >
             {`ID ${companyId}`}
           </span>
         );
@@ -46507,7 +46950,7 @@ function CellValue({
     }
 
     if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
-      if (activitiesDataLoading) {
+      if (activitiesLoading) {
         return <Skeleton className="h-4 w-32 rounded" />;
       }
     }
@@ -46692,6 +47135,34 @@ function CellValue({
   }
 
   // Default — React auto-escapes JSX text, preventing XSS from CRM data
+  if (colId === "COMPANY_TITLE") {
+    const companyId = String(deal.COMPANY_ID || "").trim();
+    if (companyId) {
+      return (
+        <span
+          className="text-xs cursor-pointer hover:underline text-brand-blue"
+          onClick={() => openDrawer("company", companyId)}
+        >
+          {resolved}
+        </span>
+      );
+    }
+  }
+
+  if (colId === "ASSIGNED_BY_ID") {
+    const userId = String(deal.ASSIGNED_BY_ID || "").trim();
+    if (userId) {
+      return (
+        <span
+          className="text-xs cursor-pointer hover:underline text-brand-blue"
+          onClick={() => openDrawer("responsible", userId)}
+        >
+          {resolved}
+        </span>
+      );
+    }
+  }
+
   return <span className="text-xs">{resolved}</span>;
 }
 </file>

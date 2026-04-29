@@ -52,37 +52,39 @@ export async function POST(request: NextRequest) {
 
     const batchSize = 50;
     const limit = pLimit(5);
+    const batchPromises = [];
 
     for (let i = 0; i < validIds.length; i += batchSize) {
       const batchIds = validIds.slice(i, i + batchSize);
       
-      try {
-        // Fetch activities for each deal in parallel
-        const activityPromises = batchIds.map(dealId => 
-          limit(() => bitrixPost<{ result: ActivityData[] }>(
-            "crm.activity.list",
-            {
-              FILTER: { OWNER_TYPE_ID: 2, OWNER_ID: dealId },
-              SELECT: ["ID", "OWNER_ID", "SUBJECT", "COMPLETED", "DESCRIPTION", "DEADLINE", "CREATED", "AUTHOR_ID", "RESPONSIBLE_ID", "TYPE_ID", "PROVIDER_ID", "PROVIDER_TYPE_ID"],
-              ORDER: { CREATED: "DESC" },
-            }
-          ))
-        );
+      batchPromises.push(
+        limit(async () => {
+          try {
+            const data = await bitrixPost<{ result: ActivityData[] }>(
+              "crm.activity.list",
+              {
+                FILTER: { OWNER_TYPE_ID: 2, "@OWNER_ID": batchIds },
+                SELECT: ["ID", "OWNER_ID", "SUBJECT", "COMPLETED", "DESCRIPTION", "DEADLINE", "CREATED", "AUTHOR_ID", "RESPONSIBLE_ID", "TYPE_ID", "PROVIDER_ID", "PROVIDER_TYPE_ID"],
+                ORDER: { CREATED: "DESC" },
+              }
+            );
 
-        const results = await Promise.allSettled(activityPromises);
-
-        results.forEach((result, index) => {
-          if (result.status === "fulfilled" && Array.isArray(result.value.result)) {
-            const dealId = batchIds[index];
-            for (const activity of result.value.result) {
-              activitiesMap[dealId].all.push(activity);
+            if (Array.isArray(data.result)) {
+              for (const activity of data.result) {
+                if (activitiesMap[activity.OWNER_ID]) {
+                  activitiesMap[activity.OWNER_ID].all.push(activity);
+                }
+              }
             }
+          } catch (error) {
+            console.error(`[Activities API] Failed to fetch activities batch:`, error);
           }
-        });
-      } catch (error) {
-        console.error(`[Activities API] Failed to fetch activities batch:`, error);
-      }
+        })
+      );
     }
+
+    // Wait for all batches to finish concurrently
+    await Promise.all(batchPromises);
 
     // Process activities to find last completed and next planned
     for (const dealId in activitiesMap) {

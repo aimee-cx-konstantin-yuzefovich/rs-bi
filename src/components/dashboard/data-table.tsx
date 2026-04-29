@@ -56,6 +56,10 @@ export function DataTable() {
     clearAllColumnFilters,
   } = useDashboardStore();
 
+  const companiesDataLoading = useDashboardStore(s => s.companiesDataLoading);
+  const activitiesDataLoading = useDashboardStore(s => s.activitiesDataLoading);
+  const openDrawer = useEntityDrawerStore((s) => s.open);
+
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
 
@@ -338,6 +342,9 @@ export function DataTable() {
                                 field={fieldMap.get(colId)}
                                 deal={deal}
                                 colId={colId}
+                                companiesLoading={companiesDataLoading}
+                                activitiesLoading={activitiesDataLoading}
+                                openDrawer={openDrawer}
                               />
                             </td>
                           );
@@ -420,19 +427,22 @@ function CellValue({
   field,
   deal,
   colId,
+  companiesLoading,
+  activitiesLoading,
+  openDrawer,
 }: {
   raw: string | string[] | number | null;
   resolved: string;
   field?: FieldInfo;
   deal?: any;
   colId?: string;
+  companiesLoading: boolean;
+  activitiesLoading: boolean;
+  openDrawer: (type: "deal" | "company" | "responsible", id: string) => void;
 }) {
-  const { companiesDataLoading, activitiesDataLoading } = useDashboardStore();
-  const openDrawer = useEntityDrawerStore((s) => s.open);
-
   if (!resolved) {
     if (colId === "COMPANY_TITLE" || colId?.startsWith("COMPANY_")) {
-      if (companiesDataLoading) {
+      if (companiesLoading) {
         return <Skeleton className="h-4 w-24 rounded" />;
       }
       const companyId = String(deal.COMPANY_ID || "").trim();
@@ -451,7 +461,7 @@ function CellValue({
     }
 
     if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
-      if (activitiesDataLoading) {
+      if (activitiesLoading) {
         return <Skeleton className="h-4 w-32 rounded" />;
       }
     }

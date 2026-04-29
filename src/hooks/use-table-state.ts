@@ -173,6 +173,19 @@ export function useTableState() {
     [fieldMap, resolveValue]
   );
 
+  const columns = useMemo(() => {
+    if (selectedColumns.length > 0 && fields.length > 0) {
+      return selectedColumns.filter((colId) => fieldMap.has(colId));
+    }
+    if (selectedColumns.length > 0) {
+      return selectedColumns;
+    }
+    if (deals.length > 0) {
+      return Object.keys(deals[0]).slice(0, 8);
+    }
+    return [];
+  }, [selectedColumns, fields.length, fieldMap, deals]);
+
   const searchedDeals = useMemo(() => {
     if (!searchQuery.trim()) return deals;
     const q = searchQuery.toLowerCase();
@@ -190,12 +203,12 @@ export function useTableState() {
         if (companyName.toLowerCase().includes(q)) return true;
       }
 
-      return Object.entries(deal).some(([key, val]) => {
-        const resolved = resolveValue(deal, key);
+      return columns.some((colId) => {
+        const resolved = resolveValue(deal, colId);
         return resolved.toLowerCase().includes(q);
       });
     });
-  }, [deals, searchQuery, resolveValue, userNames, companiesData]);
+  }, [deals, searchQuery, resolveValue, userNames, companiesData, columns]);
 
   const filteredDeals = useMemo(() => {
     if (columnFilters.length === 0) return searchedDeals;
@@ -228,19 +241,6 @@ export function useTableState() {
       return aStr.localeCompare(bStr, "ru") * dir;
     });
   }, [filteredDeals, columnSort, getSortValue]);
-
-  const columns = useMemo(() => {
-    if (selectedColumns.length > 0 && fields.length > 0) {
-      return selectedColumns.filter((colId) => fieldMap.has(colId));
-    }
-    if (selectedColumns.length > 0) {
-      return selectedColumns;
-    }
-    if (deals.length > 0) {
-      return Object.keys(deals[0]).slice(0, 8);
-    }
-    return [];
-  }, [selectedColumns, fields.length, fieldMap, deals]);
 
   return {
     fieldMap,

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useDashboardStore } from "@/store/dashboard-store";
 
 export function useUserDetails(userId: string) {
   const [data, setData] = useState<any>(null);
@@ -14,33 +15,26 @@ export function useUserDetails(userId: string) {
       setLoading(true);
       setError(null);
       try {
-        const [usersRes, dealsRes] = await Promise.all([
-          fetch("/api/bitrix/users"),
-          fetch("/api/bitrix/deals", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              filter: { "=ASSIGNED_BY_ID": userId },
-              select: ["ID", "TITLE", "STAGE_ID", "OPPORTUNITY", "CURRENCY_ID"],
-              order: { DATE_CREATE: "DESC" }
-            })
+        const dealsRes = await fetch("/api/bitrix/deals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filter: { "=ASSIGNED_BY_ID": userId },
+            select: ["ID", "TITLE", "STAGE_ID", "OPPORTUNITY", "CURRENCY_ID"],
+            order: { DATE_CREATE: "DESC" }
           })
-        ]);
+        });
 
-        if (!usersRes.ok) throw new Error("Failed to fetch users");
         if (!dealsRes.ok) throw new Error("Failed to fetch deals");
-
-        const usersData = await usersRes.json();
         const dealsData = await dealsRes.json();
 
         if (isMounted) {
-          const userName = usersData.users?.[userId];
-          if (!userName) {
-            throw new Error("User not found");
-          }
+          // Read directly from the already-populated Zustand store
+          const userName = useDashboardStore.getState().userNames[userId];
+          
           setData({
             id: userId,
-            name: userName,
+            name: userName || `ID ${userId}`,
             deals: dealsData.deals || []
           });
         }
