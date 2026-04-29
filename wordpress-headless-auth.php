@@ -2,7 +2,7 @@
 /**
  * Plugin Name: RusSilica Headless Auth
  * Description: REST API endpoint for Headless Next.js Authentication
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: RusSilica
  */
 
@@ -12,19 +12,20 @@ if (!defined('ABSPATH')) {
 
 class RusSilica_Headless_Auth {
     public function __construct() {
-        add_action('login_form_headless_auth',[$this, 'handle_auth_request']);
-        add_action('login_form_headless_logout',[$this, 'handle_logout_request']);
+        add_action('login_form_headless_auth', [$this, 'handle_auth_request']);
+        add_action('login_form_headless_logout', [$this, 'handle_logout_request']);
         
-        // FIX 2: Added missing login_redirect hook to append HMAC params
-        add_filter('login_redirect', [$this, 'handle_login_redirect'], 10, 3);
+        // Use priority 99 to ensure we append our args after other plugins modify the redirect
+        add_filter('login_redirect',[$this, 'handle_login_redirect'], 99, 3);
     }
 
     public function handle_logout_request() {
-        // FIX 4: Basic CSRF mitigation via Referer check
+        // FIX 3: Strict CSRF mitigation via parsed host comparison
         $referer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : '';
+        $referer_host = parse_url($referer, PHP_URL_HOST);
         $host = parse_url(home_url(), PHP_URL_HOST);
         
-        if ( is_user_logged_in() && strpos($referer, $host) !== false ) {
+        if ( is_user_logged_in() && $referer_host === $host ) {
             wp_logout();
         }
 
@@ -48,8 +49,12 @@ class RusSilica_Headless_Auth {
             exit;
         }
 
-        // FIX 3: Prevent PHP 8 TypeError if body is empty/invalid
-        $input = json_decode(file_get_contents('php://input'), true) ?:[];
+        // FIX 4: Strict array check prevents PHP 8 TypeErrors
+        $input = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($input)) {
+            $input =[];
+        }
+        
         $email = sanitize_email($input['email'] ?? '');
         $password = $input['password'] ?? '';
 
@@ -82,30 +87,24 @@ class RusSilica_Headless_Auth {
         exit;
     }
 
-    // FIX 2: Intercept standard WP login and append HMAC params for Next.js
     public function handle_login_redirect($redirect_to, $requested_redirect_to, $user) {
-        // Only intercept if the redirect is going back to our Next.js callback
         if (strpos($redirect_to, '/api/auth/wp-callback') !== false && !is_wp_error($user)) {
             $token = $this->generate_hmac_token($user);
             
-            if (!is_wp_error($token)) {
-                // Token format is wp-sso-hmac:email:role:ts:sig
-                $parts = explode(':', $token);
-                if (count($parts) === 5) {
-                    $url_parts = parse_url($redirect_to);
-                    parse_str($url_parts['query'] ?? '', $query);
-                    
-                    // Append required HMAC parameters
-                    $query['email'] = $parts[1];
-                    $query['role']  = $parts[2];
-                    $query['ts']    = $parts[3];
-                    $query['sig']   = $parts[4];
-                    
-                    $new_query = http_build_query($query);
-                    $redirect_to = $url_parts['scheme'] . '://' . $url_parts['host'] . 
-                                   (isset($url_parts['port']) ? ':' . $url_parts['port'] : '') . 
-                                   $url_parts['path'] . '?' . $new_query;
-                }
+            // FIX 2: Prevent infinite redirect loop if secret is missing
+            if (is_wp_error($token)) {
+                wp_die('BI Terminal SSO Error: ' . esc_html($token->get_error_message()));
+            }
+
+            $parts = explode(':', $token);
+            if (count($parts) === 5) {
+                // FIX 1: Use native add_query_arg for safe URL construction
+                $redirect_to = add_query_arg([
+                    'email' => $parts[1],
+                    'role'  => $parts[2],
+                    'ts'    => $parts[3],
+                    'sig'   => $parts[4],
+                ], $redirect_to);
             }
         }
         return $redirect_to;
@@ -126,7 +125,6 @@ class RusSilica_Headless_Auth {
         $message = "{$email}|{$role}|{$ts}";
         $sig = hash_hmac('sha256', $message, RUSSILICA_BI_PROXY_SECRET);
 
-        // FIX 1: Changed pipes (|) to colons (:) to match Next.js sso-hmac.ts expectations
         return "wp-sso-hmac:{$email}:{$role}:{$ts}:{$sig}";
     }
 
