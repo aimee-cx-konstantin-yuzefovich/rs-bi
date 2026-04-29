@@ -51,12 +51,12 @@ export async function POST(request: NextRequest) {
     }
 
     const batchSize = 50;
+    const limit = pLimit(5);
 
     for (let i = 0; i < validIds.length; i += batchSize) {
       const batchIds = validIds.slice(i, i + batchSize);
       
       try {
-        const limit = pLimit(5);
         // Fetch activities for each deal in parallel
         const activityPromises = batchIds.map(dealId => 
           limit(() => bitrixPost<{ result: ActivityData[] }>(
