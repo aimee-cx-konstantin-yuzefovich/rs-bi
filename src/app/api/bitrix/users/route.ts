@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixGet, bitrixPost } from "@/lib/bitrix";
-import { requireAuthOnly } from "@/lib/auth-guard";
+import { requireAuth, isAuthError } from "@/lib/auth-guard";
 import pLimit from "p-limit";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +14,10 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   // ─── SECURITY: Require authentication ───
-  const authError = await requireAuthOnly();
-  if (authError) return authError;
+  // Using requireAuth (not requireAuthOnly) because this endpoint exposes
+  // personal data (employee names) and must be fully auditable.
+  const authResult = await requireAuth();
+  if (isAuthError(authResult)) return authResult;
   try {
     const userMap: Record<string, string> = {};
     const MAX_ITERATIONS = 50; // 50 * 50 = 2500 users max
@@ -69,7 +71,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`[Users API] Total users fetched: ${Object.keys(userMap).length}`);
+    // SECURITY: Only log user count in development to avoid leaking
+    // infrastructure details (headcount) to production log systems.
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[Users API] Total users fetched: ${Object.keys(userMap).length}`);
+    }
     return NextResponse.json({ success: true, users: userMap });
   } catch (error) {
     console.error("[Users API Error]", error);

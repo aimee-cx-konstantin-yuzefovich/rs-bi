@@ -110,6 +110,9 @@ const SECURITY_HEADERS: Record<string, string> = {
 
 const CSP_DIRECTIVES_PROD = [
   "default-src 'self'",
+  // KNOWN ISSUE: 'unsafe-inline' is required by Next.js for hydration inline scripts.
+  // TODO: Replace with nonce-based CSP when Next.js nonce support is stable.
+  // Tracking: https://nextjs.org/docs/app/building-your-application/configuring/content-security-policy
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.bitrix24.ru https://*.bitrix24.com",

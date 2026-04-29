@@ -31,7 +31,25 @@ export async function POST(request: NextRequest) {
   if (isAuthError(authResult)) return authResult;
 
   try {
-    const body = await request.json();
+    // SECURITY: Limit request body size to prevent DoS via oversized payloads
+    const rawBody = await request.text();
+    if (rawBody.length > 10_000) {
+      return NextResponse.json(
+        { success: false, error: "Request body too large", activities: {} },
+        { status: 413 }
+      );
+    }
+
+    let body: { dealIds?: unknown };
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Invalid JSON in request body", activities: {} },
+        { status: 400 }
+      );
+    }
+
     const { dealIds } = body;
 
     if (!Array.isArray(dealIds) || dealIds.length === 0) {
@@ -41,6 +59,15 @@ export async function POST(request: NextRequest) {
     const validIds = dealIds.filter((id) => /^\d+$/.test(String(id).trim()));
     if (validIds.length === 0) {
       return NextResponse.json({ success: true, activities: {} });
+    }
+
+    // SECURITY: Limit number of IDs to prevent DoS via mass batch requests
+    const MAX_DEAL_IDS = 1000;
+    if (validIds.length > MAX_DEAL_IDS) {
+      return NextResponse.json(
+        { success: false, error: `Too many deal IDs: maximum is ${MAX_DEAL_IDS}`, activities: {} },
+        { status: 400 }
+      );
     }
 
     const activitiesMap: Record<string, { last?: ActivityData; next?: ActivityData; all: ActivityData[] }> = {};

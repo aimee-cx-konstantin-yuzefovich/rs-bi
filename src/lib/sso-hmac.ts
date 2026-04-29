@@ -20,7 +20,7 @@ import { createHmac, timingSafeEqual, createHash } from "crypto";
 import { db } from "@/lib/db";
 
 const PROXY_SECRET = process.env.PROXY_SECRET || "";
-const MAX_TOKEN_AGE_SECONDS = 300; // 5 minutes
+const MAX_TOKEN_AGE_SECONDS = 30; // 30 секунд достаточно для SSO-редиректа
 
 export interface SsoTokenPayload {
   email: string;
