@@ -1,0 +1,36 @@
+{
+  "output": {
+    "filePath": "codebase-snapshot.md",
+    "style": "markdown",
+    "removeComments": false,
+    "removeEmptyLines": true,
+    "topFilesLength": 5,
+    "showLineNumbers": true
+  },
+  "include": [
+    "src/**/*",
+    "package.json",
+    "prisma/schema.prisma"
+  ],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "*.md",
+      "repomix-output.xml",
+      "public/**/*",
+      ".roo/**/*",
+      "components.json",
+      "tailwind.config.ts",
+      "postcss.config.mjs",
+      "eslint.config.mjs",
+      "next.config.ts",
+      "tsconfig.json",
+      "Dockerfile",
+      "docker-compose.yml",
+      ".gitflic-ci.yaml",
+      "wordpress-headless-auth.php",
+      "test-users.ts"
+    ]
+  }
+}

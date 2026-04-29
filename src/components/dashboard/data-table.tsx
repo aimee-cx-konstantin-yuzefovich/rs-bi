@@ -58,6 +58,7 @@ export function DataTable() {
 
   const companiesDataLoading = useDashboardStore(s => s.companiesDataLoading);
   const activitiesDataLoading = useDashboardStore(s => s.activitiesDataLoading);
+  const userNamesLoading = useDashboardStore(s => s.userNamesLoading);
   const openDrawer = useEntityDrawerStore((s) => s.open);
 
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
@@ -75,7 +76,10 @@ export function DataTable() {
     resolveValue,
     sortedDeals,
     columns,
+    userNamesLoading: namesStillLoading,
   } = useTableState();
+
+  const isUserNamesLoading = userNamesLoading || namesStillLoading;
 
   const activeFilterCount = columnFilters.filter((f) => f.value.trim()).length;
 
@@ -429,6 +433,7 @@ function CellValue({
   colId,
   companiesLoading,
   activitiesLoading,
+  userNamesLoading,
   openDrawer,
 }: {
   raw: string | string[] | number | null;
@@ -438,6 +443,7 @@ function CellValue({
   colId?: string;
   companiesLoading: boolean;
   activitiesLoading: boolean;
+  userNamesLoading: boolean;
   openDrawer: (type: "company" | "responsible", id: string) => void;
 }) {
   if (!resolved) {
@@ -453,7 +459,7 @@ function CellValue({
             className="text-muted-foreground" 
             title={`Company ID: ${companyId}`}
           >
-            {`ID ${companyId}`}
+            {colId === "COMPANY_TITLE" ? `ID ${companyId}` : "—"}
           </span>
         );
       }
@@ -656,9 +662,12 @@ function CellValue({
     }
   }
 
-  if (colId === "ASSIGNED_BY_ID") {
-    const userId = String(deal.ASSIGNED_BY_ID || "").trim();
+  if (colId === RESPONSIBLE_FIELD_ID) {
+    const userId = String(deal?.ASSIGNED_BY_ID || "").trim();
     if (userId) {
+      if (userNamesLoading && resolved === `ID ${userId}`) {
+        return <Skeleton className="h-4 w-28 rounded" />;
+      }
       return (
         <span
           className="text-xs cursor-pointer hover:underline text-brand-blue"

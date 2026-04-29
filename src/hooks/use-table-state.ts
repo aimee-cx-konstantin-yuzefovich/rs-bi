@@ -14,6 +14,7 @@ export function useTableState() {
     userNames,
     companiesData,
     activitiesData,
+    userNamesLoading,
   } = useDashboardStore(useShallow((state) => ({
     deals: state.deals,
     fields: state.fields,
@@ -24,6 +25,7 @@ export function useTableState() {
     userNames: state.userNames,
     companiesData: state.companiesData,
     activitiesData: state.activitiesData,
+    userNamesLoading: state.userNamesLoading,
   })));
 
   const fieldMap = useMemo(
@@ -261,5 +263,6 @@ export function useTableState() {
     filteredDeals,
     sortedDeals,
     columns,
+    userNamesLoading,
   };
 }

@@ -131,6 +131,7 @@ interface DashboardState {
   activitiesData: Record<string, any>;
   activitiesDataFetchedAt: Record<string, number>;
   activitiesDataLoading: boolean;
+  userNamesLoading: boolean;
 
   // ─── Actions ───
   checkConfig: () => Promise<void>;
@@ -276,6 +277,7 @@ export const useDashboardStore = create<DashboardState>()(
       activitiesData: {},
       activitiesDataFetchedAt: {},
       activitiesDataLoading: false,
+      userNamesLoading: false,
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -680,7 +682,7 @@ export const useDashboardStore = create<DashboardState>()(
 
       fetchUserNames: async () => {
         const { isDemoMode, userNames } = get();
-
+        set({ userNamesLoading: true });
         // In demo mode, use the demo responsible persons
         if (isDemoMode) {
           const { RESPONSIBLE_PERSONS } = await import("@/lib/demo-data");
@@ -688,25 +690,25 @@ export const useDashboardStore = create<DashboardState>()(
           for (const person of RESPONSIBLE_PERSONS) {
             demoNames[person.ID] = person.NAME;
           }
-          set({ userNames: demoNames });
+          set({ userNames: demoNames, userNamesLoading: false });
           return;
         }
-
         try {
-          // Fetch all users
           const response = await fetchWithTimeout(`/api/bitrix/users`);
-
           if (!response.ok) {
             console.warn("[Dashboard] Failed to fetch user names: API returned", response.status);
+            set({ userNamesLoading: false });
             return;
           }
           const data = await response.json();
           if (data.success && data.users) {
-            set({ userNames: { ...userNames, ...data.users } });
+            set({ userNames: { ...userNames, ...data.users }, userNamesLoading: false });
+          } else {
+            set({ userNamesLoading: false });
           }
         } catch {
-          // Non-critical — responsible filter will show "ID xxx" fallback
           console.warn("[Dashboard] Failed to fetch user names");
+          set({ userNamesLoading: false });
         }
       },
 
