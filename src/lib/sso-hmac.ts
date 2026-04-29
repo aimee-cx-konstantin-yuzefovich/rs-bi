@@ -150,28 +150,6 @@ export async function verifySsoUrlParams(
     return null;
   }
 
-  // Check nonce to prevent replay attacks
-  try {
-    // Cleanup old nonces (older than 10 minutes)
-    await db.usedNonce.deleteMany({
-      where: { createdAt: { lt: new Date(Date.now() - 600_000) } }
-    }).catch(e => console.error("[SSO-HMAC] Nonce cleanup failed:", e));
-
-    const existing = await db.usedNonce.findUnique({
-      where: { nonce: signature }
-    });
-    if (existing) {
-      console.warn(`[SSO-HMAC] Replay attack detected for nonce: ${signature}`);
-      return null;
-    }
-    await db.usedNonce.create({
-      data: { nonce: signature }
-    });
-  } catch (error) {
-    console.error("[SSO-HMAC] Error checking nonce:", error);
-    return null;
-  }
-
   return { email, role, timestamp };
 }
 
