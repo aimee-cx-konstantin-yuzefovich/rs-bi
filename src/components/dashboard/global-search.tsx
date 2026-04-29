@@ -26,7 +26,7 @@ export function GlobalSearch() {
         placeholder="Поиск по всем полям..."
         className="h-7 w-full sm:w-56 lg:w-64 rounded-md bg-white/[0.07] border border-white/10 text-white/80 placeholder:text-white/30 text-xs pl-7 pr-6 outline-none focus-visible:border-white/25 focus-visible:ring-1 focus-visible:ring-white/20 transition-all"
         onBlur={() => {
-          if (searchQuery === "" && window.innerWidth < 640) {
+          if (searchQuery === "" && window.innerWidth < 768) {
             setMobileExpanded(false);
           }
         }}
