@@ -38,6 +38,25 @@ export function useTableState() {
       const raw = deal[colId];
       const field = fieldMap.get(colId);
 
+      // MOVED UP: обработка COMPANY_TITLE должна быть ДО раннего выхода,
+      // потому что raw для этого поля всегда пустой (Bitrix не отдаёт COMPANY_TITLE в deal.list)
+      if (colId === "COMPANY_TITLE") {
+        // 1. Prefer direct value from deal (fast path)
+        const directTitle = String(deal.COMPANY_TITLE || "").trim();
+        if (directTitle) return directTitle;
+
+        // 2. Fallback to companiesData via COMPANY_ID
+        const companyId = String(deal.COMPANY_ID ?? "").trim();
+        if (!companyId || companyId === "0") return "—";
+
+        const fromDict = companiesData?.[companyId];
+        const title = typeof fromDict === "string"
+          ? fromDict
+          : fromDict?.TITLE ?? fromDict?.title ?? "";
+
+        return title.trim() || "";
+      }
+
       if (raw === null || raw === undefined || raw === "") return "";
 
       if (colId === RESPONSIBLE_FIELD_ID) {
@@ -62,22 +81,6 @@ export function useTableState() {
         const cleanText = text.replace(/<[^>]*>?/gm, '');
         
         return `${formattedDate ? formattedDate + ": " : ""}${cleanText}`;
-      }
-
-      if (colId === "COMPANY_TITLE") {
-        // 1. Prefer direct value from deal (fast path)
-        const directTitle = String(deal.COMPANY_TITLE || "").trim();
-        if (directTitle) return directTitle;
-
-        // 2. Fallback to companiesData via COMPANY_ID
-        const companyId = String(deal.COMPANY_ID || "").trim();
-        if (companyId && companiesData?.[companyId]) {
-          const companyTitle = String(companiesData[companyId].TITLE || "").trim();
-          if (companyTitle) return companyTitle;
-        }
-
-        // 3. No data → return empty (CellValue will render dash)
-        return "";
       }
 
       if (colId.startsWith("COMPANY_")) {

@@ -142,6 +142,17 @@ export async function GET() {
       });
     }
 
+    // ADDED: ASSIGNED_BY_ID is filtered out by isSystemField but is a critical deal field
+    if (!cleanFields.some(f => f.id === "ASSIGNED_BY_ID")) {
+      cleanFields.unshift({
+        id: "ASSIGNED_BY_ID",
+        title: "Ответственный",
+        type: "string",
+        isMultiple: false,
+        isSortable: true,
+      });
+    }
+
     // Inject virtual fields for activities
     cleanFields.push({
       id: "ACTIVITY_LAST",

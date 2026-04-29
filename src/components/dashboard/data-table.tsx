@@ -348,6 +348,7 @@ export function DataTable() {
                                 colId={colId}
                                 companiesLoading={companiesDataLoading}
                                 activitiesLoading={activitiesDataLoading}
+                                userNamesLoading={isUserNamesLoading}
                                 openDrawer={openDrawer}
                               />
                             </td>
@@ -446,20 +447,45 @@ function CellValue({
   userNamesLoading: boolean;
   openDrawer: (type: "company" | "responsible", id: string) => void;
 }) {
+  if (colId === "COMPANY_TITLE") {
+    if (companiesLoading && !resolved) {
+      return <Skeleton className="h-4 w-28 rounded" />;
+    }
+
+    if (resolved?.trim() && resolved !== "—") {
+      return (
+        <span className="truncate block max-w-[180px]" title={resolved}>
+          {resolved}
+        </span>
+      );
+    }
+
+    const companyId = String(deal.COMPANY_ID ?? "").trim();
+    if (companyId && companyId !== "0") {
+      return (
+        <span className="text-muted-foreground text-xs" title={`Company ID: ${companyId}`}>
+          ID {companyId}
+        </span>
+      );
+    }
+
+    return <span className="text-muted-foreground">—</span>;
+  }
+
   if (!resolved) {
-    if (colId === "COMPANY_TITLE" || colId?.startsWith("COMPANY_")) {
+    if (colId?.startsWith("COMPANY_")) {
       if (companiesLoading) {
         return <Skeleton className="h-4 w-24 rounded" />;
       }
       const companyId = String(deal.COMPANY_ID || "").trim();
 
-      if (companyId) {
+      if (companyId && companyId !== "0") {
         return (
           <span 
             className="text-muted-foreground" 
             title={`Company ID: ${companyId}`}
           >
-            {colId === "COMPANY_TITLE" ? `ID ${companyId}` : "—"}
+            —
           </span>
         );
       }
@@ -651,17 +677,6 @@ function CellValue({
   }
 
   // Default — React auto-escapes JSX text, preventing XSS from CRM data
-  if (colId === "COMPANY_TITLE") {
-    const companyId = String(deal.COMPANY_ID || "").trim();
-    if (companyId) {
-      return (
-        <span className="text-xs">
-          {resolved}
-        </span>
-      );
-    }
-  }
-
   if (colId === RESPONSIBLE_FIELD_ID) {
     const userId = String(deal?.ASSIGNED_BY_ID || "").trim();
     if (userId) {

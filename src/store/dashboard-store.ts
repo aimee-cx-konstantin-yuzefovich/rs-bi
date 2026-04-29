@@ -749,6 +749,9 @@ export const useDashboardStore = create<DashboardState>()(
         if (!companyFieldsToSelect.includes("TITLE")) {
           companyFieldsToSelect.push("TITLE");
         }
+        if (!companyFieldsToSelect.includes("ID")) {
+          companyFieldsToSelect.push("ID");
+        }
 
         try {
           const response = await fetchWithTimeout("/api/bitrix/companies", {
@@ -768,7 +771,17 @@ export const useDashboardStore = create<DashboardState>()(
           const data = await response.json();
           if (data.success && data.companies) {
             set((state) => {
-              const newCompaniesData = { ...state.companiesData, ...data.companies };
+              const normalizedCompanies: Record<string, any> = {};
+              if (Array.isArray(data.companies)) {
+                data.companies.forEach((c: any) => {
+                  if (c.ID) normalizedCompanies[String(c.ID)] = c;
+                });
+              } else if (typeof data.companies === 'object') {
+                for (const [k, v] of Object.entries(data.companies)) {
+                  normalizedCompanies[String(k)] = v;
+                }
+              }
+              const newCompaniesData = { ...state.companiesData, ...normalizedCompanies };
               const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
               const now = Date.now();
               
@@ -870,7 +883,7 @@ export const useDashboardStore = create<DashboardState>()(
     }),
     {
       name: "bitrix-bi-dashboard",
-      version: 2,
+      version: 3, // BUMPED: trigger migration to add ASSIGNED_BY_ID and COMPANY_TITLE
       migrate: (persistedState: any, version: number) => {
         if (version === 0 || version === 1) {
           // Migration from older versions
@@ -895,6 +908,29 @@ export const useDashboardStore = create<DashboardState>()(
             }
           }
         }
+
+        if (version < 3) {
+          const state = persistedState as DashboardState;
+          const cols: string[] = state.selectedColumns ? [...state.selectedColumns] : [...DEFAULT_COLUMNS];
+
+          // Добавляем COMPANY_TITLE если отсутствует
+          if (!cols.includes("COMPANY_TITLE")) {
+            cols.unshift("COMPANY_TITLE");
+          }
+
+          // Добавляем ASSIGNED_BY_ID сразу после COMPANY_TITLE
+          if (!cols.includes("ASSIGNED_BY_ID")) {
+            const companyIdx = cols.indexOf("COMPANY_TITLE");
+            if (companyIdx !== -1) {
+              cols.splice(companyIdx + 1, 0, "ASSIGNED_BY_ID");
+            } else {
+              cols.push("ASSIGNED_BY_ID");
+            }
+          }
+
+          state.selectedColumns = cols;
+        }
+
         return persistedState;
       },
       partialize: (state) => ({
