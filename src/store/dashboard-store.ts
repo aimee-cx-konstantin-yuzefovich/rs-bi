@@ -355,7 +355,7 @@ export const useDashboardStore = create<DashboardState>()(
       },
 
       fetchDeals: async () => {
-        set({ dealsLoading: true, dealsError: null, activitiesData: {}, companiesData: {} });
+        set({ dealsLoading: true, dealsError: null });
         try {
           const { dateFilter, selectedColumns } = get();
           const filter = getDateFilterRange(dateFilter);
