@@ -1,4 +1,5 @@
 import { useMemo, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useDashboardStore, type DealData } from "@/store/dashboard-store";
 import { RESPONSIBLE_FIELD_ID } from "@/lib/crm-constants";
 
@@ -13,7 +14,17 @@ export function useTableState() {
     userNames,
     companiesData,
     activitiesData,
-  } = useDashboardStore();
+  } = useDashboardStore(useShallow((state) => ({
+    deals: state.deals,
+    fields: state.fields,
+    selectedColumns: state.selectedColumns,
+    searchQuery: state.searchQuery,
+    columnSort: state.columnSort,
+    columnFilters: state.columnFilters,
+    userNames: state.userNames,
+    companiesData: state.companiesData,
+    activitiesData: state.activitiesData,
+  })));
 
   const fieldMap = useMemo(
     () => new Map(fields.map((f) => [f.id, f])),
