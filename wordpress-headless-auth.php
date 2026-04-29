@@ -105,7 +105,7 @@ class RusSilica_Headless_Auth {
         $message = "{$email}|{$role}|{$ts}";
         $sig = hash_hmac('sha256', $message, RUSSILICA_BI_PROXY_SECRET);
 
-        return "wp-sso-hmac:{$email}:{$role}:{$ts}:{$sig}";
+        return "wp-sso-hmac|{$email}|{$role}|{$ts}|{$sig}";
     }
 
     private function get_user_role($user) {

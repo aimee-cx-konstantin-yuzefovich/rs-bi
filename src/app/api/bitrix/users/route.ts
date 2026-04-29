@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixGet, bitrixPost } from "@/lib/bitrix";
-import { requireAuth, isAuthError } from "@/lib/auth-guard";
+import { requireAuthOnly } from "@/lib/auth-guard";
+import pLimit from "p-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +14,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   // ─── SECURITY: Require authentication ───
-  const authResult = await requireAuth();
-  if (isAuthError(authResult)) return authResult;
+  const authError = await requireAuthOnly();
+  if (authError) return authError;
   try {
     const userMap: Record<string, string> = {};
     let start = 0;
@@ -40,18 +41,19 @@ export async function GET(request: NextRequest) {
     
     const total = initialData.total || 0;
     const promises = [];
+    const limit = pLimit(5);
     
     // Fetch remaining pages in parallel
     if (total > 50) {
       const remainingPages = Math.min(Math.ceil(total / 50) - 1, MAX_ITERATIONS - 1);
       for (let i = 1; i <= remainingPages; i++) {
         promises.push(
-          bitrixPost<{
+          limit(() => bitrixPost<{
             result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
           }>("user.get", { start: i * 50 }).catch(e => {
             console.error(`[Users API] Failed to fetch users batch at start ${i * 50}:`, e);
             return null;
-          })
+          }))
         );
       }
       

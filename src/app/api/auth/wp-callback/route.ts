@@ -39,7 +39,7 @@ import { WP_LOGIN_URL } from "@/lib/config.server";
  */
 const SSO_PAGE_CSP = [
   "default-src 'none'",
-  "script-src 'self' 'unsafe-inline'",    // Required for auto-submit form
+  "script-src 'unsafe-inline'",    // Required for auto-submit form
   "style-src 'unsafe-inline'",      // Required for spinner animation
   "form-action 'self'",             // Only allow form submission to same origin
   "connect-src 'self'",             // Required to fetch CSRF token

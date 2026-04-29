@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Bookmark, Trash2, Save } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Button } from "@/components/ui/button";
+import { pluralRu } from "@/lib/i18n";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -23,19 +24,9 @@ function formatRelativeDate(timestamp: number): string {
   if (diffMinutes < 1) return "только что";
   if (diffMinutes < 60) return `${diffMinutes} мин. назад`;
   if (diffHours < 24) {
-    const remaining = diffHours % 10;
-    const tens = diffHours % 100;
-    if (tens >= 11 && tens <= 14) return `${diffHours} часов назад`;
-    if (remaining === 1) return `${diffHours} час назад`;
-    if (remaining >= 2 && remaining <= 4) return `${diffHours} часа назад`;
-    return `${diffHours} часов назад`;
+    return `${diffHours} ${pluralRu(diffHours, ["час", "часа", "часов"])} назад`;
   }
-  const remaining = diffDays % 10;
-  const tens = diffDays % 100;
-  if (tens >= 11 && tens <= 14) return `${diffDays} дней назад`;
-  if (remaining === 1) return `${diffDays} день назад`;
-  if (remaining >= 2 && remaining <= 4) return `${diffDays} дня назад`;
-  return `${diffDays} дней назад`;
+  return `${diffDays} ${pluralRu(diffDays, ["день", "дня", "дней"])} назад`;
 }
 
 export function SavedViews() {

@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { pluralRu } from "@/lib/i18n";
 
 function getRelativeTime(timestamp: number): string {
   const now = Date.now();
@@ -12,11 +13,11 @@ function getRelativeTime(timestamp: number): string {
   const diffHour = Math.floor(diffMin / 60);
 
   if (diffSec < 60) return "Только что";
-  if (diffMin < 60) return `${diffMin} мин назад`;
-  if (diffHour < 24) return `${diffHour} ч назад`;
+  if (diffMin < 60) return `${diffMin} ${pluralRu(diffMin, ["минуту", "минуты", "минут"])} назад`;
+  if (diffHour < 24) return `${diffHour} ${pluralRu(diffHour, ["час", "часа", "часов"])} назад`;
 
   const diffDays = Math.floor(diffHour / 24);
-  return `${diffDays} дн назад`;
+  return `${diffDays} ${pluralRu(diffDays, ["день", "дня", "дней"])} назад`;
 }
 
 export function LastSync() {

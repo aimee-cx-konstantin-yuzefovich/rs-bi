@@ -43,22 +43,22 @@ export function generateSsoHmac(payload: SsoTokenPayload): string {
  */
 export function generateSsoToken(payload: SsoTokenPayload): string {
   const signature = generateSsoHmac(payload);
-  return `wp-sso-hmac:${payload.email}:${payload.role}:${payload.timestamp}:${signature}`;
+  return `wp-sso-hmac|${payload.email}|${payload.role}|${payload.timestamp}|${signature}`;
 }
 
 /**
  * Verify an SSO HMAC token (from the auto-submit form password field).
  * Returns the payload if valid, null if invalid.
  *
- * Token format: wp-sso-hmac:{email}:{role}:{timestamp}:{signature}
+ * Token format: wp-sso-hmac|{email}|{role}|{timestamp}|{signature}
  */
 export async function verifySsoToken(token: string): Promise<SsoTokenPayload | null> {
   if (!PROXY_SECRET) return null;
 
   // Must start with our prefix
-  if (!token.startsWith("wp-sso-hmac:")) return null;
+  if (!token.startsWith("wp-sso-hmac|")) return null;
 
-  const parts = token.slice("wp-sso-hmac:".length).split(":");
+  const parts = token.slice("wp-sso-hmac|".length).split("|");
   // Need at least: email, role, timestamp, signature (4 parts)
   // But email might contain special chars (though unlikely with @russilica.ru)
   if (parts.length < 4) return null;
@@ -67,7 +67,7 @@ export async function verifySsoToken(token: string): Promise<SsoTokenPayload | n
   const signature = parts[parts.length - 1];
   const timestampStr = parts[parts.length - 2];
   const role = parts[parts.length - 3];
-  const email = parts.slice(0, parts.length - 3).join(":");
+  const email = parts.slice(0, parts.length - 3).join("|");
 
   if (!email || !role || !timestampStr || !signature) return null;
 

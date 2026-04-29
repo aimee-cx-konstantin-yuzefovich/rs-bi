@@ -86,7 +86,8 @@ export async function POST(request: NextRequest) {
         const data = await bitrixPost<{ result?: CompanyRecord[] }>(
           "crm.company.list",
           {
-            // The "@ID" operator is a Bitrix-specific filter operator that matches multiple values (IN array)
+            // The "@ID" operator is a Bitrix-specific filter operator that matches multiple values (equivalent to SQL IN (...))
+            // Note: Bitrix limits @ID arrays to 50-100 items per call. We chunk at BATCH_SIZE (50) to stay within limits.
             FILTER: { "@ID": batchIds },
             SELECT: select,
           }

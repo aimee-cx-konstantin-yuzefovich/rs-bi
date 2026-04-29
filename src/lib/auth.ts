@@ -168,10 +168,10 @@ export const authOptions: NextAuthOptions = {
 
         // ═══════════════════════════════════════════════════════════
         // METHOD 1: HMAC SSO Token (from Headless API or wp-callback)
-        // The password field contains: wp-sso-hmac:{email}:{role}:{ts}:{sig}
+        // The password field contains: wp-sso-hmac|{email}|{role}|{ts}|{sig}
         // ═══════════════════════════════════════════════════════════
 
-        if (credentials?.password?.startsWith("wp-sso-hmac:")) {
+        if (credentials?.password?.startsWith("wp-sso-hmac|")) {
           if (shouldLog) console.log("[AUTH DEBUG] Processing HMAC token");
           if (!isProxySecretConfigured()) {
             await auditLog("LOGIN_BLOCKED_NO_SECRET", { reason: "proxy_secret_not_configured" }, ip);

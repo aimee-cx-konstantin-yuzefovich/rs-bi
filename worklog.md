@@ -171,7 +171,7 @@ Work Log:
    - Handles redirect from WordPress after login
    - Verifies proxy headers from Caddy
    - Returns HTML page that auto-submits to NextAuth credentials callback
-9. Updated src/proxy.ts:
+9. Updated src/middleware.ts:
    - Added WP SSO callback handling
    - Added WordPress domain to CORS allowed origins
    - Kept all security headers and rate limiting
@@ -446,7 +446,7 @@ FILES MODIFIED:
 - `src/app/api/bitrix/status/route.ts` — Add requireAuth() guard
 - `src/app/api/admin/audit-logs/route.ts` — Fix NaN in limit/offset parsing
 - `src/app/api/bitrix/fields/route.ts` — Remove unnecessary `as unknown as`
-- `src/proxy.ts` — Import from config.ts, remove dead code, fix CSP on wp-callback
+- `src/middleware.ts` — Import from config.ts, remove dead code, fix CSP on wp-callback
 - `src/store/dashboard-store.ts` — Fix dealsTotal double-counting
 - `src/components/dashboard/header.tsx` — Import from config.ts, remove type assertion
 - `src/components/dashboard/data-table.tsx` — Remove unused setSearchQuery

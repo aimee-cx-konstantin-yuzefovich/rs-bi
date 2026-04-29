@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   AlertCircle,
   Database,
@@ -357,9 +358,16 @@ export function DataTable() {
               {((currentPage - 1) * pageSize) + 1}–{Math.min(currentPage * pageSize, sortedDeals.length)} из {sortedDeals.length}
             </span>
             {(searchQuery || activeFilterCount > 0) && (
-              <Badge variant="outline" className="text-[10px] h-5 font-normal">
-                из {dealsTotal}
-              </Badge>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-[10px] h-5 font-normal cursor-help">
+                    из {dealsTotal}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>из всего {dealsTotal} сделок до фильтрации</p>
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
           <div className="flex items-center gap-2">

@@ -19,6 +19,7 @@ const MAX_ORDER_KEYS = 10;
 const MAX_FILTER_VALUE_LENGTH = 1000; // Prevent oversized filter values
 const ALLOWED_ORDER_DIRECTIONS = new Set(["ASC", "DESC"]);
 const SAFE_FIELD_NAME_PATTERN = /^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)?$/;
+const DEFAULT_SELECT_FIELDS = ["*", "UF_*"];
 
 /**
  * Validate and sanitize the request body for deals endpoint.
@@ -32,7 +33,7 @@ function validateDealsRequest(body: unknown): DealsRequestBody {
   const raw = body as Record<string, unknown>;
 
   // Validate `select`
-  let select: string[] = ["*", "UF_*"];
+  let select: string[] = [...DEFAULT_SELECT_FIELDS];
   if (raw.select !== undefined) {
     if (!Array.isArray(raw.select)) {
       throw new Error("Parameter 'select' must be an array");

@@ -60,6 +60,16 @@ export async function requireAuth(): Promise<AuthSession | NextResponse> {
 }
 
 /**
+ * Require any authenticated user, but only return null on success or NextResponse on error.
+ * Useful for API routes that just need to gate access without reading user info.
+ */
+export async function requireAuthOnly(): Promise<null | NextResponse> {
+  const result = await requireAuth();
+  if (isAuthError(result)) return result;
+  return null;
+}
+
+/**
  * Require admin role.
  * Reads role from NextAuth JWT session (populated from WordPress proxy headers).
  * WordPress is the source of truth — role is set at sign-in from WP.
