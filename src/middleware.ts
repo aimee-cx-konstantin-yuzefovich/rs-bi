@@ -161,7 +161,7 @@ const ALLOWED_ORIGINS = new Set(
  */
 function getClientIp(request: NextRequest): string {
   // Next.js securely provides the actual connection IP
-  const realConnectionIp = request.ip || "127.0.0.1";
+  const realConnectionIp = (request as any).ip || "127.0.0.1";
   
   // Only trust headers if the connection comes from your local proxy network
   const isTrustedProxy = realConnectionIp === "127.0.0.1" || realConnectionIp === "::1" || realConnectionIp.startsWith("172.");

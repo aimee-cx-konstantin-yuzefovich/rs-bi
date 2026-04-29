@@ -438,7 +438,7 @@ function CellValue({
   colId?: string;
   companiesLoading: boolean;
   activitiesLoading: boolean;
-  openDrawer: (type: "deal" | "company" | "responsible", id: string) => void;
+  openDrawer: (type: "company" | "responsible", id: string) => void;
 }) {
   if (!resolved) {
     if (colId === "COMPANY_TITLE" || colId?.startsWith("COMPANY_")) {
@@ -450,9 +450,8 @@ function CellValue({
       if (companyId) {
         return (
           <span 
-            className="text-muted-foreground cursor-pointer hover:underline" 
+            className="text-muted-foreground" 
             title={`Company ID: ${companyId}`}
-            onClick={() => openDrawer("company", companyId)}
           >
             {`ID ${companyId}`}
           </span>
@@ -650,10 +649,7 @@ function CellValue({
     const companyId = String(deal.COMPANY_ID || "").trim();
     if (companyId) {
       return (
-        <span
-          className="text-xs cursor-pointer hover:underline text-brand-blue"
-          onClick={() => openDrawer("company", companyId)}
-        >
+        <span className="text-xs">
           {resolved}
         </span>
       );

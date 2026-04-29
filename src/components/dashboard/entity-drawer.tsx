@@ -52,9 +52,10 @@ function DealsPreview({ deals }: { deals: any[] }) {
 }
 
 function OpenInCRMButton({ type, id }: { type: "company" | "user"; id: string }) {
+  const domain = process.env.NEXT_PUBLIC_BITRIX_DOMAIN || "https://bitrix24.ru";
   const href = type === "company" 
-    ? `https://your-bitrix-domain.bitrix24.ru/crm/company/details/${id}/`
-    : `https://your-bitrix-domain.bitrix24.ru/company/personal/user/${id}/`;
+    ? `${domain}/crm/company/details/${id}/`
+    : `${domain}/company/personal/user/${id}/`;
 
   return (
     <Button variant="outline" className="w-full mt-4" asChild>

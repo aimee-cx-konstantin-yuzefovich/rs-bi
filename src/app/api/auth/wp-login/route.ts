@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { WP_LOGIN_URL } from "@/lib/config.server";
-import dns from "dns/promises";
 
 export async function POST(request: Request) {
   try {
@@ -15,27 +14,6 @@ export async function POST(request: Request) {
     }
 
     const wpBaseUrl = WP_LOGIN_URL.replace(/\/wp-login\.php.*$/, "");
-    
-    // SSRF Protection
-    const parsedUrl = new URL(wpBaseUrl);
-    if (parsedUrl.protocol !== "https:") {
-      throw new Error("WP_LOGIN_URL must use HTTPS");
-    }
-    const hostname = parsedUrl.hostname;
-    
-    // Resolve hostname to IP to prevent DNS rebinding and check actual IP
-    const lookupResult = await dns.lookup(hostname);
-    const ip = lookupResult.address;
-    
-    const isLocalhost = ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0';
-    const isAwsMetadata = ip === '169.254.169.254';
-    const isPrivate = ip.startsWith('10.') || ip.startsWith('192.168.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip);
-    
-    if (isLocalhost || isAwsMetadata || isPrivate) {
-      throw new Error("WP_LOGIN_URL cannot point to private IP ranges or localhost");
-    }
-
-    // Connect by hostname; TLS validates the cert correctly.
     const apiUrl = `${wpBaseUrl}/wp-login.php?action=headless_auth`;
 
     const response = await fetch(apiUrl, {
