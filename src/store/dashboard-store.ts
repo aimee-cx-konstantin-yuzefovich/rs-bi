@@ -181,7 +181,8 @@ function getDateFilterRange(filter: DateFilter): Record<string, string> {
       bitrixFilter[">=DATE_CREATE"] = filter.customFrom;
     }
     if (filter.customTo) {
-      bitrixFilter["<=DATE_CREATE"] = filter.customTo;
+      // ✅ Force Bitrix API to include the entirety of the selected end day
+      bitrixFilter["<=DATE_CREATE"] = `${filter.customTo}T23:59:59`;
     }
     return bitrixFilter;
   }
@@ -497,7 +498,11 @@ export const useDashboardStore = create<DashboardState>()(
 
           if (dateFilter.preset === "custom") {
             if (dateFilter.customFrom) fromDate = new Date(dateFilter.customFrom);
-            if (dateFilter.customTo) toDate = new Date(dateFilter.customTo);
+            if (dateFilter.customTo) {
+              toDate = new Date(dateFilter.customTo);
+              // ✅ Push JS Date object to 23:59:59 so afternoon deals aren't filtered out
+              toDate.setHours(23, 59, 59, 999);
+            }
           } else {
             const daysMap: Record<string, number> = {
               "7days": 7,
