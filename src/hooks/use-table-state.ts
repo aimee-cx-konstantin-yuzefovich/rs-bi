@@ -63,15 +63,6 @@ export function useTableState() {
           if (companyTitle) return companyTitle;
         }
 
-        if (process.env.NODE_ENV !== "production") {
-          console.warn("[COMPANY DEBUG]", {
-            dealId: deal.ID,
-            companyId: deal.COMPANY_ID,
-            dealCompanyTitle: deal.COMPANY_TITLE,
-            hasCompaniesData: !!companiesData?.[deal.COMPANY_ID as string],
-          });
-        }
-
         // 3. No data → return empty (CellValue will render dash)
         return "";
       }
