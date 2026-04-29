@@ -132,13 +132,15 @@ export async function GET() {
     });
 
     // Inject virtual fields that are available in crm.deal.list but not in crm.deal.fields
-    cleanFields.unshift({
-      id: "COMPANY_TITLE",
-      title: "Наименование компании",
-      type: "string",
-      isMultiple: false,
-      isSortable: true,
-    });
+    if (!cleanFields.some(f => f.id === "COMPANY_TITLE")) {
+      cleanFields.unshift({
+        id: "COMPANY_TITLE",
+        title: "Наименование компании",
+        type: "string",
+        isMultiple: false,
+        isSortable: true,
+      });
+    }
 
     // Inject virtual fields for activities
     cleanFields.push({
