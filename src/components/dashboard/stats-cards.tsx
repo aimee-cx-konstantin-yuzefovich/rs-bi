@@ -71,7 +71,7 @@ export function StatsCards() {
       currency: String(currency),
       periodTitle,
     };
-  }, [deals, allDeals, dateFilter, pipelineFilter, responsibleFilter]);
+  }, [deals, dateFilter]);
 
   if (!stats || deals.length === 0) return null;
 
