@@ -216,12 +216,6 @@ export const authOptions: NextAuthOptions = {
         // ═══════════════════════════════════════════════════════════
 
         if (IS_PRODUCTION) {
-          const TRUSTED_PROXY_IPS = process.env.TRUSTED_PROXY_IPS?.split(",") || ["127.0.0.1", "::1"];
-          if (!TRUSTED_PROXY_IPS.includes(ip)) {
-            await auditLog("LOGIN_BLOCKED_UNTRUSTED_PROXY", { reason: "untrusted_proxy_ip", ip }, ip);
-            return null;
-          }
-
           const proxySecret = headers?.["x-proxy-secret"];
           const headerEmail = headers?.["x-auth-user-email"];
           const headerRole = headers?.["x-auth-user-role"];
