@@ -18,8 +18,6 @@ export async function GET(request: NextRequest) {
   if (authError) return authError;
   try {
     const userMap: Record<string, string> = {};
-    let start = 0;
-    let iterations = 0;
     const MAX_ITERATIONS = 50; // 50 * 50 = 2500 users max
     
     // First request to get total count
