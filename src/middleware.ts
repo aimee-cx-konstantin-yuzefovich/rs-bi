@@ -160,15 +160,21 @@ const ALLOWED_ORIGINS = new Set(
  * Get client IP with spoofing protection.
  */
 function getClientIp(request: NextRequest): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
+  // Next.js securely provides the actual connection IP
+  const realConnectionIp = request.ip || "127.0.0.1";
+  
+  // Only trust headers if the connection comes from your local proxy network
+  const isTrustedProxy = realConnectionIp === "127.0.0.1" || realConnectionIp === "::1" || realConnectionIp.startsWith("172.");
+
+  if (isTrustedProxy) {
+    const forwarded = request.headers.get("x-forwarded-for");
+    if (forwarded) return forwarded.split(",")[0].trim();
+    
+    const realIp = request.headers.get("x-real-ip");
+    if (realIp) return realIp.trim();
   }
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) {
-    return realIp.trim();
-  }
-  return "unknown";
+  
+  return realConnectionIp;
 }
 
 // ─── MAIN PROXY EXPORT ───
@@ -193,22 +199,6 @@ export function middleware(request: NextRequest) {
     response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     response.headers.set("Pragma", "no-cache");
     response.headers.set("Expires", "0");
-    response.headers.delete("X-Powered-By");
-    return response;
-  }
-
-  // ─── WP SSO Callback: Add no-cache headers, but NOT strict CSP ───
-  // IMPORTANT: The wp-callback route handler sets its own SSO_PAGE_CSP that
-  // allows inline scripts (required for the auto-submit form). If we set
-  // CSP_DIRECTIVES here too, both CSPs would be enforced and the stricter
-  // one (script-src 'self') would block the inline script, breaking SSO.
-  if (pathname === "/api/auth/wp-callback") {
-    const response = NextResponse.next({ request: { headers: requestHeaders } });
-    for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
-      response.headers.set(key, value);
-    }
-    // Do NOT set Content-Security-Policy here — the route handler sets SSO_PAGE_CSP
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
     response.headers.delete("X-Powered-By");
     return response;
   }
@@ -307,7 +297,13 @@ export function middleware(request: NextRequest) {
     for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
       response.headers.set(key, value);
     }
-    response.headers.set("Content-Security-Policy", CSP_DIRECTIVES);
+    if (pathname === "/api/auth/wp-callback") {
+      response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+      // Ensure we don't apply the strict API CSP to the SSO page
+      response.headers.delete("Content-Security-Policy"); 
+    } else {
+      response.headers.set("Content-Security-Policy", CSP_DIRECTIVES);
+    }
 
     // SECURITY: Remove server fingerprinting header
     response.headers.delete("X-Powered-By");
