@@ -153,6 +153,17 @@ export async function GET() {
       });
     }
 
+    // ADDED: COMPANY_ASSIGNED_BY_ID is filtered out by isSystemField but is a critical company field
+    if (!cleanFields.some(f => f.id === "COMPANY_ASSIGNED_BY_ID")) {
+      cleanFields.unshift({
+        id: "COMPANY_ASSIGNED_BY_ID",
+        title: "Компания: Ответственный компании",
+        type: "string",
+        isMultiple: false,
+        isSortable: true,
+      });
+    }
+
     // Inject virtual fields for activities
     cleanFields.push({
       id: "ACTIVITY_LAST",
