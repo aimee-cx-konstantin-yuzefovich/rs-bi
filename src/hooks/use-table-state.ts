@@ -60,16 +60,7 @@ export function useTableState() {
         return title.trim() || "";
       }
 
-      if (raw === null || raw === undefined || raw === "") return "";
-
-      if (colId === RESPONSIBLE_FIELD_ID) {
-        const id = String(raw);
-        const userName = userNames[id]?.trim();
-        const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
-
-        return userName || dealName || `ID ${id}`;
-      }
-
+      // MOVED UP: COMPANY_RESPONSIBLE_FIELD_ID is also a virtual field
       if (colId === COMPANY_RESPONSIBLE_FIELD_ID) {
         const companyId = String(deal.COMPANY_ID || "").trim();
         if (!companyId || companyId === "0") return "";
@@ -82,6 +73,16 @@ export function useTableState() {
 
         const userName = userNames?.[responsibleId]?.trim();
         return userName || `ID ${responsibleId}`;
+      }
+
+      if (raw === null || raw === undefined || raw === "") return "";
+
+      if (colId === RESPONSIBLE_FIELD_ID) {
+        const id = String(raw);
+        const userName = userNames[id]?.trim();
+        const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
+
+        return userName || dealName || `ID ${id}`;
       }
 
       if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
