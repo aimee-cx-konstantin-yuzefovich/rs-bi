@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState, useRef, useEffect } from "react";
-import { useEntityDrawerStore } from "@/store/entity-drawer-store";
 
 /**
  * SECURITY NOTE: All cell values are rendered as JSX text content.
@@ -59,7 +58,6 @@ export function DataTable() {
   const companiesDataLoading = useDashboardStore(s => s.companiesDataLoading);
   const activitiesDataLoading = useDashboardStore(s => s.activitiesDataLoading);
   const userNamesLoading = useDashboardStore(s => s.userNamesLoading);
-  const openDrawer = useEntityDrawerStore((s) => s.open);
 
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
@@ -349,7 +347,6 @@ export function DataTable() {
                                 companiesLoading={companiesDataLoading}
                                 activitiesLoading={activitiesDataLoading}
                                 userNamesLoading={isUserNamesLoading}
-                                openDrawer={openDrawer}
                               />
                             </td>
                           );
@@ -435,7 +432,6 @@ function CellValue({
   companiesLoading,
   activitiesLoading,
   userNamesLoading,
-  openDrawer,
 }: {
   raw: string | string[] | number | null;
   resolved: string;
@@ -445,7 +441,6 @@ function CellValue({
   companiesLoading: boolean;
   activitiesLoading: boolean;
   userNamesLoading: boolean;
-  openDrawer: (type: "company" | "responsible", id: string) => void;
 }) {
   if (colId === "COMPANY_TITLE") {
     if (companiesLoading && !resolved) {
@@ -684,10 +679,7 @@ function CellValue({
         return <Skeleton className="h-4 w-28 rounded" />;
       }
       return (
-        <span
-          className="text-xs cursor-pointer hover:underline text-brand-blue"
-          onClick={() => openDrawer("responsible", userId)}
-        >
+        <span className="text-xs">
           {resolved}
         </span>
       );
