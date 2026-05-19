@@ -1,7 +1,10 @@
 import { useMemo, useCallback } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useDashboardStore, type DealData } from "@/store/dashboard-store";
-import { RESPONSIBLE_FIELD_ID } from "@/lib/crm-constants";
+import {
+  RESPONSIBLE_FIELD_ID,
+  COMPANY_RESPONSIBLE_FIELD_ID,
+} from "@/lib/crm-constants";
 
 export function useTableState() {
   const {
@@ -65,6 +68,20 @@ export function useTableState() {
         const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
 
         return userName || dealName || `ID ${id}`;
+      }
+
+      if (colId === COMPANY_RESPONSIBLE_FIELD_ID) {
+        const companyId = String(deal.COMPANY_ID || "").trim();
+        if (!companyId || companyId === "0") return "";
+
+        const company = companiesData?.[companyId];
+        if (!company) return "";
+
+        const responsibleId = String(company.ASSIGNED_BY_ID || "").trim();
+        if (!responsibleId) return "";
+
+        const userName = userNames?.[responsibleId]?.trim();
+        return userName || `ID ${responsibleId}`;
       }
 
       if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {

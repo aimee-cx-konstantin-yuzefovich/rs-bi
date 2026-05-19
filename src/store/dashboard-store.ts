@@ -4,6 +4,7 @@ import { DEMO_FIELDS, generateDemoDeals } from "@/lib/demo-data";
 import {
   DEAL_TABLE_DEFAULT_COLUMNS,
   RESPONSIBLE_FIELD_ID,
+  COMPANY_RESPONSIBLE_FIELD_ID,
 } from "@/lib/crm-constants";
 
 // ─── Client-side fetch timeout (prevents infinite loading spinner) ───
@@ -925,6 +926,16 @@ export const useDashboardStore = create<DashboardState>()(
               cols.splice(companyIdx + 1, 0, "ASSIGNED_BY_ID");
             } else {
               cols.push("ASSIGNED_BY_ID");
+            }
+          }
+
+          // Добавляем COMPANY_RESPONSIBLE_FIELD_ID сразу после ASSIGNED_BY_ID
+          if (!cols.includes(COMPANY_RESPONSIBLE_FIELD_ID)) {
+            const respIdx = cols.indexOf("ASSIGNED_BY_ID");
+            if (respIdx !== -1) {
+              cols.splice(respIdx + 1, 0, COMPANY_RESPONSIBLE_FIELD_ID);
+            } else {
+              cols.push(COMPANY_RESPONSIBLE_FIELD_ID);
             }
           }
 

@@ -4,6 +4,8 @@ import { useDashboardStore, type FieldInfo, type DealData } from "@/store/dashbo
 import {
   RESPONSIBLE_FIELD_ID,
   RESPONSIBLE_FIELD_TITLE,
+  COMPANY_RESPONSIBLE_FIELD_ID,
+  COMPANY_RESPONSIBLE_FIELD_TITLE,
 } from "@/lib/crm-constants";
 import { useTableState } from "@/hooks/use-table-state";
 import { Badge } from "@/components/ui/badge";
@@ -253,7 +255,11 @@ export function DataTable() {
                               }
                             >
                               <span className="truncate max-w-[160px]">
-                                {colId === RESPONSIBLE_FIELD_ID ? RESPONSIBLE_FIELD_TITLE : field?.title || colId}
+                                {colId === RESPONSIBLE_FIELD_ID
+                                  ? RESPONSIBLE_FIELD_TITLE
+                                  : colId === COMPANY_RESPONSIBLE_FIELD_ID
+                                  ? COMPANY_RESPONSIBLE_FIELD_TITLE
+                                  : field?.title || colId}
                               </span>
                               {isSorted && columnSort.direction === "asc" && (
                                 <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter" />
@@ -684,6 +690,17 @@ function CellValue({
         </span>
       );
     }
+  }
+
+  if (colId === COMPANY_RESPONSIBLE_FIELD_ID) {
+    if (userNamesLoading && resolved.startsWith("ID ")) {
+      return <Skeleton className="h-4 w-28 rounded" />;
+    }
+    return (
+      <span className="text-xs">
+        {resolved}
+      </span>
+    );
   }
 
   return <span className="text-xs">{resolved}</span>;

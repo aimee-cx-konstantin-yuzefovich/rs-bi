@@ -19,7 +19,7 @@ function normalizeIds(ids: unknown): string[] {
 }
 
 function normalizeSelect(select: unknown): string[] {
-  const safe: string[] = ["ID", "TITLE"];
+  const safe: string[] = ["ID", "TITLE", "ASSIGNED_BY_ID"];
 
   if (!Array.isArray(select)) return safe;
 
