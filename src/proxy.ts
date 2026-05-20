@@ -182,7 +182,7 @@ function getClientIp(request: NextRequest): string {
 
 // ─── MAIN PROXY EXPORT ───
 
-export function middleware(request: NextRequest) {
+export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // SECURITY: Force HTTPS protocol header in production to ensure NextAuth sets secure cookies

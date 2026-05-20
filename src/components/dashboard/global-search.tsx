@@ -1,18 +1,31 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Search, X } from "lucide-react";
+import { useQueryState } from "nuqs";
+import { searchParams } from "@/lib/search-params";
 
 export function GlobalSearch() {
-  const { searchQuery, setSearchQuery } = useDashboardStore();
+  const { setSearchQuery } = useDashboardStore();
+  const [searchQueryUrl, setSearchQueryUrl] = useQueryState("q", searchParams.q);
+  const [localQuery, setLocalQuery] = useState(searchQueryUrl || "");
   const inputRef = useRef<HTMLInputElement>(null);
   const [mobileExpanded, setMobileExpanded] = useState(false);
 
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQueryUrl(localQuery || null);
+      setSearchQuery(localQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localQuery, setSearchQueryUrl, setSearchQuery]);
+
   const handleClear = useCallback(() => {
-    setSearchQuery("");
+    setLocalQuery("");
     inputRef.current?.focus();
-  }, [setSearchQuery]);
+  }, []);
 
   // Search input component (shared between desktop and mobile)
   const searchInput = (
@@ -21,17 +34,17 @@ export function GlobalSearch() {
       <input
         ref={inputRef}
         type="text"
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
+        value={localQuery}
+        onChange={(e) => setLocalQuery(e.target.value)}
         placeholder="Поиск по всем полям..."
         className="h-7 w-full sm:w-56 lg:w-64 rounded-md bg-white/[0.07] border border-white/10 text-white/80 placeholder:text-white/30 text-xs pl-7 pr-6 outline-none focus-visible:border-white/25 focus-visible:ring-1 focus-visible:ring-white/20 transition-all"
         onBlur={() => {
-          if (searchQuery === "" && window.innerWidth < 768) {
+          if (localQuery === "" && window.innerWidth < 768) {
             setMobileExpanded(false);
           }
         }}
       />
-      {searchQuery && (
+      {localQuery && (
         <button
           onClick={handleClear}
           className="absolute right-1.5 flex items-center justify-center h-4 w-4 rounded-sm text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"

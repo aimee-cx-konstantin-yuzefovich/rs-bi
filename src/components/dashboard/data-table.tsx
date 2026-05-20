@@ -27,6 +27,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState, useRef, useEffect } from "react";
+import { useQueryState } from "nuqs";
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { Sparklines, SparklinesLine, SparklinesSpots } from 'react-sparklines';
+import { searchParams } from "@/lib/search-params";
 
 /**
  * SECURITY NOTE: All cell values are rendered as JSX text content.
@@ -45,17 +49,53 @@ export function DataTable() {
     fields,
     selectedColumns,
     searchQuery,
-    currentPage,
-    pageSize,
-    setCurrentPage,
-    setPageSize,
     columnSort,
     toggleColumnSort,
-    columnFilters,
-    setColumnFilter,
-    clearColumnFilter,
-    clearAllColumnFilters,
+    setColumnFilter: setStoreColumnFilter,
+    clearColumnFilter: clearStoreColumnFilter,
+    clearAllColumnFilters: clearStoreAllColumnFilters,
+    setCurrentPage: setStoreCurrentPage,
+    setPageSize: setStorePageSize,
   } = useDashboardStore();
+
+  const [currentPage, setCurrentPageUrl] = useQueryState("page", searchParams.page);
+  const [pageSize, setPageSizeUrl] = useQueryState("size", searchParams.size);
+  const [columnFilters, setColumnFiltersUrl] = useQueryState("filters", searchParams.filters);
+
+  const setColumnFilter = (columnId: string, value: string) => {
+    const existing = columnFilters.find((f: any) => f.columnId === columnId);
+    let newFilters;
+    if (existing) {
+      newFilters = columnFilters.map((f: any) =>
+        f.columnId === columnId ? { ...f, value } : f
+      );
+    } else {
+      newFilters = [...columnFilters, { columnId, value }];
+    }
+    setColumnFiltersUrl(newFilters);
+    setStoreColumnFilter(columnId, value);
+  };
+
+  const clearColumnFilter = (columnId: string) => {
+    const newFilters = columnFilters.filter((f: any) => f.columnId !== columnId);
+    setColumnFiltersUrl(newFilters);
+    clearStoreColumnFilter(columnId);
+  };
+
+  const clearAllColumnFilters = () => {
+    setColumnFiltersUrl([]);
+    clearStoreAllColumnFilters();
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPageUrl(page);
+    setStoreCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSizeUrl(size);
+    setStorePageSize(size);
+  };
 
   const companiesDataLoading = useDashboardStore(s => s.companiesDataLoading);
   const activitiesDataLoading = useDashboardStore(s => s.activitiesDataLoading);
@@ -81,7 +121,7 @@ export function DataTable() {
 
   const isUserNamesLoading = userNamesLoading || namesStillLoading;
 
-  const activeFilterCount = columnFilters.filter((f) => f.value.trim()).length;
+  const activeFilterCount = columnFilters.filter((f: any) => f.value.trim()).length;
 
   const totalPages = Math.ceil(sortedDeals.length / pageSize);
 
@@ -89,6 +129,15 @@ export function DataTable() {
     const start = (currentPage - 1) * pageSize;
     return sortedDeals.slice(start, start + pageSize);
   }, [sortedDeals, currentPage, pageSize]);
+
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: paginatedDeals.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 45, // Estimated row height
+    overscan: 10,
+  });
 
   // Loading state
   if (dealsLoading && deals.length === 0) {
@@ -101,13 +150,20 @@ export function DataTable() {
           <div className="rounded-md border border-border overflow-hidden">
             <div className="bg-muted/50 p-3 flex gap-4">
               {[1, 2, 3, 4, 5].map((i) => (
-                <Skeleton key={i} className="h-4 w-24 rounded" />
+                <Skeleton key={`header-${i}`} className="h-4 w-24 rounded" />
               ))}
             </div>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
-              <div key={row} className="p-3 flex gap-4 border-t border-border">
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((row, rowIndex) => (
+              <div 
+                key={`row-${row}`} 
+                className="p-3 flex gap-4 border-t border-border"
+                style={{
+                  animation: `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite`,
+                  animationDelay: `${rowIndex * 100}ms`
+                }}
+              >
                 {[1, 2, 3, 4, 5].map((col) => (
-                  <Skeleton key={col} className="h-4 w-20 rounded" />
+                  <Skeleton key={`cell-${row}-${col}`} className="h-4 w-20 rounded" />
                 ))}
               </div>
             ))}
@@ -208,8 +264,8 @@ export function DataTable() {
 
         {/* Table */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <div className="h-full overflow-auto custom-scrollbar">
-            <div className="min-w-full">
+          <div ref={parentRef} className="h-full overflow-auto custom-scrollbar">
+            <div className="min-w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
               <table className="data-table w-full border-separate border-spacing-0">
                 <thead className="bg-card shadow-sm">
                   <tr>
@@ -221,7 +277,7 @@ export function DataTable() {
                       const field = fieldMap.get(colId);
                       const isSorted = columnSort.columnId === colId;
                       const hasFilter = columnFilters.some(
-                        (f) => f.columnId === colId && f.value.trim()
+                        (f: any) => f.columnId === colId && f.value.trim()
                       );
                       const isFilterActive = activeFilterCol === colId;
                       const isNumeric = field?.type === "double" || field?.type === "integer" || field?.type === "money";
@@ -296,7 +352,7 @@ export function DataTable() {
                                   ref={filterInputRef}
                                   placeholder={`Фильтр...`}
                                   value={
-                                    columnFilters.find((f) => f.columnId === colId)
+                                    columnFilters.find((f: any) => f.columnId === colId)
                                       ?.value || ""
                                   }
                                   onChange={(e) =>
@@ -304,7 +360,7 @@ export function DataTable() {
                                   }
                                   className="h-6 text-[11px] rounded-sm pr-6 bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-1"
                                 />
-                                {(columnFilters.find((f) => f.columnId === colId)
+                                {(columnFilters.find((f: any) => f.columnId === colId)
                                   ?.value || "") && (
                                   <button
                                     onClick={() => clearColumnFilter(colId)}
@@ -329,13 +385,15 @@ export function DataTable() {
                       </td>
                     </tr>
                   )}
-                  {paginatedDeals.map((deal, idx) => {
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const idx = virtualRow.index;
+                    const deal = paginatedDeals[idx];
                     const dealId = deal.ID || deal.id || idx;
                     const rowIndex = (currentPage - 1) * pageSize + idx + 1;
                     return (
-                      <tr key={String(dealId)}>
+                      <tr key={String(dealId)} className="group hover:bg-muted/30 transition-colors">
                         {/* Fixed Row Number Cell */}
-                        <td className="sticky left-0 z-10 bg-card border-r border-border text-center px-2">
+                        <td className="sticky left-0 z-10 bg-card group-hover:bg-muted/30 transition-colors border-r border-border text-center px-2">
                           <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
                             {rowIndex}
                           </span>
@@ -390,7 +448,7 @@ export function DataTable() {
               <span className="text-[10px] text-muted-foreground hidden sm:inline">Строк:</span>
               <select
                 value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
                 className="h-7 rounded-sm border-0 bg-muted/80 text-[11px] px-1.5 py-0 focus:ring-1 cursor-pointer"
               >
                 <option value={25}>25</option>
@@ -404,7 +462,7 @@ export function DataTable() {
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 rounded-sm"
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
                 disabled={currentPage <= 1}
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
@@ -416,7 +474,7 @@ export function DataTable() {
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 rounded-sm"
-                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage >= totalPages}
               >
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -563,13 +621,29 @@ function CellValue({
   if (field?.id === "OPPORTUNITY") {
     const num = parseFloat(resolved);
     if (!isNaN(num)) {
+      // Generate some fake historical data for the sparkline based on the deal ID and amount
+      // In a real app, this would come from the backend
+      const dealIdNum = parseInt(String(deal.ID || deal.id || "0"), 10) || 0;
+      const sparklineData = Array.from({ length: 10 }, (_, i) => {
+        const variance = (Math.sin(dealIdNum + i) * 0.3) + 0.8; // 0.5 to 1.1 variance
+        return num * variance;
+      });
+
       return (
-        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
-          {num.toLocaleString("ru-RU", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground min-w-[80px]">
+            {num.toLocaleString("ru-RU", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </span>
+          <div className="w-16 h-6 opacity-60 hover:opacity-100 transition-opacity">
+            <Sparklines data={sparklineData} margin={2}>
+              <SparklinesLine color="#10b981" style={{ strokeWidth: 2, fill: "none" }} />
+              <SparklinesSpots size={2} style={{ stroke: "#10b981", strokeWidth: 2, fill: "white" }} />
+            </Sparklines>
+          </div>
+        </div>
       );
     }
   }

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/dashboard/theme-provider";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { Providers } from "@/components/providers";
 
 const roboto = Roboto({
   weight: ["400", "500", "700"],
@@ -52,19 +53,21 @@ export default function RootLayout({
       <body
         className={`${roboto.variable} ${nunito.variable} ${robotoMono.variable} font-sans antialiased bg-background text-foreground`}
       >
-        <AuthProvider>
-          <ErrorBoundary>
-            <ThemeProvider
-              attribute="class"
-              defaultTheme="light"
-              enableSystem={false}
-              storageKey="bitrix-bi-theme"
-            >
-              {children}
-              <Toaster />
-            </ThemeProvider>
-          </ErrorBoundary>
-        </AuthProvider>
+        <Providers>
+          <AuthProvider>
+            <ErrorBoundary>
+              <ThemeProvider
+                attribute="class"
+                defaultTheme="light"
+                enableSystem={false}
+                storageKey="bitrix-bi-theme"
+              >
+                {children}
+                <Toaster />
+              </ThemeProvider>
+            </ErrorBoundary>
+          </AuthProvider>
+        </Providers>
       </body>
     </html>
   );

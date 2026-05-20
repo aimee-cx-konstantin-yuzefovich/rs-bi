@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { UserCircle, ChevronDown, Check } from "lucide-react";
 import { useMemo } from "react";
+import { useQueryState } from "nuqs";
+import { searchParams } from "@/lib/search-params";
 
 interface ResponsibleOption {
   id: string;
@@ -19,7 +21,8 @@ interface ResponsibleOption {
 }
 
 export function ResponsibleFilter() {
-  const { allDeals, responsibleFilter, setResponsibleFilter, userNames } = useDashboardStore();
+  const { allDeals, setResponsibleFilter, userNames } = useDashboardStore();
+  const [responsibleFilter, setResponsibleFilterUrl] = useQueryState("responsible", searchParams.responsible);
 
   const responsibleOptions = useMemo<ResponsibleOption[]>(() => {
     const map = new Map<string, { name: string; count: number }>();
@@ -44,6 +47,11 @@ export function ResponsibleFilter() {
       .map(([id, data]) => ({ id, name: data.name, count: data.count }))
       .sort((a, b) => b.count - a.count);
   }, [allDeals, userNames]);
+
+  const handleFilterChange = (id: string) => {
+    setResponsibleFilterUrl(id);
+    setResponsibleFilter(id);
+  };
 
   // Simplified version if no responsible persons in data
   if (responsibleOptions.length === 0) {
@@ -77,7 +85,7 @@ export function ResponsibleFilter() {
 
         {/* All option */}
         <DropdownMenuItem
-          onClick={() => setResponsibleFilter("all")}
+          onClick={() => handleFilterChange("all")}
           className="flex items-center gap-2 text-xs cursor-pointer"
         >
           <span className="w-4 flex items-center justify-center">
@@ -94,7 +102,7 @@ export function ResponsibleFilter() {
         {responsibleOptions.map((option) => (
           <DropdownMenuItem
             key={option.id}
-            onClick={() => setResponsibleFilter(option.id)}
+            onClick={() => handleFilterChange(option.id)}
             className="flex items-center gap-2 text-xs cursor-pointer"
           >
             <span className="w-4 flex items-center justify-center">

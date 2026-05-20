@@ -4,6 +4,8 @@ import { useDashboardStore } from "@/store/dashboard-store";
 import { Card, CardContent } from "@/components/ui/card";
 import { TrendingUp, RussianRuble, Hash, Clock, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { useMemo } from "react";
+import CountUp from "react-countup";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function StatsCards() {
   const { deals, allDeals, dealsLoading, dateFilter, pipelineFilter, responsibleFilter } = useDashboardStore();
@@ -22,18 +24,6 @@ export function StatsCards() {
     // Average deal (calculated only on deals with non-zero opportunity for mathematical accuracy)
     const dealsWithValue = deals.filter(d => parseFloat(String(d.OPPORTUNITY || "0")) > 0);
     const avgDeal = dealsWithValue.length > 0 ? totalOpportunity / dealsWithValue.length : 0;
-
-    // Won/lost deals — Win Rate is calculated as percentage of won deals out of total closed deals
-    const wonDeals = deals.filter((deal) => {
-      const stage = String(deal.STAGE_ID || "");
-      return stage === "WON";
-    }).length;
-    const lostDeals = deals.filter((deal) => {
-      const stage = String(deal.STAGE_ID || "");
-      return stage === "LOSE";
-    }).length;
-    const totalClosed = wonDeals + lostDeals;
-    const winRate = totalClosed > 0 ? (wonDeals / totalClosed) * 100 : 0;
 
     // Currency
     const currency = deals[0]?.CURRENCY_ID || deals[0]?.CURRENCY || "RUB";
@@ -67,7 +57,6 @@ export function StatsCards() {
       totalDeals,
       totalOpportunity,
       avgDeal,
-      winRate,
       currency: String(currency),
       periodTitle,
     };
@@ -77,17 +66,9 @@ export function StatsCards() {
 
   const cards = [
     {
-      title: "Всего сделок",
-      value: stats.totalDeals.toLocaleString("ru-RU"),
-      subtitle: `Win Rate: ${stats.winRate.toFixed(0)}%`,
-      icon: Hash,
-      accentBar: "stat-accent-bar-blue",
-      iconColor: "text-brand-blue",
-      iconBg: "bg-brand-blue/8 dark:bg-brand-blue/15",
-    },
-    {
       title: "Общая сумма",
-      value: formatMoney(stats.totalOpportunity, stats.currency),
+      value: stats.totalOpportunity,
+      isCurrency: true,
       subtitle: "за выбранный период", // Neutral text replacing duplicate currency
       icon: RussianRuble, // Changed from DollarSign to RussianRuble
       accentBar: "stat-accent-bar-green",
@@ -95,17 +76,9 @@ export function StatsCards() {
       iconBg: "bg-emerald-50 dark:bg-emerald-900/25",
     },
     {
-      title: "Средняя сделка",
-      value: formatMoney(stats.avgDeal, stats.currency),
-      subtitle: "на сделку",
-      icon: TrendingUp,
-      accentBar: "stat-accent-bar-orange",
-      iconColor: "text-brand-orange",
-      iconBg: "bg-brand-orange/8 dark:bg-brand-orange/15",
-    },
-    {
       title: stats.periodTitle, // Dynamic title based on global filter
-      value: stats.totalDeals.toLocaleString("ru-RU"), // New deals in current period = total deals in current period
+      value: stats.totalDeals, // New deals in current period = total deals in current period
+      isCurrency: false,
       subtitle: "новые",
       icon: Clock,
       accentBar: "stat-accent-bar-violet",
@@ -115,7 +88,7 @@ export function StatsCards() {
   ];
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 px-4 sm:px-6 py-4 animate-fade-in">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3 px-4 sm:px-6 py-4 animate-fade-in">
       {cards.map((card) => (
         <Card
           key={card.title}
@@ -132,9 +105,15 @@ export function StatsCards() {
                 </p>
                 <p className="text-xl font-bold truncate tabular-nums leading-none">
                   {dealsLoading ? (
-                    <span className="inline-block w-20 h-6 bg-muted rounded animate-pulse" />
+                    <Skeleton className="h-6 w-24 rounded" />
                   ) : (
-                    card.value
+                    <CountUp
+                      end={card.value}
+                      duration={1}
+                      separator=" "
+                      decimals={0}
+                      suffix={card.isCurrency ? ` ${stats.currency}` : ""}
+                    />
                   )}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1 font-medium">
@@ -147,13 +126,6 @@ export function StatsCards() {
       ))}
     </div>
   );
-}
-
-function formatMoney(value: number, currency: string): string {
-  return value.toLocaleString("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }) + " " + currency;
 }
 
 function getDaysWord(days: number): string {

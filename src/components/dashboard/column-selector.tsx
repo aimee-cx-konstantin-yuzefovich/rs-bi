@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Columns3, Search, RotateCcw, Check, X, GripVertical } from "lucide-react";
 import { useState, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   DndContext,
   closestCenter,
@@ -113,153 +114,168 @@ export function ColumnSelector() {
 
   return (
     <Sheet open={columnSelectorOpen} onOpenChange={setColumnSelectorOpen}>
-      <SheetContent className="w-[400px] sm:w-[440px] p-0 rounded-l-lg flex flex-col" side="right">
-        <SheetHeader className="p-5 pb-3 space-y-1 shrink-0">
-          <SheetTitle className="flex items-center gap-2 text-base">
-            <div className="p-1.5 rounded-md bg-brand-blue/10">
-              <Columns3 className="h-4 w-4 text-brand-blue" />
-            </div>
-            Настройка столбцов
-          </SheetTitle>
-          <SheetDescription className="text-xs text-muted-foreground">
-            Выберите поля и перетащите для изменения порядка
-          </SheetDescription>
-        </SheetHeader>
-
-        <div className="px-5 pb-2.5 shrink-0">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input
-              placeholder="Поиск полей..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-8 text-xs rounded-md bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-1"
-            />
-          </div>
-        </div>
-
-        <div className="px-5 pb-2.5 flex items-center justify-between shrink-0">
-          <Badge variant="secondary" className="text-[10px] font-semibold h-5">
-            {selectedCount} выбрано
-          </Badge>
-          <div className="flex gap-0.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleSelectAll}
-              className="h-6 text-[10px] rounded-sm gap-1 px-2"
+      <AnimatePresence>
+        {columnSelectorOpen && (
+          <SheetContent 
+            className="w-[400px] sm:w-[440px] p-0 rounded-l-lg flex flex-col" 
+            side="right"
+          >
+            <motion.div
+              initial={{ x: "100%", opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: "100%", opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="flex flex-col h-full"
             >
-              <Check className="h-2.5 w-2.5" />
-              Все
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDeselectAll}
-              className="h-6 text-[10px] rounded-sm gap-1 px-2"
-            >
-              <X className="h-2.5 w-2.5" />
-              Снять
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleReset}
-              className="h-6 text-[10px] rounded-sm gap-1 px-2"
-            >
-              <RotateCcw className="h-2.5 w-2.5" />
-              Сброс
-            </Button>
-          </div>
-        </div>
+              <SheetHeader className="p-5 pb-3 space-y-1 shrink-0">
+                <SheetTitle className="flex items-center gap-2 text-base">
+                  <div className="p-1.5 rounded-md bg-brand-blue/10">
+                    <Columns3 className="h-4 w-4 text-brand-blue" />
+                  </div>
+                  Настройка столбцов
+                </SheetTitle>
+                <SheetDescription className="text-xs text-muted-foreground">
+                  Выберите поля и перетащите для изменения порядка
+                </SheetDescription>
+              </SheetHeader>
 
-        <Separator className="shrink-0" />
-
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="p-3 space-y-4">
-            {/* Selected Columns (Draggable) */}
-            {selectedFieldsObjects.length > 0 && (
-              <div>
-                <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest sticky top-0 bg-background/95 backdrop-blur z-10">
-                  Выбранные столбцы
+              <div className="px-5 pb-2.5 shrink-0">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                  <Input
+                    placeholder="Поиск полей..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-8 h-8 text-xs rounded-md bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-1"
+                  />
                 </div>
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={selectedColumns}
-                    strategy={verticalListSortingStrategy}
+              </div>
+
+              <div className="px-5 pb-2.5 flex items-center justify-between shrink-0">
+                <Badge variant="secondary" className="text-[10px] font-semibold h-5">
+                  {selectedCount} выбрано
+                </Badge>
+                <div className="flex gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSelectAll}
+                    className="h-6 text-[10px] rounded-sm gap-1 px-2"
                   >
-                    <div className="space-y-0.5">
-                      {selectedFieldsObjects.map((field) => (
-                        <SortableColumnItem
-                          key={field.id}
-                          field={field}
-                          onToggle={() => toggleColumn(field.id)}
-                          isCustom={field.id.startsWith("UF_CRM_") || field.id.startsWith("COMPANY_UF_CRM_")}
-                        />
-                      ))}
+                    <Check className="h-2.5 w-2.5" />
+                    Все
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleDeselectAll}
+                    className="h-6 text-[10px] rounded-sm gap-1 px-2"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                    Снять
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleReset}
+                    className="h-6 text-[10px] rounded-sm gap-1 px-2"
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" />
+                    Сброс
+                  </Button>
+                </div>
+              </div>
+
+              <Separator className="shrink-0" />
+
+              <ScrollArea className="flex-1 min-h-0">
+                <div className="p-3 space-y-4">
+                  {/* Selected Columns (Draggable) */}
+                  {selectedFieldsObjects.length > 0 && (
+                    <div>
+                      <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest sticky top-0 bg-background/95 backdrop-blur z-10">
+                        Выбранные столбцы
+                      </div>
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={handleDragEnd}
+                      >
+                        <SortableContext
+                          items={selectedColumns}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          <div className="space-y-0.5">
+                            {selectedFieldsObjects.map((field) => (
+                              <SortableColumnItem
+                                key={field.id}
+                                field={field}
+                                onToggle={() => toggleColumn(field.id)}
+                                isCustom={field.id.startsWith("UF_CRM_") || field.id.startsWith("COMPANY_UF_CRM_")}
+                              />
+                            ))}
+                          </div>
+                        </SortableContext>
+                      </DndContext>
                     </div>
-                  </SortableContext>
-                </DndContext>
-              </div>
-            )}
-
-            {/* Available Columns */}
-            {(dealFields.length > 0 || companyFields.length > 0) && (
-              <div>
-                <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest sticky top-0 bg-background/95 backdrop-blur z-10">
-                  Доступные столбцы
-                </div>
-                <div className="space-y-0.5">
-                  {dealFields.length > 0 && (
-                    <>
-                      <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground/70 uppercase">
-                        Сделка
-                      </div>
-                      {dealFields.map((field) => (
-                        <ColumnItem
-                          key={field.id}
-                          field={field}
-                          checked={false}
-                          onToggle={() => toggleColumn(field.id)}
-                          isCustom={field.id.startsWith("UF_CRM_")}
-                        />
-                      ))}
-                    </>
                   )}
-                  {companyFields.length > 0 && (
-                    <>
-                      <div className="px-2 py-1 mt-2 text-[9px] font-semibold text-muted-foreground/70 uppercase">
-                        Компания
+
+                  {/* Available Columns */}
+                  {(dealFields.length > 0 || companyFields.length > 0) && (
+                    <div>
+                      <div className="px-2 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest sticky top-0 bg-background/95 backdrop-blur z-10">
+                        Доступные столбцы
                       </div>
-                      {companyFields.map((field) => (
-                        <ColumnItem
-                          key={field.id}
-                          field={field}
-                          checked={false}
-                          onToggle={() => toggleColumn(field.id)}
-                          isCustom={field.id.startsWith("COMPANY_UF_CRM_")}
-                        />
-                      ))}
-                    </>
+                      <div className="space-y-0.5">
+                        {dealFields.length > 0 && (
+                          <>
+                            <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground/70 uppercase">
+                              Сделка
+                            </div>
+                            {dealFields.map((field) => (
+                              <ColumnItem
+                                key={field.id}
+                                field={field}
+                                checked={false}
+                                onToggle={() => toggleColumn(field.id)}
+                                isCustom={field.id.startsWith("UF_CRM_")}
+                              />
+                            ))}
+                          </>
+                        )}
+                        {companyFields.length > 0 && (
+                          <>
+                            <div className="px-2 py-1 mt-2 text-[9px] font-semibold text-muted-foreground/70 uppercase">
+                              Компания
+                            </div>
+                            {companyFields.map((field) => (
+                              <ColumnItem
+                                key={field.id}
+                                field={field}
+                                checked={false}
+                                onToggle={() => toggleColumn(field.id)}
+                                isCustom={field.id.startsWith("COMPANY_UF_CRM_")}
+                              />
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {filteredFields.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground text-xs">
+                      {fields.length === 0
+                        ? "Загрузите поля с CRM"
+                        : "Ничего не найдено"}
+                    </div>
                   )}
                 </div>
-              </div>
-            )}
-
-            {filteredFields.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground text-xs">
-                {fields.length === 0
-                  ? "Загрузите поля с CRM"
-                  : "Ничего не найдено"}
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-      </SheetContent>
+              </ScrollArea>
+            </motion.div>
+          </SheetContent>
+        )}
+      </AnimatePresence>
     </Sheet>
   );
 }

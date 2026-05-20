@@ -15,6 +15,8 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useQueryState } from "nuqs";
+import { searchParams } from "@/lib/search-params";
 
 const PRESETS: { value: DateFilterPreset; label: string; shortcut?: string }[] = [
   { value: "all", label: "За всё время", shortcut: "∞" },
@@ -25,7 +27,8 @@ const PRESETS: { value: DateFilterPreset; label: string; shortcut?: string }[] =
 ];
 
 export function DateFilter() {
-  const { dateFilter, setDateFilter } = useDashboardStore();
+  const { setDateFilter } = useDashboardStore();
+  const [dateFilter, setDateFilterUrl] = useQueryState("date", searchParams.date);
   const [customFrom, setCustomFrom] = useState(dateFilter.customFrom || "");
   const [customTo, setCustomTo] = useState(dateFilter.customTo || "");
   const [customOpen, setCustomOpen] = useState(false);
@@ -40,15 +43,19 @@ export function DateFilter() {
       setCustomOpen(true);
       return;
     }
-    setDateFilter({ preset });
+    const newFilter = { preset };
+    setDateFilterUrl(newFilter);
+    setDateFilter(newFilter);
   };
 
   const handleCustomApply = () => {
-    setDateFilter({
-      preset: "custom",
+    const newFilter = {
+      preset: "custom" as DateFilterPreset,
       customFrom: customFrom || undefined,
       customTo: customTo || undefined,
-    });
+    };
+    setDateFilterUrl(newFilter);
+    setDateFilter(newFilter);
     setCustomOpen(false);
   };
 

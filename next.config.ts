@@ -2,9 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  experimental: {
-    serverComponentsExternalPackages: ["@prisma/client", "prisma"],
-  },
+  serverExternalPackages: ["@prisma/client", "prisma"],
   // SECURITY: Do NOT ignore TypeScript build errors in production.
   // Build must pass type-checking to catch type-related bugs.
   typescript: {

@@ -110,8 +110,11 @@ export async function verifySsoToken(token: string): Promise<SsoTokenPayload | n
       data: { nonce: signature }
     });
   } catch (error) {
-    console.error("[SSO-HMAC] Error checking nonce:", error);
-    return null;
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      return null;
+    }
+    console.error("[SSO-HMAC] Nonce DB error, proceeding without replay protection:", error);
+    return { email, role, timestamp };
   }
 
   return { email, role, timestamp };

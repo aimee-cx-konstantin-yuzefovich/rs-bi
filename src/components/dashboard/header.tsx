@@ -18,6 +18,7 @@ import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
 import Link from "next/link";
 import { useCallback } from "react";
+import { motion } from "framer-motion";
 
 export function Header() {
   const { data: session } = useSession();
@@ -86,6 +87,9 @@ export function Header() {
   }, [sortedDeals, columns, fieldMap, resolveValue]);
 
   const handleLogout = () => {
+    // Очистить персистентное состояние перед выходом
+    localStorage.removeItem("bitrix-bi-dashboard");
+
     if (IS_PRODUCTION) {
       const u = new URL(WP_LOGIN_URL_CLIENT);
       u.searchParams.set("action", "headless_logout");
@@ -114,17 +118,19 @@ export function Header() {
           {/* Right: Actions */}
           <div className="flex items-center gap-1 shrink-0 ml-auto">
             {/* Sync button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleSync}
-              disabled={dealsLoading}
-              className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10"
-              title="Синхронизировать данные"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${dealsLoading ? "sync-pulse" : ""}`} />
-              <span className="hidden sm:inline">Синхр.</span>
-            </Button>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSync}
+                disabled={dealsLoading}
+                className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10"
+                title="Синхронизировать данные"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${dealsLoading ? "sync-pulse" : ""}`} />
+                <span className="hidden sm:inline">Синхр.</span>
+              </Button>
+            </motion.div>
 
             {/* Connection health */}
             <ConnectionHealth />
@@ -138,27 +144,31 @@ export function Header() {
             <div className="w-px h-4 bg-white/10 mx-1" />
 
             {/* Column selector */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setColumnSelectorOpen(true)}
-              className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10"
-            >
-              <Columns3 className="h-3.5 w-3.5" />
-              <span className="hidden lg:inline">Столбцы</span>
-            </Button>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setColumnSelectorOpen(true)}
+                className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10"
+              >
+                <Columns3 className="h-3.5 w-3.5" />
+                <span className="hidden lg:inline">Столбцы</span>
+              </Button>
+            </motion.div>
 
             {/* Export */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleExport}
-              disabled={sortedDeals.length === 0}
-              className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/30"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden lg:inline">Экспорт</span>
-            </Button>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleExport}
+                disabled={sortedDeals.length === 0}
+                className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/30"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden lg:inline">Экспорт</span>
+              </Button>
+            </motion.div>
 
             {/* Separator */}
             <div className="w-px h-4 bg-white/10 mx-1" />

@@ -435,6 +435,7 @@ export const useDashboardStore = create<DashboardState>()(
       },
 
       loadDemoData: () => {
+        if (process.env.NODE_ENV === "production") return;
         const demoDeals = generateDemoDeals(150);
         set({
           fields: DEMO_FIELDS,
@@ -884,7 +885,7 @@ export const useDashboardStore = create<DashboardState>()(
     }),
     {
       name: "bitrix-bi-dashboard",
-      version: 3, // BUMPED: trigger migration to add ASSIGNED_BY_ID and COMPANY_TITLE
+      version: 4, // BUMPED: trigger migration to set new default columns
       migrate: (persistedState: any, version: number) => {
         if (version === 0 || version === 1) {
           // Migration from older versions
@@ -940,6 +941,12 @@ export const useDashboardStore = create<DashboardState>()(
           }
 
           state.selectedColumns = cols;
+        }
+
+        if (version < 4) {
+          const state = persistedState as DashboardState;
+          // Force the new default columns for everyone to ensure the new layout is applied
+          state.selectedColumns = [...DEFAULT_COLUMNS];
         }
 
         return persistedState;

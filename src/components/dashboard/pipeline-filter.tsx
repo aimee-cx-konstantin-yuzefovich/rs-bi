@@ -2,6 +2,8 @@
 
 import { useDashboardStore } from "@/store/dashboard-store";
 import { useMemo } from "react";
+import { useQueryState } from "nuqs";
+import { searchParams } from "@/lib/search-params";
 
 const PIPELINE_TABS = [
   { key: "all", label: "Все" },
@@ -11,7 +13,8 @@ const PIPELINE_TABS = [
 ] as const;
 
 export function PipelineFilter() {
-  const { allDeals, pipelineFilter, setPipelineFilter } = useDashboardStore();
+  const { allDeals, setPipelineFilter } = useDashboardStore();
+  const [pipelineFilter, setPipelineFilterUrl] = useQueryState("pipeline", searchParams.pipeline);
 
   // Use allDeals for counts so they don't change when pipeline filter is active
   const counts = useMemo(() => {
@@ -25,6 +28,11 @@ export function PipelineFilter() {
     return { all, in_work: inWork, WON: won, LOSE: lose };
   }, [allDeals]);
 
+  const handleFilterChange = (key: string) => {
+    setPipelineFilterUrl(key);
+    setPipelineFilter(key);
+  };
+
   return (
     <div className="flex items-center gap-1">
       {PIPELINE_TABS.map((tab) => {
@@ -32,7 +40,7 @@ export function PipelineFilter() {
         return (
           <button
             key={tab.key}
-            onClick={() => setPipelineFilter(tab.key)}
+            onClick={() => handleFilterChange(tab.key)}
             className={`
               h-7 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer
               flex items-center gap-1 border
