@@ -12,7 +12,7 @@ export function Footer() {
         <div className="flex items-center gap-1.5">
           <BarChart3 className="h-3 w-3 text-muted-foreground/40" />
           <span className="text-[10px] text-muted-foreground/50 tracking-wide">
-            RusSilica BI Terminal v2.1
+            RusSilica BI Terminal v2.6
           </span>
           {isDemoMode && (
             <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/30 ml-1">

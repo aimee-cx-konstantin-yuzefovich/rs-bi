@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useDashboardStore } from "@/store/dashboard-store";
 
 const TERMINAL_LINES = [
-  "RusSilica BI Terminal v2.0",
+  "RusSilica BI Terminal v2.6",
   "Инициализация модулей...",
   "Загрузка конфигурации CRM...",
   "Подключение к Bitrix24...",
