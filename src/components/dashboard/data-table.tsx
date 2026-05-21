@@ -325,7 +325,11 @@ export function DataTable() {
                         <th 
                           key={colId} 
                           className="text-left sticky top-0 z-20 group bg-card border-b border-border relative"
-                          style={{ width: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined }}
+                          style={{ 
+                            width: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,
+                            minWidth: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,
+                            maxWidth: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,
+                          }}
                         >
                           <div className="flex items-center gap-1">
                             {/* Sort button */}
