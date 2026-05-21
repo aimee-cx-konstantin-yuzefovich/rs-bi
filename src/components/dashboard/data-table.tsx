@@ -50,7 +50,9 @@ export function DataTable() {
     selectedColumns,
     searchQuery,
     columnSort,
+    columnWidths,
     toggleColumnSort,
+    setColumnWidth,
     setColumnFilter: setStoreColumnFilter,
     clearColumnFilter: clearStoreColumnFilter,
     clearAllColumnFilters: clearStoreAllColumnFilters,
@@ -103,6 +105,42 @@ export function DataTable() {
 
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // Column resizing state
+  const [resizingCol, setResizingCol] = useState<string | null>(null);
+  const [startX, setStartX] = useState(0);
+  const [startWidth, setStartWidth] = useState(0);
+
+  const handleMouseDown = (e: React.MouseEvent, colId: string, thElement: HTMLTableCellElement | null) => {
+    if (!thElement) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setResizingCol(colId);
+    setStartX(e.clientX);
+    setStartWidth(thElement.getBoundingClientRect().width);
+  };
+
+  useEffect(() => {
+    if (!resizingCol) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const diff = e.clientX - startX;
+      const newWidth = Math.max(50, startWidth + diff); // Minimum width 50px
+      setColumnWidth(resizingCol, newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setResizingCol(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [resizingCol, startX, startWidth, setColumnWidth]);
 
   // Auto-focus filter input when activated
   useEffect(() => {
@@ -284,7 +322,11 @@ export function DataTable() {
                       const isDate = field?.type === "date" || field?.type === "datetime";
 
                       return (
-                        <th key={colId} className="text-left sticky top-0 z-20 group bg-card border-b border-border">
+                        <th 
+                          key={colId} 
+                          className="text-left sticky top-0 z-20 group bg-card border-b border-border relative"
+                          style={{ width: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined }}
+                        >
                           <div className="flex items-center gap-1">
                             {/* Sort button */}
                             <button
@@ -372,6 +414,12 @@ export function DataTable() {
                               </div>
                             </div>
                           )}
+
+                          {/* Resize handle */}
+                          <div
+                            className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-blue/50 z-30 ${resizingCol === colId ? "bg-brand-blue" : ""}`}
+                            onMouseDown={(e) => handleMouseDown(e, colId, e.currentTarget.parentElement as HTMLTableCellElement)}
+                          />
                         </th>
                       );
                     })}

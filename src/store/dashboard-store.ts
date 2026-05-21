@@ -106,6 +106,9 @@ interface DashboardState {
   // Column filters
   columnFilters: ColumnFilter[];
 
+  // Column widths
+  columnWidths: Record<string, number>;
+
   // Pagination
   currentPage: number;
   pageSize: number;
@@ -150,6 +153,7 @@ interface DashboardState {
   setColumnFilter: (columnId: string, value: string) => void;
   clearColumnFilter: (columnId: string) => void;
   clearAllColumnFilters: () => void;
+  setColumnWidth: (columnId: string, width: number) => void;
   setCurrentPage: (page: number) => void;
   setPageSize: (size: number) => void;
   syncData: () => Promise<void>;
@@ -257,6 +261,9 @@ export const useDashboardStore = create<DashboardState>()(
 
       // Column filters
       columnFilters: [],
+
+      // Column widths
+      columnWidths: {},
 
       // Pagination
       currentPage: 1,
@@ -606,6 +613,12 @@ export const useDashboardStore = create<DashboardState>()(
         set({ columnFilters: [], currentPage: 1 });
       },
 
+      setColumnWidth: (columnId, width) => {
+        set((state) => ({
+          columnWidths: { ...state.columnWidths, [columnId]: width },
+        }));
+      },
+
       setCurrentPage: (page) => set({ currentPage: page }),
 
       setPageSize: (size) => set({ pageSize: size, currentPage: 1 }),
@@ -953,6 +966,7 @@ export const useDashboardStore = create<DashboardState>()(
       },
       partialize: (state) => ({
         selectedColumns: state.selectedColumns,
+        columnWidths: state.columnWidths,
         dateFilter: state.dateFilter,
         pageSize: state.pageSize,
         pipelineFilter: state.pipelineFilter,
