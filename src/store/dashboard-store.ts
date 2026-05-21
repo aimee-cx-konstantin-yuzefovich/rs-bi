@@ -736,26 +736,6 @@ export const useDashboardStore = create<DashboardState>()(
         const hasCompanyFields = selectedColumns.some(col => col.startsWith("COMPANY_"));
         if (!hasCompanyFields) return;
 
-        // Collect unique company IDs from deals
-        const uniqueIds = [...new Set(
-          allDeals.map((d) => String(d.COMPANY_ID || "")).filter((id) => id && id !== "0")
-        )];
-
-        if (uniqueIds.length === 0) return;
-
-        // Only fetch IDs we don't already have data for or if data is older than 5 minutes
-        const now = Date.now();
-        const missingIds = uniqueIds.filter((id) => {
-          const cached = companiesData[id];
-          const fetchedAt = get().companiesDataFetchedAt[id];
-          if (!cached) return true;
-          if (!fetchedAt || now - fetchedAt > 5 * 60 * 1000) return true;
-          return false;
-        });
-        if (missingIds.length === 0) return;
-
-        set({ companiesDataLoading: true });
-
         // Determine which company fields to fetch based on selected columns
         const companyFieldsToSelect = selectedColumns
           .filter(col => col.startsWith("COMPANY_"))
@@ -767,6 +747,32 @@ export const useDashboardStore = create<DashboardState>()(
         if (!companyFieldsToSelect.includes("ID")) {
           companyFieldsToSelect.push("ID");
         }
+
+        // Collect unique company IDs from deals
+        const uniqueIds = [...new Set(
+          allDeals.map((d) => String(d.COMPANY_ID || "")).filter((id) => id && id !== "0")
+        )];
+
+        if (uniqueIds.length === 0) return;
+
+        // Only fetch IDs we don't already have data for, OR if they are missing required fields, OR if data is older than 5 minutes
+        const now = Date.now();
+        const missingIds = uniqueIds.filter((id) => {
+          const cached = companiesData[id];
+          const fetchedAt = get().companiesDataFetchedAt[id];
+          
+          if (!cached) return true;
+          if (!fetchedAt || now - fetchedAt > 5 * 60 * 1000) return true;
+          
+          // Check if all required fields are present in the cached object
+          const hasAllFields = companyFieldsToSelect.every(field => field in cached);
+          if (!hasAllFields) return true;
+          
+          return false;
+        });
+        if (missingIds.length === 0) return;
+
+        set({ companiesDataLoading: true });
 
         try {
           const response = await fetchWithTimeout("/api/bitrix/companies", {
@@ -796,7 +802,14 @@ export const useDashboardStore = create<DashboardState>()(
                   normalizedCompanies[String(k)] = v;
                 }
               }
-              const newCompaniesData = { ...state.companiesData, ...normalizedCompanies };
+              // Deep merge to preserve previously fetched fields
+              const newCompaniesData = { ...state.companiesData };
+              for (const [id, companyData] of Object.entries(normalizedCompanies)) {
+                newCompaniesData[id] = {
+                  ...(newCompaniesData[id] || {}),
+                  ...companyData
+                };
+              }
               const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
               const now = Date.now();
               

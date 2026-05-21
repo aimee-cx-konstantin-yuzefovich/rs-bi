@@ -75,16 +75,6 @@ export function useTableState() {
         return userName || `ID ${responsibleId}`;
       }
 
-      if (raw === null || raw === undefined || raw === "") return "";
-
-      if (colId === RESPONSIBLE_FIELD_ID) {
-        const id = String(raw);
-        const userName = userNames[id]?.trim();
-        const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
-
-        return userName || dealName || `ID ${id}`;
-      }
-
       if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
         const dealId = String(deal.ID || deal.id || "");
         if (!dealId || !activitiesData[dealId]) return "";
@@ -146,6 +136,16 @@ export function useTableState() {
         return String(rawCompanyVal);
       }
 
+      if (raw === null || raw === undefined || raw === "") return "";
+
+      if (colId === RESPONSIBLE_FIELD_ID) {
+        const id = String(raw);
+        const userName = userNames[id]?.trim();
+        const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
+
+        return userName || dealName || `ID ${id}`;
+      }
+
       if (field?.listValues && raw) {
         if (Array.isArray(raw)) {
           return raw
@@ -174,6 +174,14 @@ export function useTableState() {
       const field = fieldMap.get(colId);
       const raw = deal[colId];
 
+      if (colId.startsWith("COMPANY_")) {
+        return resolveValue(deal, colId).toLowerCase();
+      }
+
+      if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
+        return resolveValue(deal, colId).toLowerCase();
+      }
+
       if (raw === null || raw === undefined || raw === "") return "";
 
       if (
@@ -195,10 +203,6 @@ export function useTableState() {
       }
 
       if (colId === RESPONSIBLE_FIELD_ID) {
-        return resolveValue(deal, colId).toLowerCase();
-      }
-
-      if (colId.startsWith("COMPANY_")) {
         return resolveValue(deal, colId).toLowerCase();
       }
 
