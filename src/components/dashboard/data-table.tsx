@@ -128,7 +128,7 @@ export function DataTable() {
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (resizingState.current.colId) {
       const diff = e.clientX - resizingState.current.startX;
-      const newWidth = Math.max(50, resizingState.current.startWidth + diff); // Minimum width 50px
+      const newWidth = Math.max(80, resizingState.current.startWidth + diff); // Minimum width 80px
       setColumnWidth(resizingState.current.colId, newWidth);
     }
   };
@@ -334,7 +334,7 @@ export function DataTable() {
                             {/* Sort button */}
                             <button
                               onClick={() => toggleColumnSort(colId)}
-                              className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+                              className="flex items-start gap-1 hover:text-foreground transition-colors cursor-pointer text-left"
                               title={
                                 isNumeric
                                   ? isSorted
@@ -355,7 +355,7 @@ export function DataTable() {
                                   : "Сортировка по алфавиту"
                               }
                             >
-                              <span className="truncate max-w-[160px]">
+                              <span className="whitespace-normal break-words leading-tight">
                                 {colId === RESPONSIBLE_FIELD_ID
                                   ? RESPONSIBLE_FIELD_TITLE
                                   : colId === COMPANY_RESPONSIBLE_FIELD_ID
@@ -363,13 +363,13 @@ export function DataTable() {
                                   : field?.title || colId}
                               </span>
                               {isSorted && columnSort.direction === "asc" && (
-                                <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter" />
+                                <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter mt-0.5" />
                               )}
                               {isSorted && columnSort.direction === "desc" && (
-                                <ArrowDown className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter" />
+                                <ArrowDown className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter mt-0.5" />
                               )}
                               {!isSorted && (
-                                <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity flex-shrink-0" />
+                                <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity flex-shrink-0 mt-0.5" />
                               )}
                             </button>
 
