@@ -323,14 +323,14 @@ export function DataTable() {
                       return (
                         <th 
                           key={colId} 
-                          className="text-left sticky top-0 z-20 group bg-card border-b border-border relative"
+                          className="text-left sticky top-0 z-20 group bg-card border-b border-border relative py-2 px-2"
                           style={{ 
                             width: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,
                             minWidth: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,
                             maxWidth: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,
                           }}
                         >
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-start gap-1">
                             {/* Sort button */}
                             <button
                               onClick={() => toggleColumnSort(colId)}
@@ -378,7 +378,7 @@ export function DataTable() {
                               onClick={() =>
                                 setActiveFilterCol(isFilterActive ? null : colId)
                               }
-                              className={`p-0.5 rounded transition-all ${
+                              className={`p-0.5 rounded transition-all mt-0.5 ${
                                 hasFilter
                                   ? "text-brand-orange filter-badge-pulse"
                                   : "opacity-0 group-hover:opacity-40 hover:!opacity-70"
