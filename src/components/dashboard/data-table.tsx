@@ -106,41 +106,40 @@ export function DataTable() {
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
 
-  // Column resizing state
-  const [resizingCol, setResizingCol] = useState<string | null>(null);
-  const [startX, setStartX] = useState(0);
-  const [startWidth, setStartWidth] = useState(0);
+  // Column resizing state (bullet-proof with useRef and Pointer Events)
+  const resizingState = useRef({ colId: null as string | null, startX: 0, startWidth: 0 });
+  const [activeResizingCol, setActiveResizingCol] = useState<string | null>(null);
 
-  const handleMouseDown = (e: React.MouseEvent, colId: string, thElement: HTMLTableCellElement | null) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, colId: string, thElement: HTMLTableCellElement | null) => {
     if (!thElement) return;
     e.preventDefault();
     e.stopPropagation();
-    setResizingCol(colId);
-    setStartX(e.clientX);
-    setStartWidth(thElement.getBoundingClientRect().width);
+    
+    e.currentTarget.setPointerCapture(e.pointerId);
+    
+    resizingState.current = {
+      colId,
+      startX: e.clientX,
+      startWidth: thElement.getBoundingClientRect().width,
+    };
+    setActiveResizingCol(colId);
   };
 
-  useEffect(() => {
-    if (!resizingCol) return;
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (resizingState.current.colId) {
+      const diff = e.clientX - resizingState.current.startX;
+      const newWidth = Math.max(50, resizingState.current.startWidth + diff); // Minimum width 50px
+      setColumnWidth(resizingState.current.colId, newWidth);
+    }
+  };
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const diff = e.clientX - startX;
-      const newWidth = Math.max(50, startWidth + diff); // Minimum width 50px
-      setColumnWidth(resizingCol, newWidth);
-    };
-
-    const handleMouseUp = () => {
-      setResizingCol(null);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [resizingCol, startX, startWidth, setColumnWidth]);
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    resizingState.current.colId = null;
+    setActiveResizingCol(null);
+  };
 
   // Auto-focus filter input when activated
   useEffect(() => {
@@ -421,8 +420,11 @@ export function DataTable() {
 
                           {/* Resize handle */}
                           <div
-                            className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-blue/50 z-30 ${resizingCol === colId ? "bg-brand-blue" : ""}`}
-                            onMouseDown={(e) => handleMouseDown(e, colId, e.currentTarget.parentElement as HTMLTableCellElement)}
+                            className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-blue/50 z-30 ${activeResizingCol === colId ? "bg-brand-blue" : ""}`}
+                            onPointerDown={(e) => handlePointerDown(e, colId, e.currentTarget.parentElement as HTMLTableCellElement)}
+                            onPointerMove={handlePointerMove}
+                            onPointerUp={handlePointerUp}
+                            onPointerCancel={handlePointerUp}
                           />
                         </th>
                       );
