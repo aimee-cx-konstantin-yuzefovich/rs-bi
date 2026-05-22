@@ -158,6 +158,7 @@ interface DashboardState {
   setPageSize: (size: number) => void;
   syncData: () => Promise<void>;
   applyClientFilters: () => void;
+  syncUrlState: (urlParams: Partial<DashboardState>) => void;
 
   // ─── Actions (header features) ───
   setPipelineFilter: (filter: string) => void;
@@ -639,6 +640,13 @@ export const useDashboardStore = create<DashboardState>()(
         // where fetchDeals depends on selectedColumns that may be updated by fetchFields
         await get().fetchFields();
         await get().fetchDeals();
+      },
+
+      syncUrlState: (urlParams) => {
+        set((state) => ({
+          ...state,
+          ...urlParams,
+        }));
       },
 
       // ─── Actions (header features) ───

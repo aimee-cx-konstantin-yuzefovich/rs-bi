@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useQueryStates } from "nuqs";
+import { searchParams } from "@/lib/search-params";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Header } from "@/components/dashboard/header";
 import { StatsCards } from "@/components/dashboard/stats-cards";
@@ -21,8 +23,11 @@ const AUTH_LOADING_TIMEOUT_MS = 15_000;
 export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const { checkConfig, fetchFields, fetchDeals, isDemoMode, appLoaded, dealsError, syncData } = useDashboardStore();
+  const rawSearchParams = useSearchParams();
+  const [urlState] = useQueryStates(searchParams);
+  const { checkConfig, fetchFields, fetchDeals, isDemoMode, appLoaded, dealsError, syncData, syncUrlState } = useDashboardStore();
   const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
+  const [isUrlSynced, setIsUrlSynced] = useState(false);
 
   // Redirect unauthenticated users to login
   useEffect(() => {
@@ -46,9 +51,32 @@ export default function DashboardPage() {
     return () => clearTimeout(timer);
   }, [status]);
 
-  // Load data when authenticated
+  // Sync URL state on mount
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (isUrlSynced) return;
+    
+    const paramsToSync: any = {};
+    let hasParams = false;
+
+    // Check which params are actually in the URL
+    if (rawSearchParams.has("date")) { paramsToSync.dateFilter = urlState.date; hasParams = true; }
+    if (rawSearchParams.has("pipeline")) { paramsToSync.pipelineFilter = urlState.pipeline; hasParams = true; }
+    if (rawSearchParams.has("responsible")) { paramsToSync.responsibleFilter = urlState.responsible; hasParams = true; }
+    if (rawSearchParams.has("q")) { paramsToSync.searchQuery = urlState.q; hasParams = true; }
+    if (rawSearchParams.has("page")) { paramsToSync.currentPage = urlState.page; hasParams = true; }
+    if (rawSearchParams.has("size")) { paramsToSync.pageSize = urlState.size; hasParams = true; }
+    if (rawSearchParams.has("filters")) { paramsToSync.columnFilters = urlState.filters; hasParams = true; }
+
+    if (hasParams) {
+      syncUrlState(paramsToSync);
+    }
+    
+    setIsUrlSynced(true);
+  }, [rawSearchParams, urlState, syncUrlState, isUrlSynced]);
+
+  // Load data when authenticated and URL is synced
+  useEffect(() => {
+    if (status !== "authenticated" || !isUrlSynced) return;
 
     const init = async () => {
       try {
@@ -62,7 +90,7 @@ export default function DashboardPage() {
       }
     };
     init();
-  }, [status, checkConfig, fetchFields, fetchDeals]);
+  }, [status, isUrlSynced, checkConfig, fetchFields, fetchDeals]);
 
   // Show loading while checking auth
   if (status === "loading") {
