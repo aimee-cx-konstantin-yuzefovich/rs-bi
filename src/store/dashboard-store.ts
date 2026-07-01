@@ -13,13 +13,18 @@ import {
 // the user sees a forever-spinning loader.
 const CLIENT_FETCH_TIMEOUT_MS = 30_000; // 30 seconds
 
-function fetchWithTimeout(url: string, options?: RequestInit): Promise<Response> {
+function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs: number = CLIENT_FETCH_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), CLIENT_FETCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal }).finally(() => {
     clearTimeout(timeoutId);
   });
 }
+
+// The companies list endpoint can legitimately paginate through thousands of
+// rows with a large field set (unfiltered "all responsible" view) — give it
+// more room than the default 30s before the client gives up.
+const COMPANY_LIST_FETCH_TIMEOUT_MS = 90_000;
 
 export interface FieldInfo {
   id: string;
@@ -998,14 +1003,18 @@ export const useDashboardStore = create<DashboardState>()(
           .filter((field) => field !== "ID" && field !== "TITLE" && field !== "ASSIGNED_BY_ID");
 
         try {
-          const response = await fetchWithTimeout("/api/bitrix/companies/list", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              responsibleId: targetId === "all" ? undefined : targetId,
-              select,
-            }),
-          });
+          const response = await fetchWithTimeout(
+            "/api/bitrix/companies/list",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                responsibleId: targetId === "all" ? undefined : targetId,
+                select,
+              }),
+            },
+            COMPANY_LIST_FETCH_TIMEOUT_MS
+          );
 
           if (!response.ok) {
             throw new Error(`API returned ${response.status}`);
@@ -1054,7 +1063,7 @@ export const useDashboardStore = create<DashboardState>()(
     }),
     {
       name: "bitrix-bi-dashboard",
-      version: 6, // BUMPED: added new/renamed Bitrix fields (company card + deal support tracking)
+      version: 7, // BUMPED: guaranteed defaults for the Companies browser (creation date, activity, etc.)
       migrate: (persistedState: any, version: number) => {
         if (version === 0 || version === 1) {
           // Migration from older versions
@@ -1149,6 +1158,36 @@ export const useDashboardStore = create<DashboardState>()(
           insertAfter("UF_CRM_1586468182934", "UF_CRM_1781790245");
           insertAfter("UF_CRM_1781790245", "UF_CRM_1781799182248");
           insertAfter("UF_CRM_1781799182248", "UF_CRM_1781799196440");
+
+          state.selectedColumns = cols;
+        }
+
+        if (version < 7) {
+          // Guarantees the Companies browser's required defaults (creation
+          // date, last activity, turnover, samples, application area, etc.)
+          // are present. Additive only — existing customization is preserved.
+          const state = persistedState as DashboardState;
+          const cols: string[] = state.selectedColumns ? [...state.selectedColumns] : [...DEFAULT_COLUMNS];
+
+          const insertAfter = (afterId: string, newId: string) => {
+            if (cols.includes(newId)) return;
+            const idx = cols.indexOf(afterId);
+            if (idx !== -1) {
+              cols.splice(idx + 1, 0, newId);
+            } else {
+              cols.push(newId);
+            }
+          };
+
+          insertAfter("COMPANY_TITLE", "COMPANY_DATE_CREATE");
+          insertAfter("COMPANY_DATE_CREATE", "COMPANY_LAST_ACTIVITY_TIME");
+          insertAfter("UF_CRM_69257BBACD471", "COMPANY_UF_CRM_69257BBAB86F6");
+          insertAfter("COMPANY_UF_CRM_1777324548", "COMPANY_REVENUE");
+          insertAfter("UF_CRM_6915D8C2C31D0", "COMPANY_INDUSTRY");
+          insertAfter("UF_CRM_6915D8C328208", "COMPANY_UF_CRM_69257337B8025");
+          insertAfter("UF_CRM_1774879952785", "COMPANY_UF_CRM_1753187313314");
+          insertAfter("COMPANY_UF_CRM_1764156064272", "COMPANY_UF_CRM_1764156557536");
+          insertAfter("COMPANY_UF_CRM_1764156593", "COMPANY_COMMENTS");
 
           state.selectedColumns = cols;
         }

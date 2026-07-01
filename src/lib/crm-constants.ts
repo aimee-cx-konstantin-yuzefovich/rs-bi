@@ -13,17 +13,26 @@ export const COMPANY_RESPONSIBLE_FIELD_TITLE = "Ответственный ко�
 
 export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "COMPANY_TITLE",
+  // NEW — guaranteed defaults for the Companies browser (required fields:
+  // company creation date / last activity). Hidden by the shared system-field
+  // filter until isSystemField() was made entity-aware for these two.
+  "COMPANY_DATE_CREATE",
+  "COMPANY_LAST_ACTIVITY_TIME",
   RESPONSIBLE_FIELD_ID,
   COMPANY_RESPONSIBLE_FIELD_ID,
   "UF_CRM_69257BBACD471",
+  "COMPANY_UF_CRM_69257BBAB86F6", // NEW — Тип продукта (company-level)
   "OPPORTUNITY",
   "UF_CRM_1779384164284",
   "UF_CRM_1774880111684",
   "COMPANY_UF_CRM_1777324548",
+  "COMPANY_REVENUE", // NEW — Годовой оборот
   "COMPANY_UF_CRM_1753079306248",
   "COMPANY_UF_CRM_69259C45D3399",
   "UF_CRM_6915D8C2C31D0",
+  "COMPANY_INDUSTRY", // NEW — Сфера деятельности
   "UF_CRM_6915D8C328208",
+  "COMPANY_UF_CRM_69257337B8025", // NEW — Область применения
   "COMPANY_UF_CRM_1764079092",
   // NEW (replaces/supplements the field above — Bitrix reconfigured this
   // company-card input around the same time, same title, new field ID):
@@ -37,12 +46,15 @@ export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "COMPANY_UF_CRM_1753080295792",
   "UF_CRM_1779394379",
   "UF_CRM_1774879952785",
+  "COMPANY_UF_CRM_1753187313314", // NEW — Образцы
   "COMPANY_UF_CRM_1764155817232",
   "COMPANY_UF_CRM_1764156004815",
   "COMPANY_UF_CRM_1764155891815",
   "COMPANY_UF_CRM_1764156064272",
+  "COMPANY_UF_CRM_1764156557536", // NEW — Дата передачи образцов
   "UF_CRM_1774880017",
   "COMPANY_UF_CRM_1764156593",
+  "COMPANY_COMMENTS", // NEW — Комментарий (компания)
   "UF_CRM_1584459666824",
   "UF_CRM_1584464068013",
   "UF_CRM_1584460062014",

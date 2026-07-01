@@ -330,6 +330,7 @@ export function CompanyBrowser() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="text-xs whitespace-nowrap w-10">№</TableHead>
               {columns.map((colId) => (
                 <TableHead key={colId} className="text-xs whitespace-nowrap">
                   {columnTitle(colId)}
@@ -341,6 +342,7 @@ export function CompanyBrowser() {
             {companyBrowserLoading && companyBrowserItems.length === 0 ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-6" /></TableCell>
                   {columns.map((colId) => (
                     <TableCell key={colId}>
                       <Skeleton className="h-4 w-24" />
@@ -350,13 +352,16 @@ export function CompanyBrowser() {
               ))
             ) : companyBrowserError ? null : pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="text-center text-xs text-muted-foreground py-8">
+                <TableCell colSpan={columns.length + 1} className="text-center text-xs text-muted-foreground py-8">
                   Компании не найдены
                 </TableCell>
               </TableRow>
             ) : (
-              pageItems.map((company) => (
+              pageItems.map((company, idx) => (
                 <TableRow key={String(company.ID)}>
+                  <TableCell className="text-xs text-muted-foreground tabular-nums">
+                    {(currentPage - 1) * PAGE_SIZE + idx + 1}
+                  </TableCell>
                   {columns.map((colId) => {
                     const field =
                       colId === "TITLE" || colId === "ASSIGNED_BY_ID"

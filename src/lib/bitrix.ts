@@ -240,8 +240,6 @@ export const SYSTEM_FIELDS_TO_EXCLUDE = new Set([
   "ADDITIONAL_INFO",
   "LOCATION_ID",
   "MOVED_TIME",
-  "LAST_ACTIVITY_TIME",
-  "LAST_ACTIVITY_BY",
   "LAST_COMMUNICATION_TIME",
 
   // UTM tracking — not informative for BI
@@ -256,7 +254,6 @@ export const SYSTEM_FIELDS_TO_EXCLUDE = new Set([
   "SEARCH_INDEX",
 
   // Explicitly requested to be removed from UI
-  "DATE_CREATE",
   "TITLE",
   "TAX_VALUE",
   "UF_CRM_692573380C4F0",
@@ -267,12 +264,26 @@ export const SYSTEM_FIELDS_TO_EXCLUDE = new Set([
 ]);
 
 /**
+ * Fields only hidden for DEALS — the same underlying Bitrix field exists on
+ * companies too, but is wanted there (e.g. "Дата создания"/"Последняя
+ * активность" columns in the Companies browser).
+ */
+const DEAL_ONLY_SYSTEM_FIELDS = new Set(["DATE_CREATE", "LAST_ACTIVITY_TIME", "LAST_ACTIVITY_BY"]);
+
+/**
  * Check if a field is a system/internal field that should be hidden.
  * Uses both the explicit set and pattern matching for *_ID fields.
+ * `entity` distinguishes deal fields from company fields, since a small
+ * number of fields (see DEAL_ONLY_SYSTEM_FIELDS) are only noise on deals.
  */
-export function isSystemField(fieldId: string, fieldMeta?: Record<string, unknown>): boolean {
+export function isSystemField(
+  fieldId: string,
+  fieldMeta?: Record<string, unknown>,
+  entity: "deal" | "company" = "deal"
+): boolean {
   // Explicitly excluded fields (checked first so we can exclude specific UF_CRM_* fields)
   if (SYSTEM_FIELDS_TO_EXCLUDE.has(fieldId)) return true;
+  if (entity === "deal" && DEAL_ONLY_SYSTEM_FIELDS.has(fieldId)) return true;
 
   // Custom fields (UF_CRM_*) are NEVER system fields — always keep them (unless explicitly excluded above)
   if (fieldId.startsWith("UF_CRM_")) return false;

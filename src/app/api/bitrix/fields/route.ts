@@ -96,7 +96,7 @@ export async function GET() {
       const companyFields = companyData.result;
       if (companyFields && typeof companyFields === "object") {
         for (const [fieldId, fieldMeta] of Object.entries(companyFields)) {
-          if (isSystemField(fieldId, fieldMeta as unknown as Record<string, unknown>)) continue;
+          if (isSystemField(fieldId, fieldMeta as unknown as Record<string, unknown>, "company")) continue;
           
           const meta = fieldMeta as BitrixField;
           const title = getFieldTitle(fieldId, meta);
