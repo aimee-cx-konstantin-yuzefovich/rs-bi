@@ -25,9 +25,15 @@ export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "UF_CRM_6915D8C2C31D0",
   "UF_CRM_6915D8C328208",
   "COMPANY_UF_CRM_1764079092",
+  // NEW (replaces/supplements the field above — Bitrix reconfigured this
+  // company-card input around the same time, same title, new field ID):
+  "COMPANY_UF_CRM_1781806326214",
   "COMPANY_UF_CRM_1764076968",
+  "COMPANY_UF_CRM_1781806269703", // NEW — see note above
   "COMPANY_UF_CRM_1764079114",
+  "COMPANY_UF_CRM_1781806285641", // NEW — see note above
   "COMPANY_UF_CRM_1764076998",
+  "COMPANY_UF_CRM_1781806301447", // NEW — see note above
   "COMPANY_UF_CRM_1753080295792",
   "UF_CRM_1779394379",
   "UF_CRM_1774879952785",
@@ -41,6 +47,10 @@ export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "UF_CRM_1584464068013",
   "UF_CRM_1584460062014",
   "UF_CRM_1586468182934",
+  // NEW — deal-level support-tracking fields added alongside the company changes:
+  "UF_CRM_1781790245",
+  "UF_CRM_1781799182248",
+  "UF_CRM_1781799196440",
   "ACTIVITY_LAST",
   "ACTIVITY_NEXT",
 ] as const;

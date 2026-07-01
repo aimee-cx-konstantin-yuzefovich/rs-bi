@@ -84,6 +84,7 @@ interface DashboardState {
   // Selected columns
   selectedColumns: string[];
   columnSelectorOpen: boolean;
+  companyColumnSelectorOpen: boolean;
 
   // Deals
   deals: DealData[];
@@ -137,6 +138,21 @@ interface DashboardState {
   activitiesDataLoading: boolean;
   userNamesLoading: boolean;
 
+  // ─── Company Browser ───
+  // Independent of the deals dataset: queries crm.company.list directly,
+  // so counts/results include companies with zero deals and match Bitrix24's
+  // own "responsible" filter (unlike companiesData above, which only ever
+  // holds companies referenced by already-loaded deals).
+  companyBrowserItems: Record<string, any>[];
+  companyBrowserLoading: boolean;
+  companyBrowserError: string | null;
+  companyBrowserTotal: number;
+  companyBrowserFetched: number;
+  companyBrowserTruncated: boolean;
+  companyBrowserPartial: boolean;
+  companyBrowserWarning: string | null;
+  companyBrowserResponsibleId: string;
+
   // ─── Actions ───
   checkConfig: () => Promise<void>;
   fetchFields: () => Promise<void>;
@@ -146,6 +162,8 @@ interface DashboardState {
   toggleColumn: (columnId: string) => void;
   reorderColumns: (startIndex: number, endIndex: number) => void;
   setColumnSelectorOpen: (open: boolean) => void;
+  reorderCompanyColumns: (startIndex: number, endIndex: number) => void;
+  setCompanyColumnSelectorOpen: (open: boolean) => void;
   setDateFilter: (filter: DateFilter) => void;
   setSearchQuery: (query: string) => void;
   setColumnSort: (sort: ColumnSort) => void;
@@ -173,6 +191,10 @@ interface DashboardState {
   fetchCompaniesData: () => Promise<void>;
   fetchActivitiesData: () => Promise<void>;
   markAlertsAsRead: () => void;
+
+  // ─── Actions (company browser) ───
+  fetchCompanyBrowser: (responsibleId?: string) => Promise<void>;
+  setCompanyBrowserResponsibleId: (id: string) => void;
 }
 
 function getDateFilterRange(filter: DateFilter): Record<string, string> {
@@ -226,6 +248,10 @@ const sortColumns = (columns: string[]) => {
   });
 };
 
+// Guards fetchCompanyBrowser against out-of-order responses: only the result
+// of the most recently *started* call is ever applied to the store.
+let companyBrowserRequestSeq = 0;
+
 export const useDashboardStore = create<DashboardState>()(
   persist(
     (set, get) => ({
@@ -241,6 +267,7 @@ export const useDashboardStore = create<DashboardState>()(
       // Selected columns
       selectedColumns: DEFAULT_COLUMNS,
       columnSelectorOpen: false,
+      companyColumnSelectorOpen: false,
 
       // Deals
       deals: [],
@@ -287,6 +314,16 @@ export const useDashboardStore = create<DashboardState>()(
       activitiesDataFetchedAt: {},
       activitiesDataLoading: false,
       userNamesLoading: false,
+
+      companyBrowserItems: [],
+      companyBrowserLoading: false,
+      companyBrowserError: null,
+      companyBrowserTotal: 0,
+      companyBrowserFetched: 0,
+      companyBrowserTruncated: false,
+      companyBrowserPartial: false,
+      companyBrowserWarning: null,
+      companyBrowserResponsibleId: "all",
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -488,6 +525,30 @@ export const useDashboardStore = create<DashboardState>()(
       },
 
       setColumnSelectorOpen: (open) => set({ columnSelectorOpen: open }),
+
+      // Reorders only among the COMPANY_* entries of selectedColumns, writing
+      // the new order back into the same absolute slots — deal columns (and
+      // their relative positions) are left completely untouched.
+      reorderCompanyColumns: (startIndex, endIndex) => {
+        const { selectedColumns } = get();
+        const companyIndices: number[] = [];
+        selectedColumns.forEach((col, idx) => {
+          if (col.startsWith("COMPANY_") && col !== "COMPANY_TITLE" && col !== "COMPANY_ASSIGNED_BY_ID") {
+            companyIndices.push(idx);
+          }
+        });
+        const companyCols = companyIndices.map((i) => selectedColumns[i]);
+        const [moved] = companyCols.splice(startIndex, 1);
+        companyCols.splice(endIndex, 0, moved);
+
+        const result = [...selectedColumns];
+        companyIndices.forEach((absIndex, i) => {
+          result[absIndex] = companyCols[i];
+        });
+        set({ selectedColumns: result });
+      },
+
+      setCompanyColumnSelectorOpen: (open) => set({ companyColumnSelectorOpen: open }),
 
       setDateFilter: (filter) => {
         set({ dateFilter: filter, currentPage: 1 });
@@ -916,10 +977,84 @@ export const useDashboardStore = create<DashboardState>()(
           set({ activitiesDataLoading: false });
         }
       },
+
+      fetchCompanyBrowser: async (responsibleId) => {
+        // Not meaningful in demo mode — there's no live Bitrix account to query
+        // directly, so behave like the other deals-derived fetch actions and no-op.
+        if (get().isDemoMode) {
+          set({ companyBrowserLoading: false, companyBrowserError: null });
+          return;
+        }
+
+        const targetId = responsibleId ?? get().companyBrowserResponsibleId;
+        const requestSeq = ++companyBrowserRequestSeq;
+        set({ companyBrowserLoading: true, companyBrowserError: null });
+
+        // Reuse whichever COMPANY_* columns are already selected in the deals
+        // table, so the browser shows the same custom fields the user cares about.
+        const select = get()
+          .selectedColumns.filter((col) => col.startsWith("COMPANY_"))
+          .map((col) => col.replace("COMPANY_", ""))
+          .filter((field) => field !== "ID" && field !== "TITLE" && field !== "ASSIGNED_BY_ID");
+
+        try {
+          const response = await fetchWithTimeout("/api/bitrix/companies/list", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              responsibleId: targetId === "all" ? undefined : targetId,
+              select,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`API returned ${response.status}`);
+          }
+
+          const data = await response.json();
+          if (!data.success) {
+            throw new Error(data.error || "Failed to fetch companies");
+          }
+
+          // A newer request has started since this one fired — discard this
+          // (now stale) response instead of overwriting fresher state.
+          if (requestSeq !== companyBrowserRequestSeq) return;
+
+          set({
+            companyBrowserItems: data.companies || [],
+            companyBrowserTotal: data.total || 0,
+            companyBrowserFetched: data.fetched || (data.companies || []).length,
+            companyBrowserTruncated: data.truncated || false,
+            companyBrowserPartial: data.partial || false,
+            companyBrowserWarning: data.warning || null,
+            companyBrowserLoading: false,
+          });
+        } catch (error) {
+          if (requestSeq !== companyBrowserRequestSeq) return;
+          const message = error instanceof Error ? error.message : "Не удалось загрузить компании";
+          // Clear stale results too — showing an error banner over a previous
+          // filter's leftover rows would misleadingly look like a valid answer.
+          set({
+            companyBrowserLoading: false,
+            companyBrowserError: message,
+            companyBrowserItems: [],
+            companyBrowserTotal: 0,
+            companyBrowserFetched: 0,
+            companyBrowserTruncated: false,
+            companyBrowserPartial: false,
+            companyBrowserWarning: null,
+          });
+        }
+      },
+
+      setCompanyBrowserResponsibleId: (id) => {
+        set({ companyBrowserResponsibleId: id });
+        get().fetchCompanyBrowser(id);
+      },
     }),
     {
       name: "bitrix-bi-dashboard",
-      version: 5, // BUMPED: trigger migration to set new default columns
+      version: 6, // BUMPED: added new/renamed Bitrix fields (company card + deal support tracking)
       migrate: (persistedState: any, version: number) => {
         if (version === 0 || version === 1) {
           // Migration from older versions
@@ -987,6 +1122,35 @@ export const useDashboardStore = create<DashboardState>()(
           const state = persistedState as DashboardState;
           // Force the new default columns for everyone to ensure the new layout is applied
           state.selectedColumns = [...DEFAULT_COLUMNS];
+        }
+
+        if (version < 6) {
+          // Bitrix reconfigured 4 company-card fields (same title, new field ID)
+          // and added 3 new deal-level support-tracking fields. Insert the new
+          // ones next to their old counterparts (or at the end) — additive only,
+          // so any column customization a user already made is preserved.
+          const state = persistedState as DashboardState;
+          const cols: string[] = state.selectedColumns ? [...state.selectedColumns] : [...DEFAULT_COLUMNS];
+
+          const insertAfter = (afterId: string, newId: string) => {
+            if (cols.includes(newId)) return;
+            const idx = cols.indexOf(afterId);
+            if (idx !== -1) {
+              cols.splice(idx + 1, 0, newId);
+            } else {
+              cols.push(newId);
+            }
+          };
+
+          insertAfter("COMPANY_UF_CRM_1764079092", "COMPANY_UF_CRM_1781806326214");
+          insertAfter("COMPANY_UF_CRM_1764076968", "COMPANY_UF_CRM_1781806269703");
+          insertAfter("COMPANY_UF_CRM_1764079114", "COMPANY_UF_CRM_1781806285641");
+          insertAfter("COMPANY_UF_CRM_1764076998", "COMPANY_UF_CRM_1781806301447");
+          insertAfter("UF_CRM_1586468182934", "UF_CRM_1781790245");
+          insertAfter("UF_CRM_1781790245", "UF_CRM_1781799182248");
+          insertAfter("UF_CRM_1781799182248", "UF_CRM_1781799196440");
+
+          state.selectedColumns = cols;
         }
 
         return persistedState;

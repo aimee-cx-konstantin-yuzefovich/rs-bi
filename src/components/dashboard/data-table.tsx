@@ -24,8 +24,10 @@ import {
   Filter,
   X,
   AlertTriangle,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { useQueryState } from "nuqs";
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -416,6 +418,23 @@ export function DataTable() {
                                 )}
                               </div>
                             </div>
+                          )}
+
+                          {/* Deep link to the standalone Companies browser — this column's
+                              filter only ever searches among the currently loaded deals, so
+                              for the true, complete count/list by this responsible person,
+                              point at the page that queries Bitrix24 directly. */}
+                          {colId === COMPANY_RESPONSIBLE_FIELD_ID && hasFilter && (
+                            <Link
+                              href={`/companies?responsible=${encodeURIComponent(
+                                columnFilters.find((f: any) => f.columnId === colId)?.value || ""
+                              )}`}
+                              className="mt-1 flex items-center gap-1 text-[10px] text-brand-blue hover:underline"
+                              title="Открыть полный список компаний этого сотрудника напрямую из Bitrix24 — без ограничения по загруженным сделкам"
+                            >
+                              <Building2 className="h-2.5 w-2.5 shrink-0" />
+                              Все компании этого сотрудника
+                            </Link>
                           )}
 
                           {/* Resize handle */}

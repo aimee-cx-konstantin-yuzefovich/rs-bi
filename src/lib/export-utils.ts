@@ -1,17 +1,18 @@
 import ExcelJS from "exceljs";
 
 /**
- * Export deals data to Excel (.xlsx) file.
+ * Export deals (or company) data to Excel (.xlsx) file.
  * WYSIWYG export: exports exactly what is displayed in the table (filtered, sorted, resolved).
  */
 export async function exportToExcelWysiwyg(
   data: string[][],
-  columns: string[]
+  columns: string[],
+  options?: { sheetName?: string; fileNamePrefix?: string }
 ): Promise<void> {
   if (data.length === 0 || columns.length === 0) return;
 
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Сделки");
+  const worksheet = workbook.addWorksheet(options?.sheetName || "Сделки");
 
   // Add headers
   worksheet.addRow(columns);
@@ -38,7 +39,7 @@ export async function exportToExcelWysiwyg(
   a.href = url;
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 10);
-  a.download = `russilica_deals_${dateStr}.xlsx`;
+  a.download = `${options?.fileNamePrefix || "russilica_deals"}_${dateStr}.xlsx`;
   a.click();
   window.URL.revokeObjectURL(url);
 }

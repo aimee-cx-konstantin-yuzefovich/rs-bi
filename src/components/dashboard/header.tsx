@@ -13,7 +13,7 @@ import { AlertsBell } from "./alerts-bell";
 import { PipelineFilter } from "./pipeline-filter";
 import { ResponsibleFilter } from "./responsible-filter";
 import { ConnectionHealth } from "./connection-health";
-import { RefreshCw, Download, Columns3, BarChart3, LogOut, User } from "lucide-react";
+import { RefreshCw, Download, Columns3, BarChart3, LogOut, User, Building2 } from "lucide-react";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
 import Link from "next/link";
@@ -134,6 +134,21 @@ export function Header() {
 
             {/* Connection health */}
             <ConnectionHealth />
+
+            {/* Companies browser (independent of deals — true Bitrix24 company counts) */}
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Link href="/companies">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10"
+                  title="Все компании по ответственному"
+                >
+                  <Building2 className="h-3.5 w-3.5" />
+                  <span className="hidden lg:inline">Компании</span>
+                </Button>
+              </Link>
+            </motion.div>
 
             {/* Last sync time */}
             <div className="hidden lg:block">

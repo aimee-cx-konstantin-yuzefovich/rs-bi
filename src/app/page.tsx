@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryStates } from "nuqs";
@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 // Prevents infinite spinner if /api/auth/session hangs
 const AUTH_LOADING_TIMEOUT_MS = 15_000;
 
-export default function DashboardPage() {
+function DashboardContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const rawSearchParams = useSearchParams();
@@ -146,5 +146,13 @@ export default function DashboardPage() {
         <Footer />
       </div>
     </>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
   );
 }
