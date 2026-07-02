@@ -11,6 +11,11 @@ export const RESPONSIBLE_FIELD_TITLE = "Ответственный";
 export const COMPANY_RESPONSIBLE_FIELD_ID = "COMPANY_ASSIGNED_BY_ID";
 export const COMPANY_RESPONSIBLE_FIELD_TITLE = "Ответственный компании";
 
+// Company "Образцы" (samples) field — used by the Companies browser's
+// "highlight rows with samples info" toggle.
+export const COMPANY_SAMPLES_FIELD_ID = "UF_CRM_1753187313314";
+export const COMPANY_SAMPLES_FIELD_TITLE = "Образцы";
+
 export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "COMPANY_TITLE",
   // NEW — guaranteed defaults for the Companies browser (required fields:

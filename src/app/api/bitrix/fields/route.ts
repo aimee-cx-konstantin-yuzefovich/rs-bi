@@ -47,6 +47,41 @@ function getFieldTitle(fieldId: string, meta: BitrixField): string {
   return fieldId;
 }
 
+/**
+ * "crm_status" fields (e.g. company INDUSTRY/COMPANY_TYPE/EMPLOYEES) don't
+ * embed their labels in items[] like "enumeration" fields do — the raw value
+ * is a status code (e.g. "UC_E7IXWJ") whose human-readable name only exists
+ * in the separate crm.status.list registry, keyed by meta.statusType as the
+ * ENTITY_ID. Fetch and cache those lookups so callers can treat crm_status
+ * fields exactly like enumeration fields (via listValues).
+ */
+async function fetchStatusListValues(
+  entityIds: Set<string>
+): Promise<Map<string, Array<{ ID: string; VALUE: string }>>> {
+  const result = new Map<string, Array<{ ID: string; VALUE: string }>>();
+
+  await Promise.all(
+    Array.from(entityIds).map(async (entityId) => {
+      try {
+        const data = await bitrixGet<{ result?: Array<{ STATUS_ID: string; NAME: string }> }>(
+          "crm.status.list",
+          { "filter[ENTITY_ID]": entityId }
+        );
+        if (Array.isArray(data.result)) {
+          result.set(
+            entityId,
+            data.result.map((s) => ({ ID: s.STATUS_ID, VALUE: s.NAME }))
+          );
+        }
+      } catch (error) {
+        console.warn(`[Fields API] Failed to fetch crm.status.list for ${entityId}`, error);
+      }
+    })
+  );
+
+  return result;
+}
+
 export async function GET() {
   // ─── SECURITY: Require authentication ───
   const authResult = await requireAuth();
@@ -61,6 +96,11 @@ export async function GET() {
 
     // Transform and filter: remove system junk, keep informative fields
     const cleanFields: CleanField[] = [];
+    // crm_status fields need a second lookup (crm.status.list) to resolve
+    // their labels — track (field index, ENTITY_ID) so we can fill them in
+    // once all the needed status lists have been fetched.
+    const pendingStatusFields: Array<{ index: number; entityId: string }> = [];
+    const statusEntityIds = new Set<string>();
 
     if (fields && typeof fields === "object") {
       for (const [fieldId, fieldMeta] of Object.entries(fields)) {
@@ -87,6 +127,11 @@ export async function GET() {
           isSortable: isSortableType(meta.type),
           listValues,
         });
+
+        if (meta.type === "crm_status" && meta.statusType) {
+          pendingStatusFields.push({ index: cleanFields.length - 1, entityId: meta.statusType });
+          statusEntityIds.add(meta.statusType);
+        }
       }
     }
 
@@ -97,7 +142,7 @@ export async function GET() {
       if (companyFields && typeof companyFields === "object") {
         for (const [fieldId, fieldMeta] of Object.entries(companyFields)) {
           if (isSystemField(fieldId, fieldMeta as unknown as Record<string, unknown>, "company")) continue;
-          
+
           const meta = fieldMeta as BitrixField;
           const title = getFieldTitle(fieldId, meta);
 
@@ -107,6 +152,11 @@ export async function GET() {
               ID: item.ID,
               VALUE: item.VALUE,
             }));
+          }
+
+          if (meta.type === "crm_status" && meta.statusType) {
+            pendingStatusFields.push({ index: cleanFields.length, entityId: meta.statusType });
+            statusEntityIds.add(meta.statusType);
           }
 
           cleanFields.push({
@@ -121,6 +171,19 @@ export async function GET() {
       }
     } catch (error) {
       console.warn("[Fields API] Failed to fetch company fields, continuing with deal fields only", error);
+    }
+
+    // Resolve crm_status fields (e.g. company INDUSTRY/COMPANY_TYPE) to real
+    // labels via crm.status.list — must happen before the sort below, while
+    // `index` still refers to the current (pre-sort) array positions.
+    if (pendingStatusFields.length > 0) {
+      const statusValuesByEntity = await fetchStatusListValues(statusEntityIds);
+      for (const { index, entityId } of pendingStatusFields) {
+        const values = statusValuesByEntity.get(entityId);
+        if (values && values.length > 0) {
+          cleanFields[index].listValues = values;
+        }
+      }
     }
 
     // Sort: standard fields first (alphabetically by title), then custom UF_CRM_* fields

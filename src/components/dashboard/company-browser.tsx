@@ -1,8 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { COMPANY_RESPONSIBLE_FIELD_TITLE } from "@/lib/crm-constants";
+import {
+  COMPANY_RESPONSIBLE_FIELD_TITLE,
+  COMPANY_SAMPLES_FIELD_ID,
+  COMPANY_SAMPLES_FIELD_TITLE,
+} from "@/lib/crm-constants";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { CompanyColumnSelector } from "./company-column-selector";
 import {
@@ -19,6 +23,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -29,9 +35,34 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Columns3, Download, UserCircle } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Columns3,
+  Download,
+  Filter,
+  UserCircle,
+  X,
+} from "lucide-react";
 
 const PAGE_SIZE = 50;
+
+type SortDirection = "asc" | "desc" | null;
+interface CompanyColumnSort {
+  columnId: string;
+  direction: SortDirection;
+}
+interface CompanyColumnFilter {
+  columnId: string;
+  value: string;
+}
 
 interface CompanyFieldMeta {
   type?: string;
@@ -48,8 +79,10 @@ function resolveCompanyValue(
     return String(company.TITLE || "").trim() || `ID ${company.ID ?? ""}`;
   }
 
-  if (colId === "ASSIGNED_BY_ID") {
-    const id = String(company.ASSIGNED_BY_ID || "").trim();
+  // Person-reference ID fields — resolve to a name via userNames instead of
+  // showing the raw numeric ID.
+  if (colId === "ASSIGNED_BY_ID" || colId === "LAST_ACTIVITY_BY") {
+    const id = String(company[colId] || "").trim();
     if (!id) return "";
     return userNames[id]?.trim() || `ID ${id}`;
   }
@@ -109,6 +142,42 @@ function resolveCompanyValue(
   return String(raw);
 }
 
+/**
+ * Value used for sorting — numeric/date fields sort as numbers/timestamps,
+ * everything else falls back to the resolved display string (lowercased).
+ */
+function getCompanySortValue(
+  company: Record<string, any>,
+  colId: string,
+  userNames: Record<string, string>,
+  field?: CompanyFieldMeta
+): string | number {
+  if (field?.type === "money" && typeof company[colId] === "string") {
+    const num = parseFloat(String(company[colId]).split("|")[0]);
+    return isNaN(num) ? 0 : num;
+  }
+  if (field?.type === "double" || field?.type === "integer") {
+    const num = parseFloat(String(company[colId]));
+    return isNaN(num) ? 0 : num;
+  }
+  if (field?.type === "date" || field?.type === "datetime") {
+    const d = new Date(String(company[colId]));
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  return resolveCompanyValue(company, colId, userNames, field).toLowerCase();
+}
+
+/**
+ * True when the "Образцы" field holds real information — i.e. anything other
+ * than empty/missing or Bitrix's boolean-false placeholder for an unset value.
+ */
+function hasSamplesInfo(company: Record<string, any>): boolean {
+  const raw = company[COMPANY_SAMPLES_FIELD_ID];
+  if (raw === null || raw === undefined || raw === "") return false;
+  if (raw === false || raw === "false") return false;
+  return true;
+}
+
 export function CompanyBrowser() {
   const {
     fields,
@@ -127,10 +196,75 @@ export function CompanyBrowser() {
     setCompanyBrowserResponsibleId,
     fetchCompanyBrowser,
     setCompanyColumnSelectorOpen,
+    companyColumnWidths,
+    setCompanyColumnWidth,
   } = useDashboardStore();
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [columnSort, setColumnSort] = useState<CompanyColumnSort>({ columnId: "", direction: null });
+  const [columnFilters, setColumnFilters] = useState<CompanyColumnFilter[]>([]);
+  const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
+  const [highlightSamples, setHighlightSamples] = useState(false);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // Column resizing — same pointer-capture approach as the deals table.
+  const resizingState = useRef({ colId: null as string | null, startX: 0, startWidth: 0 });
+  const [activeResizingCol, setActiveResizingCol] = useState<string | null>(null);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, colId: string, thElement: HTMLTableCellElement | null) => {
+    if (!thElement) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    resizingState.current = { colId, startX: e.clientX, startWidth: thElement.getBoundingClientRect().width };
+    setActiveResizingCol(colId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (resizingState.current.colId) {
+      const diff = e.clientX - resizingState.current.startX;
+      const newWidth = Math.max(80, resizingState.current.startWidth + diff);
+      setCompanyColumnWidth(resizingState.current.colId, newWidth);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    resizingState.current.colId = null;
+    setActiveResizingCol(null);
+  };
+
+  useEffect(() => {
+    if (activeFilterCol && filterInputRef.current) {
+      filterInputRef.current.focus();
+    }
+  }, [activeFilterCol]);
+
+  const setColumnFilter = (columnId: string, value: string) => {
+    setColumnFilters((prev) => {
+      const existing = prev.find((f) => f.columnId === columnId);
+      if (existing) return prev.map((f) => (f.columnId === columnId ? { ...f, value } : f));
+      return [...prev, { columnId, value }];
+    });
+    setCurrentPage(1);
+  };
+
+  const clearColumnFilter = (columnId: string) => {
+    setColumnFilters((prev) => prev.filter((f) => f.columnId !== columnId));
+    setCurrentPage(1);
+  };
+
+  const toggleColumnSort = (columnId: string) => {
+    setColumnSort((prev) => {
+      if (prev.columnId !== columnId) return { columnId, direction: "asc" };
+      if (prev.direction === "asc") return { columnId, direction: "desc" };
+      return { columnId: "", direction: null };
+    });
+    setCurrentPage(1);
+  };
 
   // Same COMPANY_* columns the user has picked in the deals table's column
   // selector — so this view stays in sync with what they've already chosen.
@@ -177,23 +311,50 @@ export function CompanyBrowser() {
       ? "Все ответственные"
       : responsibleOptions.find((o) => o.id === companyBrowserResponsibleId)?.name || "Все ответственные";
 
-  const totalPages = Math.max(1, Math.ceil(companyBrowserItems.length / PAGE_SIZE));
+  const getField = (colId: string) =>
+    colId === "TITLE" || colId === "ASSIGNED_BY_ID" ? undefined : fieldMap.get(`COMPANY_${colId}`);
+
+  const filteredItems = useMemo(() => {
+    if (columnFilters.length === 0) return companyBrowserItems;
+    return companyBrowserItems.filter((company) =>
+      columnFilters.every((filter) => {
+        if (!filter.value.trim()) return true;
+        const resolved = resolveCompanyValue(company, filter.columnId, userNames, getField(filter.columnId));
+        return resolved.toLowerCase().includes(filter.value.toLowerCase());
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyBrowserItems, columnFilters, userNames, fieldMap]);
+
+  const sortedItems = useMemo(() => {
+    if (!columnSort.direction || !columnSort.columnId) return filteredItems;
+    const dir = columnSort.direction === "asc" ? 1 : -1;
+    const field = getField(columnSort.columnId);
+    return [...filteredItems].sort((a, b) => {
+      const aVal = getCompanySortValue(a, columnSort.columnId, userNames, field);
+      const bVal = getCompanySortValue(b, columnSort.columnId, userNames, field);
+      if (typeof aVal === "number" && typeof bVal === "number") return (aVal - bVal) * dir;
+      return String(aVal).localeCompare(String(bVal), "ru") * dir;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredItems, columnSort, userNames, fieldMap]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
   const pageItems = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    return companyBrowserItems.slice(start, start + PAGE_SIZE);
-  }, [companyBrowserItems, currentPage]);
+    return sortedItems.slice(start, start + PAGE_SIZE);
+  }, [sortedItems, currentPage]);
 
-  // WYSIWYG export — same columns/order/formatting shown in the table, but
-  // over the full fetched set (not just the current page), mirroring how the
-  // deals table's export works over the full filtered/sorted set.
+  // WYSIWYG export — same columns/order/formatting/filter/sort currently
+  // shown in the table, but over the full set (not just the current page),
+  // mirroring how the deals table's export works.
   const handleExport = useCallback(() => {
-    if (companyBrowserItems.length === 0 || columns.length === 0) return;
+    if (sortedItems.length === 0 || columns.length === 0) return;
 
     const exportColumns = columns.map((colId) => columnTitle(colId));
-    const exportData = companyBrowserItems.map((company) =>
+    const exportData = sortedItems.map((company) =>
       columns.map((colId) => {
-        const field =
-          colId === "TITLE" || colId === "ASSIGNED_BY_ID" ? undefined : fieldMap.get(`COMPANY_${colId}`);
+        const field = getField(colId);
         return resolveCompanyValue(company, colId, userNames, field);
       })
     );
@@ -203,7 +364,7 @@ export function CompanyBrowser() {
       fileNamePrefix: "russilica_companies",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyBrowserItems, columns, fieldMap, userNames]);
+  }, [sortedItems, columns, fieldMap, userNames]);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 px-4 sm:px-6 py-4 gap-3">
@@ -289,6 +450,15 @@ export function CompanyBrowser() {
           Экспорт
         </Button>
 
+        <label className="flex items-center gap-1.5 h-8 px-2 rounded-md border text-xs cursor-pointer select-none hover:bg-muted/50">
+          <Checkbox
+            checked={highlightSamples}
+            onCheckedChange={(checked) => setHighlightSamples(checked === true)}
+            className="h-3.5 w-3.5"
+          />
+          {COMPANY_SAMPLES_FIELD_TITLE}
+        </label>
+
         <div className="ml-auto text-xs text-muted-foreground tabular-nums">
           {companyBrowserLoading ? (
             "Загрузка…"
@@ -331,11 +501,85 @@ export function CompanyBrowser() {
           <TableHeader>
             <TableRow>
               <TableHead className="text-xs whitespace-nowrap w-10">№</TableHead>
-              {columns.map((colId) => (
-                <TableHead key={colId} className="text-xs whitespace-nowrap">
-                  {columnTitle(colId)}
-                </TableHead>
-              ))}
+              {columns.map((colId) => {
+                const field = getField(colId);
+                const isSorted = columnSort.columnId === colId;
+                const hasFilter = columnFilters.some((f) => f.columnId === colId && f.value.trim());
+                const isFilterActive = activeFilterCol === colId;
+                const isNumeric = field?.type === "double" || field?.type === "integer" || field?.type === "money";
+                const isDate = field?.type === "date" || field?.type === "datetime";
+
+                return (
+                  <TableHead
+                    key={colId}
+                    className="text-xs whitespace-nowrap group relative"
+                    style={{
+                      width: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
+                      minWidth: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
+                      maxWidth: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
+                    }}
+                  >
+                    <div className="flex items-start gap-1">
+                      <button
+                        onClick={() => toggleColumnSort(colId)}
+                        className="flex items-start gap-1 hover:text-foreground transition-colors cursor-pointer text-left"
+                        title={
+                          isNumeric
+                            ? "Сортировка по числам"
+                            : isDate
+                            ? "Сортировка по датам"
+                            : "Сортировка по алфавиту"
+                        }
+                      >
+                        <span className="whitespace-normal break-words leading-tight">{columnTitle(colId)}</span>
+                        {isSorted && columnSort.direction === "asc" && <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0 mt-0.5" />}
+                        {isSorted && columnSort.direction === "desc" && <ArrowDown className="h-3 w-3 text-brand-blue flex-shrink-0 mt-0.5" />}
+                        {!isSorted && <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity flex-shrink-0 mt-0.5" />}
+                      </button>
+
+                      <button
+                        onClick={() => setActiveFilterCol(isFilterActive ? null : colId)}
+                        className={`p-0.5 rounded transition-all mt-0.5 ${
+                          hasFilter ? "text-brand-orange" : "opacity-0 group-hover:opacity-40 hover:!opacity-70"
+                        }`}
+                        title="Фильтр по столбцу"
+                      >
+                        <Filter className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+
+                    {isFilterActive && (
+                      <div className="mt-1.5">
+                        <div className="relative">
+                          <Input
+                            ref={filterInputRef}
+                            placeholder="Фильтр..."
+                            value={columnFilters.find((f) => f.columnId === colId)?.value || ""}
+                            onChange={(e) => setColumnFilter(colId, e.target.value)}
+                            className="h-6 text-[11px] rounded-sm pr-6 bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-1"
+                          />
+                          {(columnFilters.find((f) => f.columnId === colId)?.value || "") && (
+                            <button
+                              onClick={() => clearColumnFilter(colId)}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div
+                      className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-blue/50 ${activeResizingCol === colId ? "bg-brand-blue" : ""}`}
+                      onPointerDown={(e) => handlePointerDown(e, colId, e.currentTarget.parentElement as HTMLTableCellElement)}
+                      onPointerMove={handlePointerMove}
+                      onPointerUp={handlePointerUp}
+                      onPointerCancel={handlePointerUp}
+                    />
+                  </TableHead>
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -358,15 +602,15 @@ export function CompanyBrowser() {
               </TableRow>
             ) : (
               pageItems.map((company, idx) => (
-                <TableRow key={String(company.ID)}>
+                <TableRow
+                  key={String(company.ID)}
+                  className={highlightSamples && hasSamplesInfo(company) ? "bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40" : undefined}
+                >
                   <TableCell className="text-xs text-muted-foreground tabular-nums">
                     {(currentPage - 1) * PAGE_SIZE + idx + 1}
                   </TableCell>
                   {columns.map((colId) => {
-                    const field =
-                      colId === "TITLE" || colId === "ASSIGNED_BY_ID"
-                        ? undefined
-                        : fieldMap.get(`COMPANY_${colId}`);
+                    const field = getField(colId);
                     return (
                       <TableCell key={colId} className="text-xs whitespace-nowrap max-w-[280px] truncate">
                         {resolveCompanyValue(company, colId, userNames, field) || "—"}
@@ -378,13 +622,16 @@ export function CompanyBrowser() {
             )}
           </TableBody>
         </Table>
+        {/* Spacer so the table's own horizontal scrollbar doesn't sit on top
+            of the last row when scrolled all the way down. */}
+        <div className="h-4" />
       </div>
 
-      {/* Pagination (client-side, over the fetched/capped set) */}
+      {/* Pagination (client-side, over the filtered/sorted set) */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span className="tabular-nums">
-          {companyBrowserItems.length > 0
-            ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, companyBrowserItems.length)} из ${companyBrowserItems.length}`
+          {sortedItems.length > 0
+            ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, sortedItems.length)} из ${sortedItems.length}`
             : ""}
         </span>
         <div className="flex items-center gap-1">

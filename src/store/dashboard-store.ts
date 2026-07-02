@@ -114,6 +114,10 @@ interface DashboardState {
 
   // Column widths
   columnWidths: Record<string, number>;
+  // Separate from columnWidths above — the Companies browser uses stripped
+  // field IDs ("TITLE", "ASSIGNED_BY_ID") that collide with real deal column
+  // IDs, so it needs its own width map to avoid resizing the wrong table's column.
+  companyColumnWidths: Record<string, number>;
 
   // Pagination
   currentPage: number;
@@ -177,6 +181,7 @@ interface DashboardState {
   clearColumnFilter: (columnId: string) => void;
   clearAllColumnFilters: () => void;
   setColumnWidth: (columnId: string, width: number) => void;
+  setCompanyColumnWidth: (columnId: string, width: number) => void;
   setCurrentPage: (page: number) => void;
   setPageSize: (size: number) => void;
   syncData: () => Promise<void>;
@@ -297,6 +302,7 @@ export const useDashboardStore = create<DashboardState>()(
 
       // Column widths
       columnWidths: {},
+      companyColumnWidths: {},
 
       // Pagination
       currentPage: 1,
@@ -683,6 +689,12 @@ export const useDashboardStore = create<DashboardState>()(
       setColumnWidth: (columnId, width) => {
         set((state) => ({
           columnWidths: { ...state.columnWidths, [columnId]: width },
+        }));
+      },
+
+      setCompanyColumnWidth: (columnId, width) => {
+        set((state) => ({
+          companyColumnWidths: { ...state.companyColumnWidths, [columnId]: width },
         }));
       },
 
@@ -1197,6 +1209,7 @@ export const useDashboardStore = create<DashboardState>()(
       partialize: (state) => ({
         selectedColumns: state.selectedColumns,
         columnWidths: state.columnWidths,
+        companyColumnWidths: state.companyColumnWidths,
         dateFilter: state.dateFilter,
         pageSize: state.pageSize,
         pipelineFilter: state.pipelineFilter,
