@@ -14,6 +14,7 @@ required_files='server.js
 package.json
 package-lock.json
 prisma/schema.prisma
+prisma/migrations/migration_lock.toml
 scripts/migrate-deploy.mjs
 scripts/runtime-env.mjs
 scripts/healthcheck.cjs
@@ -30,6 +31,9 @@ done
 printf '%s\n' "$required_dirs" | while IFS= read -r path; do
   [ -d "$root/$path" ] || fail "missing required directory: $path"
 done
+
+migration_sql=$(find "$root/prisma/migrations" -mindepth 2 -maxdepth 2 -type f -name migration.sql -print -quit)
+[ -n "$migration_sql" ] || fail "no migration.sql found under prisma/migrations"
 
 leak=$(find "$root" -path "$root/node_modules" -prune -o -type f \( \
   -name '.env' -o -name '.env.*' -o \

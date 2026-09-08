@@ -34,9 +34,10 @@ builder; migration/startup never runs `npx` or downloads dependencies.
 `sh scripts/verify-deploy-artifact.sh <artifact-root>` is the reusable artifact
 contract check. Packaging runs it before accepting `.next/deploy`; GitFlic runs it
 again after artifact transfer and extraction, before `rsync --delete`. It rejects a
-missing runtime/migration file and project `.env`, SQLite/database or private-key
-files outside `node_modules`. GitFlic also runs `unzip -tq` before extraction so a
-corrupted ZIP cannot reach production synchronization.
+missing runtime file, missing Prisma migration lock/SQL, and project `.env`,
+SQLite/database or private-key files outside `node_modules`. GitFlic also runs
+`unzip -tq` before extraction so a corrupted ZIP cannot reach production
+synchronization.
 
 No `.env*`, database files, `db/` directories or private key files belong in an
 artifact. `deploy-prod.zip` is replaced atomically, never updated in place.
@@ -160,10 +161,16 @@ Run `docker compose config --quiet`, `docker build .`, and container health/pers
 checks when Docker is available. Use disposable SQLite files to test fresh
 migrations, baseline verification and record preservation.
 
+Run `sh scripts/qa-deployment.sh` to repeat the lightweight deployment regression
+suite. It verifies runtime-secret rejection, valid/invalid artifact cases including
+missing migration SQL, and `.env`/SQLite preservation under the same rsync exclusion
+rules used by GitFlic. The script is repository QA tooling and is not required in the
+production artifact.
+
 Deployment QA should also repeat these negative cases:
 
 - `CHANGE_ME_*` or build-only runtime secrets must fail before migration;
-- a valid ZIP missing `server.js`, Prisma CLI/schema, migration scripts or static
+- a valid ZIP missing `server.js`, Prisma CLI/schema, migration lock/SQL or static
   output must fail artifact verification before synchronization;
 - project `.env`, SQLite/database or private-key files in an artifact must fail the
   verifier;
