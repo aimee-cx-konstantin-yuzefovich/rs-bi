@@ -29,12 +29,16 @@ try {
   cpSync(join(root, 'prisma/schema.prisma'), join(staging, 'prisma/schema.prisma'));
   cpSync(join(root, 'prisma/migrations'), join(staging, 'prisma/migrations'), { recursive: true, filter: safeFile });
   mkdirSync(join(staging, 'scripts'), { recursive: true });
-  for (const name of ['migrate-deploy.mjs', 'healthcheck.cjs']) {
+  for (const name of ['migrate-deploy.mjs', 'runtime-env.mjs', 'healthcheck.cjs', 'verify-deploy-artifact.sh']) {
     cpSync(join(root, 'scripts', name), join(staging, 'scripts', name));
   }
   for (const name of ['server.js', '.next/BUILD_ID', '.next/static', 'public', 'node_modules/prisma/build/index.js', 'node_modules/.prisma/client/schema.prisma']) {
     if (!existsSync(resolve(staging, name))) throw new Error(`Incomplete artifact: ${name}`);
   }
+  // Reusable post-packaging contract check; the deploy job repeats it after artifact transfer.
+  execFileSync('sh', [join(staging, 'scripts/verify-deploy-artifact.sh'), staging], {
+    stdio: 'inherit',
+  });
   rmSync(output, { recursive: true, force: true });
   renameSync(staging, output);
 } finally {

@@ -21,7 +21,7 @@ for source in src public package.json package-lock.json next.config.ts tsconfig.
 done
 cp prisma/schema.prisma "$work_dir/source/prisma/"
 cp -R prisma/migrations "$work_dir/source/prisma/"
-cp scripts/package-standalone.mjs scripts/migrate-deploy.mjs scripts/healthcheck.cjs "$work_dir/source/scripts/"
+cp scripts/package-standalone.mjs scripts/migrate-deploy.mjs scripts/runtime-env.mjs scripts/healthcheck.cjs scripts/verify-deploy-artifact.sh "$work_dir/source/scripts/"
 
 cd "$work_dir/source"
 export NEXTAUTH_SECRET=build-only-not-a-runtime-secret

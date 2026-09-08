@@ -29,7 +29,10 @@ deploy_job:
     - ssh-keyscan "$SERVER_IP" >> ~/.ssh/known_hosts
     - chmod 644 ~/.ssh/known_hosts
   script:
-    - mkdir deploy-staging && unzip -q deploy-prod.zip -d deploy-staging
+    # Validate the artifact boundary before any destructive synchronization.
+    - unzip -tq deploy-prod.zip
+    - rm -rf deploy-staging && mkdir deploy-staging && unzip -q deploy-prod.zip -d deploy-staging
+    - sh deploy-staging/scripts/verify-deploy-artifact.sh deploy-staging
     # Exclusions protect both legacy and current DB locations from --delete.
     - rsync -avz --delete --exclude='.env*' --exclude='db/' --exclude='*.db*' --exclude='*.sqlite*' -e ssh deploy-staging/ "root@$SERVER_IP:/var/www/www-root/data/www/bi-terminal/"
     # Uses packaged CLI and the same production .env loading as the application.

@@ -17,6 +17,8 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: file:/app/db/audit.db # Must stay inside the mounted volume.
+      PORT: "3000" # Keep in sync with the fixed health probe and published port.
+      HOSTNAME: "0.0.0.0" # Container must listen on its interface, not loopback.
     volumes:
       - bi-data:/app/db
     healthcheck:

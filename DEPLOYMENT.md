@@ -31,8 +31,28 @@ production dependency graph is intentional: Next's server trace does not guarant
 that the Prisma CLI and its dependencies are available. Installation happens on the
 builder; migration/startup never runs `npx` or downloads dependencies.
 
+`sh scripts/verify-deploy-artifact.sh <artifact-root>` is the reusable artifact
+contract check. Packaging runs it before accepting `.next/deploy`; GitFlic runs it
+again after artifact transfer and extraction, before `rsync --delete`. It rejects a
+missing runtime/migration file and project `.env`, SQLite/database or private-key
+files outside `node_modules`. GitFlic also runs `unzip -tq` before extraction so a
+corrupted ZIP cannot reach production synchronization.
+
 No `.env*`, database files, `db/` directories or private key files belong in an
 artifact. `deploy-prod.zip` is replaced atomically, never updated in place.
+
+## Runtime environment and secrets
+
+Use `.env.example` as documentation only. Replace both `NEXTAUTH_SECRET` and
+`PROXY_SECRET` before deployment. `scripts/migrate-deploy.mjs` is the startup gate
+for all supported production paths and rejects empty secrets, the disposable
+build-only value and any `CHANGE_ME_*` documented placeholder before it creates a
+database directory or runs Prisma migrations.
+
+Host/PM2 standalone may bind to `HOSTNAME=127.0.0.1` behind the local reverse proxy.
+Docker networking is intentionally fixed by Compose to `PORT=3000` and
+`HOSTNAME=0.0.0.0`; values for those keys in `.env` cannot desynchronize the
+container from its published `127.0.0.1:3000:3000` mapping or health probe.
 
 ## SQLite and the first migration deployment
 
@@ -52,7 +72,7 @@ deployment directory.
 For a **new empty database**, `node scripts/migrate-deploy.mjs` creates the parent
 directory and applies committed migrations. It loads production `.env` files like
 Next.js; exported process variables take precedence. It rejects relative database
-URLs and missing/build-only auth secrets before changing the database.
+URLs and unsafe/missing runtime secrets before changing the database.
 
 For **existing tables with no Prisma migration history**, complete this one-time
 operator procedure before the first deploy/restart using the new migrations:
@@ -78,27 +98,39 @@ operator procedure before the first deploy/restart using the new migrations:
 ## Existing PM2 and GitFlic deployment
 
 Set production variables using `.env.example` as documentation; do not copy its
-placeholder values over the live `.env`. Unpack the ZIP into the existing app
-directory, keeping `.env*` and the database. From that directory run:
+placeholder values over the live `.env`.
+
+Before manually copying a ZIP over the live directory, validate the transfer in a
+separate staging directory:
+
+```sh
+unzip -tq deploy-prod.zip
+rm -rf deploy-staging && mkdir deploy-staging
+unzip -q deploy-prod.zip -d deploy-staging
+sh deploy-staging/scripts/verify-deploy-artifact.sh deploy-staging
+```
+
+Only after those checks pass, deploy the staged files while preserving `.env*` and
+the existing database. From the application directory run:
 
 ```sh
 NODE_ENV=production node scripts/migrate-deploy.mjs && pm2 restart bi-terminal --update-env
 ```
 
-The existing PM2 app must run `server.js` from this directory under Node with
-`NODE_ENV=production`. GitFlic performs the same migration/restart sequence after
-rsync and deploys only main/master. Failed migrations stop the command before
-restart. The existing in-place rsync/PM2 deployment is not atomic; a failed deploy
-can leave updated files on disk. Keep a previous artifact and database backup and
-schedule the first baseline rollout with writes stopped.
+GitFlic applies the same artifact checks, protected rsync and migration/restart
+sequence automatically for main/master. Failed ZIP/artifact validation or failed
+migrations stop the job before restart. The existing in-place rsync/PM2 deployment
+is not atomic; a failure after synchronization can leave updated files on disk.
+Keep a previous artifact and database backup and schedule the first baseline rollout
+with writes stopped.
 
 ## Docker
 
 Create `.env` with real secrets, then run `docker compose up -d --build`.
-Compose fixes `DATABASE_URL=file:/app/db/audit.db`; `/app/db` is the persistent
-`bi-data` named volume owned by UID/GID 1001 in a fresh image/volume. Existing volumes
-must already be writable by that user. `docker compose down` preserves data;
-`docker compose down -v` does not.
+Compose fixes `DATABASE_URL=file:/app/db/audit.db`, `PORT=3000` and
+`HOSTNAME=0.0.0.0`; `/app/db` is the persistent `bi-data` named volume owned by
+UID/GID 1001 in a fresh image/volume. Existing volumes must already be writable by
+that user. `docker compose down` preserves data; `docker compose down -v` does not.
 
 Before updating an existing container, locate and back up its actual database.
 Older images could use a schema-relative location outside `/app/db`. Do not destroy
@@ -106,11 +138,11 @@ that container or assume an empty volume contains its audit history. Any transfe
 into the volume is a separate operator-controlled, backed-up migration; it is not
 performed automatically by startup.
 
-Startup applies migrations, then execs `node server.js` as the non-root user. For
-direct `docker run`, mount `/app/db` and supply the same required runtime variables.
-The host reverse proxy connects to the published loopback port 3000. The Caddy
-listener stays on port 81 and always proxies to localhost:3000, regardless of query
-parameters.
+Startup validates runtime secrets, applies migrations, then execs `node server.js`
+as the non-root user. For direct `docker run`, mount `/app/db` and supply the same
+required runtime variables. The host reverse proxy connects to the published
+loopback port 3000. The Caddy listener stays on port 81 and always proxies to
+localhost:3000, regardless of query parameters.
 
 `GET /api/health` returns only `{"status":"ok"}` with no caching, authentication,
 CRM or database dependency. It bypasses shared API quotas but keeps security
@@ -126,8 +158,19 @@ Run `npm ci`, `npm run db:generate`, `npx vitest run`, `npm run lint`, and
 `npm run build` with disposable build auth values in a clean workspace.
 Run `docker compose config --quiet`, `docker build .`, and container health/persistence
 checks when Docker is available. Use disposable SQLite files to test fresh
-migrations, baseline verification and record preservation. Smoke-test the isolated
-artifact and its packaged migration CLI, including the exact health probe.
+migrations, baseline verification and record preservation.
+
+Deployment QA should also repeat these negative cases:
+
+- `CHANGE_ME_*` or build-only runtime secrets must fail before migration;
+- a valid ZIP missing `server.js`, Prisma CLI/schema, migration scripts or static
+  output must fail artifact verification before synchronization;
+- project `.env`, SQLite/database or private-key files in an artifact must fail the
+  verifier;
+- Docker `.env` values for `PORT`/`HOSTNAME` must not override the fixed Compose
+  networking contract;
+- rsync exclusions must preserve `.env`, `db/` and `prisma/db/` while allowing
+  ordinary stale application files to be deleted.
 
 Follow-up work: audit the existing dependency vulnerabilities and Node 20 lifecycle,
 verify the live host/platform/backup process, and consider atomic deployment plus
