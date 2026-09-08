@@ -13,6 +13,7 @@ import { AlertsBell } from "./alerts-bell";
 import { PipelineFilter } from "./pipeline-filter";
 import { ResponsibleFilter } from "./responsible-filter";
 import { ConnectionHealth } from "./connection-health";
+import { SavedViews } from "./saved-views";
 import { RefreshCw, Download, Columns3, BarChart3, LogOut, User, Building2 } from "lucide-react";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
@@ -157,6 +158,11 @@ export function Header() {
 
             {/* Separator */}
             <div className="w-px h-4 bg-white/10 mx-1" />
+
+            {/* Saved Views */}
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <SavedViews />
+            </motion.div>
 
             {/* Column selector */}
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>

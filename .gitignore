@@ -36,6 +36,7 @@ next-env.d.ts
 
 # custom
 deploy-prod.zip
+dev.log
 db/custom.db
 db/audit.db
 prisma/db/

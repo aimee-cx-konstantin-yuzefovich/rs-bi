@@ -178,6 +178,14 @@ export function DataTable() {
     overscan: 10,
   });
 
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]?.start ?? 0 : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? Math.max(0, totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0))
+      : 0;
+
   // Loading state
   if (dealsLoading && deals.length === 0) {
     return (
@@ -304,7 +312,7 @@ export function DataTable() {
         {/* Table */}
         <div className="flex-1 min-h-0 overflow-hidden">
           <div ref={parentRef} className="h-full overflow-auto custom-scrollbar">
-            <div className="min-w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
+            <div className="min-w-full relative">
               <table className="data-table w-full border-separate border-spacing-0">
                 <thead className="bg-card shadow-sm">
                   <tr>
@@ -458,9 +466,15 @@ export function DataTable() {
                       </td>
                     </tr>
                   )}
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  {paddingTop > 0 && (
+                    <tr>
+                      <td style={{ height: `${paddingTop}px` }} colSpan={columns.length + 1} />
+                    </tr>
+                  )}
+                  {virtualRows.map((virtualRow) => {
                     const idx = virtualRow.index;
                     const deal = paginatedDeals[idx];
+                    if (!deal) return null;
                     const dealId = deal.ID || deal.id || idx;
                     const rowIndex = (currentPage - 1) * pageSize + idx + 1;
                     return (
@@ -491,6 +505,11 @@ export function DataTable() {
                       </tr>
                     );
                   })}
+                  {paddingBottom > 0 && (
+                    <tr>
+                      <td style={{ height: `${paddingBottom}px` }} colSpan={columns.length + 1} />
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

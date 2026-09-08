@@ -20,6 +20,8 @@ function CompaniesContent() {
     isDemoMode,
     checkConfig,
     setCompanyBrowserResponsibleId,
+    companyResponsibleCounts,
+    fetchCompanyResponsibleCounts,
   } = useDashboardStore();
   const [appliedUrlResponsible, setAppliedUrlResponsible] = useState(false);
 
@@ -33,7 +35,11 @@ function CompaniesContent() {
     if (status !== "authenticated") return;
     checkConfig();
     if (fields.length === 0) fetchFields();
-    if (Object.keys(userNames).length === 0) fetchUserNames();
+    if (userNames && Object.keys(userNames).length === 0) fetchUserNames();
+    // The responsible-person picker uses companyResponsibleCounts as its
+    // source of truth — real company ownership, scanned directly from
+    // crm.company.list, independent of the deals dataset.
+    if (Object.keys(companyResponsibleCounts).length === 0) fetchCompanyResponsibleCounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, fields.length]);
 

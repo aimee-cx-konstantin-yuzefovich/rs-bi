@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useDashboardStore } from "@/store/dashboard-store";
+import { useDashboardStore, type DateFilter } from "@/store/dashboard-store";
 import {
   COMPANY_RESPONSIBLE_FIELD_TITLE,
   COMPANY_SAMPLES_FIELD_ID,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/crm-constants";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { CompanyColumnSelector } from "./company-column-selector";
+import { CompanyDateFilter } from "./company-date-filter";
 import {
   Popover,
   PopoverContent,
@@ -178,9 +179,45 @@ function hasSamplesInfo(company: Record<string, any>): boolean {
   return true;
 }
 
+/**
+ * Same range logic as the deals table's applyClientFilters (dashboard-store.ts)
+ * — applied here to the company's own "Дата создания" (DATE_CREATE), entirely
+ * client-side (the whole responsible-scoped set is already loaded), and fully
+ * independent from the deals table's dateFilter.
+ */
+function matchesCompanyDateFilter(company: Record<string, any>, filter: DateFilter): boolean {
+  if (filter.preset === "all") return true;
+
+  const dateStr = company.DATE_CREATE as string | undefined;
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+
+  let fromDate: Date | null = null;
+  let toDate: Date | null = null;
+
+  if (filter.preset === "custom") {
+    if (filter.customFrom) fromDate = new Date(filter.customFrom);
+    if (filter.customTo) {
+      toDate = new Date(filter.customTo);
+      toDate.setHours(23, 59, 59, 999);
+    }
+  } else {
+    const daysMap: Record<string, number> = { "7days": 7, "14days": 14, "30days": 30, "90days": 90 };
+    const days = daysMap[filter.preset];
+    if (days) fromDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  }
+
+  if (fromDate && d < fromDate) return false;
+  if (toDate && d > toDate) return false;
+  return true;
+}
+
 export function CompanyBrowser() {
   const {
     fields,
+    companyResponsibleCounts,
+    companyResponsibleCountsLoading,
     userNames,
     userNamesLoading,
     selectedColumns,
@@ -206,6 +243,7 @@ export function CompanyBrowser() {
   const [columnFilters, setColumnFilters] = useState<CompanyColumnFilter[]>([]);
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
   const [highlightSamples, setHighlightSamples] = useState(false);
+  const [companyDateFilter, setCompanyDateFilter] = useState<DateFilter>({ preset: "all" });
   const filterInputRef = useRef<HTMLInputElement>(null);
 
   // Column resizing — same pointer-capture approach as the deals table.
@@ -300,31 +338,47 @@ export function CompanyBrowser() {
     return meta?.title.replace(/^Компания:\s*/, "") || colId;
   };
 
+  // Real source of truth for "who is a company's responsible person": scanned
+  // directly from crm.company.list (companyResponsibleCounts), not derived
+  // from deal ownership — so people who own companies but no deals still show
+  // up here, and duplicates only appear if two distinct real Bitrix accounts
+  // both genuinely own companies (not from stale/unused user records).
   const responsibleOptions = useMemo(() => {
-    return Object.entries(userNames)
-      .map(([id, name]) => ({ id, name: name || `ID ${id}` }))
-      .sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  }, [userNames]);
+    return Object.entries(companyResponsibleCounts)
+      .map(([id, count]) => ({ id, name: userNames[id]?.trim() || `ID ${id}`, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [companyResponsibleCounts, userNames]);
 
   const activeName =
     companyBrowserResponsibleId === "all"
       ? "Все ответственные"
-      : responsibleOptions.find((o) => o.id === companyBrowserResponsibleId)?.name || "Все ответственные";
+      : responsibleOptions.find((o) => o.id === companyBrowserResponsibleId)?.name ||
+        userNames[companyBrowserResponsibleId]?.trim() ||
+        "Все ответственные";
 
   const getField = (colId: string) =>
     colId === "TITLE" || colId === "ASSIGNED_BY_ID" ? undefined : fieldMap.get(`COMPANY_${colId}`);
 
   const filteredItems = useMemo(() => {
-    if (columnFilters.length === 0) return companyBrowserItems;
-    return companyBrowserItems.filter((company) =>
-      columnFilters.every((filter) => {
-        if (!filter.value.trim()) return true;
-        const resolved = resolveCompanyValue(company, filter.columnId, userNames, getField(filter.columnId));
-        return resolved.toLowerCase().includes(filter.value.toLowerCase());
-      })
-    );
+    let items = companyBrowserItems;
+
+    if (companyDateFilter.preset !== "all") {
+      items = items.filter((company) => matchesCompanyDateFilter(company, companyDateFilter));
+    }
+
+    if (columnFilters.length > 0) {
+      items = items.filter((company) =>
+        columnFilters.every((filter) => {
+          if (!filter.value.trim()) return true;
+          const resolved = resolveCompanyValue(company, filter.columnId, userNames, getField(filter.columnId));
+          return resolved.toLowerCase().includes(filter.value.toLowerCase());
+        })
+      );
+    }
+
+    return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyBrowserItems, columnFilters, userNames, fieldMap]);
+  }, [companyBrowserItems, companyDateFilter, columnFilters, userNames, fieldMap]);
 
   const sortedItems = useMemo(() => {
     if (!columnSort.direction || !columnSort.columnId) return filteredItems;
@@ -338,6 +392,11 @@ export function CompanyBrowser() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredItems, columnSort, userNames, fieldMap]);
+
+  const samplesCount = useMemo(
+    () => sortedItems.filter((company) => hasSamplesInfo(company)).length,
+    [sortedItems]
+  );
 
   const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
   const pageItems = useMemo(() => {
@@ -362,14 +421,24 @@ export function CompanyBrowser() {
     exportToExcelWysiwyg(exportData, exportColumns, {
       sheetName: "Компании",
       fileNamePrefix: "russilica_companies",
+      // Mirror the on-screen "Образцы" highlight in the exported file.
+      highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedItems, columns, fieldMap, userNames]);
+  }, [sortedItems, columns, fieldMap, userNames, highlightSamples]);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 px-4 sm:px-6 py-4 gap-3">
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
+        <CompanyDateFilter
+          value={companyDateFilter}
+          onChange={(filter) => {
+            setCompanyDateFilter(filter);
+            setCurrentPage(1);
+          }}
+        />
+
         <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -425,7 +494,7 @@ export function CompanyBrowser() {
           </PopoverContent>
         </Popover>
 
-        {userNamesLoading && (
+        {(userNamesLoading || companyResponsibleCountsLoading) && (
           <span className="text-[11px] text-muted-foreground">Загрузка сотрудников…</span>
         )}
 
@@ -457,6 +526,7 @@ export function CompanyBrowser() {
             className="h-3.5 w-3.5"
           />
           {COMPANY_SAMPLES_FIELD_TITLE}
+          <span className="text-muted-foreground tabular-nums">Шт.: {samplesCount}</span>
         </label>
 
         <div className="ml-auto text-xs text-muted-foreground tabular-nums">

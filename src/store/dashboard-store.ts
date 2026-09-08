@@ -162,6 +162,12 @@ interface DashboardState {
   companyBrowserWarning: string | null;
   companyBrowserResponsibleId: string;
 
+  // Real "who is a company's responsible person" source of truth — scanned
+  // directly from crm.company.list (ID + ASSIGNED_BY_ID only), independent of
+  // deal ownership. Drives the Companies browser's responsible-person picker.
+  companyResponsibleCounts: Record<string, number>;
+  companyResponsibleCountsLoading: boolean;
+
   // ─── Actions ───
   checkConfig: () => Promise<void>;
   fetchFields: () => Promise<void>;
@@ -205,6 +211,7 @@ interface DashboardState {
   // ─── Actions (company browser) ───
   fetchCompanyBrowser: (responsibleId?: string) => Promise<void>;
   setCompanyBrowserResponsibleId: (id: string) => void;
+  fetchCompanyResponsibleCounts: () => Promise<void>;
 }
 
 function getDateFilterRange(filter: DateFilter): Record<string, string> {
@@ -335,6 +342,8 @@ export const useDashboardStore = create<DashboardState>()(
       companyBrowserPartial: false,
       companyBrowserWarning: null,
       companyBrowserResponsibleId: "all",
+      companyResponsibleCounts: {},
+      companyResponsibleCountsLoading: false,
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -725,6 +734,7 @@ export const useDashboardStore = create<DashboardState>()(
           ...state,
           ...urlParams,
         }));
+        get().applyClientFilters();
       },
 
       // ─── Actions (header features) ───
@@ -1014,6 +1024,11 @@ export const useDashboardStore = create<DashboardState>()(
           .map((col) => col.replace("COMPANY_", ""))
           .filter((field) => field !== "ID" && field !== "TITLE" && field !== "ASSIGNED_BY_ID");
 
+        // Required by the client-side period filter even if the user has
+        // removed "Дата создания" from the column picker — otherwise every
+        // non-"all" period preset would silently match zero companies.
+        if (!select.includes("DATE_CREATE")) select.push("DATE_CREATE");
+
         try {
           const response = await fetchWithTimeout(
             "/api/bitrix/companies/list",
@@ -1071,6 +1086,29 @@ export const useDashboardStore = create<DashboardState>()(
       setCompanyBrowserResponsibleId: (id) => {
         set({ companyBrowserResponsibleId: id });
         get().fetchCompanyBrowser(id);
+      },
+
+      fetchCompanyResponsibleCounts: async () => {
+        if (get().isDemoMode) return;
+        set({ companyResponsibleCountsLoading: true });
+        try {
+          const response = await fetchWithTimeout(
+            "/api/bitrix/companies/responsible-counts",
+            undefined,
+            COMPANY_LIST_FETCH_TIMEOUT_MS
+          );
+          if (!response.ok) {
+            throw new Error(`API returned ${response.status}`);
+          }
+          const data = await response.json();
+          if (!data.success) {
+            throw new Error(data.error || "Failed to fetch responsible counts");
+          }
+          set({ companyResponsibleCounts: data.counts || {}, companyResponsibleCountsLoading: false });
+        } catch (error) {
+          console.warn("[Dashboard] Failed to fetch company responsible counts:", error);
+          set({ companyResponsibleCountsLoading: false });
+        }
       },
     }),
     {

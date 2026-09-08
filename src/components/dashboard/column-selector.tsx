@@ -77,14 +77,11 @@ export function ColumnSelector() {
     const availableDefaults = DEFAULT_COLUMNS.filter((col) =>
       fields.some((f) => f.id === col)
     ) as string[];
-    const otherFields = fields
-      .map((f) => f.id)
-      .filter((id) => !availableDefaults.includes(id));
     
-    if (availableDefaults.length === 0 && otherFields.length > 0) {
-      setSelectedColumns(otherFields);
+    if (availableDefaults.length > 0) {
+      setSelectedColumns(availableDefaults);
     } else {
-      setSelectedColumns([...availableDefaults, ...otherFields]);
+      setSelectedColumns([...DEFAULT_COLUMNS]);
     }
   };
 

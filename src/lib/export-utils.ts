@@ -7,7 +7,14 @@ import ExcelJS from "exceljs";
 export async function exportToExcelWysiwyg(
   data: string[][],
   columns: string[],
-  options?: { sheetName?: string; fileNamePrefix?: string }
+  options?: {
+    sheetName?: string;
+    fileNamePrefix?: string;
+    // Parallel array to `data` — true marks a row for a highlighted fill,
+    // mirroring an on-screen row highlight (e.g. the "Образцы" toggle).
+    highlightRows?: boolean[];
+    highlightColorArgb?: string;
+  }
 ): Promise<void> {
   if (data.length === 0 || columns.length === 0) return;
 
@@ -21,6 +28,18 @@ export async function exportToExcelWysiwyg(
   data.forEach((row) => {
     worksheet.addRow(row);
   });
+
+  // Apply the same highlight shown on screen, if requested.
+  if (options?.highlightRows) {
+    const fillColor = options.highlightColorArgb || "FFFCE8B0"; // amber, matching the on-screen highlight
+    options.highlightRows.forEach((shouldHighlight, dataIndex) => {
+      if (!shouldHighlight) return;
+      const row = worksheet.getRow(dataIndex + 2); // +1 for header row, +1 for 1-based indexing
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fillColor } };
+      });
+    });
+  }
 
   // Auto-size columns
   worksheet.columns.forEach((column, idx) => {

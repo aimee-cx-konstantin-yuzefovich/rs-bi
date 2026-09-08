@@ -20,6 +20,7 @@ export function ActiveFilters() {
     searchQuery,
     columnFilters,
     fields,
+    userNames,
     setDateFilter,
     setPipelineFilter,
     setResponsibleFilter,
@@ -65,10 +66,11 @@ export function ActiveFilters() {
 
     // Responsible filter
     if (responsibleFilter !== "all") {
+      const userName = userNames[responsibleFilter]?.trim();
       result.push({
         key: "responsibleFilter",
         label: "Ответственный",
-        value: responsibleFilter,
+        value: userName || `ID ${responsibleFilter}`,
         onRemove: () => setResponsibleFilter("all"),
       });
     }
@@ -105,6 +107,7 @@ export function ActiveFilters() {
     searchQuery,
     columnFilters,
     fields,
+    userNames,
     setDateFilter,
     setPipelineFilter,
     setResponsibleFilter,

@@ -59,6 +59,10 @@ deliberately `false`, don't disable it).
   only file that should need updating.
 - Field visibility rules (which Bitrix24 fields are hidden from the column selector as internal/system fields)
   live in `SYSTEM_FIELDS_TO_EXCLUDE` / `isSystemField()` in `src/lib/bitrix.ts`.
+- [`src/app/companies/page.tsx`](src/app/companies/page.tsx) is a standalone Companies browser (its own route,
+  own column selector `company-column-selector.tsx`, own Excel export) separate from the main deals dashboard —
+  it uses `src/app/api/bitrix/companies/list/route.ts` rather than the deals-oriented
+  `src/app/api/bitrix/companies/route.ts`.
 
 ### Auth (WordPress SSO via HMAC, NextAuth v4)
 
