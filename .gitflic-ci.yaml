@@ -4,18 +4,16 @@ stages:
 
 build_job:
   stage: build
-  image: node:20-alpine
+  # Host deployment targets Debian-compatible glibc/OpenSSL 3, not Alpine musl.
+  image: node:20-bookworm-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends openssl zip && rm -rf /var/lib/apt/lists/*
   script:
-    - npm ci
-    - npx prisma generate
-    - npm run build
+    # DEPLOY_ARCH must match the existing PM2 host (x64 or arm64).
+    - bash build-deploy.sh
   artifacts:
     paths:
-      - .next/standalone/
-      - .next/static/
-      - public/
-      - prisma/
-      - package.json
+      - deploy-prod.zip
 
 deploy_job:
   stage: deploy
@@ -23,21 +21,19 @@ deploy_job:
   dependencies:
     - build_job
   before_script:
-    - apk add --no-cache openssh-client rsync
+    - apk add --no-cache openssh-client rsync unzip
     - eval $(ssh-agent -s)
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
     - mkdir -p ~/.ssh
     - chmod 700 ~/.ssh
-    - ssh-keyscan $SERVER_IP >> ~/.ssh/known_hosts
+    - ssh-keyscan "$SERVER_IP" >> ~/.ssh/known_hosts
     - chmod 644 ~/.ssh/known_hosts
   script:
-    # Копируем собранные файлы на сервер, исключая удаление .env и базы данных
-    - rsync -avz --delete --exclude='.env' --exclude='db' -e "ssh -o StrictHostKeyChecking=no" .next/standalone/ root@$SERVER_IP:/var/www/www-root/data/www/bi-terminal/
-    - rsync -avz -e "ssh -o StrictHostKeyChecking=no" .next/static/ root@$SERVER_IP:/var/www/www-root/data/www/bi-terminal/.next/static/
-    - rsync -avz -e "ssh -o StrictHostKeyChecking=no" public/ root@$SERVER_IP:/var/www/www-root/data/www/bi-terminal/public/
-    - rsync -avz -e "ssh -o StrictHostKeyChecking=no" prisma/ root@$SERVER_IP:/var/www/www-root/data/www/bi-terminal/prisma/
-    # Применяем миграции БД и перезапускаем PM2
-    - ssh -o StrictHostKeyChecking=no root@$SERVER_IP "cd /var/www/www-root/data/www/bi-terminal && npx prisma migrate deploy && pm2 restart bi-terminal --update-env"
+    - mkdir deploy-staging && unzip -q deploy-prod.zip -d deploy-staging
+    # Exclusions protect both legacy and current DB locations from --delete.
+    - rsync -avz --delete --exclude='.env*' --exclude='db/' --exclude='*.db*' --exclude='*.sqlite*' -e ssh deploy-staging/ "root@$SERVER_IP:/var/www/www-root/data/www/bi-terminal/"
+    # Uses packaged CLI and the same production .env loading as the application.
+    - ssh "root@$SERVER_IP" "cd /var/www/www-root/data/www/bi-terminal && NODE_ENV=production node scripts/migrate-deploy.mjs && pm2 restart bi-terminal --update-env"
   only:
     - master
     - main

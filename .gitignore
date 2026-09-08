@@ -36,6 +36,8 @@ next-env.d.ts
 
 # custom
 deploy-prod.zip
+.deploy-archive.*
+deploy-staging/
 dev.log
 db/custom.db
 db/audit.db

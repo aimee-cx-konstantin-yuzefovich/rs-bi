@@ -1,50 +1,37 @@
-# ─── RusSilica BI Terminal — Production Dockerfile ───
-# Многоэтапная сборка для минимального образа
-
-# Этап 1: Установка зависимостей
-FROM node:20-alpine AS deps
+# All stages use the same libc/architecture for Next.js, Sharp and Prisma.
+FROM node:20-alpine AS base
+RUN apk add --no-cache openssl
 WORKDIR /app
-COPY package.json bun.lock* ./
+
+FROM base AS deps
+COPY package.json package-lock.json ./
 RUN npm ci
 
-# Этап 2: Сборка
-FROM node:20-alpine AS builder
-WORKDIR /app
+FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
-# Переменные сборки (не секретные)
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
+# Only this public variable is embedded into the browser build.
+ARG NEXT_PUBLIC_WP_LOGIN_URL=https://bi-terminal.rus-silica.com/wp-login.php
+ENV NEXT_PUBLIC_WP_LOGIN_URL=$NEXT_PUBLIC_WP_LOGIN_URL
+RUN npm run db:generate
+# Disposable values satisfy build-time module evaluation, never runtime defaults.
+RUN NEXTAUTH_SECRET=build-only-not-a-runtime-secret \
+    PROXY_SECRET=build-only-not-a-runtime-secret \
+    DATABASE_URL=file:/tmp/build-only.db npm run build
+RUN node scripts/package-standalone.mjs
 
-# BITRIX_WEBHOOK_URL НЕ передаётся при сборке — 
-# он будет передан только при запуске контейнера
-RUN npm run build
-
-# Этап 3: Продакшн-запуск
-FROM node:20-alpine AS runner
-WORKDIR /app
-
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
-# Создаём непривилегированного пользователя
+FROM base AS runner
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    DATABASE_URL=file:/app/db/audit.db
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
-
-# Копируем standalone-сборку
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-
-# Создаём директорию для SQLite
-RUN mkdir -p ./db && chown nextjs:nodejs ./db
-
+COPY --from=builder --chown=nextjs:nodejs /app/.next/deploy ./
+RUN mkdir -p /app/db && chown nextjs:nodejs /app/db
 USER nextjs
-
 EXPOSE 3000
-
-# Запуск standalone-сервера
-CMD ["node", "server.js"]
+# Failed migrations prevent startup; exec forwards stop signals to Node.
+CMD ["sh", "-c", "node scripts/migrate-deploy.mjs && exec node server.js"]

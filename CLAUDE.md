@@ -103,13 +103,18 @@ deliberately `false`, don't disable it).
 - Production runs the Next.js **standalone** output via `node server.js` — not `next start`, not Vercel.
   `npm run build` explicitly copies `.next/static` and `public/` into `.next/standalone/` because standalone
   mode doesn't include them by default.
-- Two parallel deploy paths exist: `.gitflic-ci.yaml` (CI: builds, rsyncs to a server, runs
-  `prisma migrate deploy`, restarts via `pm2`) and `build-deploy.sh` (manual: builds a `deploy-prod.zip`,
-  deliberately excluding `.env` so it never overwrites the server's live config).
-  `docker-compose.yml`/`Dockerfile` are an alternative containerized deploy path (also standalone-based, runs
-  as non-root `nextjs` user). Caddy (`Caddyfile`) or an nginx/LiteSpeed layer sits in front as reverse proxy.
-- SQLite (`prisma/db/audit.db`) only stores `AuditLog` and `UsedNonce` — it is not the CRM data store (that's
-  always live from Bitrix24). Never delete/reset this DB casually; audit logs are a compliance record.
+- Host deploy paths: `.gitflic-ci.yaml` builds a Linux ZIP through `build-deploy.sh`,
+  rsyncs with environment/database exclusions, runs the packaged migration CLI, then
+  restarts PM2. Manual ZIP builds require matching Debian/OpenSSL 3 Linux and
+  `DEPLOY_ARCH`. `.env*` and SQLite files never belong in deployment artifacts.
+- Docker uses matching Alpine build/runtime stages, a non-root user and the
+  persistent `/app/db` volume. It applies migrations before starting `server.js`.
+  Caddy (`Caddyfile`) or the existing nginx/LiteSpeed layer proxies the application.
+- SQLite stores only `AuditLog` and `UsedNonce`. The documented legacy host path is
+  `prisma/db/audit.db`; Docker uses `/app/db/audit.db`. Production URLs must be
+  absolute and point to the existing file. Never delete/reset or silently relocate
+  the compliance database. See `DEPLOYMENT.md` for the mandatory one-time baseline
+  procedure for existing tables without migration history.
 
 ## Project conventions
 

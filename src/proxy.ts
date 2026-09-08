@@ -5,8 +5,7 @@ import { IS_PRODUCTION } from "@/lib/config";
 /**
  * Security Proxy — RusSilica BI Terminal
  *
- * In Next.js 16, the file convention is `middleware.ts`.
- * The export MUST be named `middleware` for Next.js 16 to recognize it.
+ * Next.js 16 uses src/proxy.ts with the default export named proxy.
  *
  * WordPress SSO Architecture:
  * - Caddy reverse proxy adds auth headers to every request
@@ -26,7 +25,7 @@ import { IS_PRODUCTION } from "@/lib/config";
 // ─── Rate Limiter ───
 // NOTE: This in-memory rate limiter works correctly because the application
 // is deployed as a long-running Node.js process (Next.js standalone output)
-// via bun server.js. It is NOT deployed to a serverless environment (like Vercel),
+// via node server.js. It is NOT deployed to a serverless environment (like Vercel),
 // where in-memory state would be lost between requests.
 
 interface RateLimitEntry {
@@ -207,7 +206,8 @@ export default function proxy(request: NextRequest) {
   }
 
   // ─── API Routes: Rate limiting + CORS + Security headers ───
-  if (pathname.startsWith("/api/")) {
+  // Health uses the security-header-only path below, independent of API quotas.
+  if (pathname.startsWith("/api/") && pathname !== "/api/health") {
     const clientIp = getClientIp(request);
 
     // Select rate limit based on endpoint
