@@ -57,7 +57,7 @@ export function useTableState() {
           ? fromDict
           : fromDict?.TITLE ?? fromDict?.title ?? "";
 
-        return title.trim() || "";
+        return title.trim() || "Без названия";
       }
 
       // MOVED UP: COMPANY_RESPONSIBLE_FIELD_ID is also a virtual field
@@ -101,7 +101,7 @@ export function useTableState() {
         const company = companiesData[companyId];
 
         if (!company) {
-          if (companyFieldId === "TITLE") return `ID ${companyId}`;
+          if (companyFieldId === "TITLE") return "Без названия";
           return "";
         }
 
@@ -110,7 +110,7 @@ export function useTableState() {
         if (rawCompanyVal === null || rawCompanyVal === undefined || rawCompanyVal === "") {
           if (companyFieldId === "TITLE") {
             const title = String(company.TITLE || "").trim();
-            return title || `ID ${companyId}`;
+            return title || "Без названия";
           }
           return "";
         }
@@ -237,8 +237,8 @@ export function useTableState() {
 
       const companyId = String(deal.COMPANY_ID || "");
       if (companyId) {
-        const companyName = companiesData[companyId]?.TITLE || `ID ${companyId}`;
-        if (companyName.toLowerCase().includes(q)) return true;
+        const companyName = companiesData[companyId]?.TITLE || "";
+        if (companyName && companyName.toLowerCase().includes(q)) return true;
       }
 
       return columns.some((colId) => {
