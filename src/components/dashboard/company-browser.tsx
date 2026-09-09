@@ -8,6 +8,8 @@ import {
   COMPANY_SAMPLES_FIELD_TITLE,
 } from "@/lib/crm-constants";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
+import { CompanyPreview } from "./company-preview";
+import { isCompanyId } from "@/lib/company-preview";
 import { CompanyColumnSelector } from "./company-column-selector";
 import { CompanyDateFilter } from "./company-date-filter";
 import {
@@ -77,7 +79,7 @@ function resolveCompanyValue(
   field?: CompanyFieldMeta
 ): string {
   if (colId === "TITLE") {
-    return String(company.TITLE || "").trim() || `ID ${company.ID ?? ""}`;
+    return String(company.TITLE || "").trim() || "Без названия";
   }
 
   // Person-reference ID fields — resolve to a name via userNames instead of
@@ -237,6 +239,8 @@ export function CompanyBrowser() {
     setCompanyColumnWidth,
   } = useDashboardStore();
 
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const previewTrigger = useRef<HTMLButtonElement | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [columnSort, setColumnSort] = useState<CompanyColumnSort>({ columnId: "", direction: null });
@@ -426,6 +430,25 @@ export function CompanyBrowser() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortedItems, columns, fieldMap, userNames, highlightSamples]);
+
+  const previewFields = (company: Record<string, unknown>) => {
+    const labels: Record<string, string> = {
+      PHONE: "Телефон", EMAIL: "Email", DATE_CREATE: "Дата создания", DATE_MODIFY: "Дата изменения",
+      [COMPANY_SAMPLES_FIELD_ID]: COMPANY_SAMPLES_FIELD_TITLE,
+    };
+    return [...new Set(["ASSIGNED_BY_ID", "PHONE", "EMAIL", ...columns,
+      "DATE_CREATE", "DATE_MODIFY", COMPANY_SAMPLES_FIELD_ID])]
+      .filter((id) => id !== "TITLE" && (id !== COMPANY_SAMPLES_FIELD_ID || hasSamplesInfo(company)))
+      .map((id) => ({ id, label: labels[id] || columnTitle(id),
+        value: resolveCompanyValue(company, id, userNames,
+          getField(id) || (id === "DATE_CREATE" || id === "DATE_MODIFY" ? { type: "datetime" } : undefined)),
+      })).filter((field) => field.value.trim());
+  };
+  const openPreview = (id: string, row: HTMLTableRowElement | null) => {
+    if (!isCompanyId(id)) return;
+    previewTrigger.current = row?.querySelector<HTMLButtonElement>("[data-company-preview]") || null;
+    setPreviewId(id);
+  };
 
   return (
     <div className="flex-1 flex flex-col min-h-0 px-4 sm:px-6 py-4 gap-3">
@@ -674,7 +697,13 @@ export function CompanyBrowser() {
               pageItems.map((company, idx) => (
                 <TableRow
                   key={String(company.ID)}
-                  className={highlightSamples && hasSamplesInfo(company) ? "bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40" : undefined}
+                  onClick={(event) => {
+                    if (resizingState.current.colId || (event.target as HTMLElement).closest(
+                      "button, a, input, select, textarea, label, [role='checkbox'], [role='button'], [contenteditable='true']"
+                    )) return;
+                    openPreview(String(company.ID), event.currentTarget);
+                  }}
+                  className={highlightSamples && hasSamplesInfo(company) ? "cursor-pointer bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40" : "cursor-pointer"}
                 >
                   <TableCell className="text-xs text-muted-foreground tabular-nums">
                     {(currentPage - 1) * PAGE_SIZE + idx + 1}
@@ -683,7 +712,11 @@ export function CompanyBrowser() {
                     const field = getField(colId);
                     return (
                       <TableCell key={colId} className="text-xs whitespace-nowrap max-w-[280px] truncate">
-                        {resolveCompanyValue(company, colId, userNames, field) || "—"}
+                        {colId === "TITLE" ? <button type="button" data-company-preview
+                          className="max-w-full truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                          onClick={(event) => openPreview(String(company.ID), event.currentTarget.closest("tr"))}>
+                          {resolveCompanyValue(company, colId, userNames, field) || "—"}
+                        </button> : resolveCompanyValue(company, colId, userNames, field) || "—"}
                       </TableCell>
                     );
                   })}
@@ -727,6 +760,8 @@ export function CompanyBrowser() {
         </div>
       </div>
 
+      {previewId && <CompanyPreview key={previewId} id={previewId} fieldsFor={previewFields}
+        onClose={() => setPreviewId(null)} onRestoreFocus={() => previewTrigger.current?.focus()} />}
       <CompanyColumnSelector />
     </div>
   );

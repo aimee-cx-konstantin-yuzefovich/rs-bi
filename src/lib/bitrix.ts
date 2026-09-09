@@ -18,6 +18,7 @@ const ALLOWED_METHODS = new Set([
   "crm.company.fields",
   "crm.company.list",
   "crm.company.get",
+  "crm.item.get",
   "crm.activity.list",
   "crm.stage.list",
   "crm.status.list",
@@ -151,6 +152,13 @@ export async function bitrixGet<T = unknown>(
   }
 }
 
+/** Only the safe, actionable failures needed by company previews. */
+export class BitrixItemError extends Error {
+  constructor(public readonly code: "NOT_FOUND" | "ACCESS_DENIED") {
+    super(code === "NOT_FOUND" ? "Company not found." : "Company access denied.");
+  }
+}
+
 /**
  * Generic POST request to Bitrix24 REST API.
  * Body parameters are validated and sanitized before forwarding.
@@ -186,6 +194,18 @@ export async function bitrixPost<T = unknown>(
       signal: AbortSignal.timeout(30_000), // 30s timeout for POST (may need longer for pagination)
     });
 
+    // Universal CRM item-level errors are documented as HTTP 400. Restrict
+    // the special mapping to that status so system-level 403 ACCESS_DENIED
+    // remains a generic integration failure instead of a company permission error.
+    if (method === "crm.item.get") {
+      const data = await response.json();
+      if (response.status === 400 && (data.error === "NOT_FOUND" || data.error === "ACCESS_DENIED")) {
+        throw new BitrixItemError(data.error);
+      }
+      if (!response.ok || data.error) throw new Error("CRM item request failed.");
+      return data as T;
+    }
+
     if (!response.ok) {
       throw new Error(`API returned status ${response.status}`);
     }
@@ -201,6 +221,7 @@ export async function bitrixPost<T = unknown>(
 
     return data as T;
   } catch (error) {
+    if (error instanceof BitrixItemError) throw error;
     throw sanitizeError(error, method);
   }
 }
