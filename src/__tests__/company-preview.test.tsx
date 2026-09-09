@@ -39,7 +39,7 @@ it("opens a data row, uses real Bitrix company names and preserves the table on 
   await waitFor(() => expect(trigger).toHaveFocus());
   fireEvent.click(trigger);
   await screen.findByRole("heading", { name: "Свежая компания" });
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/42"))).toHaveLength(2);
 });
 
 it("never substitutes the internal company ID for a missing drawer title", async () => {
@@ -101,7 +101,7 @@ it("shows loading and ignores a response from a closed drawer", async () => {
   await act(async () => resolve(ok(detail("42", "Устаревшая компания"))));
   expect(signal.aborted).toBe(true);
   expect(screen.queryByText("Устаревшая компания")).not.toBeInTheDocument();
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => !String(url).endsWith("/deals"))).toHaveLength(2));
 });
 
 it("keeps details visible when the portal link is not configured", async () => {

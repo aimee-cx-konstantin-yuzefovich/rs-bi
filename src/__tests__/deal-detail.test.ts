@@ -218,6 +218,32 @@ describe("deal detail endpoint through Bitrix universal CRM client", () => {
       expect(body.deal.COMPANY_TITLE).not.toBe("105");
       expect(body.deal.COMPANY_TITLE).not.toBe("ID 105");
     });
+
+    it("handles company enrichment failure gracefully without failing deal request or claiming title is empty", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              result: {
+                item: { id: 42, title: "Сделка РусСилика", companyId: 99 },
+              },
+            }),
+            { status: 200 }
+          )
+        )
+        .mockRejectedValueOnce(new Error(`Upstream API failed ${webhook}`));
+
+      const res = await request("42");
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.deal.ID).toBe("42");
+      expect(body.deal.COMPANY_ID).toBe("99");
+      expect(body.deal.COMPANY_TITLE).toBe("Название компании не удалось загрузить");
+      expect(body.deal.COMPANY_TITLE).not.toBe("Без названия");
+      expect(body.deal.COMPANY_TITLE).not.toContain("99");
+      expect(JSON.stringify(body)).not.toContain("SECRET_TOKEN");
+    });
   });
 
   describe("security and error handling", () => {

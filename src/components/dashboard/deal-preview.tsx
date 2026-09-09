@@ -211,8 +211,7 @@ export function DealPreview({
                   <dt className="text-xs text-muted-foreground">Ответственный</dt>
                   <dd className="mt-1 font-medium">
                     {state.deal.ASSIGNED_BY_ID
-                      ? userNames[String(state.deal.ASSIGNED_BY_ID)] ||
-                        `Сотрудник ID ${state.deal.ASSIGNED_BY_ID}`
+                      ? userNames[String(state.deal.ASSIGNED_BY_ID)] || "Неизвестный сотрудник"
                       : "—"}
                   </dd>
                 </div>

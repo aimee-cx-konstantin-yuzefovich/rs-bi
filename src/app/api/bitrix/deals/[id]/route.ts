@@ -43,6 +43,7 @@ export async function GET(
 
     // If deal has an associated company, fetch its real TITLE using crm.item.get entityTypeId 4
     let companyTitle: string | null = null;
+    let companyLookupFailed = false;
     const companyId = item.companyId;
     if (
       companyId !== undefined &&
@@ -60,14 +61,17 @@ export async function GET(
         });
         const cItem = companyData.result?.item;
         if (cItem && typeof cItem === "object" && !Array.isArray(cItem)) {
-          companyTitle = typeof cItem.title === "string" ? cItem.title : null;
+          companyTitle = typeof cItem.title === "string" ? cItem.title : "";
+        } else {
+          companyTitle = "";
         }
       } catch (companyErr) {
         console.warn(`[Bitrix24 Deal API] Failed to fetch company ${companyId}:`, companyErr);
+        companyLookupFailed = true;
       }
     }
 
-    const deal = normalizeDealPreview(item, companyTitle);
+    const deal = normalizeDealPreview(item, companyTitle, { companyLookupFailed });
     const bitrixUrl = getBitrixEntityUrl("deal", id, BITRIX_PORTAL_URL);
     const companyBitrixUrl = deal.COMPANY_ID
       ? getBitrixEntityUrl("company", String(deal.COMPANY_ID), BITRIX_PORTAL_URL)

@@ -48,7 +48,8 @@ export function getBitrixEntityUrl(
  */
 export function normalizeDealPreview(
   item: Record<string, unknown>,
-  companyTitle?: string | null
+  companyTitle?: string | null,
+  options?: { companyLookupFailed?: boolean }
 ): Record<string, unknown> {
   const deal: Record<string, unknown> = {};
 
@@ -92,8 +93,12 @@ export function normalizeDealPreview(
 
   if (rawCompanyId && rawCompanyId !== "0") {
     deal.COMPANY_ID = rawCompanyId;
-    const cleanCompanyTitle = typeof companyTitle === "string" ? companyTitle.trim() : "";
-    deal.COMPANY_TITLE = cleanCompanyTitle || "Без названия";
+    if (options?.companyLookupFailed) {
+      deal.COMPANY_TITLE = "Название компании не удалось загрузить";
+    } else {
+      const cleanCompanyTitle = typeof companyTitle === "string" ? companyTitle.trim() : "";
+      deal.COMPANY_TITLE = cleanCompanyTitle || "Без названия";
+    }
   } else {
     deal.COMPANY_ID = "";
     deal.COMPANY_TITLE = "";

@@ -42,7 +42,7 @@ export function defaultCompanyFields(
     fields.push({
       id: "ASSIGNED_BY_ID",
       label: "Ответственный",
-      value: userNames[id] || `ID ${id}`,
+      value: userNames[id] || "Неизвестный сотрудник",
     });
   }
 

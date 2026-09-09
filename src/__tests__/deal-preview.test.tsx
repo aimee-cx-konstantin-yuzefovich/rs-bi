@@ -218,13 +218,37 @@ describe("Deal Preview Component and Navigation", () => {
 
   it("Company Preview shows related deals with real deal titles and navigation", async () => {
     const onOpenDealPreview = vi.fn();
-    fetchMock.mockResolvedValue(
-      ok({
+    fetchMock.mockImplementation(async (req: Request | string) => {
+      const url = typeof req === "string" ? req : req.url;
+      if (url.includes("/deals")) {
+        return ok({
+          success: true,
+          deals: [
+            {
+              ID: "101",
+              TITLE: "Сделка РусСилика 101",
+              STAGE_ID: "NEW",
+              OPPORTUNITY: 500000,
+              CURRENCY_ID: "RUB",
+              COMPANY_ID: "42",
+            },
+            {
+              ID: "102",
+              TITLE: "Вторая сделка компании",
+              STAGE_ID: "WON",
+              OPPORTUNITY: 250000,
+              CURRENCY_ID: "RUB",
+              COMPANY_ID: "42",
+            },
+          ],
+        });
+      }
+      return ok({
         success: true,
         company: { ID: "42", TITLE: "Компания из таблицы", ASSIGNED_BY_ID: "7" },
         bitrixUrl: "https://russilica.bitrix24.ru/crm/company/details/42/",
-      })
-    );
+      });
+    });
 
     render(
       <CompanyPreview
@@ -238,7 +262,7 @@ describe("Deal Preview Component and Navigation", () => {
     expect(await screen.findByRole("heading", { name: "Компания из таблицы" })).toBeInTheDocument();
 
     // Related deals section is present
-    expect(screen.getByText("Связанные сделки (2)")).toBeInTheDocument();
+    expect(await screen.findByText("Связанные сделки (2)")).toBeInTheDocument();
     expect(screen.getByText("Сделка РусСилика 101")).toBeInTheDocument();
     expect(screen.getByText("Вторая сделка компании")).toBeInTheDocument();
 
@@ -250,6 +274,178 @@ describe("Deal Preview Component and Navigation", () => {
     // Clicking related deal triggers navigation to that exact deal
     fireEvent.click(screen.getByRole("button", { name: "Вторая сделка компании" }));
     expect(onOpenDealPreview).toHaveBeenCalledWith("102");
+  });
+
+  describe("Related deals completeness", () => {
+    it("results do not depend on dashboard allDeals or date filters, and shows complete set", async () => {
+      // client allDeals is EMPTY (e.g. strict date filter or outside 1000 limit)
+      mockStore.allDeals = [];
+
+      const authoritativeDeals = [
+        { ID: "201", TITLE: "Сделка Январь", STAGE_ID: "WON", OPPORTUNITY: 100000, CURRENCY_ID: "RUB", COMPANY_ID: "42" },
+        { ID: "202", TITLE: "Сделка Февраль", STAGE_ID: "NEW", OPPORTUNITY: 200000, CURRENCY_ID: "RUB", COMPANY_ID: "42" },
+        { ID: "203", TITLE: "Сделка Архив", STAGE_ID: "LOSE", OPPORTUNITY: 300000, CURRENCY_ID: "RUB", COMPANY_ID: "42" },
+      ];
+
+      fetchMock.mockImplementation(async (req: Request | string) => {
+        const url = typeof req === "string" ? req : req.url;
+        if (url.includes("/deals")) {
+          return ok({ success: true, deals: authoritativeDeals });
+        }
+        return ok({
+          success: true,
+          company: { ID: "42", TITLE: "Компания 42", ASSIGNED_BY_ID: "7" },
+          bitrixUrl: "https://russilica.bitrix24.ru/crm/company/details/42/",
+        });
+      });
+
+      render(<CompanyPreview id="42" onClose={() => {}} onOpenDealPreview={() => {}} />);
+
+      expect(await screen.findByRole("heading", { name: "Компания 42" })).toBeInTheDocument();
+      expect(await screen.findByText("Связанные сделки (3)")).toBeInTheDocument();
+
+      const expectedIds = new Set(["201", "202", "203"]);
+      const renderedButtons = screen.getAllByRole("button", { name: /^Сделка / });
+      const renderedIds = new Set(renderedButtons.map((b) => b.getAttribute("data-related-deal")));
+      expect(renderedIds).toEqual(expectedIds);
+
+      // Fails if one expected related deal is removed
+      const subsetIds = new Set(["201", "202"]);
+      expect(renderedIds).not.toEqual(subsetIds);
+    });
+
+    it("handles zero deals properly", async () => {
+      fetchMock.mockImplementation(async (req: Request | string) => {
+        const url = typeof req === "string" ? req : req.url;
+        if (url.includes("/deals")) return ok({ success: true, deals: [] });
+        return ok({
+          success: true,
+          company: { ID: "42", TITLE: "Компания Без Сделок" },
+          bitrixUrl: null,
+        });
+      });
+
+      render(<CompanyPreview id="42" onClose={() => {}} />);
+      expect(await screen.findByRole("heading", { name: "Компания Без Сделок" })).toBeInTheDocument();
+      expect(await screen.findByText("Связанные сделки (0)")).toBeInTheDocument();
+      expect(screen.getByText("Нет связанных сделок")).toBeInTheDocument();
+    });
+
+    it("handles related deals API failure cleanly", async () => {
+      fetchMock.mockImplementation(async (req: Request | string) => {
+        const url = typeof req === "string" ? req : req.url;
+        if (url.includes("/deals")) return { ok: false, status: 502, json: async () => ({ success: false }) };
+        return ok({
+          success: true,
+          company: { ID: "42", TITLE: "Компания С Ошибкой" },
+          bitrixUrl: null,
+        });
+      });
+
+      render(<CompanyPreview id="42" onClose={() => {}} />);
+      expect(await screen.findByRole("heading", { name: "Компания С Ошибкой" })).toBeInTheDocument();
+      expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось загрузить связанные сделки");
+    });
+  });
+
+  describe("COMPANY_TITLE resolution order in table", () => {
+    it("follows exact required resolution order and never falls back to company ID", async () => {
+      const { renderHook } = await import("@testing-library/react");
+      const { useTableState } = await import("@/hooks/use-table-state");
+
+      // 1. companiesData title exists → use it
+      mockStore.companiesData = { "50": { ID: "50", TITLE: "Компания из словаря" } };
+      const { result, rerender } = renderHook(() => useTableState());
+      const res1 = result.current.resolveValue(
+        { COMPANY_ID: "50", COMPANY_TITLE: "Старое название" } as any,
+        "COMPANY_TITLE"
+      );
+      expect(res1).toBe("Компания из словаря");
+
+      // 2. companiesData missing + deal.COMPANY_TITLE exists → use deal.COMPANY_TITLE
+      const res2 = result.current.resolveValue(
+        { COMPANY_ID: "99", COMPANY_TITLE: "Компания из сделки" } as any,
+        "COMPANY_TITLE"
+      );
+      expect(res2).toBe("Компания из сделки");
+
+      // 3. both titles empty + COMPANY_ID exists → "Без названия"
+      const res3 = result.current.resolveValue(
+        { COMPANY_ID: "99", COMPANY_TITLE: "   " } as any,
+        "COMPANY_TITLE"
+      );
+      expect(res3).toBe("Без названия");
+      expect(res3).not.toBe("99");
+      expect(res3).not.toBe("ID 99");
+
+      // 4. no COMPANY_ID → "—"
+      const res4 = result.current.resolveValue(
+        { COMPANY_ID: "", COMPANY_TITLE: "" } as any,
+        "COMPANY_TITLE"
+      );
+      expect(res4).toBe("—");
+    });
+  });
+
+  describe("Company enrichment failure", () => {
+    it("displays error state in Deal Preview instead of claiming title is empty", async () => {
+      const onOpenCompanyPreview = vi.fn();
+      fetchMock.mockResolvedValue(
+        ok({
+          success: true,
+          deal: {
+            ID: "101",
+            TITLE: "Сделка 101",
+            COMPANY_ID: "42",
+            COMPANY_TITLE: "Название компании не удалось загрузить",
+          },
+          bitrixUrl: null,
+          companyBitrixUrl: null,
+        })
+      );
+
+      render(
+        <DealPreview
+          id="101"
+          onClose={() => {}}
+          onOpenCompanyPreview={onOpenCompanyPreview}
+        />
+      );
+
+      expect(await screen.findByRole("heading", { name: "Сделка 101" })).toBeInTheDocument();
+      expect(screen.getByText("Название компании не удалось загрузить")).toBeInTheDocument();
+      expect(screen.queryByText("Без названия")).not.toBeInTheDocument();
+      expect(screen.queryByText("ID 42")).not.toBeInTheDocument();
+
+      // Navigation button preserves company ID
+      const compBtn = screen.getByRole("button", { name: "Название компании не удалось загрузить" });
+      expect(compBtn).toHaveAttribute("data-company-link", "42");
+      fireEvent.click(compBtn);
+      expect(onOpenCompanyPreview).toHaveBeenCalledWith("42");
+    });
+  });
+
+  describe("Fix 4: Human-name ID fallbacks", () => {
+    it("displays 'Неизвестный сотрудник' instead of ID fallback when employee name is not in userNames", async () => {
+      fetchMock.mockResolvedValue(
+        ok({
+          success: true,
+          deal: {
+            ID: "101",
+            TITLE: "Сделка 101",
+            ASSIGNED_BY_ID: "999", // not in mockStore.userNames
+          },
+          bitrixUrl: null,
+          companyBitrixUrl: null,
+        })
+      );
+
+      render(<DealPreview id="101" onClose={() => {}} />);
+      expect(await screen.findByRole("heading", { name: "Сделка 101" })).toBeInTheDocument();
+      expect(screen.getByText("Неизвестный сотрудник")).toBeInTheDocument();
+      expect(screen.queryByText("Сотрудник ID 999")).not.toBeInTheDocument();
+      expect(screen.queryByText("ID 999")).not.toBeInTheDocument();
+    });
   });
 
   it("navigates from Deal Preview to Company Preview cleanly", async () => {
