@@ -30,3 +30,57 @@ export function normalizeCompanyPreview(item: Record<string, unknown>) {
 export function isCompanyId(id: string): boolean {
   return /^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id));
 }
+
+export function defaultCompanyFields(
+  company: Record<string, unknown>,
+  userNames: Record<string, string> = {}
+): Array<{ id: string; label: string; value: string }> {
+  const fields: Array<{ id: string; label: string; value: string }> = [];
+
+  if (company.ASSIGNED_BY_ID) {
+    const id = String(company.ASSIGNED_BY_ID);
+    fields.push({
+      id: "ASSIGNED_BY_ID",
+      label: "Ответственный",
+      value: userNames[id] || "Неизвестный сотрудник",
+    });
+  }
+
+  if (company.PHONE && String(company.PHONE).trim()) {
+    fields.push({ id: "PHONE", label: "Телефон", value: String(company.PHONE) });
+  }
+
+  if (company.EMAIL && String(company.EMAIL).trim()) {
+    fields.push({ id: "EMAIL", label: "Email", value: String(company.EMAIL) });
+  }
+
+  if (company.DATE_CREATE && String(company.DATE_CREATE).trim()) {
+    const d = new Date(String(company.DATE_CREATE));
+    fields.push({
+      id: "DATE_CREATE",
+      label: "Дата создания",
+      value: isNaN(d.getTime()) ? String(company.DATE_CREATE) : d.toLocaleDateString("ru-RU"),
+    });
+  }
+
+  if (company.DATE_MODIFY && String(company.DATE_MODIFY).trim()) {
+    const d = new Date(String(company.DATE_MODIFY));
+    fields.push({
+      id: "DATE_MODIFY",
+      label: "Дата изменения",
+      value: isNaN(d.getTime()) ? String(company.DATE_MODIFY) : d.toLocaleDateString("ru-RU"),
+    });
+  }
+
+  for (const [key, val] of Object.entries(company)) {
+    if (key.startsWith("UF_CRM_") && val !== null && val !== "" && val !== undefined) {
+      fields.push({
+        id: key,
+        label: key,
+        value: typeof val === "object" ? JSON.stringify(val) : String(val),
+      });
+    }
+  }
+
+  return fields;
+}

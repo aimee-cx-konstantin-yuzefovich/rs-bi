@@ -33,6 +33,9 @@ import { useQueryState } from "nuqs";
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Sparklines, SparklinesLine, SparklinesSpots } from 'react-sparklines';
 import { searchParams } from "@/lib/search-params";
+import { DealPreview } from "./deal-preview";
+import { CompanyPreview } from "./company-preview";
+import { isDealId } from "@/lib/deal-preview";
 
 /**
  * SECURITY NOTE: All cell values are rendered as JSX text content.
@@ -111,6 +114,16 @@ export function DataTable() {
   // Column resizing state (bullet-proof with useRef and Pointer Events)
   const resizingState = useRef({ colId: null as string | null, startX: 0, startWidth: 0 });
   const [activeResizingCol, setActiveResizingCol] = useState<string | null>(null);
+
+  const [previewDealId, setPreviewDealId] = useState<string | null>(null);
+  const [previewCompanyId, setPreviewCompanyId] = useState<string | null>(null);
+  const previewTrigger = useRef<HTMLButtonElement | null>(null);
+
+  const openDealPreview = (id: string, row: HTMLTableRowElement | null) => {
+    if (!isDealId(id)) return;
+    previewTrigger.current = row?.querySelector<HTMLButtonElement>("[data-deal-preview]") || null;
+    setPreviewDealId(id);
+  };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, colId: string, thElement: HTMLTableCellElement | null) => {
     if (!thElement) return;
@@ -478,7 +491,19 @@ export function DataTable() {
                     const dealId = deal.ID || deal.id || idx;
                     const rowIndex = (currentPage - 1) * pageSize + idx + 1;
                     return (
-                      <tr key={String(dealId)} className="group hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={String(dealId)}
+                        onClick={(event) => {
+                          if (
+                            resizingState.current.colId ||
+                            (event.target as HTMLElement).closest(
+                              "button, a, input, select, textarea, label, [role='checkbox'], [role='button'], [contenteditable='true']"
+                            )
+                          ) return;
+                          openDealPreview(String(deal.ID || deal.id), event.currentTarget);
+                        }}
+                        className="group hover:bg-muted/30 transition-colors cursor-pointer"
+                      >
                         {/* Fixed Row Number Cell */}
                         <td className="sticky left-0 z-10 bg-card group-hover:bg-muted/30 transition-colors border-r border-border text-center px-2">
                           <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
@@ -498,6 +523,7 @@ export function DataTable() {
                                 companiesLoading={companiesDataLoading}
                                 activitiesLoading={activitiesDataLoading}
                                 userNamesLoading={isUserNamesLoading}
+                                onOpenDealPreview={openDealPreview}
                               />
                             </td>
                           );
@@ -575,6 +601,30 @@ export function DataTable() {
           </div>
         </div>
       </div>
+
+      {previewDealId && (
+        <DealPreview
+          key={previewDealId}
+          id={previewDealId}
+          onClose={() => setPreviewDealId(null)}
+          onRestoreFocus={() => previewTrigger.current?.focus()}
+          onOpenCompanyPreview={(companyId) => {
+            setPreviewDealId(null);
+            setPreviewCompanyId(companyId);
+          }}
+        />
+      )}
+      {previewCompanyId && (
+        <CompanyPreview
+          key={previewCompanyId}
+          id={previewCompanyId}
+          onClose={() => setPreviewCompanyId(null)}
+          onOpenDealPreview={(dealId) => {
+            setPreviewCompanyId(null);
+            setPreviewDealId(dealId);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -588,6 +638,7 @@ function CellValue({
   companiesLoading,
   activitiesLoading,
   userNamesLoading,
+  onOpenDealPreview,
 }: {
   raw: string | string[] | number | null;
   resolved: string;
@@ -597,13 +648,33 @@ function CellValue({
   companiesLoading: boolean;
   activitiesLoading: boolean;
   userNamesLoading: boolean;
+  onOpenDealPreview?: (id: string, row: HTMLTableRowElement | null) => void;
 }) {
+  if (colId === "TITLE") {
+    const rawTitle = typeof raw === "string" ? raw.trim() : "";
+    const title = rawTitle || resolved?.trim() || "Без названия";
+    return (
+      <button
+        type="button"
+        data-deal-preview
+        className="max-w-full truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+        onClick={(event) => {
+          if (deal && onOpenDealPreview) {
+            onOpenDealPreview(String(deal.ID || deal.id), event.currentTarget.closest("tr"));
+          }
+        }}
+      >
+        {title}
+      </button>
+    );
+  }
+
   if (colId === "COMPANY_TITLE") {
     if (companiesLoading && !resolved) {
       return <Skeleton className="h-4 w-28 rounded" />;
     }
 
-    if (resolved?.trim() && resolved !== "—") {
+    if (resolved?.trim() && resolved !== "—" && resolved !== "Без названия") {
       return (
         <span className="truncate block max-w-[180px]" title={resolved}>
           {resolved}
@@ -614,8 +685,8 @@ function CellValue({
     const companyId = String(deal.COMPANY_ID ?? "").trim();
     if (companyId && companyId !== "0") {
       return (
-        <span className="text-muted-foreground text-xs" title={`Company ID: ${companyId}`}>
-          ID {companyId}
+        <span className="text-muted-foreground text-xs" title="Компания без названия">
+          Без названия
         </span>
       );
     }

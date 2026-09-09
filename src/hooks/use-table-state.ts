@@ -44,20 +44,27 @@ export function useTableState() {
       // MOVED UP: обработка COMPANY_TITLE должна быть ДО раннего выхода,
       // потому что raw для этого поля всегда пустой (Bitrix не отдаёт COMPANY_TITLE в deal.list)
       if (colId === "COMPANY_TITLE") {
-        // 1. Prefer direct value from deal (fast path)
-        const directTitle = String(deal.COMPANY_TITLE || "").trim();
-        if (directTitle) return directTitle;
-
-        // 2. Fallback to companiesData via COMPANY_ID
         const companyId = String(deal.COMPANY_ID ?? "").trim();
-        if (!companyId || companyId === "0") return "—";
+        const hasCompany = Boolean(companyId && companyId !== "0");
 
-        const fromDict = companiesData?.[companyId];
-        const title = typeof fromDict === "string"
-          ? fromDict
-          : fromDict?.TITLE ?? fromDict?.title ?? "";
+        // 1. companiesData[companyId].TITLE, if non-empty
+        if (hasCompany && companiesData?.[companyId]) {
+          const fromDict = companiesData[companyId];
+          const dictTitle = typeof fromDict === "string"
+            ? fromDict.trim()
+            : String(fromDict?.TITLE ?? fromDict?.title ?? "").trim();
+          if (dictTitle) return dictTitle;
+        }
 
-        return title.trim() || "";
+        // 2. deal.COMPANY_TITLE, if non-empty
+        const dealTitle = String(deal.COMPANY_TITLE ?? "").trim();
+        if (dealTitle) return dealTitle;
+
+        // 3. "Без названия", if company exists but no usable title
+        if (hasCompany) return "Без названия";
+
+        // 4. "—", if there is no company
+        return "—";
       }
 
       // MOVED UP: COMPANY_RESPONSIBLE_FIELD_ID is also a virtual field
@@ -72,7 +79,7 @@ export function useTableState() {
         if (!responsibleId) return "";
 
         const userName = userNames?.[responsibleId]?.trim();
-        return userName || `ID ${responsibleId}`;
+        return userName || "Неизвестный сотрудник";
       }
 
       if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
@@ -101,7 +108,10 @@ export function useTableState() {
         const company = companiesData[companyId];
 
         if (!company) {
-          if (companyFieldId === "TITLE") return `ID ${companyId}`;
+          if (companyFieldId === "TITLE") {
+            const dealTitle = String(deal.COMPANY_TITLE ?? "").trim();
+            return dealTitle || "Без названия";
+          }
           return "";
         }
 
@@ -110,7 +120,9 @@ export function useTableState() {
         if (rawCompanyVal === null || rawCompanyVal === undefined || rawCompanyVal === "") {
           if (companyFieldId === "TITLE") {
             const title = String(company.TITLE || "").trim();
-            return title || `ID ${companyId}`;
+            if (title) return title;
+            const dealTitle = String(deal.COMPANY_TITLE ?? "").trim();
+            return dealTitle || "Без названия";
           }
           return "";
         }
@@ -237,8 +249,8 @@ export function useTableState() {
 
       const companyId = String(deal.COMPANY_ID || "");
       if (companyId) {
-        const companyName = companiesData[companyId]?.TITLE || `ID ${companyId}`;
-        if (companyName.toLowerCase().includes(q)) return true;
+        const companyName = companiesData[companyId]?.TITLE || "";
+        if (companyName && companyName.toLowerCase().includes(q)) return true;
       }
 
       return columns.some((colId) => {

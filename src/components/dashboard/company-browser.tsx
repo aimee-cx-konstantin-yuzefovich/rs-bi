@@ -9,6 +9,7 @@ import {
 } from "@/lib/crm-constants";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { CompanyPreview } from "./company-preview";
+import { DealPreview } from "./deal-preview";
 import { isCompanyId } from "@/lib/company-preview";
 import { CompanyColumnSelector } from "./company-column-selector";
 import { CompanyDateFilter } from "./company-date-filter";
@@ -240,6 +241,7 @@ export function CompanyBrowser() {
   } = useDashboardStore();
 
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewDealId, setPreviewDealId] = useState<string | null>(null);
   const previewTrigger = useRef<HTMLButtonElement | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -760,8 +762,30 @@ export function CompanyBrowser() {
         </div>
       </div>
 
-      {previewId && <CompanyPreview key={previewId} id={previewId} fieldsFor={previewFields}
-        onClose={() => setPreviewId(null)} onRestoreFocus={() => previewTrigger.current?.focus()} />}
+      {previewId && (
+        <CompanyPreview
+          key={previewId}
+          id={previewId}
+          fieldsFor={previewFields}
+          onClose={() => setPreviewId(null)}
+          onRestoreFocus={() => previewTrigger.current?.focus()}
+          onOpenDealPreview={(dealId) => {
+            setPreviewId(null);
+            setPreviewDealId(dealId);
+          }}
+        />
+      )}
+      {previewDealId && (
+        <DealPreview
+          key={previewDealId}
+          id={previewDealId}
+          onClose={() => setPreviewDealId(null)}
+          onOpenCompanyPreview={(companyId) => {
+            setPreviewDealId(null);
+            setPreviewId(companyId);
+          }}
+        />
+      )}
       <CompanyColumnSelector />
     </div>
   );
