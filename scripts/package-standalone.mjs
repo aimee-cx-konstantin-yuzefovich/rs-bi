@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -24,6 +24,31 @@ try {
   // Reuse engines/client already installed and generated for this platform.
   for (const name of ['.prisma/client', '@prisma/engines']) {
     cpSync(join(root, 'node_modules', name), join(staging, 'node_modules', name), { recursive: true });
+  }
+  // Turbopack externalizes @prisma/client as '@prisma/client-<hash>' (serverExternalPackages).
+  // Node <22 cannot fall back to the real package when that alias directory is absent, so
+  // every route importing the Prisma client would return HTTP 500 at runtime. Recreate the
+  // alias as a self-contained package that re-exports the generated '.prisma/client'.
+  const hashedExternals = new Set();
+  const scan = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue;
+        scan(full);
+      } else if (entry.name.endsWith('.js')) {
+        for (const match of readFileSync(full, 'utf8').matchAll(/@prisma\/client-[a-f0-9]{8,}/g)) {
+          hashedExternals.add(match[0]);
+        }
+      }
+    }
+  };
+  scan(join(staging, '.next/server'));
+  for (const alias of hashedExternals) {
+    const aliasDir = join(staging, 'node_modules', alias);
+    mkdirSync(aliasDir, { recursive: true });
+    writeFileSync(join(aliasDir, 'package.json'), JSON.stringify({ name: alias, main: './index.js' }));
+    writeFileSync(join(aliasDir, 'index.js'), "module.exports = require('@prisma/client');\n");
   }
   mkdirSync(join(staging, 'prisma'), { recursive: true });
   cpSync(join(root, 'prisma/schema.prisma'), join(staging, 'prisma/schema.prisma'));
