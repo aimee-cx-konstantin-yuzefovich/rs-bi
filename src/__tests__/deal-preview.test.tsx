@@ -385,6 +385,27 @@ describe("Deal Preview Component and Navigation", () => {
       );
       expect(res4).toBe("—");
     });
+
+    it("falls back to 'Неизвестный сотрудник' for COMPANY_RESPONSIBLE and never exposes internal responsible ID", async () => {
+      const { renderHook } = await import("@testing-library/react");
+      const { useTableState } = await import("@/hooks/use-table-state");
+      const { COMPANY_RESPONSIBLE_FIELD_ID } = await import("@/lib/crm-constants");
+
+      mockStore.companiesData = {
+        "50": { ID: "50", TITLE: "Компания", ASSIGNED_BY_ID: "999" },
+      };
+      mockStore.userNames = {};
+
+      const { result } = renderHook(() => useTableState());
+      const res = result.current.resolveValue(
+        { COMPANY_ID: "50" } as any,
+        COMPANY_RESPONSIBLE_FIELD_ID
+      );
+
+      expect(res).toBe("Неизвестный сотрудник");
+      expect(res).not.toContain("999");
+      expect(res).not.toContain("ID");
+    });
   });
 
   describe("Company enrichment failure", () => {

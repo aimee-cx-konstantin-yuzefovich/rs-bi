@@ -27,17 +27,14 @@ export async function GET(
 
   try {
     let start = 0;
-    let hasMore = true;
+    const seenStarts = new Set<number>([0]);
     const rawItems: Array<Record<string, unknown>> = [];
-    const MAX_PAGES = 100;
-    let pageCount = 0;
 
-    while (hasMore && pageCount < MAX_PAGES) {
-      pageCount++;
+    while (true) {
       const data = await bitrixPost<{
         result?: { items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>;
         total?: number;
-        next?: number;
+        next?: unknown;
       }>("crm.item.list", {
         entityTypeId: 2,
         filter: { companyId: Number(id) },
@@ -54,21 +51,29 @@ export async function GET(
 
       rawItems.push(...pageItems);
 
-      if (
-        data.next !== undefined &&
-        data.next !== null &&
-        Number(data.next) > start &&
-        pageItems.length > 0
-      ) {
-        start = Number(data.next);
-      } else if (
-        pageItems.length === 50 &&
-        (data.total === undefined || rawItems.length < data.total)
-      ) {
-        start += 50;
-      } else {
-        hasMore = false;
+      // Bitrix omits `next` when there are no more pages.
+      if (data.next === undefined || data.next === null) {
+        break;
       }
+
+      const nextRaw = data.next;
+      const nextNum = Number(nextRaw);
+
+      const isValidNext =
+        typeof nextRaw !== "boolean" &&
+        typeof nextRaw !== "object" &&
+        Number.isFinite(nextNum) &&
+        Number.isInteger(nextNum) &&
+        nextNum >= 0 &&
+        nextNum > start &&
+        !seenStarts.has(nextNum);
+
+      if (!isValidNext) {
+        throw new Error("Invalid pagination next token from Bitrix");
+      }
+
+      seenStarts.add(nextNum);
+      start = nextNum;
     }
 
     // Deduplicate by Deal ID

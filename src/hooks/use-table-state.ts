@@ -79,7 +79,7 @@ export function useTableState() {
         if (!responsibleId) return "";
 
         const userName = userNames?.[responsibleId]?.trim();
-        return userName || `ID ${responsibleId}`;
+        return userName || "Неизвестный сотрудник";
       }
 
       if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {

@@ -253,4 +253,120 @@ describe("company deals authoritative endpoint (crm.item.list)", () => {
     expect(response.status).toBe(502);
     expect(await response.text()).not.toContain("SECRET_TOKEN");
   });
+
+  it("supports more than 100 pages when valid Bitrix next token continues", async () => {
+    const totalPages = 101;
+    for (let page = 1; page <= totalPages; page++) {
+      const isLast = page === totalPages;
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: {
+              items: [{ id: page, title: `Сделка ${page}` }],
+            },
+            ...(isLast ? {} : { next: page * 50 }),
+          }),
+          { status: 200 }
+        )
+      );
+    }
+
+    const response = await request("42");
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.deals).toHaveLength(totalPages);
+    expect(fetchMock).toHaveBeenCalledTimes(totalPages);
+    expect(body.deals[0].ID).toBe("1");
+    expect(body.deals[totalPages - 1].ID).toBe(String(totalPages));
+  });
+
+  it("terminates with safe failure when Bitrix returns repeated next token", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: { items: [{ id: 1, title: "Сделка 1" }] },
+            next: 50,
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: { items: [{ id: 2, title: "Сделка 2" }] },
+            next: 50,
+          }),
+          { status: 200 }
+        )
+      );
+
+    const response = await request("42");
+    expect(response.status).toBe(502);
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBe("Не удалось загрузить сделки компании. Попробуйте ещё раз.");
+    expect(body.deals).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("terminates with safe failure when Bitrix returns decreasing next token", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: { items: [{ id: 1, title: "Сделка 1" }] },
+            next: 100,
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: { items: [{ id: 2, title: "Сделка 2" }] },
+            next: 50,
+          }),
+          { status: 200 }
+        )
+      );
+
+    const response = await request("42");
+    expect(response.status).toBe(502);
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBe("Не удалось загрузить сделки компании. Попробуйте ещё раз.");
+    expect(body.deals).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["current start (0)", 0],
+    ["negative", -10],
+    ["non-numeric string", "invalid"],
+    ["boolean", false],
+  ])("terminates with safe failure when Bitrix returns malformed next token (%s)", async (_desc, malformedNext) => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          result: { items: [{ id: 1, title: "Сделка 1" }] },
+          next: malformedNext,
+        }),
+        { status: 200 }
+      )
+    );
+
+    const response = await request("42");
+    expect(response.status).toBe(502);
+
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toBe("Не удалось загрузить сделки компании. Попробуйте ещё раз.");
+    expect(body.deals).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
