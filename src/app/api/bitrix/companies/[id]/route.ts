@@ -11,7 +11,8 @@ function companyUrl(id: string): string | null {
   try {
     const portal = new URL(BITRIX_PORTAL_URL);
     if (portal.protocol !== "https:" || portal.username || portal.password ||
-        portal.search || portal.hash || portal.pathname !== "/") return null;
+        portal.search || portal.hash || portal.pathname !== "/" ||
+        portal.hostname === "your-portal.bitrix24.ru") return null;
     return new URL(`/crm/company/details/${id}/`, portal.origin).href;
   } catch {
     return null;

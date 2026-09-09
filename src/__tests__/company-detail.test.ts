@@ -53,13 +53,13 @@ describe("company detail endpoint through the real Bitrix client", () => {
     expect((await request()).status).toBe(401);
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it.each(["", "http://portal.example", "https://user:secret@portal.example", "https://portal.example/rest/1/token", "https://portal.example/?token=secret", "https://portal.example/#secret", "bad url"])("omits unsafe/unconfigured portal %s", async (portal) => {
+  it.each(["", "http://portal.example", "https://user:secret@portal.example", "https://portal.example/rest/1/token", "https://portal.example/?token=secret", "https://portal.example/#secret", "https://your-portal.bitrix24.ru", "bad url"])("omits unsafe/unconfigured portal %s", async (portal) => {
     config.BITRIX_PORTAL_URL = portal;
     const response = await request();
     expect(response.status).toBe(200);
     expect((await response.json()).bitrixUrl).toBeNull();
   });
-  it.each([["NOT_FOUND", 400, 404], ["NOT_FOUND", 200, 404], ["ACCESS_DENIED", 400, 403], ["ACCESS_DENIED", 403, 403], ["INVALID_CREDENTIALS", 403, 502]])("maps %s HTTP %s safely", async (error, upstreamStatus, status) => {
+  it.each([["NOT_FOUND", 400, 404], ["ACCESS_DENIED", 400, 403], ["ACCESS_DENIED", 403, 502], ["INVALID_CREDENTIALS", 403, 502]])("maps %s HTTP %s safely", async (error, upstreamStatus, status) => {
     upstream({ error, error_description: webhook }, Number(upstreamStatus));
     const response = await request();
     expect(response.status).toBe(status);

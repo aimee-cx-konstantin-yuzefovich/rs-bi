@@ -194,11 +194,12 @@ export async function bitrixPost<T = unknown>(
       signal: AbortSignal.timeout(30_000), // 30s timeout for POST (may need longer for pagination)
     });
 
-    // Universal CRM errors may arrive with HTTP 400. Inspect only this new
-    // method here so legacy methods keep their existing response behavior.
+    // Universal CRM item-level errors are documented as HTTP 400. Restrict
+    // the special mapping to that status so system-level 403 ACCESS_DENIED
+    // remains a generic integration failure instead of a company permission error.
     if (method === "crm.item.get") {
       const data = await response.json();
-      if (data.error === "NOT_FOUND" || data.error === "ACCESS_DENIED") {
+      if (response.status === 400 && (data.error === "NOT_FOUND" || data.error === "ACCESS_DENIED")) {
         throw new BitrixItemError(data.error);
       }
       if (!response.ok || data.error) throw new Error("CRM item request failed.");
