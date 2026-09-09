@@ -29,8 +29,6 @@ function validateCompanyListRequest(body: unknown): CompanyListRequestBody {
 
   let responsibleId: string | undefined;
   if (raw.responsibleId !== undefined && raw.responsibleId !== null && raw.responsibleId !== "all") {
-    // "0" is never a valid Bitrix user ID — reject it the same way
-    // src/app/api/bitrix/companies/route.ts's normalizeIds does.
     if (typeof raw.responsibleId !== "string" || !/^\d+$/.test(raw.responsibleId) || raw.responsibleId === "0") {
       throw new Error("Parameter 'responsibleId' must be a numeric string or 'all'");
     }
@@ -58,12 +56,7 @@ function validateCompanyListRequest(body: unknown): CompanyListRequestBody {
 
 /**
  * POST /api/bitrix/companies/list
- *
  * Direct company query, independent of the deals dataset.
- * Unlike the deals-derived company cache (/api/bitrix/companies), this always
- * reports Bitrix24's real `total` for the given responsible filter — including
- * companies that have no deals at all — so counts match what you see inside
- * Bitrix24 itself.
  */
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth();
@@ -90,9 +83,8 @@ export async function POST(request: NextRequest) {
 
     const { responsibleId, select } = validateCompanyListRequest(body);
 
-    // Cap the FINAL field set (not just the client-supplied array) — ID/TITLE/
-    // ASSIGNED_BY_ID are always forced in, so validating only the input array
-    // could let the real request exceed MAX_SELECT_FIELDS.
+    // TITLE is mandatory for the Companies UI: company names must come from
+    // Bitrix TITLE and must never be replaced by the internal company ID.
     const SELECT = [...new Set(["ID", "TITLE", "ASSIGNED_BY_ID", ...(select || [])])];
     if (SELECT.length > MAX_SELECT_FIELDS) {
       throw new Error(`Parameter 'select' exceeds maximum of ${MAX_SELECT_FIELDS} fields`);
@@ -105,14 +97,7 @@ export async function POST(request: NextRequest) {
     );
 
     let companies = firstPage.result || [];
-    // This is the true Bitrix24 total for the filter — not derived from any
-    // locally-loaded deals — so it's what should match the count you see
-    // filtering companies directly inside Bitrix24.
     const bitrixTotal = firstPage.total ?? companies.length;
-
-    // Track failed pages separately from the intentional MAX_COMPANIES_TO_FETCH
-    // cap — a transient Bitrix/network failure should never be reported to the
-    // user as if it were the expected, disclosed truncation.
     let failedPages = 0;
 
     if (firstPage.next && bitrixTotal > 50) {
@@ -143,6 +128,11 @@ export async function POST(request: NextRequest) {
         }
       }
     }
+
+    companies = companies.map((company) => {
+      const title = typeof company.TITLE === "string" ? company.TITLE.trim() : "";
+      return { ...company, TITLE: title || "Без названия" };
+    });
 
     const cappedByLimit = bitrixTotal > MAX_COMPANIES_TO_FETCH;
     const truncated = bitrixTotal > companies.length;
