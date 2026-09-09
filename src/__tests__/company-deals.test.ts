@@ -94,6 +94,22 @@ describe("company deals authoritative endpoint (crm.item.list)", () => {
     expect(body.deals).toEqual([]);
   });
 
+  it.each([
+    ["result is null", { result: null }],
+    ["result lacks items", { result: { foo: "bar" } }],
+  ])("fails safely when %s instead of claiming zero deals", async (_desc, malformed) => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify(malformed), { status: 200 })
+    );
+
+    const response = await request("42");
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.deals).toBeUndefined();
+    expect(body.error).toBe("Не удалось загрузить сделки компании. Попробуйте ещё раз.");
+  });
+
   it("handles multiple deals and correctly normalizes them", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(

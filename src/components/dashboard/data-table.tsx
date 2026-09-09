@@ -918,7 +918,9 @@ function CellValue({
   if (colId === RESPONSIBLE_FIELD_ID) {
     const userId = String(deal?.ASSIGNED_BY_ID || "").trim();
     if (userId) {
-      if (userNamesLoading && resolved === `ID ${userId}`) {
+      // Show a skeleton while the user-name dictionary is still loading and no
+      // human name could be resolved yet (prevents flashing "Неизвестный сотрудник").
+      if (userNamesLoading && resolved.trim() === "Неизвестный сотрудник") {
         return <Skeleton className="h-4 w-28 rounded" />;
       }
       return (
@@ -930,9 +932,6 @@ function CellValue({
   }
 
   if (colId === COMPANY_RESPONSIBLE_FIELD_ID) {
-    if (userNamesLoading && resolved.startsWith("ID ")) {
-      return <Skeleton className="h-4 w-28 rounded" />;
-    }
     return (
       <span className="text-xs">
         {resolved}
