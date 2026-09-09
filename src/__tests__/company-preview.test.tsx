@@ -23,10 +23,13 @@ const ok = (body: unknown = detail()) => ({ ok: true, json: async () => body });
 beforeEach(() => { vi.stubGlobal("fetch", fetchMock); fetchMock.mockResolvedValue(ok()); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); fetchMock.mockReset(); });
 
-it("opens a data row, loads fresh details and preserves the table on close/reopen", async () => {
+it("opens a data row, uses real Bitrix company names and preserves the table on close/reopen", async () => {
   render(<CompanyBrowser />);
+  expect(screen.getByRole("button", { name: "Компания из таблицы" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "ID 42" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("cell", { name: "Анна" }));
   expect(await screen.findByRole("heading", { name: "Свежая компания" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Компания 42" })).not.toBeInTheDocument();
   expect(screen.getByText("+70000000000")).toBeInTheDocument();
   const link = screen.getByRole("link", { name: "Открыть карточку в Bitrix24" });
   expect(link).toHaveAttribute("href", "https://portal.example/crm/company/details/42/");
@@ -37,6 +40,13 @@ it("opens a data row, loads fresh details and preserves the table on close/reope
   fireEvent.click(trigger);
   await screen.findByRole("heading", { name: "Свежая компания" });
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("never substitutes the internal company ID for a missing drawer title", async () => {
+  fetchMock.mockResolvedValue(ok(detail("42", "")));
+  render(<CompanyPreview id="42" onClose={() => {}} fieldsFor={() => []} />);
+  expect(await screen.findByRole("heading", { name: "Без названия" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Компания 42" })).not.toBeInTheDocument();
 });
 
 it("does not open the drawer from table controls", () => {

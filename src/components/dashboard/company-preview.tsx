@@ -52,7 +52,7 @@ export function CompanyPreview({ id, onClose, onRestoreFocus, fieldsFor }: {
         onCloseAutoFocus={(event) => { if (onRestoreFocus) { event.preventDefault(); onRestoreFocus(); } }}>
         <SheetHeader>
           <SheetTitle className="pr-6 break-words">
-            {state.status === "success" ? String(state.company.TITLE || `Компания ${id}`) : "Компания"}
+            {state.status === "success" ? String(state.company.TITLE || "").trim() || "Без названия" : "Компания"}
           </SheetTitle>
           <SheetDescription>Просмотр компании · ID {id}</SheetDescription>
         </SheetHeader>

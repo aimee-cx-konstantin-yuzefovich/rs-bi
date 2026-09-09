@@ -4,5 +4,6 @@ import "server-only";
 export const WP_LOGIN_URL =
   process.env.WP_LOGIN_URL || "https://bi-terminal.rus-silica.com/wp-login.php";
 
-/** Public portal origin, configured only on the server. */
-export const BITRIX_PORTAL_URL = process.env.BITRIX_PORTAL_URL || "";
+/** Public Bitrix portal origin, non-secret. */
+export const BITRIX_PORTAL_URL =
+  process.env.BITRIX_PORTAL_URL || "https://russilica.bitrix24.ru";
