@@ -79,7 +79,7 @@ function resolveCompanyValue(
   field?: CompanyFieldMeta
 ): string {
   if (colId === "TITLE") {
-    return String(company.TITLE || "").trim() || `ID ${company.ID ?? ""}`;
+    return String(company.TITLE || "").trim() || "Без названия";
   }
 
   // Person-reference ID fields — resolve to a name via userNames instead of

@@ -49,6 +49,18 @@ it("never substitutes the internal company ID for a missing drawer title", async
   expect(screen.queryByRole("heading", { name: "Компания 42" })).not.toBeInTheDocument();
 });
 
+it("never substitutes the internal company ID for a missing table title", () => {
+  const previousItems = store.companyBrowserItems;
+  store.companyBrowserItems = [{ ID: "42", TITLE: "", ASSIGNED_BY_ID: "7" }];
+  try {
+    render(<CompanyBrowser />);
+    expect(screen.getByRole("button", { name: "Без названия" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^(ID 42|42|Компания 42)$/ })).not.toBeInTheDocument();
+  } finally {
+    store.companyBrowserItems = previousItems;
+  }
+});
+
 it("does not open the drawer from table controls", () => {
   const { container } = render(<CompanyBrowser />);
   fireEvent.click(screen.getByRole("button", { name: "Столбцы" }));
