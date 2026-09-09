@@ -157,6 +157,7 @@ describe("Deal Preview Component and Navigation", () => {
     const link = screen.getByRole("link", { name: "Открыть сделку в Bitrix24" });
     expect(link).toHaveAttribute("href", "https://russilica.bitrix24.ru/crm/deal/details/101/");
     expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
 
     // Associated company shows real title in drawer (and table) and never company ID
     expect(screen.getAllByText("Компания из таблицы").length).toBeGreaterThanOrEqual(2);
@@ -214,6 +215,78 @@ describe("Deal Preview Component and Navigation", () => {
     // Drawer still displays Deal B, not Deal A
     expect(screen.getByRole("heading", { name: "Сделка B" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Сделка A" })).not.toBeInTheDocument();
+  });
+
+  it("is race-condition safe with three deals resolving out of order (C → A → B keeps C)", async () => {
+    let resolveA: (v: any) => void = () => {};
+    let resolveB: (v: any) => void = () => {};
+    const promiseA = new Promise((resolve) => { resolveA = resolve; });
+    const promiseB = new Promise((resolve) => { resolveB = resolve; });
+
+    fetchMock
+      .mockImplementationOnce(() => promiseA) // request for A (id 101)
+      .mockImplementationOnce(() => promiseB) // request for B (id 102)
+      .mockImplementationOnce(() => Promise.resolve(ok(dealDetail("103", "Сделка C", "Компания C")))); // C returns immediately
+
+    const { rerender } = render(<DealPreview id="101" onClose={() => {}} />);
+
+    // Click B while A is pending, then C
+    rerender(<DealPreview id="102" onClose={() => {}} />);
+    rerender(<DealPreview id="103" onClose={() => {}} />);
+
+    expect(await screen.findByRole("heading", { name: "Сделка C" })).toBeInTheDocument();
+
+    // Late resolutions arrive in order A then B — neither may replace C
+    await act(async () => {
+      resolveA(ok(dealDetail("101", "Сделка A", "Компания A")));
+    });
+    await act(async () => {
+      resolveB(ok(dealDetail("102", "Сделка B", "Компания B")));
+    });
+
+    expect(screen.getByRole("heading", { name: "Сделка C" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Сделка A" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Сделка B" })).not.toBeInTheDocument();
+  });
+
+  it("is race-condition safe when the stale request fails after a newer one succeeded", async () => {
+    let rejectA: (e: unknown) => void = () => {};
+    const promiseA = new Promise((_resolve, reject) => {
+      rejectA = reject;
+    });
+
+    fetchMock
+      .mockImplementationOnce(() => promiseA)
+      .mockImplementationOnce(() => Promise.resolve(ok(dealDetail("102", "Сделка B", "Компания B"))));
+
+    const { rerender } = render(<DealPreview id="101" onClose={() => {}} />);
+    rerender(<DealPreview id="102" onClose={() => {}} />);
+
+    expect(await screen.findByRole("heading", { name: "Сделка B" })).toBeInTheDocument();
+
+    await act(async () => {
+      rejectA(new Error("stale failure"));
+    });
+
+    // B must remain; the failed stale request must not flip the drawer to an error state
+    expect(screen.getByRole("heading", { name: "Сделка B" })).toBeInTheDocument();
+  });
+
+  it("does not open the drawer when clicking sort header or pagination controls", async () => {
+    render(<DataTable />);
+
+    // Sort header toggle is a button → row-click guard must keep drawer closed
+    fireEvent.click(screen.getAllByTitle("Сортировка по алфавиту")[0]);
+    expect(screen.queryByText("Просмотр сделки · ID 101")).not.toBeInTheDocument();
+
+    // Pagination next button
+    const nextButtons = screen.getAllByRole("button");
+    fireEvent.click(nextButtons[nextButtons.length - 1]);
+    expect(screen.queryByText("Просмотр сделки · ID 101")).not.toBeInTheDocument();
+
+    // Plain row click (not on the TITLE button) opens the preview
+    fireEvent.click(screen.getAllByRole("row")[1]);
+    expect(await screen.findByText("Просмотр сделки · ID 101")).toBeInTheDocument();
   });
 
   it("Company Preview shows related deals with real deal titles and navigation", async () => {
@@ -405,6 +478,24 @@ describe("Deal Preview Component and Navigation", () => {
       expect(res).toBe("Неизвестный сотрудник");
       expect(res).not.toContain("999");
       expect(res).not.toContain("ID");
+    });
+
+    it("never exposes the deal responsible user ID when the name is unknown", async () => {
+      const { renderHook } = await import("@testing-library/react");
+      const { useTableState } = await import("@/hooks/use-table-state");
+      const { RESPONSIBLE_FIELD_ID } = await import("@/lib/crm-constants");
+
+      mockStore.userNames = {}; // responsible not in dictionary
+
+      const { result } = renderHook(() => useTableState());
+      const res = result.current.resolveValue(
+        { ASSIGNED_BY_ID: "7" } as any,
+        RESPONSIBLE_FIELD_ID
+      );
+
+      expect(res).toBe("Неизвестный сотрудник");
+      expect(res).not.toContain("7");
+      expect(res).not.toContain("ID 7");
     });
   });
 

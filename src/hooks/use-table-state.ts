@@ -155,7 +155,8 @@ export function useTableState() {
         const userName = userNames[id]?.trim();
         const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
 
-        return userName || dealName || `ID ${id}`;
+        // Never expose the internal user ID as a human name (QA invariant).
+        return userName || dealName || "Неизвестный сотрудник";
       }
 
       if (field?.listValues && raw) {

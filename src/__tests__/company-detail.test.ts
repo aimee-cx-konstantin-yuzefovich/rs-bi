@@ -77,6 +77,7 @@ describe("company detail endpoint through the real Bitrix client", () => {
   });
   it("does not allow additional universal methods", async () => {
     await expect(bitrixPost("crm.item.delete")).rejects.toThrow("Invalid request parameters");
+    await expect(bitrixPost("crm.item.update")).rejects.toThrow("Invalid request parameters");
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it("retains HTTPS validation", async () => {

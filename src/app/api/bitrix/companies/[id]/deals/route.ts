@@ -43,6 +43,17 @@ export async function GET(
         start,
       });
 
+      // A malformed result envelope (null / object without items) means the
+      // Bitrix response was corrupted. Treat it as a transport-level failure —
+      // NEVER as an authoritative "zero deals" answer.
+      const hasValidEnvelope =
+        Array.isArray(data.result) ||
+        (data.result !== null && typeof data.result === "object" && Array.isArray(data.result.items));
+
+      if (!hasValidEnvelope) {
+        throw new Error("Invalid crm.item.list result envelope from Bitrix");
+      }
+
       const pageItems = Array.isArray(data.result)
         ? data.result
         : Array.isArray(data.result?.items)

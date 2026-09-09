@@ -124,7 +124,7 @@ describe("deal detail endpoint through Bitrix universal CRM client", () => {
     expect(JSON.stringify(body)).not.toContain("SECRET_TOKEN");
   });
 
-  it.each(["0", "00", "01", "-1", "1.5", "1e2", " 42", "42/foo", "9007199254740992"])(
+  it.each(["0", "00", "01", "-1", "1.5", "1e2", "abc", " 42", "42/foo", "9007199254740992"])(
     "rejects invalid ID %s before CRM access",
     async (id) => {
       const res = await request(id);
@@ -132,6 +132,22 @@ describe("deal detail endpoint through Bitrix universal CRM client", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     }
   );
+
+  it("fails safely when Bitrix returns a different deal ID than requested", async () => {
+    upstream({
+      result: {
+        item: {
+          id: 43, // mismatch: request was for 42
+          title: "Чужая сделка",
+        },
+      },
+    });
+    const res = await request("42");
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(JSON.stringify(body)).not.toContain("Чужая сделка");
+  });
 
   it("requires authentication", async () => {
     auth.requireAuth.mockResolvedValue(NextResponse.json({ success: false }, { status: 401 }));
