@@ -2,7 +2,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useLoginRedirect } from "@/hooks/use-login-redirect";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { CompanyBrowser } from "@/components/dashboard/company-browser";
@@ -10,7 +11,6 @@ import { BarChart3, ArrowLeft } from "lucide-react";
 
 function CompaniesContent() {
   const { data: session, status } = useSession();
-  const router = useRouter();
   const rawSearchParams = useSearchParams();
   const {
     fields,
@@ -25,11 +25,7 @@ function CompaniesContent() {
   } = useDashboardStore();
   const [appliedUrlResponsible, setAppliedUrlResponsible] = useState(false);
 
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.replace("/login");
-    }
-  }, [status, router]);
+  useLoginRedirect(status, session?.error);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -40,7 +36,6 @@ function CompaniesContent() {
     // source of truth — real company ownership, scanned directly from
     // crm.company.list, independent of the deals dataset.
     if (Object.keys(companyResponsibleCounts).length === 0) fetchCompanyResponsibleCounts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, fields.length]);
 
   // Deep link from the main deals table's "Ответственный компании" filter:

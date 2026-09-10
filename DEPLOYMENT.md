@@ -12,14 +12,14 @@ build onto Linux: Next.js, Sharp and Prisma contain native binaries.
 For the PM2 host, run `DEPLOY_ARCH=x64 bash build-deploy.sh` on Debian-compatible
 Linux with OpenSSL 3, Node 20.19+ and zip installed. Use `DEPLOY_ARCH=arm64` only
 when both the builder and production host are arm64. Confirm the host with
-`node -p process.arch`; GitFlic's build runner must match. Set `DEPLOY_ARCH` in
-GitFlic CI variables. The CI build image is Debian Bookworm; Docker uses matching
+`node -p process.arch`; the build runner must match. Set `DEPLOY_ARCH` in
+CI environment variables. The recommended Linux build image is Debian Bookworm; Docker uses matching
 Alpine build/runtime stages instead. Do not treat locally validated macOS artifacts
 as Linux production artifacts.
 
 Export `NEXT_PUBLIC_WP_LOGIN_URL` before building if it differs from the documented
 default. This public value is embedded at build time. Runtime `.env` changes cannot
-change it. The manual/CI builder copies an explicit source set into a temporary
+change it. The builder copies an explicit source set into a temporary
 directory, installs with `npm ci`, generates Prisma, builds with disposable auth
 values, and creates a fresh `deploy-prod.zip`. Production secrets and the Bitrix
 webhook are not needed for a build. Build-only auth values are not runtime defaults.
@@ -32,10 +32,10 @@ that the Prisma CLI and its dependencies are available. Installation happens on 
 builder; migration/startup never runs `npx` or downloads dependencies.
 
 `sh scripts/verify-deploy-artifact.sh <artifact-root>` is the reusable artifact
-contract check. Packaging runs it before accepting `.next/deploy`; GitFlic runs it
+contract check. Packaging runs it before accepting `.next/deploy`; deployment runs it
 again after artifact transfer and extraction, before `rsync --delete`. It rejects a
 missing runtime file, missing Prisma migration lock/SQL, and project `.env`,
-SQLite/database or private-key files outside `node_modules`. GitFlic also runs
+SQLite/database or private-key files outside `node_modules`. Run
 `unzip -tq` before extraction so a corrupted ZIP cannot reach production
 synchronization.
 
@@ -96,7 +96,7 @@ operator procedure before the first deploy/restart using the new migrations:
 4. Run `NODE_ENV=production node scripts/migrate-deploy.mjs`, check that audit/nonce
    records remain intact, then restart. No automatic baselining is implemented.
 
-## Existing PM2 and GitFlic deployment
+## Existing PM2 deployment
 
 Set production variables using `.env.example` as documentation; do not copy its
 placeholder values over the live `.env`.
@@ -118,8 +118,8 @@ the existing database. From the application directory run:
 NODE_ENV=production node scripts/migrate-deploy.mjs && pm2 restart bi-terminal --update-env
 ```
 
-GitFlic applies the same artifact checks, protected rsync and migration/restart
-sequence automatically for main/master. Failed ZIP/artifact validation or failed
+Automated deployment pipelines apply the same artifact checks, protected rsync and migration/restart
+sequence automatically for main. Failed ZIP/artifact validation or failed
 migrations stop the job before restart. The existing in-place rsync/PM2 deployment
 is not atomic; a failure after synchronization can leave updated files on disk.
 Keep a previous artifact and database backup and schedule the first baseline rollout
@@ -164,7 +164,7 @@ migrations, baseline verification and record preservation.
 Run `sh scripts/qa-deployment.sh` to repeat the lightweight deployment regression
 suite. It verifies runtime-secret rejection, valid/invalid artifact cases including
 missing migration SQL, and `.env`/SQLite preservation under the same rsync exclusion
-rules used by GitFlic. The script is repository QA tooling and is not required in the
+rules used during deployment. The script is repository QA tooling and is not required in the
 production artifact.
 
 Deployment QA should also repeat these negative cases:

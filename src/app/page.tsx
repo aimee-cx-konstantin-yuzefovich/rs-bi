@@ -2,7 +2,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useLoginRedirect } from "@/hooks/use-login-redirect";
+import { useSearchParams } from "next/navigation";
 import { useQueryStates } from "nuqs";
 import { searchParams } from "@/lib/search-params";
 import { useDashboardStore } from "@/store/dashboard-store";
@@ -12,6 +13,7 @@ import { DataTable } from "@/components/dashboard/data-table";
 import { ColumnSelector } from "@/components/dashboard/column-selector";
 import { ConfigBanner } from "@/components/dashboard/config-banner";
 import { Footer } from "@/components/dashboard/footer";
+import { INITIAL_STARTUP, runDashboardStartup, type StartupState } from "@/lib/dashboard-startup";
 import { LoadingScreen } from "@/components/dashboard/loading-screen";
 import { BarChart3, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,27 +24,14 @@ const AUTH_LOADING_TIMEOUT_MS = 15_000;
 
 function DashboardContent() {
   const { data: session, status } = useSession();
-  const router = useRouter();
   const rawSearchParams = useSearchParams();
   const [urlState] = useQueryStates(searchParams);
   const { checkConfig, fetchFields, fetchDeals, isDemoMode, appLoaded, dealsError, syncData, syncUrlState } = useDashboardStore();
   const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
   const [isUrlSynced, setIsUrlSynced] = useState(false);
+  const [startup, setStartup] = useState<StartupState>(INITIAL_STARTUP);
 
-  // Redirect unauthenticated users to login
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.replace("/login");
-    }
-  }, [status, router]);
-
-  // Handle session invalidation (password changed, account deactivated, etc.)
-  // Note: session.error is not currently set by auth callbacks, but kept for future use
-  useEffect(() => {
-    if (session && session.error === "SessionInvalid") {
-      router.replace("/login");
-    }
-  }, [session, router]);
+  useLoginRedirect(status, session?.error);
 
   // Timeout for auth loading state — prevents infinite spinner
   useEffect(() => {
@@ -78,18 +67,14 @@ function DashboardContent() {
   useEffect(() => {
     if (status !== "authenticated" || !isUrlSynced) return;
 
-    const init = async () => {
-      try {
-        await checkConfig();
-        await fetchFields();
-        await fetchDeals();
-      } catch (error) {
-        // Each individual fetch has its own error handling (falls back to demo mode),
-        // but catch here to prevent unhandled promise rejection
-        console.error("[Dashboard] Init error:", error);
-      }
-    };
-    init();
+    let cancelled = false;
+    void runDashboardStartup(
+      [checkConfig, fetchFields, fetchDeals],
+      useDashboardStore.getState,
+      setStartup,
+      () => cancelled,
+    );
+    return () => { cancelled = true; };
   }, [status, isUrlSynced, checkConfig, fetchFields, fetchDeals]);
 
   // Show loading while checking auth
@@ -104,8 +89,8 @@ function DashboardContent() {
 
   return (
     <>
-      <LoadingScreen />
-      <div className={`min-h-screen flex flex-col bg-background transition-opacity duration-300 ${appLoaded ? "opacity-100" : "opacity-0"}`}>
+      <LoadingScreen startup={startup} />
+      <div inert={!appLoaded} aria-hidden={!appLoaded} className={`min-h-screen flex flex-col bg-background transition-opacity duration-200 motion-reduce:transition-none ${appLoaded || startup.finished ? "opacity-100" : "h-dvh overflow-hidden opacity-0 [contain:strict]"}`}>
         <Header />
         <main className="flex-1 flex flex-col min-h-0">
           <ConfigBanner />

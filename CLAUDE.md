@@ -103,7 +103,7 @@ deliberately `false`, don't disable it).
 - Production runs the Next.js **standalone** output via `node server.js` — not `next start`, not Vercel.
   `npm run build` explicitly copies `.next/static` and `public/` into `.next/standalone/` because standalone
   mode doesn't include them by default.
-- Host deploy paths: `.gitflic-ci.yaml` builds a Linux ZIP through `build-deploy.sh`,
+- Host deploy paths: `build-deploy.sh` builds a Linux ZIP for PM2 deployment,
   rsyncs with environment/database exclusions, runs the packaged migration CLI, then
   restarts PM2. Manual ZIP builds require matching Debian/OpenSSL 3 Linux and
   `DEPLOY_ARCH`. `.env*` and SQLite files never belong in deployment artifacts.

@@ -28,7 +28,6 @@
       "tsconfig.json",
       "Dockerfile",
       "docker-compose.yml",
-      ".gitflic-ci.yaml",
       "wordpress-headless-auth.php",
       "test-users.ts"
     ]
