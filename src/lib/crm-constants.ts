@@ -16,6 +16,51 @@ export const COMPANY_RESPONSIBLE_FIELD_TITLE = "Ответственный ко�
 export const COMPANY_SAMPLES_FIELD_ID = "UF_CRM_1753187313314";
 export const COMPANY_SAMPLES_FIELD_TITLE = "Образцы";
 
+// ─── Samples v1 field map (src/lib/samples/*) ────────────────────────
+// All sample-related Company/Deal field IDs in one place so the Samples
+// domain layer and future live-metadata revalidation have a single source.
+
+// Company "Дата передачи образцов" — MULTIPLE date (legacy, still populated)
+export const COMPANY_SAMPLES_DATE_MULTI_FIELD_ID = "UF_CRM_1764156557536";
+// Company "Дата передачи образцов" — SINGLE date (newer re-created field with
+// the same title; both must be read and cross-checked, never one preferred)
+export const COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID = "UF_CRM_1783429999269";
+
+// Company "Марка предоставленных образцов (ГЕЛЬ)" / "(ЗОЛЬ)"
+export const COMPANY_SAMPLES_GRADE_GEL_FIELD_ID = "UF_CRM_1764155817232";
+export const COMPANY_SAMPLES_GRADE_SOL_FIELD_ID = "UF_CRM_1764155891815";
+
+// Company "Кол-во переданного образца (ГЕЛЬ) кг" / "(ЗОЛЬ) л"
+export const COMPANY_SAMPLES_QTY_GEL_FIELD_ID = "UF_CRM_1764156004815";
+export const COMPANY_SAMPLES_QTY_SOL_FIELD_ID = "UF_CRM_1764156064272";
+export const COMPANY_SAMPLES_QTY_GEL_UNIT = "кг";
+export const COMPANY_SAMPLES_QTY_SOL_UNIT = "л";
+
+// Company "Результат испытаний" (free text / enum — preserved verbatim)
+export const COMPANY_TEST_RESULT_FIELD_ID = "UF_CRM_1764156593";
+
+// Company "Тип продукта" (multiple enum: Гель/Золь/…)
+export const COMPANY_PRODUCT_TYPE_FIELD_ID = "UF_CRM_69257BBAB86F6";
+
+// Company "Область применения" — newer field takes display priority
+export const COMPANY_APPLICATION_NEW_FIELD_ID = "UF_CRM_1781806326214";
+export const COMPANY_APPLICATION_OLD_FIELD_ID = "UF_CRM_69257337B8025";
+// Company "Направление" (multiple enum)
+export const COMPANY_DIRECTION_FIELD_ID = "UF_CRM_69259C45D3399";
+
+// Deal "Передача образцов" (enum)
+export const DEAL_SAMPLE_TRANSFER_FIELD_ID = "UF_CRM_1779386185";
+// Deal "Тестирование образцов" (enum, possibly multiple)
+export const DEAL_SAMPLE_TESTING_FIELD_ID = "UF_CRM_1779394379";
+// Deal "Дата отправки образцов" (date)
+export const DEAL_SAMPLE_SENT_DATE_FIELD_ID = "UF_CRM_1774879952785";
+// Deal "Детали по образцам для ТВЛ" (string)
+export const DEAL_SAMPLE_TVL_DETAILS_FIELD_ID = "UF_CRM_1774880017";
+// Deal "Марка и объём поставки" (string)
+export const DEAL_SAMPLE_MARK_VOLUME_FIELD_ID = "UF_CRM_1779384164284";
+// Deal "Направление" (multiple enum)
+export const DEAL_DIRECTION_FIELD_ID = "UF_CRM_6915D8C328208";
+
 export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "COMPANY_TITLE",
   // NEW — guaranteed defaults for the Companies browser (required fields:
