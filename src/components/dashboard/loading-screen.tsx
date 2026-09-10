@@ -37,11 +37,11 @@ export function LoadingScreen({ startup }: { startup: StartupState }) {
         setDismounted(true);
       }
     };
-    motion.addEventListener("change", onChange);
+    motion.addEventListener?.("change", onChange);
     return () => {
       clearTimeout(readyTimer);
       clearTimeout(unmountTimer);
-      motion.removeEventListener("change", onChange);
+      motion.removeEventListener?.("change", onChange);
     };
   }, [closing, dismounted, setAppLoaded]);
 
