@@ -14,8 +14,15 @@ import { safeLoginDestination } from "@/lib/login-navigation";
 
 const inputClass = "h-12 rounded-lg border-slate-400 bg-white dark:bg-white px-4 text-base md:text-base text-slate-900 placeholder:text-slate-500 focus-visible:border-[#1A52A3] focus-visible:ring-[#1A52A3]/40";
 const linkClass = "rounded-sm text-[#1A52A3] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1A52A3]";
-const recoveryUrl = new URL(WP_LOGIN_URL_CLIENT);
-recoveryUrl.searchParams.set("action", "lostpassword");
+const recoveryUrl = (() => {
+  try {
+    const url = new URL(WP_LOGIN_URL_CLIENT, "https://bi-terminal.rus-silica.com");
+    url.searchParams.set("action", "lostpassword");
+    return url.toString();
+  } catch {
+    return "https://bi-terminal.rus-silica.com/wp-login.php?action=lostpassword";
+  }
+})();
 
 function LoginForm() {
   const router = useRouter();

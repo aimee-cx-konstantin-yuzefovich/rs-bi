@@ -5,8 +5,9 @@ import { LOGIN_ERRORS, type LoginErrorCode } from "@/lib/login-errors";
 
 export async function POST(request: Request) {
   let email: string | undefined;
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || undefined;
   async function fail(code: LoginErrorCode, status: number) {
-    await auditLog("LOGIN_FAILED_WP", { email, reason: code });
+    await auditLog("LOGIN_FAILED_WP", { email, reason: code, ip }, ip);
     return NextResponse.json({ success: false, error: LOGIN_ERRORS[code], code }, {
       status, headers: { "Cache-Control": "no-store" },
     });
