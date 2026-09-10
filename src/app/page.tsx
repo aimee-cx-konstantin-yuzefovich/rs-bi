@@ -82,7 +82,13 @@ function DashboardContent() {
     };
 
     void runDashboardStartup(
-      [checkConfig, fetchFields, fetchDeals, fetchRelated, prepareInterface],
+      [
+        checkConfig,
+        fetchFields,
+        () => useDashboardStore.getState().fetchDeals({ skipRelated: true }),
+        fetchRelated,
+        prepareInterface,
+      ],
       useDashboardStore.getState,
       setStartup,
       () => cancelled,

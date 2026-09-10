@@ -8,6 +8,7 @@ type CompanyRecord = Record<string, any>;
 
 const BATCH_SIZE = 50;
 const FALLBACK_GET_CONCURRENCY = 5;
+const MAX_FALLBACK_IDS = 15;
 
 function normalizeIds(ids: unknown): string[] {
   if (!Array.isArray(ids)) return [];
@@ -107,11 +108,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2) Fallback per-ID get for unresolved titles
+    // 2) Fallback per-ID get for unresolved titles (capped to prevent rate-limit flooding)
     const unresolvedIds = ids.filter((id) => !String(companiesMap[id]?.TITLE || "").trim());
+    const fallbackIds = unresolvedIds.slice(0, MAX_FALLBACK_IDS);
 
-    for (let i = 0; i < unresolvedIds.length; i += FALLBACK_GET_CONCURRENCY) {
-      const chunk = unresolvedIds.slice(i, i + FALLBACK_GET_CONCURRENCY);
+    for (let i = 0; i < fallbackIds.length; i += FALLBACK_GET_CONCURRENCY) {
+      const chunk = fallbackIds.slice(i, i + FALLBACK_GET_CONCURRENCY);
 
       const results = await Promise.allSettled(
         chunk.map((id) => fetchCompanyById(id, select))

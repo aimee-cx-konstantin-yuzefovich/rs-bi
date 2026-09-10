@@ -172,7 +172,7 @@ interface DashboardState {
   // ─── Actions ───
   checkConfig: () => Promise<void>;
   fetchFields: () => Promise<void>;
-  fetchDeals: () => Promise<void>;
+  fetchDeals: (options?: { skipRelated?: boolean }) => Promise<void>;
   loadDemoData: () => void;
   setSelectedColumns: (columns: string[]) => void;
   toggleColumn: (columnId: string) => void;
@@ -269,6 +269,11 @@ const sortColumns = (columns: string[]) => {
 // Guards fetchCompanyBrowser against out-of-order responses: only the result
 // of the most recently *started* call is ever applied to the store.
 let companyBrowserRequestSeq = 0;
+
+// Guards background entity fetchers against duplicate concurrent requests (Promise coalescing)
+let inFlightCompaniesPromise: Promise<void> | null = null;
+let inFlightActivitiesPromise: Promise<void> | null = null;
+let inFlightUsersPromise: Promise<void> | null = null;
 
 export const useDashboardStore = create<DashboardState>()(
   persist(
@@ -428,7 +433,7 @@ export const useDashboardStore = create<DashboardState>()(
         }
       },
 
-      fetchDeals: async () => {
+      fetchDeals: async (options?: { skipRelated?: boolean }) => {
         set({ dealsLoading: true, dealsError: null });
         try {
           const { dateFilter, selectedColumns } = get();
@@ -484,12 +489,15 @@ export const useDashboardStore = create<DashboardState>()(
             lastSyncAt: Date.now(),
           });
           get().applyClientFilters();
-          // Fetch user names for responsible persons (non-blocking)
-          get().fetchUserNames();
-          // Fetch companies data (non-blocking)
-          get().fetchCompaniesData();
-          // Fetch activities data (non-blocking)
-          get().fetchActivitiesData();
+
+          if (!options?.skipRelated) {
+            // Fetch user names for responsible persons (non-blocking)
+            get().fetchUserNames();
+            // Fetch companies data (non-blocking)
+            get().fetchCompaniesData();
+            // Fetch activities data (non-blocking)
+            get().fetchActivitiesData();
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : "Не удалось загрузить данные";
           set({
@@ -796,8 +804,13 @@ export const useDashboardStore = create<DashboardState>()(
       markAlertsAsRead: () => set({ lastReadAlertsAt: Date.now() }),
 
       fetchUserNames: async () => {
-        const { isDemoMode, userNames } = get();
+        if (inFlightUsersPromise) {
+          return inFlightUsersPromise;
+        }
+
+        const { isDemoMode } = get();
         set({ userNamesLoading: true });
+
         // In demo mode, use the demo responsible persons
         if (isDemoMode) {
           const { RESPONSIBLE_PERSONS } = await import("@/lib/demo-data");
@@ -808,26 +821,40 @@ export const useDashboardStore = create<DashboardState>()(
           set({ userNames: demoNames, userNamesLoading: false });
           return;
         }
-        try {
-          const response = await fetchWithTimeout(`/api/bitrix/users`);
-          if (!response.ok) {
-            console.warn("[Dashboard] Failed to fetch user names: API returned", response.status);
+
+        inFlightUsersPromise = (async () => {
+          try {
+            const response = await fetchWithTimeout(`/api/bitrix/users`);
+            if (!response.ok) {
+              console.warn("[Dashboard] Failed to fetch user names: API returned", response.status);
+              set({ userNamesLoading: false });
+              return;
+            }
+            const data = await response.json();
+            if (data.success && data.users) {
+              set((state) => ({
+                userNames: { ...state.userNames, ...data.users },
+                userNamesLoading: false,
+              }));
+            } else {
+              set({ userNamesLoading: false });
+            }
+          } catch {
+            console.warn("[Dashboard] Failed to fetch user names");
             set({ userNamesLoading: false });
-            return;
+          } finally {
+            inFlightUsersPromise = null;
           }
-          const data = await response.json();
-          if (data.success && data.users) {
-            set({ userNames: { ...userNames, ...data.users }, userNamesLoading: false });
-          } else {
-            set({ userNamesLoading: false });
-          }
-        } catch {
-          console.warn("[Dashboard] Failed to fetch user names");
-          set({ userNamesLoading: false });
-        }
+        })();
+
+        return inFlightUsersPromise;
       },
 
       fetchCompaniesData: async () => {
+        if (inFlightCompaniesPromise) {
+          return inFlightCompaniesPromise;
+        }
+
         const { isDemoMode, allDeals, companiesData, selectedColumns } = get();
 
         if (isDemoMode) return;
@@ -874,69 +901,79 @@ export const useDashboardStore = create<DashboardState>()(
 
         set({ companiesDataLoading: true });
 
-        try {
-          const response = await fetchWithTimeout("/api/bitrix/companies", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ids: missingIds,
-              select: companyFieldsToSelect,
-            }),
-          });
-
-          if (!response.ok) {
-            console.warn("[Dashboard] Failed to fetch companies data: API returned", response.status);
-            set({ companiesDataLoading: false });
-            return;
-          }
-          const data = await response.json();
-          if (data.success && data.companies) {
-            set((state) => {
-              const normalizedCompanies: Record<string, any> = {};
-              if (Array.isArray(data.companies)) {
-                data.companies.forEach((c: any) => {
-                  if (c.ID) normalizedCompanies[String(c.ID)] = c;
-                });
-              } else if (typeof data.companies === 'object') {
-                for (const [k, v] of Object.entries(data.companies)) {
-                  normalizedCompanies[String(k)] = v;
-                }
-              }
-              // Deep merge to preserve previously fetched fields
-              const newCompaniesData = { ...state.companiesData };
-              for (const [id, companyData] of Object.entries(normalizedCompanies)) {
-                newCompaniesData[id] = {
-                  ...(newCompaniesData[id] || {}),
-                  ...companyData
-                };
-              }
-              const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
-              const now = Date.now();
-              
-              // ✅ Mark ALL requested IDs as fetched to prevent infinite loops
-              for (const id of missingIds) {
-                newCompaniesDataFetchedAt[id] = now;
-              }
-              // Prune cache to only keep companies present in allDeals
-              const validCompanyIds = new Set(state.allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
-              for (const id in newCompaniesData) {
-                if (!validCompanyIds.has(id)) {
-                  delete newCompaniesData[id];
-                  delete newCompaniesDataFetchedAt[id];
-                }
-              }
-              return { companiesData: newCompaniesData, companiesDataFetchedAt: newCompaniesDataFetchedAt, companiesDataLoading: false };
+        inFlightCompaniesPromise = (async () => {
+          try {
+            const response = await fetchWithTimeout("/api/bitrix/companies", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ids: missingIds,
+                select: companyFieldsToSelect,
+              }),
             });
-          } else {
+
+            if (!response.ok) {
+              console.warn("[Dashboard] Failed to fetch companies data: API returned", response.status);
+              set({ companiesDataLoading: false });
+              return;
+            }
+            const data = await response.json();
+            if (data.success && data.companies) {
+              set((state) => {
+                const normalizedCompanies: Record<string, any> = {};
+                if (Array.isArray(data.companies)) {
+                  data.companies.forEach((c: any) => {
+                    if (c.ID) normalizedCompanies[String(c.ID)] = c;
+                  });
+                } else if (typeof data.companies === 'object') {
+                  for (const [k, v] of Object.entries(data.companies)) {
+                    normalizedCompanies[String(k)] = v;
+                  }
+                }
+                // Deep merge to preserve previously fetched fields
+                const newCompaniesData = { ...state.companiesData };
+                for (const [id, companyData] of Object.entries(normalizedCompanies)) {
+                  newCompaniesData[id] = {
+                    ...(newCompaniesData[id] || {}),
+                    ...companyData
+                  };
+                }
+                const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
+                const fetchTimestamp = Date.now();
+                
+                // ✅ Mark ALL requested IDs as fetched to prevent infinite loops
+                for (const id of missingIds) {
+                  newCompaniesDataFetchedAt[id] = fetchTimestamp;
+                }
+                // Prune cache to only keep companies present in allDeals
+                const validCompanyIds = new Set(state.allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
+                for (const id in newCompaniesData) {
+                  if (!validCompanyIds.has(id)) {
+                    delete newCompaniesData[id];
+                    delete newCompaniesDataFetchedAt[id];
+                  }
+                }
+                return { companiesData: newCompaniesData, companiesDataFetchedAt: newCompaniesDataFetchedAt, companiesDataLoading: false };
+              });
+            } else {
+              set({ companiesDataLoading: false });
+            }
+          } catch {
+            console.warn("[Dashboard] Failed to fetch companies data");
             set({ companiesDataLoading: false });
+          } finally {
+            inFlightCompaniesPromise = null;
           }
-        } catch {
-          console.warn("[Dashboard] Failed to fetch companies data");
-          set({ companiesDataLoading: false });
-        }
+        })();
+
+        return inFlightCompaniesPromise;
       },
 
       fetchActivitiesData: async () => {
+        if (inFlightActivitiesPromise) {
+          return inFlightActivitiesPromise;
+        }
+
         const { isDemoMode, allDeals, activitiesData, selectedColumns } = get();
 
         if (isDemoMode) return;
@@ -965,48 +1002,54 @@ export const useDashboardStore = create<DashboardState>()(
 
         set({ activitiesDataLoading: true });
 
-        try {
-          const response = await fetchWithTimeout("/api/bitrix/activities", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              dealIds: missingIds,
-            }),
-          });
-
-          if (!response.ok) {
-            console.warn("[Dashboard] Failed to fetch activities data: API returned", response.status);
-            set({ activitiesDataLoading: false });
-            return;
-          }
-          const data = await response.json();
-          if (data.success && data.activities) {
-            set((state) => {
-              const newActivitiesData = { ...state.activitiesData, ...data.activities };
-              const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
-              const now = Date.now();
-              
-              // ✅ Mark ALL requested IDs as fetched to prevent infinite loops
-              for (const id of missingIds) {
-                newActivitiesDataFetchedAt[id] = now;
-              }
-              // Prune cache to only keep deals present in allDeals
-              const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
-              for (const id in newActivitiesData) {
-                if (!validDealIds.has(id)) {
-                  delete newActivitiesData[id];
-                  delete newActivitiesDataFetchedAt[id];
-                }
-              }
-              return { activitiesData: newActivitiesData, activitiesDataFetchedAt: newActivitiesDataFetchedAt, activitiesDataLoading: false };
+        inFlightActivitiesPromise = (async () => {
+          try {
+            const response = await fetchWithTimeout("/api/bitrix/activities", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                dealIds: missingIds,
+              }),
             });
-          } else {
+
+            if (!response.ok) {
+              console.warn("[Dashboard] Failed to fetch activities data: API returned", response.status);
+              set({ activitiesDataLoading: false });
+              return;
+            }
+            const data = await response.json();
+            if (data.success && data.activities) {
+              set((state) => {
+                const newActivitiesData = { ...state.activitiesData, ...data.activities };
+                const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+                const fetchTimestamp = Date.now();
+                
+                // ✅ Mark ALL requested IDs as fetched to prevent infinite loops
+                for (const id of missingIds) {
+                  newActivitiesDataFetchedAt[id] = fetchTimestamp;
+                }
+                // Prune cache to only keep deals present in allDeals
+                const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
+                for (const id in newActivitiesData) {
+                  if (!validDealIds.has(id)) {
+                    delete newActivitiesData[id];
+                    delete newActivitiesDataFetchedAt[id];
+                  }
+                }
+                return { activitiesData: newActivitiesData, activitiesDataFetchedAt: newActivitiesDataFetchedAt, activitiesDataLoading: false };
+              });
+            } else {
+              set({ activitiesDataLoading: false });
+            }
+          } catch {
+            console.warn("[Dashboard] Failed to fetch activities data");
             set({ activitiesDataLoading: false });
+          } finally {
+            inFlightActivitiesPromise = null;
           }
-        } catch {
-          console.warn("[Dashboard] Failed to fetch activities data");
-          set({ activitiesDataLoading: false });
-        }
+        })();
+
+        return inFlightActivitiesPromise;
       },
 
       fetchCompanyBrowser: async (responsibleId) => {
