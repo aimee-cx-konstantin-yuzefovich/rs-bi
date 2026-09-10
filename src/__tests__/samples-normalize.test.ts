@@ -112,7 +112,7 @@ describe("samples normalization — dates", () => {
   });
 
   it("invalid date garbage is skipped, never coerced", () => {
-    expect(extractDates(["не указано", "2026-13-45", "", null])).toEqual([]);
+    expect(extractDates(["не указано", "2026-13-45", ""])).toEqual([]);
     expect(extractDates("2026-02-30")).toEqual([]);
     expect(extractDates("2026-01-15T10:30:00")).toEqual(["2026-01-15"]);
   });

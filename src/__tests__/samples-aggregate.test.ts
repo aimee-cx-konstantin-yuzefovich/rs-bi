@@ -335,7 +335,9 @@ describe("buildSampleSummaries — result normalization and quality", () => {
 });
 
 describe("computeSampleKpis — explicit company grain", () => {
-  const base: Parameters<typeof buildSampleSummaries>[0] = [];
+  const emptySummaries: ReturnType<
+    typeof buildSampleSummaries
+  >["summaries"] = [];
   it("mixed counts in none of positive/negative/rework; counted with result", () => {
     const kpis = computeSampleKpis([
       {
@@ -392,7 +394,7 @@ describe("computeSampleKpis — explicit company grain", () => {
   });
 
   it("empty set yields zeroed KPIs", () => {
-    expect(computeSampleKpis(base)).toEqual({
+    expect(computeSampleKpis(emptySummaries)).toEqual({
       total: 0,
       withSentDates: 0,
       inTesting: 0,
