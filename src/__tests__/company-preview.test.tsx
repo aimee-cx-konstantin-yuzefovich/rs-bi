@@ -13,7 +13,10 @@ const store = vi.hoisted(() => ({
 vi.mock("@/store/dashboard-store", () => ({ useDashboardStore: () => store }));
 vi.mock("@/components/dashboard/company-column-selector", () => ({ CompanyColumnSelector: () => null }));
 vi.mock("@/components/dashboard/company-date-filter", () => ({ CompanyDateFilter: () => null }));
-vi.mock("@/lib/export-utils", () => ({ exportToExcelWysiwyg: vi.fn() }));
+vi.mock("@/lib/export-utils", () => ({
+  exportToExcelWysiwyg: vi.fn(),
+  exportCompanyToExcel: vi.fn(),
+}));
 
 const fetchMock = vi.fn();
 const detail = (id = "42", title = "Свежая компания") => ({ success: true,
@@ -111,4 +114,117 @@ it("keeps details visible when the portal link is not configured", async () => {
   await screen.findByRole("heading", { name: "Свежая компания" });
   expect(screen.getByRole("button", { name: "Открыть карточку в Bitrix24" })).toBeDisabled();
   expect(screen.getByText("Ссылка на портал Bitrix24 не настроена.")).toBeInTheDocument();
+});
+
+it("displays Образцы section with 7 rows, excludes Последняя активность, and formats Дата изменения as date only", async () => {
+  fetchMock.mockResolvedValue(
+    ok({
+      success: true,
+      company: {
+        ID: "42",
+        TITLE: "Тестовая компания",
+        ASSIGNED_BY_ID: "7",
+        DATE_CREATE: "2025-12-15T14:00:00Z",
+        DATE_MODIFY: "2026-07-01T11:59:00Z",
+        LAST_ACTIVITY_TIME: "2025-12-15T14:00:00Z",
+        COMMENTS: "Тестовый комментарий",
+        UF_CRM_1764155817232: "Гель-А",
+        UF_CRM_1764156004815: "150",
+        UF_CRM_1764155891815: "Золь-Б",
+        UF_CRM_1764156064272: "200",
+        UF_CRM_1764156557536: "2026-06-20",
+        UF_CRM_1764156593: "Успешно",
+      },
+      bitrixUrl: "https://portal.example/crm/company/details/42/",
+    })
+  );
+
+  render(<CompanyBrowser />);
+  fireEvent.click(screen.getByRole("button", { name: "Компания из таблицы" }));
+  await screen.findByRole("heading", { name: "Тестовая компания" });
+
+  // 1. "Последняя активность" should NOT be present
+  expect(screen.queryByText("Последняя активность")).not.toBeInTheDocument();
+
+  // 2. "Дата изменения" should only contain date (no 11:59)
+  expect(screen.getByText("01.07.2026")).toBeInTheDocument();
+  expect(screen.queryByText("01.07.2026 11:59")).not.toBeInTheDocument();
+
+  // 3. Subheader "Образцы" should be present
+  expect(screen.getByRole("heading", { name: "Образцы" })).toBeInTheDocument();
+
+  // 4. The 7 sample fields should be present
+  expect(screen.getByText("Марка предоставленных образцов (ГЕЛЬ)")).toBeInTheDocument();
+  expect(screen.getByText("Гель-А")).toBeInTheDocument();
+  expect(screen.getByText("Кол-во переданного образца (ГЕЛЬ) кг")).toBeInTheDocument();
+  expect(screen.getByText("150")).toBeInTheDocument();
+  expect(screen.getByText("Марка предоставленных образцов (ЗОЛЬ)")).toBeInTheDocument();
+  expect(screen.getByText("Золь-Б")).toBeInTheDocument();
+  expect(screen.getByText("Кол-во переданного образца (ЗОЛЬ) л")).toBeInTheDocument();
+  expect(screen.getByText("200")).toBeInTheDocument();
+  expect(screen.getByText("Дата передачи образцов")).toBeInTheDocument();
+  expect(screen.getByText("20.06.2026")).toBeInTheDocument();
+  expect(screen.getByText("Результат испытаний")).toBeInTheDocument();
+  expect(screen.getByText("Успешно")).toBeInTheDocument();
+  expect(screen.getByText("Тестовый комментарий")).toBeInTheDocument();
+});
+
+it("renders secondary outlined export button and triggers export with company title and sample fields", async () => {
+  const { exportCompanyToExcel } = await import("@/lib/export-utils");
+  fetchMock.mockResolvedValue(
+    ok({
+      success: true,
+      company: {
+        ID: "42",
+        TITLE: "Экспортная компания",
+        ASSIGNED_BY_ID: "7",
+        DATE_CREATE: "2025-12-15T14:00:00Z",
+        DATE_MODIFY: "2026-07-01T11:59:00Z",
+        COMMENTS: "Комментарий для экспорта",
+        UF_CRM_1764155817232: "Гель-100",
+      },
+      bitrixUrl: "https://portal.example/crm/company/details/42/",
+    })
+  );
+
+  render(<CompanyBrowser />);
+  fireEvent.click(screen.getByRole("button", { name: "Компания из таблицы" }));
+  await screen.findByRole("heading", { name: "Экспортная компания" });
+
+  const exportBtn = screen.getByRole("button", { name: /Экспорт/i });
+  expect(exportBtn).toBeInTheDocument();
+  expect(exportBtn).not.toBeDisabled();
+  expect(exportBtn.className).toContain("border-brand-blue");
+
+  fireEvent.click(exportBtn);
+
+  await waitFor(() => {
+    expect(exportCompanyToExcel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "42",
+        companyTitle: "Экспортная компания",
+        companyFields: expect.any(Array),
+        sampleFields: expect.any(Array),
+      })
+    );
+  });
+});
+
+it("renders specific error message when related deals API returns 403 or 404", async () => {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (String(url).endsWith("/deals")) {
+      return {
+        ok: false,
+        status: 403,
+        json: async () => ({ success: false, error: "Нет доступа к сделкам компании" }),
+      };
+    }
+    return ok(detail("42", "Компания с ошибкой сделок"));
+  });
+
+  render(<CompanyBrowser />);
+  fireEvent.click(screen.getByRole("button", { name: "Компания из таблицы" }));
+  await screen.findByRole("heading", { name: "Компания с ошибкой сделок" });
+
+  expect(await screen.findByText("Нет доступа к сделкам компании")).toBeInTheDocument();
 });

@@ -31,6 +31,60 @@ export function isCompanyId(id: string): boolean {
   return /^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id));
 }
 
+export const COMPANY_SAMPLE_FIELDS = [
+  { id: "UF_CRM_1764155817232", label: "Марка предоставленных образцов (ГЕЛЬ)" },
+  { id: "UF_CRM_1764156004815", label: "Кол-во переданного образца (ГЕЛЬ) кг" },
+  { id: "UF_CRM_1764155891815", label: "Марка предоставленных образцов (ЗОЛЬ)" },
+  { id: "UF_CRM_1764156064272", label: "Кол-во переданного образца (ЗОЛЬ) л" },
+  { id: "UF_CRM_1764156557536", label: "Дата передачи образцов" },
+  { id: "UF_CRM_1764156593", label: "Результат испытаний" },
+  { id: "COMMENTS", label: "Комментарий" },
+] as const;
+
+export function defaultSampleFields(
+  company: Record<string, unknown>,
+  fields: Array<{ id: string; title: string; listValues?: Array<{ ID: string; VALUE: string }> }> = []
+): Array<{ id: string; label: string; value: string }> {
+  const fieldMap = new Map(fields.map(f => [f.id, f]));
+  return COMPANY_SAMPLE_FIELDS.map(({ id, label }) => {
+    let raw = company[id] ?? company[`COMPANY_${id}`];
+    if ((raw === undefined || raw === null || raw === "") && id === "COMMENTS") {
+      raw = company.COMMENTS ?? company.comments ?? company.COMPANY_COMMENTS;
+    }
+
+    if (id === "UF_CRM_1764156557536" || label.toLowerCase().includes("дата")) {
+      if (raw) {
+        const d = new Date(String(raw));
+        if (!isNaN(d.getTime())) {
+          return {
+            id,
+            label,
+            value: d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }),
+          };
+        }
+      }
+    }
+
+    const meta = fieldMap.get(id) || fieldMap.get(`COMPANY_${id}`);
+    if (meta?.listValues && meta.listValues.length > 0 && raw !== undefined && raw !== null && raw !== "") {
+      if (Array.isArray(raw)) {
+        return {
+          id,
+          label,
+          value: raw.map(v => meta.listValues?.find(lv => lv.ID === String(v))?.VALUE || String(v)).join(", "),
+        };
+      }
+      const found = meta.listValues.find(lv => lv.ID === String(raw));
+      if (found) {
+        return { id, label, value: found.VALUE };
+      }
+    }
+
+    const value = raw !== undefined && raw !== null && String(raw).trim() !== "" ? String(raw).trim() : "—";
+    return { id, label, value };
+  });
+}
+
 export function defaultCompanyFields(
   company: Record<string, unknown>,
   userNames: Record<string, string> = {}
@@ -41,7 +95,7 @@ export function defaultCompanyFields(
     const id = String(company.ASSIGNED_BY_ID);
     fields.push({
       id: "ASSIGNED_BY_ID",
-      label: "Ответственный",
+      label: "Ответственный компании",
       value: userNames[id] || "Неизвестный сотрудник",
     });
   }
@@ -72,8 +126,14 @@ export function defaultCompanyFields(
     });
   }
 
+  const sampleFieldIds = new Set<string>(COMPANY_SAMPLE_FIELDS.map(f => f.id));
+  sampleFieldIds.add("UF_CRM_1753187313314");
+  sampleFieldIds.add("LAST_ACTIVITY_TIME");
+  sampleFieldIds.add("LAST_ACTIVITY_BY");
+  sampleFieldIds.add("COMMENTS");
+
   for (const [key, val] of Object.entries(company)) {
-    if (key.startsWith("UF_CRM_") && val !== null && val !== "" && val !== undefined) {
+    if (key.startsWith("UF_CRM_") && !sampleFieldIds.has(key) && val !== null && val !== "" && val !== undefined) {
       fields.push({
         id: key,
         label: key,

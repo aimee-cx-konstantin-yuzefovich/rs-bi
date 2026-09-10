@@ -68,8 +68,21 @@ function DashboardContent() {
     if (status !== "authenticated" || !isUrlSynced) return;
 
     let cancelled = false;
+
+    const fetchRelated = async () => {
+      await Promise.allSettled([
+        useDashboardStore.getState().fetchUserNames(),
+        useDashboardStore.getState().fetchCompaniesData(),
+      ]);
+    };
+
+    const prepareInterface = async () => {
+      useDashboardStore.getState().applyClientFilters();
+      await useDashboardStore.getState().fetchActivitiesData();
+    };
+
     void runDashboardStartup(
-      [checkConfig, fetchFields, fetchDeals],
+      [checkConfig, fetchFields, fetchDeals, fetchRelated, prepareInterface],
       useDashboardStore.getState,
       setStartup,
       () => cancelled,

@@ -43,7 +43,8 @@ describe('login form', () => {
     fireEvent.click(toggle);
     expect(screen.getByLabelText('Пароль')).toHaveAttribute('type', 'text');
     expect(screen.getByRole('button', { name: 'Скрыть пароль' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('link', { name: 'Забыли пароль?' })).toHaveAttribute('href', 'https://portal.example/wp-login.php?action=lostpassword');
+    expect(screen.queryByRole('link', { name: 'Забыли пароль?' })).toBeNull();
+    expect(screen.getByText('Для получения или восстановления доступа обратитесь к администратору корпоративного портала')).toBeVisible();
   });
   it('prevents duplicate submits and preserves email after rejection', async () => {
     let resolve!: (value: unknown) => void;

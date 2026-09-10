@@ -5,7 +5,7 @@ import Image from "next/image";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, AlertCircle, Loader2 } from "lucide-react";
-import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
+import { IS_PRODUCTION } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,15 +14,6 @@ import { safeLoginDestination } from "@/lib/login-navigation";
 
 const inputClass = "h-12 rounded-lg border-slate-400 bg-white dark:bg-white px-4 text-base md:text-base text-slate-900 placeholder:text-slate-500 focus-visible:border-[#1A52A3] focus-visible:ring-[#1A52A3]/40";
 const linkClass = "rounded-sm text-[#1A52A3] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1A52A3]";
-const recoveryUrl = (() => {
-  try {
-    const url = new URL(WP_LOGIN_URL_CLIENT, "https://bi-terminal.rus-silica.com");
-    url.searchParams.set("action", "lostpassword");
-    return url.toString();
-  } catch {
-    return "https://bi-terminal.rus-silica.com/wp-login.php?action=lostpassword";
-  }
-})();
 
 function LoginForm() {
   const router = useRouter();
@@ -106,12 +97,11 @@ function LoginForm() {
           </div>
           {fieldErrors.password && <p id="password-error" role="alert" className="text-sm text-red-800">{fieldErrors.password}</p>}
         </div>
-        <div className="text-right text-sm"><a href={recoveryUrl.toString()} className={linkClass}>Забыли пароль?</a></div>
         <Button type="submit" disabled={loading} className="h-12 w-full rounded-lg bg-[#1A52A3] text-base font-semibold text-white hover:bg-[#154486] focus-visible:ring-[#1A52A3]/40 disabled:opacity-75">
           {loading ? <><Loader2 aria-hidden="true" className="animate-spin motion-reduce:animate-none" /><span role="status">Входим…</span></> : "Войти"}
         </Button>
       </form>
-      <p className="mt-6 text-sm leading-6 text-slate-600">Для получения доступа обратитесь к администратору корпоративного портала</p>
+      <p className="mt-6 text-sm leading-6 text-slate-600">Для получения или восстановления доступа обратитесь к администратору корпоративного портала</p>
     </div>
   );
 }

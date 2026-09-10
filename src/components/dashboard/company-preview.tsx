@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink } from "lucide-react";
+import { Download, ExternalLink, Loader2 } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { defaultCompanyFields } from "@/lib/company-preview";
+import { defaultCompanyFields, defaultSampleFields } from "@/lib/company-preview";
+import { exportCompanyToExcel } from "@/lib/export-utils";
 
 type PreviewState =
   | { status: "loading" }
@@ -18,7 +19,21 @@ export interface CompanyPreviewProps {
   onClose: () => void;
   onRestoreFocus?: () => void;
   fieldsFor?: (company: Record<string, unknown>) => Array<{ id: string; label: string; value: string }>;
+  sampleFieldsFor?: (company: Record<string, unknown>) => Array<{ id: string; label: string; value: string }>;
   onOpenDealPreview?: (dealId: string) => void;
+  onExport?: (options: {
+    companyTitle: string;
+    companyId: string;
+    companyFields: Array<{ id?: string; label: string; value: string }>;
+    sampleFields: Array<{ id?: string; label: string; value: string }>;
+    deals: Array<{
+      id: string;
+      title: string;
+      stage?: string | null;
+      opportunity?: number | null;
+      currency?: string;
+    }>;
+  }) => void;
 }
 
 export function CompanyPreview({
@@ -26,7 +41,9 @@ export function CompanyPreview({
   onClose,
   onRestoreFocus,
   fieldsFor,
+  sampleFieldsFor,
   onOpenDealPreview,
+  onExport,
 }: CompanyPreviewProps) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const [dealsState, setDealsState] = useState<
@@ -35,10 +52,64 @@ export function CompanyPreview({
     | { status: "error"; message: string }
   >({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
 
-  const { userNames } = useDashboardStore();
+  const { userNames, fields } = useDashboardStore();
 
   const activeFieldsFor = fieldsFor || ((c: Record<string, unknown>) => defaultCompanyFields(c, userNames || {}));
+  const activeSampleFieldsFor = sampleFieldsFor || ((c: Record<string, unknown>) => defaultSampleFields(c, fields || []));
+
+  const stageField = fields?.find((f) => f.id === "STAGE_ID");
+  const resolveStage = (rawStage: unknown): string | null => {
+    if (rawStage === undefined || rawStage === null || rawStage === "") return null;
+    const str = String(rawStage);
+    return stageField?.listValues?.find((lv) => lv.ID === str)?.VALUE || str;
+  };
+
+  const handleExport = async () => {
+    if (state.status !== "success") return;
+    try {
+      setIsExporting(true);
+      const company = state.company;
+      const companyTitle = String(company.TITLE || "").trim() || "Без названия";
+      const companyFields = activeFieldsFor(company);
+      const sampleFields = activeSampleFieldsFor(company);
+      const deals =
+        dealsState.status === "success"
+          ? dealsState.deals.map((d) => {
+              const rawOpp = d.OPPORTUNITY ?? d.opportunity;
+              const opp =
+                rawOpp !== null && rawOpp !== undefined && rawOpp !== ""
+                  ? Number(rawOpp)
+                  : null;
+              return {
+                id: String(d.ID || d.id || ""),
+                title: String(d.TITLE || d.title || "").trim() || "Без названия",
+                stage: resolveStage(d.STAGE_ID ?? d.stageId),
+                opportunity: opp !== null && !isNaN(opp) ? opp : null,
+                currency: String(d.CURRENCY_ID || d.currencyId || "RUB"),
+              };
+            })
+          : [];
+
+      const exportOptions = {
+        companyTitle,
+        companyId: id,
+        companyFields,
+        sampleFields,
+        deals,
+      };
+
+      if (onExport) {
+        onExport(exportOptions);
+      }
+      await exportCompanyToExcel(exportOptions);
+    } catch (err) {
+      console.error("Failed to export company to Excel", err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -75,7 +146,15 @@ export function CompanyPreview({
         });
         if (controller.signal.aborted) return;
         if (!response.ok) {
-          setDealsState({ status: "error", message: "Не удалось загрузить связанные сделки" });
+          const errData = await response.json().catch(() => null);
+          const message =
+            errData?.error ||
+            (response.status === 404
+              ? "Компания не найдена"
+              : response.status === 403
+              ? "Нет доступа к сделкам компании"
+              : "Не удалось загрузить связанные сделки");
+          setDealsState({ status: "error", message });
           return;
         }
         const data = await response.json();
@@ -138,6 +217,21 @@ export function CompanyPreview({
                 ))}
               </dl>
 
+              {/* Образцы */}
+              <div className="border-t pt-4">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                  Образцы
+                </h4>
+                <dl className="space-y-4 text-sm">
+                  {activeSampleFieldsFor(state.company).map((field) => (
+                    <div key={field.id}>
+                      <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                      <dd className="mt-1 whitespace-pre-wrap break-words">{field.value || "—"}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
               {/* Related Deals (Связанные сделки) */}
               <div className="border-t pt-4">
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
@@ -166,11 +260,7 @@ export function CompanyPreview({
                       {dealsState.deals.map((deal) => {
                         const dealId = String(deal.ID || deal.id);
                         const dealTitle = String(deal.TITLE || deal.title || "").trim() || "Без названия";
-                        const stage = deal.STAGE_ID
-                          ? String(deal.STAGE_ID)
-                          : deal.stageId
-                          ? String(deal.stageId)
-                          : null;
+                        const stage = resolveStage(deal.STAGE_ID ?? deal.stageId);
                         const rawOpp = deal.OPPORTUNITY ?? deal.opportunity;
                         const opportunity =
                           rawOpp !== null && rawOpp !== undefined && rawOpp !== ""
@@ -255,13 +345,39 @@ export function CompanyPreview({
             </div>
           )}
         </div>
-        <SheetFooter>
+        <SheetFooter className="flex flex-col sm:flex-row gap-2 border-t pt-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleExport}
+            disabled={state.status !== "success" || isExporting}
+            className="border-brand-blue text-brand-blue hover:bg-brand-blue-light/50 hover:text-brand-blue dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950/40 gap-1.5 w-full sm:w-auto"
+          >
+            {isExporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {isExporting ? "Экспорт…" : "Экспорт"}
+          </Button>
+
           {state.status === "success" && state.bitrixUrl ? (
-            <Button asChild><a href={state.bitrixUrl} target="_blank" rel="noopener noreferrer">Открыть карточку в Bitrix24</a></Button>
-          ) : <Button disabled>Открыть карточку в Bitrix24</Button>}
-          {state.status === "success" && !state.bitrixUrl && <p className="text-xs text-muted-foreground">
-            Ссылка на портал Bitrix24 не настроена.
-          </p>}
+            <Button asChild className="w-full sm:w-auto">
+              <a href={state.bitrixUrl} target="_blank" rel="noopener noreferrer">
+                Открыть карточку в Bitrix24
+              </a>
+            </Button>
+          ) : (
+            <Button disabled className="w-full sm:w-auto">
+              Открыть карточку в Bitrix24
+            </Button>
+          )}
+
+          {state.status === "success" && !state.bitrixUrl && (
+            <p className="text-xs text-muted-foreground w-full">
+              Ссылка на портал Bitrix24 не настроена.
+            </p>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>

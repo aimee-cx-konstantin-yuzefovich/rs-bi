@@ -173,31 +173,32 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
   });
 
   describe('3. Visual Design & DOM Inspection (Пункт 3: Оформление тёмного терминала)', () => {
-    it('TC-08: Renders branding, header, graphite theme classes, and removes legacy artifacts', () => {
-      render(<LoadingScreen startup={INITIAL_STARTUP} />);
+    it('TC-08: Renders branding, header, square terminal frame, and blinking cursor on active step', () => {
+      const { rerender } = render(<LoadingScreen startup={INITIAL_STARTUP} />);
       const overlay = screen.getByTestId('startup-overlay');
 
       // Background #0B1120
       expect(overlay.className).toContain('bg-[#0B1120]');
       expect(overlay.className).toContain('text-[#F8FAFC]');
 
-      // Section max-w-[520px]
+      // Section max-w-[560px]
       const section = overlay.querySelector('section');
-      expect(section?.className).toContain('max-w-[520px]');
+      expect(section?.className).toContain('max-w-[560px]');
 
-      // Panel background #111827 and border #334155
-      const card = section?.querySelector('div.rounded-2xl');
+      // Panel background #111827, border #334155, and square frame (rounded-none)
+      const card = section?.querySelector('div.rounded-none');
       expect(card?.className).toContain('bg-[#111827]');
       expect(card?.className).toContain('border-[#334155]');
+      expect(card?.className).toContain('rounded-none');
 
       // Brand typography
       expect(screen.getByText('RusSilica')).toHaveClass('text-[#93C5FD]');
       expect(screen.getByText('Корпоративный BI Terminal')).toHaveClass('text-[#CBD5E1]');
 
-      // Absence of old amber glow or blinking cursor
-      expect(overlay.innerHTML).not.toContain('animate-blink-cursor');
-      expect(overlay.innerHTML).not.toContain('shadow-[0_0_30px_rgba(245,158,11,0.1)]');
-      expect(overlay.innerHTML).not.toContain('border-amber-500');
+      // Blinking cursor present when step is running
+      rerender(<LoadingScreen startup={{ ...INITIAL_STARTUP, steps: ['complete', 'running', 'waiting', 'waiting', 'waiting'] }} />);
+      expect(screen.getByTestId('blinking-cursor')).toBeInTheDocument();
+      expect(screen.getByTestId('blinking-cursor')).toHaveClass('animate-blink-cursor');
     });
 
     it('TC-09: Displays correct step icons and amber color for running step', () => {
@@ -257,7 +258,7 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
 
     it('TC-12: Indeterminate progress bar has aria-hidden="true" and animated class', () => {
       render(<LoadingScreen startup={INITIAL_STARTUP} />);
-      const progressContainer = screen.getByTestId('startup-overlay').querySelector('.overflow-hidden.rounded-full');
+      const progressContainer = screen.getByTestId('startup-overlay').querySelector('.overflow-hidden.rounded-none');
       expect(progressContainer).toHaveAttribute('aria-hidden', 'true');
       
       const progressBar = progressContainer?.querySelector('div');
@@ -296,7 +297,7 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
       // Outer padding: px-5 (20px)
       expect(overlay.className).toContain('px-5');
       // Inner card padding: p-6 (24px mobile) and sm:p-8 (32px desktop)
-      const card = overlay.querySelector('div.rounded-2xl');
+      const card = overlay.querySelector('div.rounded-none');
       expect(card?.className).toContain('p-6');
       expect(card?.className).toContain('sm:p-8');
     });
@@ -321,6 +322,15 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
 
       expect(step2).not.toHaveBeenCalled();
       expect(publish).toHaveBeenCalledTimes(1); // Only initial running publication
+    });
+
+    it('TC-17: Renders 5 startup steps with timestamps for active and waiting steps', () => {
+      render(<LoadingScreen startup={{ ...INITIAL_STARTUP, steps: ['complete', 'running', 'waiting', 'waiting', 'waiting'] }} />);
+      const items = screen.getAllByRole('listitem');
+      expect(items).toHaveLength(5);
+      expect(items[0].textContent).toMatch(/\[\d{2}:\d{2}:\d{2}\.\d{3}\]/);
+      expect(items[1].textContent).toMatch(/\[\d{2}:\d{2}:\d{2}\.\d{3}\]/);
+      expect(items[2].textContent).toMatch(/\[--:--:--\.---\]/);
     });
   });
 });

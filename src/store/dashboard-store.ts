@@ -73,6 +73,7 @@ export interface SavedView {
   responsibleFilter: string;
   selectedColumns: string[];
   columnSort: ColumnSort;
+  columnFilters?: ColumnFilter[];
   createdAt: number;
 }
 
@@ -751,7 +752,8 @@ export const useDashboardStore = create<DashboardState>()(
       setViewMode: (mode) => set({ viewMode: mode }),
 
       saveView: (name) => {
-        const { dateFilter, pipelineFilter, responsibleFilter, selectedColumns, columnSort, savedViews } = get();
+        const { dateFilter, pipelineFilter, responsibleFilter, selectedColumns, columnSort, columnFilters } = get();
+        const currentSavedViews = get().savedViews || [];
         const newView: SavedView = {
           id: `sv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           name,
@@ -760,17 +762,18 @@ export const useDashboardStore = create<DashboardState>()(
           responsibleFilter,
           selectedColumns: [...selectedColumns],
           columnSort: { ...columnSort },
+          columnFilters: columnFilters ? [...columnFilters] : [],
           createdAt: Date.now(),
         };
-        set({ savedViews: [...savedViews, newView] });
+        set({ savedViews: [newView, ...currentSavedViews] });
       },
 
       deleteSavedView: (id) => {
-        set({ savedViews: get().savedViews.filter((v) => v.id !== id) });
+        set({ savedViews: (get().savedViews || []).filter((v) => v.id !== id) });
       },
 
       loadSavedView: (id) => {
-        const view = get().savedViews.find((v) => v.id === id);
+        const view = (get().savedViews || []).find((v) => v.id === id);
         if (!view) return;
         set({
           dateFilter: { ...view.dateFilter },
@@ -778,6 +781,7 @@ export const useDashboardStore = create<DashboardState>()(
           responsibleFilter: view.responsibleFilter,
           selectedColumns: [...view.selectedColumns],
           columnSort: { ...view.columnSort },
+          columnFilters: view.columnFilters ? [...view.columnFilters] : [],
           currentPage: 1,
         });
         get().applyClientFilters();
@@ -1240,6 +1244,10 @@ export const useDashboardStore = create<DashboardState>()(
           insertAfter("COMPANY_UF_CRM_1764156593", "COMPANY_COMMENTS");
 
           state.selectedColumns = cols;
+        }
+
+        if (!persistedState.savedViews || !Array.isArray(persistedState.savedViews)) {
+          persistedState.savedViews = [];
         }
 
         return persistedState;
