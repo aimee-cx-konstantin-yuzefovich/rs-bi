@@ -7,7 +7,8 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { CompanyBrowser } from "@/components/dashboard/company-browser";
-import { BarChart3, ArrowLeft } from "lucide-react";
+import { SectionNav } from "@/components/dashboard/section-nav";
+import { BarChart3 } from "lucide-react";
 
 function CompaniesContent() {
   const { data: session, status } = useSession();
@@ -61,19 +62,21 @@ function CompaniesContent() {
     <div className="min-h-screen flex flex-col bg-background">
       <header className="z-30 header-gradient border-b border-white/10">
         <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
-          <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
-            <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
-            <span className="text-sm font-semibold tracking-wide text-white">RusSilica</span>
-            <span className="hidden sm:inline text-xs font-normal text-white/40">Компании</span>
-          </Link>
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
+              <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
+              <span className="text-sm font-semibold tracking-wide text-white">RusSilica</span>
+            </Link>
 
-          <Link
-            href="/"
-            className="flex items-center gap-1.5 h-7 px-2 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">К сделкам</span>
-          </Link>
+            {/* Сделки | Компании | Образцы */}
+            <div className="hidden sm:block">
+              <SectionNav variant="dark" />
+            </div>
+          </div>
+
+          <span className="hidden md:inline text-xs font-normal text-white/40">
+            Компании · просмотр по ответственному
+          </span>
         </div>
       </header>
 
