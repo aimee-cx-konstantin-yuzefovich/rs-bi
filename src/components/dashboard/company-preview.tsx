@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, ExternalLink, Loader2 } from "lucide-react";
+import { Download, ExternalLink, Loader2, FlaskConical, ArrowRight } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { defaultCompanyFields, defaultSampleFields } from "@/lib/company-preview";
 import { exportCompanyToExcel } from "@/lib/export-utils";
+import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
+import type { SampleSummary } from "@/lib/samples/types";
 
 type PreviewState =
   | { status: "loading" }
@@ -230,6 +233,10 @@ export function CompanyPreview({
                     </div>
                   ))}
                 </dl>
+
+                {/* Compact «Образцы» analytics block (Samples v1 cross-nav).
+                    Lazy-fetched summary from the authoritative Samples API. */}
+                <CompanySamplesSummary companyId={id} />
               </div>
 
               {/* Related Deals (Связанные сделки) */}
@@ -381,6 +388,91 @@ export function CompanyPreview({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * Compact «Образцы» analytics block inside Company Preview.
+ * Fetches the single-company SampleSummary from the authoritative Samples
+ * API (same aggregate as /samples) and links to /samples?company=<id>.
+ * Lazy + non-fatal: failures collapse silently (fields above still show).
+ */
+function CompanySamplesSummary({ companyId }: { companyId: string }) {
+  const [summary, setSummary] = useState<SampleSummary | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/bitrix/samples", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ companyId }),
+          cache: "no-store",
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          setFailed(true);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        const first = Array.isArray(data.samples) ? data.samples[0] : null;
+        setSummary(first && first.companyId === companyId ? first : null);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
+  if (failed) return null;
+
+  return (
+    <div className="mt-3 rounded-md border bg-muted/30 p-2.5 text-xs space-y-1.5">
+      <div className="flex items-center gap-1.5 font-medium text-foreground/80">
+        <FlaskConical className="h-3 w-3" />
+        Сводка по образцам (аналитика)
+      </div>
+      {summary === null ? (
+        <p className="text-muted-foreground">
+          Структурированная активность по образцам в Bitrix24 не найдена
+        </p>
+      ) : (
+        <>
+          <div className="text-muted-foreground">
+            Результат:{" "}
+            <span className="text-foreground font-medium">
+              {NORMALIZED_RESULT_LABELS[summary.normalizedResult] ?? summary.normalizedResult}
+            </span>
+            {summary.rawTestResult && (
+              <span className="ml-1">· «{summary.rawTestResult}»</span>
+            )}
+          </div>
+          {summary.sentDates.length > 0 && (
+            <div className="text-muted-foreground">
+              Даты передачи:{" "}
+              <span className="text-foreground">{summary.sentDates.join(", ")}</span>
+            </div>
+          )}
+          {summary.dataIssues.length > 0 && (
+            <div className="text-amber-700 dark:text-amber-400">
+              ⚠ {summary.dataIssues.length} замеч. по качеству данных
+            </div>
+          )}
+        </>
+      )}
+      <Link
+        href={`/samples?company=${encodeURIComponent(companyId)}`}
+        className="inline-flex items-center gap-1 text-primary hover:underline"
+      >
+        Открыть в разделе «Образцы»
+        <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
   );
 }
 

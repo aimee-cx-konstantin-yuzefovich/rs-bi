@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Sheet,
   SheetContent,
@@ -12,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Building2, ExternalLink } from "lucide-react";
+import { Building2, ExternalLink, FlaskConical } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
 
 type PreviewState =
@@ -257,6 +258,17 @@ export function DealPreview({
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         )}
+                        {/* Cross-nav to the company's Samples view (Samples v1).
+                            Deliberately neutral wording: company-level samples,
+                            not «samples of this deal». */}
+                        <Link
+                          href={`/samples?company=${encodeURIComponent(String(state.deal.COMPANY_ID))}`}
+                          className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                          data-samples-link
+                        >
+                          <FlaskConical className="h-3 w-3" />
+                          Образцы компании в разделе «Образцы»
+                        </Link>
                       </div>
                     ) : (
                       <span className="text-muted-foreground">—</span>

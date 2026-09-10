@@ -104,7 +104,7 @@ it("shows loading and ignores a response from a closed drawer", async () => {
   await act(async () => resolve(ok(detail("42", "Устаревшая компания"))));
   expect(signal.aborted).toBe(true);
   expect(screen.queryByText("Устаревшая компания")).not.toBeInTheDocument();
-  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => !String(url).endsWith("/deals"))).toHaveLength(2));
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => !String(url).endsWith("/deals") && !String(url).endsWith("/api/bitrix/samples"))).toHaveLength(2));
 });
 
 it("keeps details visible when the portal link is not configured", async () => {
