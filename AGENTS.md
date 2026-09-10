@@ -28,4 +28,4 @@ RusSilica BI Terminal — Next.js dashboard over Bitrix24 CRM data; users authen
 ## Deployment
 
 - Production runs the Next.js `standalone` output via `node server.js` (Docker `CMD` / pm2) — not `next start`, not Vercel.
-- Two host deploy paths: `.gitflic-ci.yaml` (master/main only: Linux ZIP build → protected rsync → packaged Prisma migrations → `pm2 restart`) and `build-deploy.sh` (manual Linux `deploy-prod.zip`). Both exclude `.env*` and SQLite files. See `DEPLOYMENT.md` for `DEPLOY_ARCH`, the one-time existing-DB baseline, absolute `DATABASE_URL`, and the separate Docker volume path.
+- Host deploy path: `build-deploy.sh` creates a Linux `deploy-prod.zip` (standalone bundle + Prisma migrations). Artifacts exclude `.env*` and SQLite files. See `DEPLOYMENT.md` for `DEPLOY_ARCH`, the one-time existing-DB baseline, absolute `DATABASE_URL`, and the separate Docker volume path.

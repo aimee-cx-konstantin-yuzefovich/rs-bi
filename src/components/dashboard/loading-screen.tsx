@@ -1,160 +1,79 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
+import { Check, CircleAlert, Minus } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
+import type { StartupState } from "@/lib/dashboard-startup";
 
-const TERMINAL_LINES = [
-  "RusSilica BI Terminal v2.6",
-  "Инициализация модулей...",
-  "Загрузка конфигурации CRM...",
-  "Подключение к Bitrix24...",
-  "Синхронизация данных...",
-  "Загрузка полей сделки...",
-  "Построение индексов...",
-  "Готово к работе ✓",
-];
+const LABELS = ["Проверка подключения", "Загрузка настроек CRM", "Загрузка данных"];
 
-const LINE_DELAY_MS = 120; // 8 lines * 120ms ≈ 1 second
-const FADE_OUT_DELAY_MS = 400;
-
-function getTimestamp() {
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
-  const ms = String(now.getMilliseconds()).padStart(3, "0");
-  return `[${hh}:${mm}:${ss}.${ms}]`;
-}
-
-export function LoadingScreen() {
-  const { appLoaded, setAppLoaded } = useDashboardStore();
-  const [visibleLines, setVisibleLines] = useState(0);
-  const [fadingOut, setFadingOut] = useState(false);
-  const fadingOutRef = useRef(false);
-  const [timestamps, setTimestamps] = useState<string[]>([]);
-  const cancelledRef = useRef(false);
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
+export function LoadingScreen({ startup }: { startup: StartupState }) {
+  const appLoaded = useDashboardStore(state => state.appLoaded);
+  const setAppLoaded = useDashboardStore(state => state.setAppLoaded);
+  const [timedOut, setTimedOut] = useState(false);
+  const [dismounted, setDismounted] = useState(false);
+  const closing = startup.finished || timedOut;
+  const success = startup.finished && !startup.steps.includes("error") && !timedOut;
 
   useEffect(() => {
     if (appLoaded) return;
+    const timer = setTimeout(() => setTimedOut(true), 10_000);
+    return () => clearTimeout(timer);
+  }, [appLoaded]);
 
-    cancelledRef.current = false;
-    const timers: ReturnType<typeof setTimeout>[] = [];
-
-    const scheduleTimer = (fn: () => void, ms: number) => {
-      const id = setTimeout(() => {
-        if (!cancelledRef.current && isMountedRef.current) fn();
-      }, ms);
-      timers.push(id);
-      return id;
-    };
-
-    let lineIndex = 0;
-    const showNext = () => {
-      lineIndex++;
-      if (lineIndex <= TERMINAL_LINES.length) {
-        setVisibleLines(lineIndex);
-        setTimestamps((prev) => {
-          const newTimestamps = [...prev];
-          newTimestamps[lineIndex - 1] = getTimestamp();
-          return newTimestamps;
-        });
-        scheduleTimer(showNext, LINE_DELAY_MS);
-      } else {
-        // All lines shown — wait for data to finish loading before fading out.
-        const waitForData = () => {
-          if (cancelledRef.current || !isMountedRef.current) return;
-          
-          // Get latest state directly from the store to avoid useEffect re-runs
-          const state = useDashboardStore.getState();
-          
-          if (!state.fieldsLoading && !state.dealsLoading) {
-            if (fadingOutRef.current) return;
-            fadingOutRef.current = true;
-            setFadingOut(true);
-            scheduleTimer(() => {
-              if (isMountedRef.current && !cancelledRef.current) {
-                setAppLoaded(true);
-              }
-            }, 500);
-          } else {
-            // Data still loading — check again in 200ms
-            scheduleTimer(waitForData, 200);
-          }
-        };
-        scheduleTimer(waitForData, FADE_OUT_DELAY_MS);
+  useEffect(() => {
+    if (dismounted || !closing) return;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (motion.matches) {
+      setAppLoaded(true);
+      setDismounted(true);
+      return;
+    }
+    const readyTimer = setTimeout(() => setAppLoaded(true), 200);
+    const unmountTimer = setTimeout(() => setDismounted(true), 500);
+    const onChange = () => {
+      if (motion.matches) {
+        setAppLoaded(true);
+        setDismounted(true);
       }
     };
-
-    scheduleTimer(showNext, 150);
-
-    // Safety timeout: force load after 10s even if data hasn't arrived
-    scheduleTimer(() => {
-      if (!cancelledRef.current && isMountedRef.current && !useDashboardStore.getState().appLoaded) {
-        if (fadingOutRef.current) return;
-        fadingOutRef.current = true;
-        setFadingOut(true);
-        scheduleTimer(() => {
-          if (isMountedRef.current && !cancelledRef.current) {
-            setAppLoaded(true);
-          }
-        }, 500);
-      }
-    }, 10_000);
-
+    motion.addEventListener("change", onChange);
     return () => {
-      cancelledRef.current = true;
-      timers.forEach((id) => clearTimeout(id));
+      clearTimeout(readyTimer);
+      clearTimeout(unmountTimer);
+      motion.removeEventListener("change", onChange);
     };
-  }, [appLoaded, setAppLoaded]); // Removed dealsLoading and fieldsLoading to prevent restart
+  }, [closing, dismounted, setAppLoaded]);
 
-  if (appLoaded) return null;
-
+  if (dismounted || (appLoaded && !closing)) return null;
+  const currentIndex = startup.steps.indexOf("running");
+  const message = success ? "Рабочее пространство готово" : closing ? "Открываем рабочее пространство" : "Подготавливаем рабочее пространство";
   return (
-    <div
-      className={`fixed inset-0 z-[100] flex items-center justify-center bg-black transition-opacity duration-500 ${
-        fadingOut ? "opacity-0" : "opacity-100"
-      }`}
-    >
-      <div className="w-full max-w-2xl mx-4 bg-black border border-amber-500/30 p-6 shadow-[0_0_30px_rgba(245,158,11,0.1)]">
-        {/* Terminal body */}
-        <div className="font-mono text-[14px] leading-relaxed min-h-[280px]">
-          {TERMINAL_LINES.slice(0, visibleLines).map((line, i) => {
-            const isSuccess = line.includes("✓");
-            const isVersion = i === 0;
-            const timestamp = timestamps[i] || getTimestamp();
-            
-            return (
-              <div key={i} className="flex gap-3">
-                <span className="text-slate-500 shrink-0 select-none">
-                  {timestamp}
+    <div data-testid="startup-overlay" className={`fixed inset-0 z-[100] overflow-y-auto bg-[#0B1120] px-5 py-8 text-[#F8FAFC] transition-opacity duration-200 motion-reduce:transition-none ${closing ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
+      <section aria-label="Загрузка терминала" className="mx-auto flex min-h-full max-w-[520px] items-center">
+        <div className="w-full rounded-2xl border border-[#334155] bg-[#111827] p-6 shadow-xl sm:p-8">
+          <p className="text-3xl font-bold tracking-tight text-[#93C5FD]">RusSilica</p>
+          <p className="mt-2 text-sm text-[#CBD5E1]">Корпоративный BI Terminal</p>
+          <div role="status" aria-live="polite" aria-atomic="true" className="mt-8">
+            <h1 className="text-xl font-semibold leading-snug text-[#F8FAFC]">{message}</h1>
+            <span className="sr-only">{!closing && currentIndex >= 0 ? LABELS[currentIndex] : ""}</span>
+          </div>
+          <ol className="mt-6 space-y-4 font-mono text-sm leading-6">
+            {startup.steps.map((status, index) => (
+              <li key={LABELS[index]} aria-current={status === "running" ? "step" : undefined} className={`flex items-start gap-3 ${status === "running" ? "text-[#FBBF24]" : "text-[#CBD5E1]"}`}>
+                <span aria-hidden="true" className="flex h-6 w-4 shrink-0 items-center justify-center">
+                  {status === "complete" ? <Check className="size-4 text-[#93C5FD]" /> : status === "error" ? <CircleAlert className="size-4 text-rose-300" /> : status === "running" ? <span className="size-2 rounded-full bg-[#FBBF24]" /> : <Minus className="size-4 text-slate-400" />}
                 </span>
-                <span
-                  className={
-                    isSuccess
-                      ? "text-emerald-500 font-bold"
-                      : isVersion
-                      ? "text-amber-500 font-bold uppercase tracking-wider"
-                      : "text-amber-500/80"
-                  }
-                >
-                  {line}
-                </span>
-                {i === visibleLines - 1 && !fadingOut && (
-                  <span className="inline-block w-[8px] h-[16px] bg-amber-500 ml-1 align-middle animate-blink-cursor" />
-                )}
-              </div>
-            );
-          })}
+                <span>{LABELS[index]}<span className="sr-only">: {status === "complete" ? "завершено" : status === "error" ? "ошибка" : status === "running" ? "выполняется" : "ожидание"}</span></span>
+              </li>
+            ))}
+          </ol>
+          {startup.demo && <p className="mt-5 text-sm text-[#CBD5E1]">Демонстрационный режим</p>}
+          <div aria-hidden="true" className="mt-7 h-1 overflow-hidden rounded-full bg-[#334155]">
+            <div className={`h-full w-1/3 rounded-full bg-[#93C5FD] ${closing ? "" : "animate-startup-progress"}`} />
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

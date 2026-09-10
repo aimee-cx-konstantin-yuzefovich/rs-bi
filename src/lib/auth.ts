@@ -24,7 +24,7 @@
 
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { db } from "@/lib/db";
+import { auditLog } from "@/lib/auth-audit";
 import { verifySsoToken, isProxySecretConfigured, timingSafeEqualString } from "@/lib/sso-hmac";
 import { IS_PRODUCTION, shouldLog } from "@/lib/config";
 
@@ -104,34 +104,6 @@ export function mapWpRoleToBiRole(wpRole: string | undefined | null): string {
   return role === "administrator" || role === "admin" ? "admin" : "user";
 }
 
-// ─── Audit Logging (persisted to DB) ───
-
-async function auditLog(event: string, details: Record<string, unknown>, ip?: string): Promise<void> {
-  const timestamp = new Date().toISOString();
-  const logEntry = { timestamp, event, ...details };
-  if (shouldLog) console.log(`[AUDIT] ${JSON.stringify(logEntry)}`);
-
-  try {
-    await db.auditLog.create({
-      data: {
-        event,
-        email: typeof details.email === "string" ? details.email : null,
-        role: typeof details.role === "string" ? details.role : null,
-        targetId: typeof details.targetId === "string" ? details.targetId : null,
-        ip: ip || null,
-        details: JSON.stringify(details),
-      },
-    });
-
-    // Compliance note: Audit logs are persisted indefinitely.
-    // Consider adding a cron job or periodic cleanup task to delete logs older than 90 days:
-    // DELETE FROM "AuditLog" WHERE "createdAt" < datetime('now', '-90 days');
-  } catch (error) {
-    // Never let audit log failure break authentication
-    console.error("[AUDIT LOG ERROR]", error);
-  }
-}
-
 // ─── NextAuth Configuration ───
 
 export const authOptions: NextAuthOptions = {
@@ -196,7 +168,7 @@ export const authOptions: NextAuthOptions = {
           // Corporate email check (defense-in-depth)
           if (!isCorporateEmail(email)) {
             await auditLog("LOGIN_DOMAIN_BLOCKED", { email, reason: "non_corporate_domain" }, ip);
-            return null;
+            throw new Error("ACCESS_DENIED");
           }
 
           const biRole = mapWpRoleToBiRole(payload.role);
@@ -224,7 +196,7 @@ export const authOptions: NextAuthOptions = {
             const email = headerEmail.toLowerCase().trim();
             if (!isCorporateEmail(email)) {
               await auditLog("LOGIN_DOMAIN_BLOCKED", { email, reason: "non_corporate_domain_proxy" }, ip);
-              return null;
+              throw new Error("ACCESS_DENIED");
             }
 
             const biRole = mapWpRoleToBiRole(headerRole);
@@ -249,23 +221,24 @@ export const authOptions: NextAuthOptions = {
         // ═══════════════════════════════════════════════════════════
 
         if (!credentials?.email || !credentials?.password) {
-          throw new Error("Введите email и пароль");
+          await auditLog("LOGIN_FAILED", { reason: "missing_credentials" }, ip);
+          throw new Error("INVALID_INPUT");
         }
 
         const email = credentials.email.toLowerCase().trim();
         const password = credentials.password;
-
-        // Corporate email check
-        if (!isCorporateEmail(email)) {
-          await auditLog("LOGIN_DOMAIN_BLOCKED", { email, reason: "non_corporate_domain" }, ip);
-          throw new Error("Допускаются только корпоративные email @russilica.ru");
-        }
 
         // Dev password check
         const DEV_PASSWORD = process.env.DEV_PASSWORD || "dev1234";
         if (password !== DEV_PASSWORD) {
           await auditLog("LOGIN_FAILED", { email, reason: "wrong_password", ip }, ip);
           throw new Error("Неверный email или пароль");
+        }
+
+        // Corporate email check
+        if (!isCorporateEmail(email)) {
+          await auditLog("LOGIN_DOMAIN_BLOCKED", { email, reason: "non_corporate_domain" }, ip);
+          throw new Error("ACCESS_DENIED");
         }
 
         // Dev mode: all authenticated users get admin role

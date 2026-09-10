@@ -173,7 +173,6 @@ src/
     entity-drawer-store.ts
   middleware.ts
 .env.example
-.gitflic-ci.yaml
 .gitignore
 AGENTS.md
 Caddyfile
@@ -6715,7 +6714,6 @@ export const useEntityDrawerStore = create<EntityDrawerState>((set) => ({
 }));
 </file>
 
-<file path=".gitflic-ci.yaml">
 stages:
   - build
   - deploy
@@ -14078,7 +14076,6 @@ src/
     entity-drawer-store.ts
   middleware.ts
 .env.example
-.gitflic-ci.yaml
 .gitignore
 AGENTS.md
 Caddyfile
@@ -20713,7 +20710,6 @@ export const useEntityDrawerStore = create<EntityDrawerState>((set) => ({
 }));
 </file>
 
-<file path=".gitflic-ci.yaml">
 stages:
   - build
   - deploy
@@ -21093,7 +21089,6 @@ src/
     dashboard-store.ts
   middleware.ts
 .env.example
-.gitflic-ci.yaml
 .gitignore
 AGENTS.md
 Caddyfile
@@ -27588,7 +27583,6 @@ export function cn(...inputs: ClassValue[]) {
 }
 </file>
 
-<file path=".gitflic-ci.yaml">
 stages:
   - build
   - deploy
@@ -32870,7 +32864,6 @@ src/
     dashboard-store.ts
   middleware.ts
 .env.example
-.gitflic-ci.yaml
 .gitignore
 AGENTS.md
 Caddyfile
@@ -39937,7 +39930,6 @@ export function cn(...inputs: ClassValue[]) {
 }
 </file>
 
-<file path=".gitflic-ci.yaml">
 stages:
   - build
   - deploy
