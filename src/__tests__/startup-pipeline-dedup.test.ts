@@ -213,4 +213,209 @@ describe('Startup Pipeline & Entity Fetch Deduplication', () => {
     expect(fetchedUrls).toContain('/api/bitrix/users');
     expect(fetchedUrls).toContain('/api/bitrix/companies');
   });
+
+  it('TC-DEDUP-06: Error in fetchCompaniesData resets loading state and clears in-flight promise for retry', async () => {
+    // 1. Simulate network failure (throws)
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network offline'));
+
+    const p1 = useDashboardStore.getState().fetchCompaniesData();
+    expect(useDashboardStore.getState().companiesDataLoading).toBe(true);
+
+    await p1;
+
+    // Loading flag should be reset to false
+    expect(useDashboardStore.getState().companiesDataLoading).toBe(false);
+
+    // 2. Subsequent retry with working API should succeed because inFlightCompaniesPromise was cleared
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          companies: {
+            "100": { ID: "100", TITLE: "Компания 100 (Восстановлено)" },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    expect(useDashboardStore.getState().companiesDataLoading).toBe(false);
+    expect(useDashboardStore.getState().companiesData["100"]?.TITLE).toBe("Компания 100 (Восстановлено)");
+  });
+
+  it('TC-DEDUP-07: HTTP 500 error in fetchActivitiesData and fetchUserNames resets loading and in-flight tracker', async () => {
+    global.fetch = vi.fn().mockImplementation(() => {
+      return Promise.resolve(new Response(JSON.stringify({ success: false, error: 'Server error' }), { status: 500 }));
+    });
+
+    const pAct = useDashboardStore.getState().fetchActivitiesData();
+    const pUsr = useDashboardStore.getState().fetchUserNames();
+
+    expect(useDashboardStore.getState().activitiesDataLoading).toBe(true);
+    expect(useDashboardStore.getState().userNamesLoading).toBe(true);
+
+    await Promise.all([pAct, pUsr]);
+
+    expect(useDashboardStore.getState().activitiesDataLoading).toBe(false);
+    expect(useDashboardStore.getState().userNamesLoading).toBe(false);
+
+    // Verify recovery on next attempt
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/bitrix/activities') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ success: true, activities: { "1": { last: { ID: "act1" } } } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+      if (url === '/api/bitrix/users') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ success: true, users: { "1": "Петр Петров" } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({ success: true })));
+    });
+
+    await Promise.all([
+      useDashboardStore.getState().fetchActivitiesData(),
+      useDashboardStore.getState().fetchUserNames(),
+    ]);
+
+    expect(useDashboardStore.getState().activitiesData["1"]?.last?.ID).toBe("act1");
+    expect(useDashboardStore.getState().userNames["1"]).toBe("Петр Петров");
+  });
+
+  it('TC-DEDUP-08: Empty deals or deals without company ID (null, "0") skip fetch without error', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy;
+
+    // Case A: allDeals = []
+    useDashboardStore.setState({ allDeals: [] });
+    await useDashboardStore.getState().fetchCompaniesData();
+    await useDashboardStore.getState().fetchActivitiesData();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(useDashboardStore.getState().companiesDataLoading).toBe(false);
+    expect(useDashboardStore.getState().activitiesDataLoading).toBe(false);
+
+    // Case B: deals with missing, "0", or null COMPANY_ID
+    useDashboardStore.setState({
+      allDeals: [
+        { ID: "1", id: "1", TITLE: "Сделка без компании 1", COMPANY_ID: "0" },
+        { ID: "2", id: "2", TITLE: "Сделка без компании 2", COMPANY_ID: null },
+        { ID: "3", id: "3", TITLE: "Сделка без компании 3", COMPANY_ID: "" },
+      ] as any,
+    });
+    await useDashboardStore.getState().fetchCompaniesData();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(useDashboardStore.getState().companiesDataLoading).toBe(false);
+  });
+
+  it('TC-DEDUP-09: setDateFilter and syncData correctly trigger standard fetchDeals with related entity loading', async () => {
+    const fetchedUrls: string[] = [];
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      fetchedUrls.push(url);
+      if (url === '/api/bitrix/deals') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              success: true,
+              deals: [{ ID: "99", TITLE: "Сделка после смены даты", COMPANY_ID: "990" }],
+              total: 1,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({ success: true })));
+    });
+
+    useDashboardStore.getState().setDateFilter({ preset: '7days' });
+
+    // Wait for async fetchDeals and non-blocking related fetches
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(fetchedUrls).toContain('/api/bitrix/deals');
+    expect(fetchedUrls).toContain('/api/bitrix/companies');
+    expect(fetchedUrls).toContain('/api/bitrix/users');
+  });
+
+  it('TC-DEDUP-10: Startup pipeline sequence completes with all loading flags false and no orange skeleton delay', async () => {
+    const callLog: string[] = [];
+
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      callLog.push(url);
+      if (url === '/api/bitrix/deals') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              success: true,
+              deals: [{ ID: "1", TITLE: "Сделка 1", COMPANY_ID: "100" }],
+              total: 1,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+      if (url === '/api/bitrix/companies') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              success: true,
+              companies: { "100": { ID: "100", TITLE: "ООО Ромашка" } },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+      if (url === '/api/bitrix/users') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ success: true, users: { "1": "Менеджер" } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+      if (url === '/api/bitrix/activities') {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ success: true, activities: { "1": { last: null } } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({ success: true })));
+    });
+
+    // Emulate page.tsx startup pipeline:
+    // Stage 3: fetchDeals({ skipRelated: true })
+    await useDashboardStore.getState().fetchDeals({ skipRelated: true });
+    expect(callLog).toEqual(['/api/bitrix/deals']);
+
+    // Stage 4: fetchRelated
+    await Promise.allSettled([
+      useDashboardStore.getState().fetchUserNames(),
+      useDashboardStore.getState().fetchCompaniesData(),
+    ]);
+    expect(callLog).toContain('/api/bitrix/users');
+    expect(callLog).toContain('/api/bitrix/companies');
+
+    // Stage 5: prepareInterface
+    useDashboardStore.getState().applyClientFilters();
+    await useDashboardStore.getState().fetchActivitiesData();
+    expect(callLog).toContain('/api/bitrix/activities');
+
+    // Verify all loading flags are false when terminal enters visible state
+    const state = useDashboardStore.getState();
+    expect(state.dealsLoading).toBe(false);
+    expect(state.companiesDataLoading).toBe(false);
+    expect(state.activitiesDataLoading).toBe(false);
+    expect(state.userNamesLoading).toBe(false);
+    expect(state.companiesData["100"]?.TITLE).toBe("ООО Ромашка");
+  });
 });
