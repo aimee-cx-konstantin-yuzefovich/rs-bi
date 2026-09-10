@@ -43,12 +43,14 @@ function SamplesContent() {
   const [selected, setSelected] = useState<SampleSummary | null>(null);
   const [companyPreviewId, setCompanyPreviewId] = useState<string | null>(null);
   const [dealPreviewId, setDealPreviewId] = useState<string | null>(null);
+  // Company preselect is a hidden extra filter beyond the visible bar
+  // (deep link /samples?company=<id> from Company/Deal Preview).
+  const [companyPreselect, setCompanyPreselect] = useState<string | null>(null);
 
   useEffect(() => {
     if (status !== "authenticated") return;
     checkConfig();
     if (Object.keys(userNames).length === 0) fetchUserNames();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   // Deep link: /samples?company=<id> — filter registry to that company
@@ -61,11 +63,7 @@ function SamplesContent() {
       setCompanyPreselect(companyParam);
     }
     setAppliedUrlCompany(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawSearchParams, appliedUrlCompany]);
-
-  // Company preselect is a hidden extra filter beyond the visible bar.
-  const [companyPreselect, setCompanyPreselect] = useState<string | null>(null);
 
   const responsibleOptions = useMemo(() => {
     const entries = new Map<string, string>();
