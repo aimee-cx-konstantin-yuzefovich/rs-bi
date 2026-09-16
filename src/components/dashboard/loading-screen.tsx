@@ -58,20 +58,33 @@ export function LoadingScreen({ startup, onTimedOut }: { startup: StartupState; 
   useEffect(() => {
     if (dismounted || !closing) return;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    // Every timer created by this effect is tracked in a local variable so the
+    // cleanup below can clear it — including a grace timer created from the
+    // matchMedia "change" handler (preference flipped mid-fade), which
+    // previously outlived the cleanup.
+    let readyTimer: ReturnType<typeof setTimeout> | undefined;
+    let unmountTimer: ReturnType<typeof setTimeout> | undefined;
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
     // Reduced motion disables the visual fade but NOT the accessibility
     // announcement: appLoaded fires immediately (dashboard usable right away),
     // while role="status" stays in the DOM for ~500ms after the final message.
+    // dismiss() owns the whole dismissal timeline: it cancels any pending
+    // normal-path timers so exactly one unmount timer is ever in flight.
     const dismiss = () => {
       setAppLoaded(true);
-      const graceTimer = setTimeout(() => setDismounted(true), 500);
-      return graceTimer;
+      clearTimeout(readyTimer);
+      clearTimeout(unmountTimer);
+      clearTimeout(graceTimer);
+      graceTimer = setTimeout(() => setDismounted(true), 500);
     };
     if (motion.matches) {
-      const timer = dismiss();
-      return () => clearTimeout(timer);
+      dismiss();
+      return () => {
+        clearTimeout(graceTimer);
+      };
     }
-    const readyTimer = setTimeout(() => setAppLoaded(true), 200);
-    const unmountTimer = setTimeout(() => setDismounted(true), 500);
+    readyTimer = setTimeout(() => setAppLoaded(true), 200);
+    unmountTimer = setTimeout(() => setDismounted(true), 500);
     const onChange = () => {
       if (motion.matches) {
         dismiss();
@@ -81,6 +94,7 @@ export function LoadingScreen({ startup, onTimedOut }: { startup: StartupState; 
     return () => {
       clearTimeout(readyTimer);
       clearTimeout(unmountTimer);
+      clearTimeout(graceTimer);
       motion.removeEventListener?.("change", onChange);
     };
   }, [closing, dismounted, setAppLoaded]);

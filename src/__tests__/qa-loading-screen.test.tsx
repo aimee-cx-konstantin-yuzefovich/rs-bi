@@ -6,13 +6,23 @@ import { useDashboardStore } from '@/store/dashboard-store';
 
 describe('QA Suite: Dashboard Startup & Loading Screen', () => {
   let reduced = false;
+  // change-listeners registered on the mocked MediaQueryList; lets tests
+  // simulate a live prefers-reduced-motion flip (like a real MQL object).
+  let motionListeners: Array<(e: { matches: boolean }) => void> = [];
 
   beforeEach(() => {
     reduced = false;
+    motionListeners = [];
     vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query.includes('prefers-reduced-motion') ? reduced : false,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
+      get matches() {
+        return query.includes('prefers-reduced-motion') ? reduced : false;
+      },
+      addEventListener: (_type: string, listener: (e: { matches: boolean }) => void) => {
+        if (_type === 'change') motionListeners.push(listener);
+      },
+      removeEventListener: (_type: string, listener: (e: { matches: boolean }) => void) => {
+        motionListeners = motionListeners.filter(l => l !== listener);
+      },
     }));
     useDashboardStore.setState({ appLoaded: false });
   });
@@ -293,6 +303,57 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
       // ~500ms: LoadingScreen unmounted
       act(() => vi.advanceTimersByTime(1));
       expect(screen.queryByTestId('startup-overlay')).not.toBeInTheDocument();
+    });
+
+    it('TC-13c: REGRESSION mid-fade prefers-reduced-motion flip goes through onChange: no orphan timers, listener cleaned up', () => {
+      vi.useFakeTimers();
+      // Initial state: motion allowed (normal fade path).
+      const readyState: StartupState = { steps: ['complete', 'complete', 'complete'], finished: true, demo: false };
+      const { unmount } = render(<LoadingScreen startup={readyState} />);
+
+      // The component registered a real change listener on the mocked MQL.
+      expect(motionListeners.length).toBeGreaterThan(0);
+
+      // t=100ms: normal fade in progress, appLoaded not yet set.
+      act(() => vi.advanceTimersByTime(100));
+      expect(useDashboardStore.getState().appLoaded).toBe(false);
+      expect(screen.getByTestId('startup-overlay')).toBeInTheDocument();
+
+      // t=100ms: OS-level preference flip false -> true, dispatched through the
+      // actual registered onChange handler (not by re-rendering with matches=true).
+      act(() => {
+        reduced = true;
+        motionListeners.forEach(l => l({ matches: true }));
+      });
+
+      // (1) Reduced-motion behavior: dashboard becomes available immediately.
+      expect(useDashboardStore.getState().appLoaded).toBe(true);
+      // (2) Overlay stops blocking interaction and is visually hidden.
+      const overlay = screen.getByTestId('startup-overlay');
+      expect(overlay.className).toContain('pointer-events-none');
+      expect(overlay.className).toContain('opacity-0');
+      // (3) role="status" survives the grace period: 499ms after the flip (t=599).
+      act(() => vi.advanceTimersByTime(499));
+      expect(screen.getByRole('status')).toBeInTheDocument();
+
+      // (4) Unmount ~500ms after the flip (t=600ms from closing start).
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByTestId('startup-overlay')).not.toBeInTheDocument();
+
+      // (5) No orphan timers: every timer created by the effect must have been
+      // consumed or cleared. On the pre-fix code the unmountTimer (t=500) AND
+      // the onChange grace timer (t=600) were both still pending here.
+      expect(vi.getTimerCount()).toBe(0);
+
+      // No further state updates / timer side effects after unmount:
+      // advance well past every pending timer; appLoaded must remain true
+      // and not be toggled by stray callbacks.
+      act(() => vi.advanceTimersByTime(12_000));
+      expect(useDashboardStore.getState().appLoaded).toBe(true);
+
+      // (6) Cleanup removes the matchMedia change listener.
+      unmount();
+      expect(motionListeners.length).toBe(0);
     });
 
     it('TC-14: Renders specific icon types: Check, CircleAlert, amber dot, Minus based on status', () => {
