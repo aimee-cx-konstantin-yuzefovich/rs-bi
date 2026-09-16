@@ -21,7 +21,7 @@ function formatTimestamp(date: Date) {
   return `[${hh}:${mm}:${ss}.${ms}]`;
 }
 
-export function LoadingScreen({ startup }: { startup: StartupState }) {
+export function LoadingScreen({ startup, onTimedOut }: { startup: StartupState; onTimedOut?: () => void }) {
   const appLoaded = useDashboardStore(state => state.appLoaded);
   const setAppLoaded = useDashboardStore(state => state.setAppLoaded);
   const [timedOut, setTimedOut] = useState(false);
@@ -46,24 +46,35 @@ export function LoadingScreen({ startup }: { startup: StartupState }) {
 
   useEffect(() => {
     if (appLoaded) return;
-    const timer = setTimeout(() => setTimedOut(true), 10_000);
+    const timer = setTimeout(() => {
+      setTimedOut(true);
+      // Notify the page so the dashboard becomes visible behind the closing
+      // overlay immediately (prevents a light-theme flash frame).
+      onTimedOut?.();
+    }, 10_000);
     return () => clearTimeout(timer);
-  }, [appLoaded]);
+  }, [appLoaded, onTimedOut]);
 
   useEffect(() => {
     if (dismounted || !closing) return;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (motion.matches) {
+    // Reduced motion disables the visual fade but NOT the accessibility
+    // announcement: appLoaded fires immediately (dashboard usable right away),
+    // while role="status" stays in the DOM for ~500ms after the final message.
+    const dismiss = () => {
       setAppLoaded(true);
-      setDismounted(true);
-      return;
+      const graceTimer = setTimeout(() => setDismounted(true), 500);
+      return graceTimer;
+    };
+    if (motion.matches) {
+      const timer = dismiss();
+      return () => clearTimeout(timer);
     }
     const readyTimer = setTimeout(() => setAppLoaded(true), 200);
     const unmountTimer = setTimeout(() => setDismounted(true), 500);
     const onChange = () => {
       if (motion.matches) {
-        setAppLoaded(true);
-        setDismounted(true);
+        dismiss();
       }
     };
     motion.addEventListener?.("change", onChange);
