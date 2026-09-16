@@ -274,6 +274,27 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
       expect(useDashboardStore.getState().appLoaded).toBe(true);
     });
 
+    it('TC-13b: REGRESSION reduced motion keeps role="status" in DOM ~500ms and never blocks input', () => {
+      vi.useFakeTimers();
+      reduced = true;
+      const readyState: StartupState = { steps: ['complete', 'complete', 'complete'], finished: true, demo: false };
+      render(<LoadingScreen startup={readyState} />);
+
+      // Immediately: dashboard is usable and the overlay is non-blocking + visually hidden
+      expect(useDashboardStore.getState().appLoaded).toBe(true);
+      const overlay = screen.getByTestId('startup-overlay');
+      expect(overlay.className).toContain('pointer-events-none');
+      expect(overlay.className).toContain('opacity-0');
+
+      // Accessibility announcement survives: role="status" still in DOM just before 500ms
+      act(() => vi.advanceTimersByTime(499));
+      expect(screen.getByRole('status')).toBeInTheDocument();
+
+      // ~500ms: LoadingScreen unmounted
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByTestId('startup-overlay')).not.toBeInTheDocument();
+    });
+
     it('TC-14: Renders specific icon types: Check, CircleAlert, amber dot, Minus based on status', () => {
       const mixedState: StartupState = {
         steps: ['complete', 'error', 'waiting'],
