@@ -49,6 +49,37 @@ describe('real startup sequencing', () => {
     await runDashboardStartup([async () => {}, async () => {}, async () => {}], () => ({ ...good(), connectionStatus: 'demo', isDemoMode: false }), publish, () => false);
     expect(publish.mock.lastCall?.[0].demo).toBe(true);
   });
+  it('REGRESSION: demo detected at checkConfig survives later connected steps (demo -> connected -> connected)', async () => {
+    const publish = vi.fn();
+    // Real-world snapshot sequence: checkConfig reports connectionStatus "demo"
+    // with isDemoMode still false; fetchFields/fetchDeals then report "connected".
+    const snapshots = [
+      { connectionStatus: 'demo', isDemoMode: false, fieldsError: null, dealsError: null },
+      { connectionStatus: 'connected', isDemoMode: false, fieldsError: null, dealsError: null },
+      { connectionStatus: 'connected', isDemoMode: false, fieldsError: null, dealsError: null },
+    ];
+    let call = 0;
+    await runDashboardStartup([async () => {}, async () => {}, async () => {}], () => snapshots[Math.min(call++, 2)], publish, () => false);
+    // After checkConfig: demo detected...
+    expect(publish.mock.calls[1][0].demo).toBe(true);
+    // ...after fetchFields and fetchDeals: connectionStatus is "connected", isDemoMode false,
+    // but the once-detected demo state must not be lost.
+    expect(publish.mock.calls[3][0].demo).toBe(true);
+    expect(publish.mock.calls[5][0].demo).toBe(true);
+    expect(publish.mock.lastCall?.[0]).toEqual({ steps: ['complete', 'complete', 'complete'], finished: true, demo: true });
+  });
+  it('REGRESSION: demo detected at checkConfig survives a later error step (demo -> connected -> error)', async () => {
+    const publish = vi.fn();
+    const snapshots = [
+      { connectionStatus: 'demo', isDemoMode: false, fieldsError: null, dealsError: null },
+      { connectionStatus: 'connected', isDemoMode: false, fieldsError: null, dealsError: null },
+      { connectionStatus: 'connected', isDemoMode: false, fieldsError: null, dealsError: 'failed' },
+    ];
+    let call = 0;
+    await runDashboardStartup([async () => {}, async () => {}, async () => {}], () => snapshots[Math.min(call++, 2)], publish, () => false);
+    expect(publish.mock.calls[1][0].demo).toBe(true);
+    expect(publish.mock.lastCall?.[0]).toEqual({ steps: ['complete', 'complete', 'error'], finished: true, demo: true });
+  });
   it('ignores an obsolete run after cleanup and does not start its next request', async () => {
     let cancelled = false; const first = deferred(); const next = vi.fn(); const publish = vi.fn();
     const run = runDashboardStartup([() => first.promise, next, next], good, publish, () => cancelled);
