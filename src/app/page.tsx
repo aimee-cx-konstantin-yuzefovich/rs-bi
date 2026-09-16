@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useLoginRedirect } from "@/hooks/use-login-redirect";
 import { useSearchParams } from "next/navigation";
@@ -33,6 +33,10 @@ function DashboardContent() {
   const [startup, setStartup] = useState<StartupState>(INITIAL_STARTUP);
 
   useLoginRedirect(status, session?.error);
+
+  // Stable callback: the 10s safety timer inside LoadingScreen re-arms whenever
+  // this identity changes, so it must not change on every render.
+  const handleStartupTimedOut = useCallback(() => setStartupTimedOut(true), []);
 
   // Timeout for auth loading state — prevents infinite spinner
   useEffect(() => {
@@ -109,12 +113,12 @@ function DashboardContent() {
 
   return (
     <>
-      <LoadingScreen startup={startup} onTimedOut={() => setStartupTimedOut(true)} />
+      <LoadingScreen startup={startup} onTimedOut={handleStartupTimedOut} />
       {/* VISIBILITY vs INTERACTIVITY are deliberately separate: the dashboard becomes
           visible (opacity-100) as soon as the overlay starts closing — success, error,
           or 10s timeout — so it sits behind the fading splash with no flash frame.
           It only becomes interactive (inert/aria-hidden removed) after appLoaded=true. */}
-      <div inert={!appLoaded} aria-hidden={!appLoaded} className={`min-h-screen flex flex-col bg-background transition-opacity duration-200 motion-reduce:transition-none ${appLoaded || startup.finished || startupTimedOut ? "opacity-100" : "h-dvh overflow-hidden opacity-0 [contain:strict]"}`}>
+      <div data-testid="dashboard-root" inert={!appLoaded} aria-hidden={!appLoaded} className={`min-h-screen flex flex-col bg-background transition-opacity duration-200 motion-reduce:transition-none ${appLoaded || startup.finished || startupTimedOut ? "opacity-100" : "h-dvh overflow-hidden opacity-0 [contain:strict]"}`}>
         <Header />
         <main className="flex-1 flex flex-col min-h-0">
           <ConfigBanner />
