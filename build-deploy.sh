@@ -7,6 +7,14 @@ repo_dir="$PWD"
 node scripts/check-deploy-platform.mjs
 command -v zip >/dev/null
 
+# ─── RELEASE QA ENFORCED GATE ───
+echo "==> Running release QA verification checks..."
+npm run db:generate
+npx vitest run
+npm run lint
+sh scripts/qa-deployment.sh
+echo "==> Release QA verification PASSED."
+
 # A clean, explicit source set prevents local .env files/databases from entering
 # the build or archive. Temporary source and ZIP are removed even after failure.
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/rs-bi-build.XXXXXX")

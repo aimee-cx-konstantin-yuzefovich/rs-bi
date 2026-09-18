@@ -171,45 +171,71 @@ export async function POST(request: NextRequest) {
 
     // Fetch all pages if there are more results
     let allDeals = data.result || [];
-    // Preserve the ACTUAL total from Bitrix24 (not just fetched count)
-    // This is critical for the UI to show "X из Y" correctly when there are
-    // more deals than our pagination limit can fetch
     const bitrixTotal = data.total ?? allDeals.length;
+    let failedPages = 0;
+    const failedOffsets: number[] = [];
+    const MAX_DEALS_TO_FETCH = 1000;
+    const cappedByLimit = bitrixTotal > MAX_DEALS_TO_FETCH;
 
     if (data.next && bitrixTotal > 50) {
       const limit = pLimit(5); // Max 5 concurrent requests to respect Bitrix limits
-      const promises = [];
-      const MAX_DEALS_TO_FETCH = 1000;
       const targetTotal = Math.min(bitrixTotal, MAX_DEALS_TO_FETCH);
+      const pagePromises = [];
       
-      // Generate promises for remaining pages
+      // Generate promises for remaining pages with offset tracking
       for (let offset = 50; offset < targetTotal; offset += 50) {
-        promises.push(
-          limit(() => bitrixPost<BitrixDealsResponse>("crm.deal.list", {
-            ...apiBody,
-            start: offset,
-          }))
+        pagePromises.push(
+          limit(async () => {
+            try {
+              const res = await bitrixPost<BitrixDealsResponse>("crm.deal.list", {
+                ...apiBody,
+                start: offset,
+              });
+              return { offset, result: res.result || [], ok: true };
+            } catch (err) {
+              console.error(`[Deals API] Failed fetching page at offset ${offset}:`, err);
+              return { offset, result: [] as any[], ok: false };
+            }
+          })
         );
       }
 
-      const results = await Promise.allSettled(promises);
+      const results = await Promise.all(pagePromises);
+      results.sort((a, b) => a.offset - b.offset);
       
       for (const res of results) {
-        if (res.status === "fulfilled" && res.value.result) {
-          allDeals = [...allDeals, ...res.value.result];
+        if (res.ok) {
+          allDeals = [...allDeals, ...res.result];
+        } else {
+          failedPages++;
+          failedOffsets.push(res.offset);
         }
       }
     }
 
-    const truncated = bitrixTotal > allDeals.length;
+    const fetched = allDeals.length;
+    const partial = failedPages > 0;
+    const truncated = bitrixTotal > fetched;
+
+    // Truthful warning: distinguish upstream failure from intentional application cap
+    let warning: string | undefined;
+    if (partial) {
+      warning = `Некоторые данные не удалось загрузить. Показано ${fetched} из ${bitrixTotal} сделок.`;
+    } else if (cappedByLimit) {
+      warning = `Данные усечены. Показаны последние ${MAX_DEALS_TO_FETCH} сделок.`;
+    }
 
     return NextResponse.json({
       success: true,
       deals: allDeals,
       total: bitrixTotal,
+      fetched,
+      partial,
+      failedPages,
+      failedOffsets,
+      cappedByLimit,
       truncated,
-      fetched: allDeals.length,
-      warning: truncated ? "Данные усечены. Показаны последние 1000 сделок." : undefined
+      warning,
     });
   } catch (error) {
     console.error("[Deals API Error] Full error details:", error);

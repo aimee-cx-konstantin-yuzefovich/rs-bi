@@ -68,7 +68,7 @@ const RATE_LIMITS = {
   default: { max: IS_PRODUCTION ? 80 : 120, windowMs: 60_000 },
 } as const;
 
-function checkRateLimit(
+export function checkRateLimit(
   ip: string,
   limit: number,
   windowMs: number
@@ -89,6 +89,10 @@ function checkRateLimit(
 
   entry.count++;
   return { allowed: true, remaining: limit - entry.count, resetAt: entry.resetAt, limit };
+}
+
+export function clearRateLimitsForTesting(): void {
+  rateLimitMap.clear();
 }
 
 // ─── Security Headers ───
@@ -158,26 +162,11 @@ const ALLOWED_ORIGINS = new Set(
       ]
 );
 
-/**
- * Get client IP with spoofing protection.
- */
-function getClientIp(request: NextRequest): string {
-  // Next.js securely provides the actual connection IP
-  const realConnectionIp = (request as any).ip || "127.0.0.1";
-  
-  // Only trust headers if the connection comes from your local proxy network
-  const isTrustedProxy = realConnectionIp === "127.0.0.1" || realConnectionIp === "::1" || realConnectionIp.startsWith("172.");
+// ─── IP Validation & Extraction ───
+import { isValidIp, normalizeClientIp, extractClientIp, getClientIp } from "@/lib/client-ip";
+export { isValidIp, normalizeClientIp, extractClientIp, getClientIp };
 
-  if (isTrustedProxy) {
-    const forwarded = request.headers.get("x-forwarded-for");
-    if (forwarded) return forwarded.split(",")[0].trim();
-    
-    const realIp = request.headers.get("x-real-ip");
-    if (realIp) return realIp.trim();
-  }
-  
-  return realConnectionIp;
-}
+
 
 // ─── MAIN PROXY EXPORT ───
 

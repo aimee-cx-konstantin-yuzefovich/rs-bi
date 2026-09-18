@@ -26,6 +26,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { auditLog } from "@/lib/auth-audit";
 import { verifySsoToken, isProxySecretConfigured, timingSafeEqualString } from "@/lib/sso-hmac";
+import { extractClientIp } from "@/lib/client-ip";
 import { IS_PRODUCTION, shouldLog } from "@/lib/config";
 
 // ─── Typed Session Interface ───
@@ -125,9 +126,11 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials, req) {
         // Get client IP for audit
         const headers = req?.headers as Record<string, string> | undefined;
-        const ip = headers?.["x-forwarded-for"]?.split(",")[0]?.trim()
-          || headers?.["x-real-ip"]?.trim()
-          || "unknown";
+        const ip = extractClientIp(
+          () => headers?.["x-real-ip"],
+          () => headers?.["x-forwarded-for"],
+          () => headers?.["host"]
+        );
 
         if (shouldLog) console.log("[AUTH DEBUG] Authorize called with credentials:", credentials ? "YES" : "NO");
         if (!IS_PRODUCTION && shouldLog) {

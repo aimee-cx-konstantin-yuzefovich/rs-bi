@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isCorporateEmail, mapWpRoleToBiRole } from "@/lib/auth";
 import { verifySsoUrlParams, generateSsoToken, isProxySecretConfigured, timingSafeEqualString } from "@/lib/sso-hmac";
+import { getClientIp } from "@/lib/client-ip";
 import { IS_PRODUCTION, shouldLog } from "@/lib/config";
 import { WP_LOGIN_URL } from "@/lib/config.server";
 
@@ -192,9 +193,7 @@ async function handleWpCallback(request: NextRequest) {
     );
   }
 
-  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || request.headers.get("x-real-ip")?.trim()
-    || "unknown";
+  const clientIp = getClientIp(request);
 
   // ═══════════════════════════════════════════════════════════
   // METHOD 1: HMAC URL Parameters (from WordPress mu-plugin)

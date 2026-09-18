@@ -18,6 +18,7 @@
 
 import { createHmac, timingSafeEqual, createHash } from "crypto";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 
 const PROXY_SECRET = process.env.PROXY_SECRET || "";
 const MAX_TOKEN_AGE_SECONDS = 30; // 30 секунд достаточно для SSO-редиректа
@@ -92,29 +93,29 @@ export async function verifySsoToken(token: string): Promise<SsoTokenPayload | n
     return null;
   }
 
-  // Check nonce to prevent replay attacks
+  // Check nonce to prevent replay attacks (fail-closed, atomic consumption)
   try {
-    // Cleanup old nonces (older than 10 minutes)
-    await db.usedNonce.deleteMany({
-      where: { createdAt: { lt: new Date(Date.now() - 600_000) } }
-    }).catch(e => console.error("[SSO-HMAC] Nonce cleanup failed:", e));
-
-    const existing = await db.usedNonce.findUnique({
-      where: { nonce: signature }
-    });
-    if (existing) {
-      console.warn(`[SSO-HMAC] Replay attack detected for nonce: ${signature}`);
-      return null;
+    // Cleanup old nonces (older than 10 minutes) — non-fatal housekeeping
+    try {
+      await db.usedNonce.deleteMany({
+        where: { createdAt: { lt: new Date(Date.now() - 600_000) } }
+      });
+    } catch (cleanupError) {
+      console.warn("[SSO-HMAC] Nonce cleanup failed:", cleanupError);
     }
+
+    // Atomic consumption of nonce
     await db.usedNonce.create({
       data: { nonce: signature }
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Unique constraint")) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      console.warn(`[SSO-HMAC] Replay attack detected for nonce: ${signature}`);
       return null;
     }
-    console.error("[SSO-HMAC] Nonce DB error, proceeding without replay protection:", error);
-    return { email, role, timestamp };
+    // Fail-closed: storage/database errors MUST reject the token
+    console.error("[SSO-HMAC] Nonce DB error, rejecting token (fail-closed):", error);
+    return null;
   }
 
   return { email, role, timestamp };

@@ -46,13 +46,14 @@ function normalizeCompany(company: CompanyRecord, fallbackId: string): CompanyRe
 
 async function fetchCompanyById(id: string, select: string[]): Promise<CompanyRecord | null> {
   try {
-    const data = await bitrixPost<{ result?: CompanyRecord } | CompanyRecord>(
+    const data = await bitrixPost<{ result?: CompanyRecord | null } | CompanyRecord>(
       "crm.company.get",
       { ID: id, SELECT: select }
     );
 
-    const result = (data as { result?: CompanyRecord }).result ?? (data as CompanyRecord);
-    if (!result || typeof result !== "object") return null;
+    if (!data || typeof data !== "object") return null;
+    const result = "result" in data ? (data as { result?: CompanyRecord | null }).result : data;
+    if (!result || typeof result !== "object" || Array.isArray(result)) return null;
 
     return normalizeCompany(result, id);
   } catch (error) {
@@ -75,9 +76,14 @@ export async function POST(request: NextRequest) {
     }
 
     const companiesMap: Record<string, CompanyRecord> = {};
+    const resolvedIds = new Set<string>();
+
     for (const id of ids) {
       companiesMap[id] = { ID: id, TITLE: "" };
     }
+
+    let failedBatches = 0;
+    const totalBatches = Math.ceil(ids.length / BATCH_SIZE);
 
     // 1) Batch list lookup
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
@@ -96,20 +102,25 @@ export async function POST(request: NextRequest) {
 
         if (Array.isArray(data.result)) {
           for (const company of data.result) {
-            const normalized = normalizeCompany(company, String(company?.ID ?? ""));
-            companiesMap[normalized.ID] = {
-              ...companiesMap[normalized.ID],
-              ...normalized,
-            };
+            const rawId = String(company?.ID ?? "").trim();
+            if (rawId) {
+              const normalized = normalizeCompany(company, rawId);
+              companiesMap[normalized.ID] = {
+                ...companiesMap[normalized.ID],
+                ...normalized,
+              };
+              resolvedIds.add(normalized.ID);
+            }
           }
         }
       } catch (error) {
         console.error(`[Companies API] Failed to fetch batch`, { batchIds, error });
+        failedBatches++;
       }
     }
 
-    // 2) Fallback per-ID get for unresolved titles (capped to prevent rate-limit flooding)
-    const unresolvedIds = ids.filter((id) => !String(companiesMap[id]?.TITLE || "").trim());
+    // 2) Fallback per-ID get for unresolved IDs (absent from batch list, capped to prevent rate-limit flooding)
+    const unresolvedIds = ids.filter((id) => !resolvedIds.has(id));
     const fallbackIds = unresolvedIds.slice(0, MAX_FALLBACK_IDS);
 
     for (let i = 0; i < fallbackIds.length; i += FALLBACK_GET_CONCURRENCY) {
@@ -128,16 +139,46 @@ export async function POST(request: NextRequest) {
             ...companiesMap[id],
             ...res.value,
           };
+          resolvedIds.add(id);
         }
       }
     }
 
-    // 3) Final normalization: never return undefined TITLE
+    // 3) Final normalization: never return undefined TITLE; resolved companies with empty TITLE use standard fallback "Без названия"
     for (const id of ids) {
       companiesMap[id] = normalizeCompany(companiesMap[id] || {}, id);
+      if (resolvedIds.has(id) && !companiesMap[id].TITLE) {
+        companiesMap[id].TITLE = "Без названия";
+      }
     }
 
-    return NextResponse.json({ success: true, companies: companiesMap });
+    const stillUnresolved = ids.filter((id) => !resolvedIds.has(id));
+    const fetchedCompanyIds = ids.filter((id) => resolvedIds.has(id));
+    const isPartial = stillUnresolved.length > 0;
+    const isTotalFailure = failedBatches > 0 && failedBatches === totalBatches && fetchedCompanyIds.length === 0;
+
+    if (isTotalFailure) {
+      return NextResponse.json(
+        {
+          success: false,
+          partial: true,
+          error: "Failed to fetch companies from CRM.",
+          companies: {},
+          fetchedCompanyIds: [],
+          unresolvedCompanyIds: ids,
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      partial: isPartial,
+      warning: isPartial ? `Не удалось загрузить данные для ${stillUnresolved.length} компаний.` : undefined,
+      companies: companiesMap,
+      fetchedCompanyIds,
+      unresolvedCompanyIds: stillUnresolved,
+    });
   } catch (error) {
     console.error("[Companies API Error]", error);
 
@@ -147,7 +188,14 @@ export async function POST(request: NextRequest) {
         : "Failed to fetch companies.";
 
     return NextResponse.json(
-      { success: false, error: message, companies: {} },
+      {
+        success: false,
+        partial: true,
+        error: message,
+        companies: {},
+        fetchedCompanyIds: [],
+        unresolvedCompanyIds: [],
+      },
       { status: 500 }
     );
   }

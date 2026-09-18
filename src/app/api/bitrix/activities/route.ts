@@ -21,6 +21,12 @@ export interface ActivityData {
   PROVIDER_TYPE_ID: string;
 }
 
+function parseTimestamp(dateStr?: string | null): number | null {
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const ts = new Date(dateStr).getTime();
+  return isNaN(ts) ? null : ts;
+}
+
 /**
  * POST /api/bitrix/activities
  * Fetches activities for a list of deal IDs.
@@ -71,11 +77,10 @@ export async function POST(request: NextRequest) {
     }
 
     const activitiesMap: Record<string, { last?: ActivityData; next?: ActivityData; all: ActivityData[] }> = {};
-    
-    // Initialize all requested IDs with empty arrays to prevent re-fetching empty deals
-    for (const id of validIds) {
-      activitiesMap[id] = { all: [] };
-    }
+    const fetchedDealIds: string[] = [];
+    const failedDealIds: string[] = [];
+    let failedBatches = 0;
+    let anyPaginationCapped = false;
 
     const batchSize = 50;
     const limit = pLimit(5);
@@ -86,63 +91,174 @@ export async function POST(request: NextRequest) {
       
       batchPromises.push(
         limit(async () => {
-          try {
-            const data = await bitrixPost<{ result: ActivityData[] }>(
-              "crm.activity.list",
-              {
-                FILTER: { OWNER_TYPE_ID: 2, "@OWNER_ID": batchIds },
-                SELECT: ["ID", "OWNER_ID", "SUBJECT", "COMPLETED", "DESCRIPTION", "DEADLINE", "CREATED", "AUTHOR_ID", "RESPONSIBLE_ID", "TYPE_ID", "PROVIDER_ID", "PROVIDER_TYPE_ID"],
-                ORDER: { CREATED: "DESC" },
-              }
-            );
+          let start = 0;
+          let pageCount = 0;
+          const MAX_PAGES_PER_BATCH = 20; // Up to 1000 activities per 50-deal batch
+          const seenStarts = new Set<number>();
+          const batchActivities: ActivityData[] = [];
+          let batchFailed = false;
 
-            if (Array.isArray(data.result)) {
-              for (const activity of data.result) {
-                if (activitiesMap[activity.OWNER_ID]) {
-                  activitiesMap[activity.OWNER_ID].all.push(activity);
+          while (true) {
+            if (seenStarts.has(start)) {
+              console.warn(`[Activities API] Repeated pagination cursor start=${start}`);
+              anyPaginationCapped = true;
+              break;
+            }
+            seenStarts.add(start);
+            pageCount++;
+
+            try {
+              const data = await bitrixPost<{ result: ActivityData[]; next?: number; total?: number }>(
+                "crm.activity.list",
+                {
+                  FILTER: { OWNER_TYPE_ID: 2, "@OWNER_ID": batchIds },
+                  SELECT: ["ID", "OWNER_ID", "SUBJECT", "COMPLETED", "DESCRIPTION", "DEADLINE", "CREATED", "AUTHOR_ID", "RESPONSIBLE_ID", "TYPE_ID", "PROVIDER_ID", "PROVIDER_TYPE_ID"],
+                  ORDER: { CREATED: "DESC" },
+                  start,
+                }
+              );
+
+              if (Array.isArray(data.result)) {
+                batchActivities.push(...data.result);
+              }
+
+              let nextOffset: number | null = null;
+              const rawNext = (data as { next?: unknown }).next;
+              if (rawNext !== undefined && rawNext !== null) {
+                if (typeof rawNext === "number" && Number.isInteger(rawNext) && rawNext >= 0) {
+                  nextOffset = rawNext;
+                } else if (typeof rawNext === "string" && /^\d+$/.test(rawNext.trim())) {
+                  nextOffset = Number(rawNext.trim());
+                } else {
+                  console.warn(`[Activities API] Invalid pagination cursor next=${JSON.stringify(rawNext)}`);
+                  anyPaginationCapped = true;
+                  break;
                 }
               }
+
+              if (nextOffset !== null) {
+                if (nextOffset <= start) {
+                  console.warn(`[Activities API] Non-advancing pagination cursor next=${nextOffset} <= start=${start}`);
+                  anyPaginationCapped = true;
+                  break;
+                }
+                if (pageCount >= MAX_PAGES_PER_BATCH) {
+                  console.warn(`[Activities API] Batch reached safety limit of ${MAX_PAGES_PER_BATCH} pages`);
+                  anyPaginationCapped = true;
+                  break;
+                }
+                start = nextOffset;
+              } else {
+                break; // Complete pagination finished
+              }
+            } catch (error) {
+              console.error(`[Activities API] Failed fetching activities batch page (start=${start}):`, error);
+              batchFailed = true;
+              break;
             }
-          } catch (error) {
-            console.error(`[Activities API] Failed to fetch activities batch:`, error);
+          }
+
+          if (batchFailed) {
+            failedBatches++;
+            failedDealIds.push(...batchIds);
+            // CRITICAL: Failed batch deals are left UNKNOWN (not in activitiesMap, not in fetchedDealIds)
+            return;
+          }
+
+          // Batch succeeded: initialize only these deals and populate their activities
+          for (const id of batchIds) {
+            activitiesMap[id] = { all: [] };
+            fetchedDealIds.push(id);
+          }
+
+          for (const activity of batchActivities) {
+            const ownerId = String(activity.OWNER_ID ?? "").trim();
+            if (activitiesMap[ownerId]) {
+              activitiesMap[ownerId].all.push(activity);
+            }
+          }
+
+          // Compute last completed and next planned for each deal in this batch
+          for (const dealId of batchIds) {
+            const dealActivities = activitiesMap[dealId].all;
+
+            // Sort by CREATED DESC (newest first, defensive against invalid dates)
+            dealActivities.sort((a, b) => {
+              const timeA = parseTimestamp(a.CREATED) ?? 0;
+              const timeB = parseTimestamp(b.CREATED) ?? 0;
+              return timeB - timeA;
+            });
+
+            // Find last completed
+            const lastCompleted = dealActivities.find(
+              (a) => String(a.COMPLETED ?? "").toUpperCase() === "Y"
+            );
+            if (lastCompleted) {
+              activitiesMap[dealId].last = lastCompleted;
+            }
+
+            // Find next planned (sort by DEADLINE ASC - earliest first, defensive against invalid dates)
+            const plannedActivities = dealActivities.filter(
+              (a) => String(a.COMPLETED ?? "").toUpperCase() === "N"
+            );
+            if (plannedActivities.length > 0) {
+              plannedActivities.sort((a, b) => {
+                const dateA = parseTimestamp(a.DEADLINE) ?? Infinity;
+                const dateB = parseTimestamp(b.DEADLINE) ?? Infinity;
+                return dateA - dateB;
+              });
+              activitiesMap[dealId].next = plannedActivities[0];
+            }
           }
         })
       );
     }
 
-    // Wait for all batches to finish concurrently
+    // Wait for all batches to finish
     await Promise.all(batchPromises);
 
-    // Process activities to find last completed and next planned
-    for (const dealId in activitiesMap) {
-      const dealActivities = activitiesMap[dealId].all;
-      
-      // Sort by CREATED DESC (newest first)
-      dealActivities.sort((a, b) => new Date(b.CREATED).getTime() - new Date(a.CREATED).getTime());
-      
-      // Find last completed
-      const lastCompleted = dealActivities.find(a => a.COMPLETED === "Y");
-      if (lastCompleted) {
-        activitiesMap[dealId].last = lastCompleted;
-      }
+    const totalBatches = Math.ceil(validIds.length / batchSize);
+    const isTotalFailure = failedBatches > 0 && failedBatches === totalBatches;
+    const isPartial = failedBatches > 0 || anyPaginationCapped;
 
-      // Find next planned (sort by DEADLINE ASC - earliest first)
-      const plannedActivities = dealActivities.filter(a => a.COMPLETED === "N");
-      if (plannedActivities.length > 0) {
-        plannedActivities.sort((a, b) => {
-          const dateA = a.DEADLINE ? new Date(a.DEADLINE).getTime() : Infinity;
-          const dateB = b.DEADLINE ? new Date(b.DEADLINE).getTime() : Infinity;
-          return dateA - dateB;
-        });
-        activitiesMap[dealId].next = plannedActivities[0];
-      }
+    if (isTotalFailure) {
+      return NextResponse.json(
+        {
+          success: false,
+          partial: true,
+          failedBatches,
+          failedDealIds,
+          fetchedDealIds: [],
+          error: "Failed to fetch activities from CRM.",
+          activities: {},
+        },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ success: true, activities: activitiesMap });
+    return NextResponse.json({
+      success: true,
+      partial: isPartial,
+      failedBatches,
+      failedDealIds,
+      fetchedDealIds,
+      warning: isPartial
+        ? `Не удалось загрузить данные по активностям для части сделок (${failedDealIds.length} из ${validIds.length}).`
+        : undefined,
+      activities: activitiesMap,
+    });
   } catch (error) {
     console.error("[Activities API Error]", error);
     return NextResponse.json(
-      { success: false, error: "Failed to fetch activities", activities: {} },
+      {
+        success: false,
+        partial: true,
+        failedBatches: 1,
+        failedDealIds: [],
+        fetchedDealIds: [],
+        error: "Failed to fetch activities",
+        activities: {},
+      },
       { status: 500 }
     );
   }

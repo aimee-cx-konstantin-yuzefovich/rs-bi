@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useLoginRedirect } from "@/hooks/use-login-redirect";
+import { loginRedirect } from "@/lib/login-navigation";
 import { useSearchParams } from "next/navigation";
 import { useQueryStates } from "nuqs";
 import { searchParams } from "@/lib/search-params";
@@ -40,7 +41,10 @@ function DashboardContent() {
 
   // Timeout for auth loading state — prevents infinite spinner
   useEffect(() => {
-    if (status !== "loading") return;
+    if (status !== "loading") {
+      setAuthLoadingTimedOut(false);
+      return;
+    }
     const timer = setTimeout(() => setAuthLoadingTimedOut(true), AUTH_LOADING_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [status]);
@@ -101,9 +105,47 @@ function DashboardContent() {
     return () => { cancelled = true; };
   }, [status, isUrlSynced, checkConfig, fetchFields, fetchDeals]);
 
-  // Show loading while checking auth
+  // Show loading or recovery UI while checking auth
   if (status === "loading") {
-    return null;
+    if (authLoadingTimedOut) {
+      return (
+        <div data-testid="auth-timeout-recovery" className="min-h-screen flex flex-col items-center justify-center p-4 bg-background text-foreground">
+          <div className="max-w-md w-full p-6 bg-card border rounded-lg shadow-sm text-center space-y-4">
+            <div className="flex justify-center">
+              <AlertCircle className="h-10 w-10 text-amber-500" />
+            </div>
+            <h2 className="text-lg font-semibold">Время ожидания сессии истекло</h2>
+            <p className="text-sm text-muted-foreground">
+              Не удалось подтвердить статус авторизации. Попробуйте обновить страницу или войдите снова.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center pt-2">
+              <Button
+                variant="outline"
+                onClick={() => window.location.reload()}
+                className="w-full sm:w-auto"
+              >
+                Повторить
+              </Button>
+              <Button
+                variant="default"
+                onClick={() => {
+                  window.location.href = loginRedirect(window.location);
+                }}
+                className="w-full sm:w-auto"
+              >
+                Войти снова
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div data-testid="auth-loading-spinner" className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   // Don't render dashboard for unauthenticated users

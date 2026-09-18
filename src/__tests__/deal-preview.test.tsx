@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DealPreview } from "@/components/dashboard/deal-preview";
 import { CompanyPreview } from "@/components/dashboard/company-preview";
 import { DataTable } from "@/components/dashboard/data-table";
@@ -48,9 +48,9 @@ const mockStore = vi.hoisted(() => ({
   columnSort: { columnId: "", direction: null },
   columnWidths: {},
   columnFilters: [],
-  userNames: { "7": "Анна" },
+  userNames: { "7": "Анна" } as Record<string, string>,
   userNamesLoading: false,
-  companiesData: { "42": { ID: "42", TITLE: "Компания из таблицы" } },
+  companiesData: { "42": { ID: "42", TITLE: "Компания из таблицы" } } as Record<string, any>,
   companiesDataLoading: false,
   activitiesData: {},
   activitiesDataLoading: false,

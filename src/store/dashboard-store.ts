@@ -933,16 +933,22 @@ export const useDashboardStore = create<DashboardState>()(
                 // Deep merge to preserve previously fetched fields
                 const newCompaniesData = { ...state.companiesData };
                 for (const [id, companyData] of Object.entries(normalizedCompanies)) {
+                  const title = String(companyData?.TITLE || "").trim() || "Без названия";
                   newCompaniesData[id] = {
                     ...(newCompaniesData[id] || {}),
-                    ...companyData
+                    ...companyData,
+                    TITLE: title,
                   };
                 }
                 const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
                 const fetchTimestamp = Date.now();
                 
-                // ✅ Mark ALL requested IDs as fetched to prevent infinite loops
-                for (const id of missingIds) {
+                // Only mark successfully fetched company IDs as fetched (unresolved IDs remain eligible for retry)
+                const successfulIds: string[] = Array.isArray(data.fetchedCompanyIds)
+                  ? data.fetchedCompanyIds
+                  : Object.keys(normalizedCompanies);
+
+                for (const id of successfulIds) {
                   newCompaniesDataFetchedAt[id] = fetchTimestamp;
                 }
                 // Prune cache to only keep companies present in allDeals
@@ -1024,8 +1030,12 @@ export const useDashboardStore = create<DashboardState>()(
                 const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
                 const fetchTimestamp = Date.now();
                 
-                // ✅ Mark ALL requested IDs as fetched to prevent infinite loops
-                for (const id of missingIds) {
+                // Only mark successfully fetched IDs as fetched (failed IDs remain UNKNOWN for retry)
+                const successfulIds: string[] = Array.isArray(data.fetchedDealIds)
+                  ? data.fetchedDealIds
+                  : Object.keys(data.activities);
+
+                for (const id of successfulIds) {
                   newActivitiesDataFetchedAt[id] = fetchTimestamp;
                 }
                 // Prune cache to only keep deals present in allDeals
