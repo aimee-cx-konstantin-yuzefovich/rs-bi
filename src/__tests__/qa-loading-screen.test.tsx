@@ -4,6 +4,16 @@ import { INITIAL_STARTUP, runDashboardStartup, type StartupState } from '@/lib/d
 import { LoadingScreen } from '@/components/dashboard/loading-screen';
 import { useDashboardStore } from '@/store/dashboard-store';
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: any) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('QA Suite: Dashboard Startup & Loading Screen', () => {
   let reduced = false;
   // change-listeners registered on the mocked MediaQueryList; lets tests
@@ -50,9 +60,9 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
 
     it('TC-02: Sequentially advances through 3 real stages: checkConfig -> fetchFields -> fetchDeals', async () => {
       const history: StartupState[] = [];
-      const d1 = Promise.withResolvers<void>();
-      const d2 = Promise.withResolvers<void>();
-      const d3 = Promise.withResolvers<void>();
+      const d1 = createDeferred<void>();
+      const d2 = createDeferred<void>();
+      const d3 = createDeferred<void>();
 
       const run = runDashboardStartup(
         [() => d1.promise, () => d2.promise, () => d3.promise],
@@ -386,7 +396,7 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
 
     it('TC-16: Cancels startup process when unmounted/cancelled', async () => {
       let cancelled = false;
-      const d1 = Promise.withResolvers<void>();
+      const d1 = createDeferred<void>();
       const step2 = vi.fn();
       const publish = vi.fn();
 
