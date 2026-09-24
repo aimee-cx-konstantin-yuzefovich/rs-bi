@@ -91,6 +91,9 @@ function resolveDealSampleStatus(
   if (labels && labels[trimmed]) {
     return labels[trimmed];
   }
+  if (/^\d+$/.test(trimmed)) {
+    return `${UNCLASSIFIED_LABEL} (${trimmed})`;
+  }
   return trimmed;
 }
 

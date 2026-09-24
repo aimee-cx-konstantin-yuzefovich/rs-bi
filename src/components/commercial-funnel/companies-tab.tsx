@@ -91,13 +91,24 @@ export function CommercialCompaniesTab({
                     </TableCell>
 
                     {/* Статус образцов */}
-                    <TableCell className="text-xs whitespace-nowrap">
-                      {c.sampleStatus !== "—" ? (
+                    <TableCell className="text-xs max-w-[200px]">
+                      {c.sampleStatuses && c.sampleStatuses.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex flex-wrap gap-1">
+                            {c.sampleStatuses.map((s, idx) => (
+                              <Badge key={idx} variant="secondary" className="text-[10px]">
+                                {s}
+                              </Badge>
+                            ))}
+                          </div>
+                          <span className="text-[9px] text-muted-foreground whitespace-nowrap">({c.sampleStatusSource})</span>
+                        </div>
+                      ) : c.sampleStatus !== "—" ? (
                         <div className="flex items-center gap-1">
                           <Badge variant="secondary" className="text-[10px]">
                             {c.sampleStatus}
                           </Badge>
-                          <span className="text-[9px] text-muted-foreground">({c.sampleStatusSource})</span>
+                          <span className="text-[9px] text-muted-foreground whitespace-nowrap">({c.sampleStatusSource})</span>
                         </div>
                       ) : (
                         <span className="text-muted-foreground/60">—</span>

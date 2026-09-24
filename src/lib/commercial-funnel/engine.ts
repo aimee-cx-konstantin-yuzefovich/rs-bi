@@ -532,7 +532,9 @@ export function buildSampleRegister(
 
   for (const c of companies) {
     // If company has sample-related deals, emit a row for each sample deal
-    const sampleDeals = c.deals.filter((d) => Boolean(d.sampleTransferStatus || d.sampleSentDate));
+    const sampleDeals = c.deals.filter((d) =>
+      Boolean(d.sampleTransferStatus || d.sampleSentDate || (d.sampleTestingStatus && d.sampleTestingStatus.length > 0))
+    );
 
     if (sampleDeals.length > 0) {
       for (const d of sampleDeals) {

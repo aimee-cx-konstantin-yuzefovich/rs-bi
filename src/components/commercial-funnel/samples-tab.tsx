@@ -169,10 +169,20 @@ export function CommercialSamplesTab({
                       </TableCell>
 
                       {/* Статус образцов */}
-                      <TableCell className="text-xs whitespace-nowrap">
-                        <Badge variant="secondary" className="text-[10px]">
-                          {row.status}
-                        </Badge>
+                      <TableCell className="text-xs max-w-[200px]">
+                        {row.statuses && row.statuses.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {row.statuses.map((s, idx) => (
+                              <Badge key={idx} variant="secondary" className="text-[10px]">
+                                {s}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {row.status}
+                          </Badge>
+                        )}
                       </TableCell>
 
                       {/* Дата отправки */}

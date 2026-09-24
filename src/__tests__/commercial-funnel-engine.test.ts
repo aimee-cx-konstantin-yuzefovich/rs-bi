@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  buildSampleRegister,
   computeBottlenecks,
   computeManagerScorecard,
   computePeriodMetrics,
@@ -1043,5 +1044,57 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
     expect(inTestingCardWip.companyCount).toBe(1);
     // Deal count is 0 because no deals carry sample testing evidence
     expect(inTestingCardWip.dealCount).toBe(0);
+  });
+
+  it("multiplicity: raw numeric deal transfer status wraps in UNCLASSIFIED_LABEL", () => {
+    const rawDeal = {
+      ID: "505",
+      TITLE: "Сделка с неизвестным трансфером",
+      COMPANY_ID: "107",
+      ASSIGNED_BY_ID: "1",
+      UF_CRM_1779386185: "9999", // Unknown numeric enum
+    };
+    const deals = normalizeDeals([rawDeal]);
+    expect(deals[0].sampleTransferStatus).toBe("Не классифицировано (9999)");
+  });
+
+  it("sample register includes deal having only sampleTestingStatus", () => {
+    const companyWithTestingOnlyDeal: CommercialCompany = {
+      id: "c-testing-only",
+      title: "Компания только с испытанием",
+      responsibleId: "1",
+      direction: [],
+      productType: [],
+      sampleStatus: "На испытании",
+      sampleStatusSource: "DEAL",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [
+        {
+          id: "deal-testing-only",
+          title: "Сделка на испытании",
+          companyId: "c-testing-only",
+          responsibleId: "1",
+          stageId: "EXECUTING",
+          categoryId: "0",
+          opportunity: 150_000,
+          currencyId: "RUB",
+          sampleTestingStatus: ["На испытании", "Не классифицировано (265)"],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+      ],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const register = buildSampleRegister([companyWithTestingOnlyDeal], new Date(2026, 8, 24));
+    expect(register).toHaveLength(1);
+    expect(register[0].dealId).toBe("deal-testing-only");
+    expect(register[0].statusSource).toBe("DEAL");
+    expect(register[0].statuses).toContain("На испытании");
+    expect(register[0].statuses).toContain("Не классифицировано (265)");
   });
 });
