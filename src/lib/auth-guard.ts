@@ -18,8 +18,9 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { shouldLog } from "@/lib/config";
+import { isAuthBypassEnabled, DEV_USER } from "@/lib/auth-mode";
 
-interface AuthSession {
+export interface AuthSession {
   userId: string;  // Email (used as ID since no local user DB)
   email: string;
   name: string | null;
@@ -32,6 +33,15 @@ interface AuthSession {
  * WordPress is the source of truth — we trust the JWT claims.
  */
 export async function requireAuth(): Promise<AuthSession | NextResponse> {
+  if (isAuthBypassEnabled()) {
+    return {
+      userId: DEV_USER.id,
+      email: DEV_USER.email,
+      name: DEV_USER.name,
+      role: DEV_USER.role,
+    };
+  }
+
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
@@ -75,6 +85,21 @@ export async function requireAuthOnly(): Promise<null | NextResponse> {
  * WordPress is the source of truth — role is set at sign-in from WP.
  */
 export async function requireAdmin(): Promise<AuthSession | NextResponse> {
+  if (isAuthBypassEnabled()) {
+    if (DEV_USER.role !== "admin") {
+      return NextResponse.json(
+        { success: false, error: "Доступ запрещён" },
+        { status: 403 }
+      );
+    }
+    return {
+      userId: DEV_USER.id,
+      email: DEV_USER.email,
+      name: DEV_USER.name,
+      role: DEV_USER.role,
+    };
+  }
+
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {

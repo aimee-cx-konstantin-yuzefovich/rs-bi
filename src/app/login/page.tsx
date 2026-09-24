@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LOGIN_ERRORS, loginErrorMessage } from "@/lib/login-errors";
 import { safeLoginDestination } from "@/lib/login-navigation";
+import { useAuthBypass } from "@/components/auth/auth-provider";
 
 const inputClass = "h-12 rounded-lg border-slate-400 bg-white dark:bg-white px-4 text-base md:text-base text-slate-900 placeholder:text-slate-500 focus-visible:border-[#1A52A3] focus-visible:ring-[#1A52A3]/40";
 const linkClass = "rounded-sm text-[#1A52A3] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#1A52A3]";
@@ -28,11 +29,14 @@ function LoginForm() {
   const inFlight = useRef(false);
   const emailInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
+  const bypass = useAuthBypass();
   const callbackUrl = params.get("callbackUrl");
 
   useEffect(() => {
-    if (status === "authenticated") router.replace(safeLoginDestination(callbackUrl, window.location.origin));
-  }, [status, callbackUrl, router]);
+    if (bypass || status === "authenticated") {
+      router.replace(safeLoginDestination(callbackUrl, window.location.origin));
+    }
+  }, [bypass, status, callbackUrl, router]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

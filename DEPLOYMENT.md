@@ -153,6 +153,49 @@ not database/CRM availability or successful SSO. `/api/bitrix/status` remains
 authenticated. Docker health status alone does not restart an unhealthy container;
 the restart policy applies when its process exits.
 
+## Vercel Preview Development Security
+
+`AUTH_MODE=bypass` must only be used on Vercel Preview deployments.
+
+Preview deployments using bypass MUST be protected by Vercel Authentication / Deployment Protection.
+
+Do not expose an auth-bypassed deployment publicly if it has access to a real `BITRIX_WEBHOOK_URL`.
+
+## Environment Configuration
+
+### Real production server
+
+```text
+AUTH_MODE=wordpress
+```
+
+or omit `AUTH_MODE`, because default must be `wordpress`.
+
+Existing environment variables remain unchanged:
+- `NEXTAUTH_SECRET`
+- `PROXY_SECRET`
+- `WP_LOGIN_URL`
+- `BITRIX_WEBHOOK_URL`
+- `DATABASE_URL`
+
+### Vercel Preview
+
+```text
+AUTH_MODE=bypass
+NEXTAUTH_SECRET=<valid secret>
+BITRIX_WEBHOOK_URL=<development/test or explicitly approved webhook>
+```
+
+`PROXY_SECRET` may remain configured but bypass mode should not depend on WordPress SSO.
+
+### Vercel Production
+
+```text
+AUTH_MODE=wordpress
+```
+
+or unset. Bypass must remain disabled.
+
 ## Verification
 
 Run `npm ci`, `npm run db:generate`, `npx vitest run`, `npm run lint`, and

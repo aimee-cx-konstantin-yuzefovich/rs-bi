@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/dashboard/theme-provider";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Providers } from "@/components/providers";
+import { isAuthBypassEnabled } from "@/lib/auth-mode";
 
 const roboto = Roboto({
   weight: ["400", "500", "700"],
@@ -48,13 +49,15 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const authBypass = isAuthBypassEnabled();
+
   return (
     <html lang="ru" suppressHydrationWarning>
       <body
         className={`${roboto.variable} ${nunito.variable} ${robotoMono.variable} font-sans antialiased bg-background text-foreground`}
       >
         <Providers>
-          <AuthProvider>
+          <AuthProvider bypass={authBypass}>
             <ErrorBoundary>
               <ThemeProvider
                 attribute="class"
