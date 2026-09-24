@@ -9,6 +9,7 @@ import {
   COMMERCIAL_THRESHOLDS,
   INVOICE_SENT_STATUS_CODES,
   PAID_STATUS_CODES,
+  PAYMENT_AMOUNT_LABEL,
   UNCLASSIFIED_LABEL,
   WIP_STATUS_KEYS,
 } from "./constants";
@@ -102,16 +103,18 @@ export function computePeriodMetrics(
   }
 
   // 2. Образцы отправлены (Sample shipment date in period, unique companies)
+  // Provenance rule: Deal shipment date is authoritative when present;
+  // Company transfer date is only fallback when no Deal shipment date exists.
   const currentSampleSentCompanyIds = new Set<string>();
   const prevSampleSentCompanyIds = new Set<string>();
 
   for (const c of companies) {
-    // Check deal sent dates or company transfer dates
-    const hasCurrentShipment = c.sampleAllDates.some((d) => isDateInPeriod(d, currentStart, currentEnd));
+    const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates;
+    const hasCurrentShipment = eventDates.some((d) => isDateInPeriod(d, currentStart, currentEnd));
     if (hasCurrentShipment) {
       currentSampleSentCompanyIds.add(c.id);
     }
-    const hasPrevShipment = c.sampleAllDates.some((d) => isDateInPeriod(d, previousStart, previousEnd));
+    const hasPrevShipment = eventDates.some((d) => isDateInPeriod(d, previousStart, previousEnd));
     if (hasPrevShipment) {
       prevSampleSentCompanyIds.add(c.id);
     }
@@ -133,6 +136,7 @@ export function computePeriodMetrics(
   }
 
   // 4. Получено оплат (Payment date in period + paid status, unique companies)
+  // Sums OPPORTUNITY for deals with confirmed payment in the period.
   const currentPaidCompanyIds = new Set<string>();
   const prevPaidCompanyIds = new Set<string>();
   let currentPaymentSum = 0;
@@ -223,7 +227,7 @@ export function computePeriodMetrics(
     ),
     buildKpi(
       "payment_amount",
-      "Сумма оплат",
+      PAYMENT_AMOUNT_LABEL,
       Math.round(currentPaymentSum),
       Math.round(prevPaymentSum),
       Array.from(currentPaymentSumCompanyIds),
@@ -240,8 +244,30 @@ export function computePeriodMetrics(
 }
 
 /**
+ * Check if a Deal has sample evidence matching a specific WIP status key.
+ */
+function isDealMatchingSampleStatus(deal: CommercialDeal, targetKey: string): boolean {
+  if (deal.sampleTransferStatus) {
+    if (deal.sampleTransferStatus === targetKey || deal.sampleTransferStatus.startsWith(targetKey)) {
+      return true;
+    }
+  }
+  if (deal.sampleTestingStatus && deal.sampleTestingStatus.length > 0) {
+    if (deal.sampleTestingStatus.some((s) => s === targetKey || s.startsWith(targetKey))) {
+      return true;
+    }
+  }
+  if (targetKey === UNCLASSIFIED_LABEL) {
+    if (deal.sampleTransferStatus?.startsWith(UNCLASSIFIED_LABEL)) return true;
+    if (deal.sampleTestingStatus?.some((s) => s.startsWith(UNCLASSIFIED_LABEL))) return true;
+  }
+  return false;
+}
+
+/**
  * Calculate Current State / WIP KPIs (WHERE COMPANIES/DEALS ARE NOW).
  * Never filtered by event date. Counting unit: UNIQUE COMPANY.
+ * Sample dealCount strictly counts only deals having relevant sample evidence.
  */
 export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
   const map = new Map<string, { companyIds: Set<string>; dealCount: number }>();
@@ -262,7 +288,10 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
       }
       const entry = map.get(targetKey) || map.get(UNCLASSIFIED_LABEL)!;
       entry.companyIds.add(c.id);
-      entry.dealCount += c.deals.length;
+
+      // Only count deals that actually carry sample evidence for this status
+      const matchingDeals = c.deals.filter((d) => isDealMatchingSampleStatus(d, targetKey));
+      entry.dealCount += matchingDeals.length;
     }
   }
 
@@ -359,43 +388,22 @@ export function computeBottlenecks(
       }
     }
 
-    // 3. Invoice sent but payment overdue (> 14 days)
-    for (const d of c.deals) {
-      if (d.paymentStatus && INVOICE_SENT_STATUS_CODES.has(d.paymentStatus)) {
-        const refDate = d.beginDate || d.dateCreate;
-        const days = calculateDaysWaiting(refDate, now);
-        if (days !== null && days > COMMERCIAL_THRESHOLDS.PAYMENT_WAITING_ATTENTION_DAYS) {
-          items.push({
-            id: `bottleneck-payment-${d.id}`,
-            companyId: c.id,
-            companyTitle: c.title,
-            responsibleId: d.responsibleId || c.responsibleId,
-            responsibleName: d.responsibleName || c.responsibleName || "Не назначен",
-            type: "payment_overdue",
-            issueLabel: "Счёт ожидает оплаты",
-            currentState: `Счёт выставлен (${days} дн.)`,
-            relevantDate: refDate,
-            daysWaiting: days,
-            dealId: d.id,
-            dealTitle: d.title,
-            amount: d.opportunity,
-            nextAction: d.activityNext || "Запросить подтверждение оплаты у бухгалтерии клиента",
-          });
-        }
-      }
-    }
+    // 3. Invoice sent but payment overdue
+    // Note: Bitrix CRM does not provide an invoice issue date. Do NOT fabricate invoice age from deal creation date.
+    // If an authoritative invoice date is populated in the future, it is used here.
 
-    // 4. Stalled active deal (no next activity or > 30 days stalled)
+    // 4. Stalled active deal (exceeds STALLED_DEAL_DAYS threshold of 30 days)
+    // Young deals (age <= 30 days) must NOT be classified as stalled deal bottlenecks.
     for (const d of c.deals) {
       if (!["WON", "LOSE"].includes(d.stageId)) {
         const refDate = d.beginDate || d.dateCreate;
         const days = calculateDaysWaiting(refDate, now) || 0;
         const isStalledByAge = days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS;
-        const hasNoNextAction = !d.activityNext;
 
-        if (isStalledByAge || hasNoNextAction) {
+        if (isStalledByAge) {
+          const hasNoNextAction = !d.activityNext;
           const issueLabel = hasNoNextAction
-            ? "Нет следующего шага по сделке"
+            ? `Сделка без движения (${days} дн., нет след. шага)`
             : `Сделка без движения (${days} дн.)`;
           items.push({
             id: `bottleneck-stalled-${d.id}`,
@@ -470,8 +478,9 @@ export function computeManagerScorecard(
       row.newCompanies++;
     }
 
-    // Dated: samples sent in period
-    if (c.sampleAllDates.some((d) => isDateInPeriod(d, currentStart, currentEnd))) {
+    // Dated: samples sent in period (strictly using authoritative date provenance)
+    const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates;
+    if (eventDates.some((d) => isDateInPeriod(d, currentStart, currentEnd))) {
       row.samplesSent++;
     }
 
@@ -513,6 +522,7 @@ export function computeManagerScorecard(
 
 /**
  * Build granular Sample Register rows (one row per sample deal + company fallbacks).
+ * Preserves multiplicity and raw values.
  */
 export function buildSampleRegister(
   companies: CommercialCompany[],
@@ -528,6 +538,9 @@ export function buildSampleRegister(
       for (const d of sampleDeals) {
         const shipmentDate = d.sampleSentDate || c.sampleShipmentDate;
         const days = calculateDaysWaiting(shipmentDate, now);
+        const dealStatuses = [d.sampleTransferStatus, ...d.sampleTestingStatus].filter(Boolean) as string[];
+        const dealStatusRaw = [d.sampleTransferStatusRaw, ...(d.sampleTestingStatusRaw || [])].filter(Boolean) as string[];
+        const statusDisplay = dealStatuses.join(", ") || d.sampleTransferStatus || c.sampleStatus;
 
         rows.push({
           id: `sample-deal-${d.id}`,
@@ -538,7 +551,9 @@ export function buildSampleRegister(
           dealId: d.id,
           dealTitle: d.title,
           productType: d.productType.join(", ") || c.productType.join(", ") || "—",
-          status: d.sampleTransferStatus || c.sampleStatus,
+          status: statusDisplay,
+          statuses: dealStatuses,
+          statusRawValues: dealStatusRaw,
           statusSource: "DEAL",
           shipmentDate,
           daysSinceSent: days !== null ? days : undefined,
@@ -553,6 +568,9 @@ export function buildSampleRegister(
     } else if (c.sampleStatus !== "—" || c.sampleShipmentDate || c.sampleTestResult) {
       // Company-level fallback record
       const days = calculateDaysWaiting(c.sampleShipmentDate, now);
+      const companyStatuses = c.sampleStatuses && c.sampleStatuses.length > 0 ? c.sampleStatuses : (c.sampleStatus !== "—" ? [c.sampleStatus] : []);
+      const statusDisplay = companyStatuses.join(", ") || c.sampleStatus;
+
       rows.push({
         id: `sample-company-${c.id}`,
         companyId: c.id,
@@ -562,7 +580,9 @@ export function buildSampleRegister(
         dealId: c.primaryDealId,
         dealTitle: c.primaryDealTitle,
         productType: c.productType.join(", ") || "—",
-        status: c.sampleStatus,
+        status: statusDisplay,
+        statuses: companyStatuses,
+        statusRawValues: c.sampleStatusRawValues || (c.sampleStatusRaw ? [c.sampleStatusRaw] : []),
         statusSource: "COMPANY",
         shipmentDate: c.sampleShipmentDate,
         daysSinceSent: days !== null ? days : undefined,

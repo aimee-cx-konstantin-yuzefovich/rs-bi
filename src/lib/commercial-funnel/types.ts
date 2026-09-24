@@ -43,7 +43,9 @@ export interface CommercialDeal {
   beginDate?: string;
   closeDate?: string;
   sampleTransferStatus?: string;
+  sampleTransferStatusRaw?: string;
   sampleTestingStatus: string[];
+  sampleTestingStatusRaw?: string[];
   sampleSentDate?: string;
   tvlDetails?: string;
   markVolume?: string;
@@ -52,14 +54,24 @@ export interface CommercialDeal {
   paymentDate?: string;
   shipmentDate?: string;
   productType: string[];
+  productTypeRaw?: string[];
   industry: string[];
+  industryRaw?: string[];
   direction: string[];
+  directionRaw?: string[];
   region?: string;
   activityLast?: string;
   activityNext?: string;
 }
 
 export type SampleStatusSource = "DEAL" | "COMPANY" | "NONE";
+
+export interface SampleStatusEntry {
+  rawValue: string;
+  label: string;
+  source: SampleStatusSource;
+  fieldId: string;
+}
 
 export interface CommercialCompany {
   id: string;
@@ -68,14 +80,23 @@ export interface CommercialCompany {
   responsibleName?: string;
   dateCreate?: string;
   industry?: string;
+  industryRaw?: string;
   direction: string[];
+  directionRaw?: string[];
   region?: string;
   productType: string[];
+  productTypeRaw?: string[];
   application?: string;
   sampleStatus: string;
   sampleStatusRaw?: string;
   sampleStatusSource: SampleStatusSource;
+  sampleStatuses?: string[];
+  sampleStatusRawValues?: string[];
+  sampleStatusEntries?: SampleStatusEntry[];
   sampleShipmentDate?: string;
+  sampleDealSentDates?: string[];
+  sampleCompanyTransferDates?: string[];
+  sampleEventDatesForPeriodMetrics?: string[];
   sampleAllDates: string[];
   sampleTestResult?: string;
   gradeGel: string[];
@@ -163,6 +184,8 @@ export interface SampleRegisterRow {
   dealTitle?: string;
   productType: string;
   status: string;
+  statuses?: string[];
+  statusRawValues?: string[];
   statusSource: SampleStatusSource;
   shipmentDate?: string;
   daysSinceSent?: number;

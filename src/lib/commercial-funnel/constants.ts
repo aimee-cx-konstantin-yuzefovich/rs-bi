@@ -11,6 +11,17 @@ export const COMMERCIAL_THRESHOLDS = {
   STALLED_DEAL_DAYS: 30,
 } as const;
 
+/**
+ * Authoritative business timezone for RusSilica Commercial Funnel.
+ * Bitrix24 instance operates in Moscow time (MSK, UTC+3).
+ * All period boundaries, date checks, and waiting day calculations use this timezone.
+ */
+export const COMMERCIAL_TIMEZONE = "Europe/Moscow";
+
+/** Truthful Russian label for deal opportunity of paid deals (cash receipts are not tracked in CRM) */
+export const PAYMENT_AMOUNT_LABEL = "Сумма сделок с полученной оплатой";
+
+
 export const DEFAULT_COMMERCIAL_FILTERS: CommercialFilters = {
   periodPreset: "30days",
   responsibleId: "all",

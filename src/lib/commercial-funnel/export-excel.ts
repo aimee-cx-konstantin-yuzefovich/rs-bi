@@ -7,6 +7,10 @@
 
 import ExcelJS from "exceljs";
 import {
+  COMMERCIAL_TIMEZONE,
+  PAYMENT_AMOUNT_LABEL,
+} from "./constants";
+import {
   buildSampleRegister,
   computeBottlenecks,
   computeManagerScorecard,
@@ -20,6 +24,33 @@ import type {
   CommercialDeal,
   CommercialFilters,
 } from "./types";
+
+/**
+ * Convert ISO date or datetime string to native Date object for Excel.
+ * Returns null if missing or invalid, ensuring empty cells stay blank.
+ */
+function toExcelDate(dateStr?: string | null): Date | null {
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const trimmed = dateStr.trim();
+  if (!trimmed || trimmed === "—") return null;
+
+  // Date-only: YYYY-MM-DD (construct at UTC noon to avoid timezone shift)
+  const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [_, y, m, d] = dateOnlyMatch;
+    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12, 0, 0));
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+
+  // Datetime with time component
+  const dtMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+  if (dtMatch) {
+    const dt = new Date(trimmed);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+
+  return null;
+}
 
 export interface BuildExcelOptions {
   companies: CommercialCompany[];
@@ -127,20 +158,35 @@ export async function createCommercialFunnelWorkbook(
   summarySheet.getRow(1).font = { name: "Calibri", size: 16, bold: true, color: { argb: "FF0F172A" } };
   summarySheet.addRow([]);
 
-  // Report parameters
+  // Report parameters & full filter disclosure
   summarySheet.addRow(["Параметры отчёта"]);
   summarySheet.getRow(3).font = SECTION_HEADER_FONT;
-  summarySheet.addRow(["Период анализа:", `${boundaries.currentStartStr} — ${boundaries.currentEndStr}`]);
+  summarySheet.addRow(["Период анализа:", `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${filters.periodPreset})`]);
   summarySheet.addRow(["Предыдущий период для сравнения:", `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`]);
+  summarySheet.addRow(["Бизнес-часовой пояс:", `${COMMERCIAL_TIMEZONE} (MSK, UTC+3)`]);
   summarySheet.addRow(["Дата и время формирования:", now.toISOString().replace("T", " ").slice(0, 19)]);
-  summarySheet.addRow([
-    "Активные фильтры:",
-    `Ответственный: ${filters.responsibleId || "Все"}, Продукт: ${filters.productType || "Все"}, Отрасль: ${filters.industry || "Все"}`,
-  ]);
+
+  const respLabel = filters.responsibleId && filters.responsibleId !== "all"
+    ? (userNames[filters.responsibleId] || `ID ${filters.responsibleId}`)
+    : "Все";
+  const prodLabel = filters.productType && filters.productType !== "all" ? filters.productType : "Все";
+  const indLabel = filters.industry && filters.industry !== "all" ? filters.industry : "Все";
+  const dirLabel = filters.direction && filters.direction !== "all" ? filters.direction : "Все";
+  const regLabel = filters.region && filters.region !== "all" ? filters.region : "Все";
+  const customDatesLabel = filters.periodPreset === "custom" && filters.customFrom && filters.customTo
+    ? `${filters.customFrom} — ${filters.customTo}`
+    : "Не применяются";
+
+  summarySheet.addRow(["Ответственный:", respLabel]);
+  summarySheet.addRow(["Продукт:", prodLabel]);
+  summarySheet.addRow(["Отрасль:", indLabel]);
+  summarySheet.addRow(["Направление:", dirLabel]);
+  summarySheet.addRow(["Регион:", regLabel]);
+  summarySheet.addRow(["Пользовательский диапазон:", customDatesLabel]);
   summarySheet.addRow([]);
 
   // Dated KPIs table
-  const datedHeaderRowIndex = 9;
+  const datedHeaderRowIndex = summarySheet.rowCount + 1;
   summarySheet.addRow(["АКТИВНОСТЬ ЗА ПЕРИОД (СОБЫТИЯ С НАДЁЖНОЙ ДАТОЙ)"]);
   summarySheet.getRow(datedHeaderRowIndex).font = SECTION_HEADER_FONT;
 
@@ -227,28 +273,41 @@ export async function createCommercialFunnelWorkbook(
   companiesSheet.autoFilter = { from: "A1", to: "S1" };
 
   for (const c of filteredCompanies) {
+    const dateCreateVal = toExcelDate(c.dateCreate);
+    const sampleDateVal = toExcelDate(c.sampleShipmentDate);
+    const paymentDateVal = toExcelDate(c.primaryDealPaymentDate);
+    const sampleStatusDisplay = c.sampleStatuses && c.sampleStatuses.length > 0
+      ? c.sampleStatuses.join(", ")
+      : c.sampleStatus;
+
     const row = companiesSheet.addRow([
       c.id,
       c.title,
       c.responsibleName || c.responsibleId,
-      c.dateCreate || "—",
+      dateCreateVal,
       c.industry || "—",
       c.region || "—",
       c.productType.join(", ") || "—",
-      c.sampleStatus,
+      sampleStatusDisplay,
       c.sampleStatusSource,
-      c.sampleShipmentDate || "—",
+      sampleDateVal,
       c.sampleTestResult || "—",
       c.primaryDealTitle || "—",
       c.primaryDealStageName || c.primaryDealStageId || "—",
       c.primaryDealOpportunity || 0,
       c.primaryDealPaymentStatus || "—",
-      c.primaryDealPaymentDate || "—",
+      paymentDateVal,
       c.primaryDealActivityNext || "—",
       c.hasAttention ? "Да" : "Нет",
       c.attentionReasons.join("; ") || "—",
     ]);
     row.height = 20;
+
+    // Format native Date cells
+    if (dateCreateVal) row.getCell(4).numFmt = "dd.mm.yyyy";
+    if (sampleDateVal) row.getCell(10).numFmt = "dd.mm.yyyy";
+    if (paymentDateVal) row.getCell(16).numFmt = "dd.mm.yyyy";
+
     // Format currency cell
     const cellOpportunity = row.getCell(14);
     cellOpportunity.numFmt = "#,##0";
@@ -282,6 +341,7 @@ export async function createCommercialFunnelWorkbook(
   samplesSheet.autoFilter = { from: "A1", to: "N1" };
 
   for (const s of sampleRegister) {
+    const shipmentDateVal = toExcelDate(s.shipmentDate);
     const row = samplesSheet.addRow([
       s.companyTitle,
       s.responsibleName,
@@ -289,7 +349,7 @@ export async function createCommercialFunnelWorkbook(
       s.productType,
       s.status,
       s.statusSource,
-      s.shipmentDate || "—",
+      shipmentDateVal,
       s.daysSinceSent !== undefined ? s.daysSinceSent : "—",
       s.testResult || "—",
       s.gradeGel || "—",
@@ -299,6 +359,7 @@ export async function createCommercialFunnelWorkbook(
       s.nextAction || "—",
     ]);
     row.height = 20;
+    if (shipmentDateVal) row.getCell(7).numFmt = "dd.mm.yyyy";
   }
   autoFitColumns(samplesSheet);
 
@@ -319,7 +380,7 @@ export async function createCommercialFunnelWorkbook(
     "Требуют доработки",
     "Создано сделок (период)",
     "Получено оплат (период)",
-    "Сумма оплат (₽)",
+    `${PAYMENT_AMOUNT_LABEL} (₽)`,
     "Требуют внимания",
   ]);
   styleHeaderRow(managersHeader);
@@ -367,18 +428,20 @@ export async function createCommercialFunnelWorkbook(
   bottlenecksSheet.autoFilter = { from: "A1", to: "I1" };
 
   for (const b of bottlenecks) {
+    const relevantDateVal = toExcelDate(b.relevantDate);
     const row = bottlenecksSheet.addRow([
       b.companyTitle,
       b.responsibleName,
       b.issueLabel,
       b.currentState,
-      b.relevantDate || "—",
+      relevantDateVal,
       b.daysWaiting,
       b.dealTitle || "—",
       b.amount || 0,
       b.nextAction || "—",
     ]);
     row.height = 20;
+    if (relevantDateVal) row.getCell(5).numFmt = "dd.mm.yyyy";
     const cellAmount = row.getCell(8);
     cellAmount.numFmt = "#,##0";
   }

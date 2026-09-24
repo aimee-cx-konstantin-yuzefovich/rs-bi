@@ -86,7 +86,7 @@ export function CommercialManagersTab({
                   <TableHead className="text-xs font-semibold text-right">Доработка</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Создано сделок</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Получено оплат</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Сумма оплат (₽)</TableHead>
+                  <TableHead className="text-xs font-semibold text-right" title="Сумма сделок с полученной оплатой">Сумма сделок с получ. оплатой (₽)</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Требуют внимания</TableHead>
                 </TableRow>
               </TableHeader>

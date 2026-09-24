@@ -17,6 +17,7 @@ import {
 } from "@/lib/commercial-funnel/date-utils";
 import { normalizeCompanies, normalizeDeals } from "@/lib/commercial-funnel/normalize";
 import type { CommercialCompany, CommercialDeal, CommercialFilters } from "@/lib/commercial-funnel/types";
+import { COMMERCIAL_TIMEZONE, PAYMENT_AMOUNT_LABEL } from "@/lib/commercial-funnel/constants";
 
 describe("Commercial Funnel — Date Utilities & Safe Deltas", () => {
   it("safeDeltaPercent handles zero denominator safely", () => {
@@ -490,5 +491,557 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
     const rowB = scorecard.find((m) => m.responsibleId === "user-B")!;
     expect(rowB).toBeDefined();
     expect(rowB.companyIds).toContain("comp-owner-A");
+  });
+});
+
+describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
+  it("multiplicity: preserves multiple company sample statuses in sampleStatuses and raw values", () => {
+    const rawCompany = {
+      ID: "105",
+      TITLE: "Компания с несколькими статусами",
+      ASSIGNED_BY_ID: "1",
+      UF_CRM_1753187313314: ["261", "2695"], // 261 = "Образцы отправлены", 2695 = "Подошли"
+    };
+    const companies = normalizeCompanies([rawCompany], []);
+    expect(companies).toHaveLength(1);
+    expect(companies[0].sampleStatuses).toBeDefined();
+    expect(companies[0].sampleStatuses).toContain("Образцы отправлены");
+    expect(companies[0].sampleStatuses).toContain("Подошли");
+    expect(companies[0].sampleStatusRawValues).toEqual(["261", "2695"]);
+  });
+
+  it("multiplicity: preserves multiple deal sample statuses and unknown enums", () => {
+    const rawDeal = {
+      ID: "502",
+      TITLE: "Сделка с образцами",
+      COMPANY_ID: "106",
+      ASSIGNED_BY_ID: "1",
+      UF_CRM_1779386185: "DT1032_15:CLIENT", // Deal sample transfer: "На испытании"
+      UF_CRM_1779394379: ["265", "267"], // Deal sample testing: 2 unknown enums
+    };
+    const deals = normalizeDeals([rawDeal]);
+    expect(deals[0].sampleTransferStatus).toBe("На испытании");
+    expect(deals[0].sampleTestingStatus.some((s) => s.includes("265"))).toBe(true);
+    expect(deals[0].sampleTestingStatus.some((s) => s.includes("267"))).toBe(true);
+    expect(deals[0].sampleTestingStatusRaw).toEqual(["265", "267"]);
+  });
+
+  it("provenance: Case A (Deal shipment date only) -> authoritative Deal date used in period metrics", () => {
+    const rawCompany = {
+      ID: "201",
+      TITLE: "Компания Кейс А",
+      ASSIGNED_BY_ID: "1",
+    };
+    const rawDeal = {
+      ID: "601",
+      TITLE: "Сделка А",
+      COMPANY_ID: "201",
+      ASSIGNED_BY_ID: "1",
+      UF_CRM_1779386185: "DT1032_15:CLIENT",
+      UF_CRM_1774879952785: "2026-09-10", // DEAL_SAMPLE_SENT_DATE_FIELD_ID
+    };
+    const deals = normalizeDeals([rawDeal]);
+    const companies = normalizeCompanies([rawCompany], deals);
+    expect(companies[0].sampleShipmentDate).toBe("2026-09-10");
+    expect(companies[0].sampleStatusSource).toBe("DEAL");
+    expect(companies[0].sampleDealSentDates).toContain("2026-09-10");
+    expect(companies[0].sampleCompanyTransferDates).toEqual([]);
+    expect(companies[0].sampleEventDatesForPeriodMetrics).toEqual(["2026-09-10"]);
+
+    const bounds = computePeriodBoundaries({ periodPreset: "30days" }, new Date(2026, 8, 24));
+    const kpis = computePeriodMetrics(companies, bounds);
+    const sentKpi = kpis.find((k) => k.id === "samples_sent")!;
+    expect(sentKpi.currentValue).toBe(1);
+  });
+
+  it("provenance: Case B (Company transfer date only) -> fallback Company date used in period metrics", () => {
+    const rawCompany = {
+      ID: "202",
+      TITLE: "Компания Кейс Б",
+      ASSIGNED_BY_ID: "1",
+      UF_CRM_1753187313314: ["261"],
+      UF_CRM_1764156557536: ["2026-09-12"], // COMPANY_SAMPLES_DATE_MULTI_FIELD_ID
+    };
+    const companies = normalizeCompanies([rawCompany], []);
+    expect(companies[0].sampleShipmentDate).toBe("2026-09-12");
+    expect(companies[0].sampleStatusSource).toBe("COMPANY");
+    expect(companies[0].sampleCompanyTransferDates).toContain("2026-09-12");
+    expect(companies[0].sampleDealSentDates).toEqual([]);
+    expect(companies[0].sampleEventDatesForPeriodMetrics).toEqual(["2026-09-12"]);
+
+    const bounds = computePeriodBoundaries({ periodPreset: "30days" }, new Date(2026, 8, 24));
+    const kpis = computePeriodMetrics(companies, bounds);
+    const sentKpi = kpis.find((k) => k.id === "samples_sent")!;
+    expect(sentKpi.currentValue).toBe(1);
+  });
+
+  it("provenance: Case C (Both Deal shipment date and Company transfer date) -> Deal date is authoritative, company date excluded from period metrics", () => {
+    const rawCompany = {
+      ID: "203",
+      TITLE: "Компания Кейс В",
+      ASSIGNED_BY_ID: "1",
+      UF_CRM_1753187313314: ["261"],
+      UF_CRM_1764156557536: ["2026-08-01"], // Old company transfer date outside current period
+    };
+    const rawDeal = {
+      ID: "603",
+      TITLE: "Сделка В",
+      COMPANY_ID: "203",
+      ASSIGNED_BY_ID: "1",
+      UF_CRM_1779386185: "DT1032_15:CLIENT",
+      UF_CRM_1774879952785: "2026-09-15", // Recent deal shipment date inside current period
+    };
+    const deals = normalizeDeals([rawDeal]);
+    const companies = normalizeCompanies([rawCompany], deals);
+
+    // Authoritative date is Deal shipment date (2026-09-15)
+    expect(companies[0].sampleShipmentDate).toBe("2026-09-15");
+    expect(companies[0].sampleDealSentDates).toContain("2026-09-15");
+    expect(companies[0].sampleCompanyTransferDates).toContain("2026-08-01");
+    // Period metrics must ONLY evaluate sampleDealSentDates when present
+    expect(companies[0].sampleEventDatesForPeriodMetrics).toEqual(["2026-09-15"]);
+
+    const bounds = computePeriodBoundaries({ periodPreset: "30days" }, new Date(2026, 8, 24));
+    const kpis = computePeriodMetrics(companies, bounds);
+    const sentKpi = kpis.find((k) => k.id === "samples_sent")!;
+    expect(sentKpi.currentValue).toBe(1);
+  });
+
+  it("provenance: Case D (Neither Deal nor Company date) -> not counted in period metrics, but included in WIP", () => {
+    const rawCompany = {
+      ID: "204",
+      TITLE: "Компания Кейс Г",
+      ASSIGNED_BY_ID: "1",
+      UF_CRM_1753187313314: ["2695"], // "Подошли" without date
+    };
+    const companies = normalizeCompanies([rawCompany], []);
+    expect(companies[0].sampleShipmentDate).toBeUndefined();
+    expect(companies[0].sampleEventDatesForPeriodMetrics).toEqual([]);
+
+    const bounds = computePeriodBoundaries({ periodPreset: "30days" }, new Date(2026, 8, 24));
+    const kpis = computePeriodMetrics(companies, bounds);
+    const sentKpi = kpis.find((k) => k.id === "samples_sent")!;
+    expect(sentKpi.currentValue).toBe(0);
+
+    const wip = computeWipMetrics(companies);
+    const successWip = wip.find((w) => w.id === "Подошли")!;
+    expect(successWip.companyCount).toBe(1);
+  });
+
+  it("timezone: boundary inclusion respects Europe/Moscow (MSK, UTC+3)", () => {
+    // A date string "2026-08-31T21:30:00Z" is 2026-09-01 00:30:00 MSK (UTC+3)
+    // A date string "2026-09-30T21:00:00Z" is 2026-10-01 00:00:00 MSK (UTC+3)
+    const bounds = computePeriodBoundaries(
+      { periodPreset: "custom", customFrom: "2026-09-01", customTo: "2026-09-30" },
+      new Date(2026, 8, 24)
+    );
+
+    const companyInTz: CommercialCompany = {
+      id: "tz-1",
+      title: "Комп ТЗ Внутри",
+      responsibleId: "1",
+      dateCreate: "2026-08-31T21:30:00Z", // 00:30 Sept 1 in MSK -> inside Sept
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const companyOutsideTz: CommercialCompany = {
+      id: "tz-2",
+      title: "Комп ТЗ Снаружи",
+      responsibleId: "1",
+      dateCreate: "2026-09-30T21:00:00Z", // 00:00 Oct 1 in MSK -> outside Sept
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const kpis = computePeriodMetrics([companyInTz, companyOutsideTz], bounds);
+    const newCompKpi = kpis.find((k) => k.id === "new_companies")!;
+    expect(newCompKpi.currentValue).toBe(1);
+    expect(newCompKpi.companyIds).toEqual(["tz-1"]);
+  });
+
+  it("inverted custom date range includes both boundary calendar days fully", () => {
+    // User entered customFrom: "2026-09-20", customTo: "2026-09-10"
+    const bounds = computePeriodBoundaries(
+      { periodPreset: "custom", customFrom: "2026-09-20", customTo: "2026-09-10" },
+      new Date(2026, 8, 24)
+    );
+
+    expect(bounds.currentStartStr).toBe("2026-09-10");
+    expect(bounds.currentEndStr).toBe("2026-09-20");
+
+    const companyStart: CommercialCompany = {
+      id: "inv-start",
+      title: "Утро начального дня",
+      responsibleId: "1",
+      dateCreate: "2026-09-10T02:00:00+03:00",
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const companyEnd: CommercialCompany = {
+      id: "inv-end",
+      title: "Вечер конечного дня",
+      responsibleId: "1",
+      dateCreate: "2026-09-20T22:30:00+03:00",
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const kpis = computePeriodMetrics([companyStart, companyEnd], bounds);
+    const newCompKpi = kpis.find((k) => k.id === "new_companies")!;
+    expect(newCompKpi.currentValue).toBe(2);
+    expect(newCompKpi.companyIds).toContain("inv-start");
+    expect(newCompKpi.companyIds).toContain("inv-end");
+  });
+
+  it("payment KPI uses truthful label and sums deal opportunity with payment in period", () => {
+    const bounds = computePeriodBoundaries({ periodPreset: "30days" }, new Date(2026, 8, 24));
+    const companyWithPayment: CommercialCompany = {
+      id: "pay-1",
+      title: "Оплатившая Компания",
+      responsibleId: "1",
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [
+        {
+          id: "deal-pay",
+          title: "Оплаченная сделка",
+          companyId: "pay-1",
+          responsibleId: "1",
+          stageId: "WON",
+          categoryId: "0",
+          opportunity: 450_000,
+          currencyId: "RUB",
+          dateCreate: "2026-09-01",
+          paymentStatus: "113",
+          paymentDate: "2026-09-14", // in period
+          sampleTestingStatus: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+      ],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const kpis = computePeriodMetrics([companyWithPayment], bounds);
+    const paymentKpi = kpis.find((k) => k.id === "payment_amount")!;
+    expect(paymentKpi.label).toBe(PAYMENT_AMOUNT_LABEL);
+    expect(paymentKpi.currentValue).toBe(450_000);
+  });
+
+  it("invoice age is not fabricated from dateCreate and does not trigger premature stalled bottleneck", () => {
+    const fixedNow = new Date(2026, 8, 24, 12, 0, 0); // 2026-09-24
+
+    // Deal created 20 days ago in INVOICE stage without payment
+    const youngInvoiceCompany: CommercialCompany = {
+      id: "c-invoice-young",
+      title: "Компания с молодым счетом",
+      responsibleId: "1",
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [
+        {
+          id: "deal-inv-20d",
+          title: "Сделка со счетом 20 дней",
+          companyId: "c-invoice-young",
+          responsibleId: "1",
+          stageId: "FINAL_INVOICE",
+          categoryId: "0",
+          opportunity: 200_000,
+          currencyId: "RUB",
+          dateCreate: "2026-09-04", // 20 days before fixedNow
+          sampleTestingStatus: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+      ],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const bottlenecks = computeBottlenecks([youngInvoiceCompany], fixedNow);
+    // Must NOT have fabricated invoice_waiting bottleneck or stalled_deal (<= 30 days)
+    expect(bottlenecks.some((b) => (b.type as string) === "invoice_waiting")).toBe(false);
+    expect(bottlenecks.some((b) => b.type === "stalled_deal")).toBe(false);
+  });
+
+  it("stalled deal boundary: 29 and 30 days do not trigger, 31 days triggers stalled_deal", () => {
+    const fixedNow = new Date(2026, 8, 24, 12, 0, 0); // 2026-09-24
+
+    // 29 days old: 2026-08-26
+    const deal29: CommercialDeal = {
+      id: "deal-29",
+      title: "Сделка 29 дней",
+      companyId: "c-boundary",
+      responsibleId: "1",
+      stageId: "EXECUTING",
+      categoryId: "0",
+      opportunity: 100_000,
+      currencyId: "RUB",
+      dateCreate: "2026-08-26",
+      sampleTestingStatus: [],
+      productType: [],
+      industry: [],
+      direction: [],
+    };
+
+    // 30 days old: 2026-08-25
+    const deal30: CommercialDeal = {
+      id: "deal-30",
+      title: "Сделка 30 дней",
+      companyId: "c-boundary",
+      responsibleId: "1",
+      stageId: "EXECUTING",
+      categoryId: "0",
+      opportunity: 100_000,
+      currencyId: "RUB",
+      dateCreate: "2026-08-25",
+      sampleTestingStatus: [],
+      productType: [],
+      industry: [],
+      direction: [],
+    };
+
+    // 31 days old: 2026-08-24
+    const deal31: CommercialDeal = {
+      id: "deal-31",
+      title: "Сделка 31 день",
+      companyId: "c-boundary",
+      responsibleId: "1",
+      stageId: "EXECUTING",
+      categoryId: "0",
+      opportunity: 100_000,
+      currencyId: "RUB",
+      dateCreate: "2026-08-24",
+      sampleTestingStatus: [],
+      productType: [],
+      industry: [],
+      direction: [],
+    };
+
+    const company29: CommercialCompany = {
+      id: "c-29",
+      title: "C29",
+      responsibleId: "1",
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [deal29],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const company30: CommercialCompany = {
+      id: "c-30",
+      title: "C30",
+      responsibleId: "1",
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [deal30],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const company31: CommercialCompany = {
+      id: "c-31",
+      title: "C31",
+      responsibleId: "1",
+      direction: [],
+      productType: [],
+      sampleStatus: "—",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [deal31],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const b29 = computeBottlenecks([company29], fixedNow);
+    expect(b29.some((b) => b.dealId === "deal-29")).toBe(false);
+
+    const b30 = computeBottlenecks([company30], fixedNow);
+    expect(b30.some((b) => b.dealId === "deal-30")).toBe(false);
+
+    const b31 = computeBottlenecks([company31], fixedNow);
+    const stalled31 = b31.find((b) => b.dealId === "deal-31");
+    expect(stalled31).toBeDefined();
+    expect(stalled31?.type).toBe("stalled_deal");
+    expect(stalled31?.daysWaiting).toBe(31);
+  });
+
+  it("sample WIP dealCount counts only deals with sample evidence and excludes unrelated deals", () => {
+    const companyWithMixedDeals: CommercialCompany = {
+      id: "c-mixed",
+      title: "Компания со смешанными сделками",
+      responsibleId: "1",
+      direction: [],
+      productType: [],
+      sampleStatus: "На испытании",
+      sampleStatusSource: "DEAL",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [
+        {
+          id: "deal-sample-1",
+          title: "Сделка на испытании",
+          companyId: "c-mixed",
+          responsibleId: "1",
+          stageId: "EXECUTING",
+          categoryId: "0",
+          opportunity: 100_000,
+          currencyId: "RUB",
+          sampleTestingStatus: ["На испытании"],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+        {
+          id: "deal-commercial-2",
+          title: "Коммерческая сделка без образцов 1",
+          companyId: "c-mixed",
+          responsibleId: "1",
+          stageId: "EXECUTING",
+          categoryId: "0",
+          opportunity: 200_000,
+          currencyId: "RUB",
+          sampleTestingStatus: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+        {
+          id: "deal-commercial-3",
+          title: "Коммерческая сделка без образцов 2",
+          companyId: "c-mixed",
+          responsibleId: "1",
+          stageId: "EXECUTING",
+          categoryId: "0",
+          opportunity: 300_000,
+          currencyId: "RUB",
+          sampleTestingStatus: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+      ],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const wip = computeWipMetrics([companyWithMixedDeals]);
+    const inTestingWip = wip.find((w) => w.id === "На испытании")!;
+    expect(inTestingWip.companyCount).toBe(1);
+    // Exactly 1 deal matches sample status, unrelated commercial deals 2 and 3 are excluded
+    expect(inTestingWip.dealCount).toBe(1);
+
+    // Company with sample status on company card only and 2 commercial deals without sample status
+    const companyCardOnly: CommercialCompany = {
+      id: "c-card-only",
+      title: "Компания со статусом только на карточке",
+      responsibleId: "1",
+      direction: [],
+      productType: [],
+      sampleStatus: "На испытании",
+      sampleStatusSource: "COMPANY",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [
+        {
+          id: "deal-c1",
+          title: "Сделка 1",
+          companyId: "c-card-only",
+          responsibleId: "1",
+          stageId: "EXECUTING",
+          categoryId: "0",
+          opportunity: 100_000,
+          currencyId: "RUB",
+          sampleTestingStatus: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+        {
+          id: "deal-c2",
+          title: "Сделка 2",
+          companyId: "c-card-only",
+          responsibleId: "1",
+          stageId: "EXECUTING",
+          categoryId: "0",
+          opportunity: 200_000,
+          currencyId: "RUB",
+          sampleTestingStatus: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+      ],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const wipCard = computeWipMetrics([companyCardOnly]);
+    const inTestingCardWip = wipCard.find((w) => w.id === "На испытании")!;
+    expect(inTestingCardWip.companyCount).toBe(1);
+    // Deal count is 0 because no deals carry sample testing evidence
+    expect(inTestingCardWip.dealCount).toBe(0);
   });
 });

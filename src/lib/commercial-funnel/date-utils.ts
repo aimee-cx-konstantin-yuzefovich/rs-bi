@@ -1,37 +1,128 @@
 // src/lib/commercial-funnel/date-utils.ts
 // ─────────────────────────────────────────────────────────────────────
 // Pure date utilities for Commercial Funnel period calculations.
-// Consistent boundaries, equal-duration prior periods, and safe deltas.
+// Consistent boundaries, equal-duration prior periods, safe deltas,
+// and explicit business timezone normalization (Europe/Moscow).
 // ─────────────────────────────────────────────────────────────────────
 
+import { COMMERCIAL_TIMEZONE } from "./constants";
 import type { CommercialFilters, PeriodBoundaries } from "./types";
 
 /**
- * Format a Date to YYYY-MM-DD (ISO date string)
+ * Extract zoned calendar parts (year, month, day, hour, minute, second)
+ * for a Date in the authoritative business timezone.
  */
-export function toISODate(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+export function getZonedCalendarParts(
+  d: Date,
+  timeZone: string = COMMERCIAL_TIMEZONE
+) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const p: Record<string, number> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") p[part.type] = Number(part.value);
+  }
+  return {
+    year: p.year,
+    month: p.month, // 1-12
+    monthIndex: p.month - 1, // 0-11
+    day: p.day,
+    hour: p.hour === 24 ? 0 : p.hour,
+    minute: p.minute,
+    second: p.second,
+  };
+}
+
+/**
+ * Construct a Date object representing the exact wall-clock instant
+ * in the business timezone.
+ */
+export function createZonedDate(
+  year: number,
+  monthIndex: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0,
+  ms = 0,
+  timeZone: string = COMMERCIAL_TIMEZONE
+): Date {
+  const targetUtc = Date.UTC(year, monthIndex, day, hour, minute, second, ms);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  let guess = targetUtc - 3 * 3600 * 1000;
+  for (let i = 0; i < 3; i++) {
+    const parts = formatter.formatToParts(new Date(guess));
+    const p: Record<string, number> = {};
+    for (const part of parts) {
+      if (part.type !== "literal") p[part.type] = Number(part.value);
+    }
+    const h = p.hour === 24 ? 0 : p.hour;
+    const asUtc = Date.UTC(p.year, p.month - 1, p.day, h, p.minute, p.second, guess % 1000);
+    const diff = targetUtc - asUtc;
+    if (diff === 0) break;
+    guess += diff;
+  }
+  return new Date(guess);
+}
+
+/**
+ * Format a Date to YYYY-MM-DD in the business timezone
+ */
+export function toISODate(d: Date, timeZone: string = COMMERCIAL_TIMEZONE): string {
+  const { year, month, day } = getZonedCalendarParts(d, timeZone);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 /**
  * Parse an ISO date or datetime string into a timestamp or null.
- * Handles "YYYY-MM-DD", "YYYY-MM-DDTHH:mm:ss", etc.
+ * - Date-only "YYYY-MM-DD": parsed at 00:00:00 in business timezone.
+ * - Naive datetime "YYYY-MM-DD HH:mm:ss" or "YYYY-MM-DDTHH:mm:ss": parsed in business timezone.
+ * - Datetime with explicit offset (Z, +HH:MM, -HH:MM): parsed via UTC epoch.
  */
-export function parseDateTimestamp(dateStr?: string | null): number | null {
+export function parseDateTimestamp(
+  dateStr?: string | null,
+  timeZone: string = COMMERCIAL_TIMEZONE
+): number | null {
   if (!dateStr || typeof dateStr !== "string") return null;
   const trimmed = dateStr.trim();
   if (!trimmed) return null;
 
-  // If date-only string "YYYY-MM-DD", parse as start of day local/UTC
+  // Date-only string "YYYY-MM-DD"
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     const [y, m, d] = trimmed.split("-").map(Number);
-    const date = new Date(y, m - 1, d, 0, 0, 0, 0);
+    const date = createZonedDate(y, m - 1, d, 0, 0, 0, 0, timeZone);
     return isNaN(date.getTime()) ? null : date.getTime();
   }
 
+  // Naive datetime without offset "YYYY-MM-DD[ T]HH:mm:ss"
+  const naiveMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/);
+  if (naiveMatch) {
+    const [_, y, m, d, h, mi, s, msStr] = naiveMatch;
+    const ms = msStr ? Number(msStr.slice(0, 3).padEnd(3, "0")) : 0;
+    const date = createZonedDate(Number(y), Number(m) - 1, Number(d), Number(h), Number(mi), Number(s), ms, timeZone);
+    return isNaN(date.getTime()) ? null : date.getTime();
+  }
+
+  // Explicit offset / standard ISO
   const d = new Date(trimmed);
   return isNaN(d.getTime()) ? null : d.getTime();
 }
@@ -39,37 +130,48 @@ export function parseDateTimestamp(dateStr?: string | null): number | null {
 /**
  * Calculate the exact start and end dates for both the current selected period
  * and the immediately preceding period of equal duration.
+ * Normalized to the business timezone.
  */
 export function computePeriodBoundaries(
   filters: CommercialFilters,
-  now: Date = new Date()
+  now: Date = new Date(),
+  timeZone: string = COMMERCIAL_TIMEZONE
 ): PeriodBoundaries {
   const { periodPreset, customFrom, customTo } = filters;
+  const nowParts = getZonedCalendarParts(now, timeZone);
 
   let currentStart: Date;
-  let currentEnd: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  let currentEnd: Date = createZonedDate(
+    nowParts.year,
+    nowParts.monthIndex,
+    nowParts.day,
+    23,
+    59,
+    59,
+    999,
+    timeZone
+  );
 
   if (periodPreset === "custom" && customFrom && customTo) {
-    const [fy, fm, fd] = customFrom.split("-").map(Number);
-    const [ty, tm, td] = customTo.split("-").map(Number);
-    let s = new Date(fy, fm - 1, fd, 0, 0, 0, 0);
-    let e = new Date(ty, tm - 1, td, 23, 59, 59, 999);
-    if (s.getTime() > e.getTime()) {
-      const tmp = s;
-      s = e;
-      e = tmp;
+    // Normalize calendar strings FIRST so inverted ranges cleanly span both full boundary days
+    let startStr = customFrom;
+    let endStr = customTo;
+    if (startStr > endStr) {
+      const tmp = startStr;
+      startStr = endStr;
+      endStr = tmp;
     }
-    currentStart = s;
-    currentEnd = e;
+    const [fy, fm, fd] = startStr.split("-").map(Number);
+    const [ty, tm, td] = endStr.split("-").map(Number);
+    currentStart = createZonedDate(fy, fm - 1, fd, 0, 0, 0, 0, timeZone);
+    currentEnd = createZonedDate(ty, tm - 1, td, 23, 59, 59, 999, timeZone);
   } else if (periodPreset === "quarter") {
-    const currentMonth = now.getMonth();
-    const quarterIndex = Math.floor(currentMonth / 3); // 0, 1, 2, 3
+    const quarterIndex = Math.floor(nowParts.monthIndex / 3); // 0, 1, 2, 3
     const qStartMonth = quarterIndex * 3;
-    currentStart = new Date(now.getFullYear(), qStartMonth, 1, 0, 0, 0, 0);
-    // End of quarter
+    currentStart = createZonedDate(nowParts.year, qStartMonth, 1, 0, 0, 0, 0, timeZone);
     const qEndMonth = qStartMonth + 2;
-    const lastDay = new Date(now.getFullYear(), qEndMonth + 1, 0).getDate();
-    currentEnd = new Date(now.getFullYear(), qEndMonth, lastDay, 23, 59, 59, 999);
+    const lastDay = new Date(Date.UTC(nowParts.year, qEndMonth + 1, 0)).getUTCDate();
+    currentEnd = createZonedDate(nowParts.year, qEndMonth, lastDay, 23, 59, 59, 999, timeZone);
   } else {
     const daysMap: Record<string, number> = {
       "7days": 7,
@@ -77,8 +179,11 @@ export function computePeriodBoundaries(
       "90days": 90,
     };
     const days = daysMap[periodPreset] || 30;
-    currentStart = new Date(currentEnd.getTime() - days * 24 * 60 * 60 * 1000 + 1);
-    currentStart.setHours(0, 0, 0, 0);
+    // Exactly N whole days ending at currentEnd
+    const durationMs = (days * 24 * 60 * 60 * 1000) - 1000;
+    const rawStart = new Date(currentEnd.getTime() - durationMs);
+    const sParts = getZonedCalendarParts(rawStart, timeZone);
+    currentStart = createZonedDate(sParts.year, sParts.monthIndex, sParts.day, 0, 0, 0, 0, timeZone);
   }
 
   // Calculate prior period of exact equal duration
@@ -91,10 +196,10 @@ export function computePeriodBoundaries(
     currentEnd,
     previousStart,
     previousEnd,
-    currentStartStr: toISODate(currentStart),
-    currentEndStr: toISODate(currentEnd),
-    previousStartStr: toISODate(previousStart),
-    previousEndStr: toISODate(previousEnd),
+    currentStartStr: toISODate(currentStart, timeZone),
+    currentEndStr: toISODate(currentEnd, timeZone),
+    previousStartStr: toISODate(previousStart, timeZone),
+    previousEndStr: toISODate(previousEnd, timeZone),
   };
 }
 
@@ -104,24 +209,26 @@ export function computePeriodBoundaries(
 export function isDateInPeriod(
   dateStr?: string | null,
   startDate?: Date,
-  endDate?: Date
+  endDate?: Date,
+  timeZone: string = COMMERCIAL_TIMEZONE
 ): boolean {
   if (!dateStr || !startDate || !endDate) return false;
-  const ts = parseDateTimestamp(dateStr);
+  const ts = parseDateTimestamp(dateStr, timeZone);
   if (ts === null) return false;
   return ts >= startDate.getTime() && ts <= endDate.getTime();
 }
 
 /**
  * Calculate days between a given date and a reference date (defaults to now).
- * Returns null if the date is invalid or absent.
+ * Evaluates full calendar day intervals. Returns null if the date is invalid or absent.
  */
 export function calculateDaysWaiting(
   dateStr?: string | null,
-  now: Date = new Date()
+  now: Date = new Date(),
+  timeZone: string = COMMERCIAL_TIMEZONE
 ): number | null {
   if (!dateStr) return null;
-  const ts = parseDateTimestamp(dateStr);
+  const ts = parseDateTimestamp(dateStr, timeZone);
   if (ts === null) return null;
   const diffMs = now.getTime() - ts;
   if (diffMs < 0) return 0;

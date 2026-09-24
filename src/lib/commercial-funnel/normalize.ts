@@ -18,6 +18,7 @@ import { calculateDaysWaiting } from "./date-utils";
 import type {
   CommercialCompany,
   CommercialDeal,
+  SampleStatusEntry,
   SampleStatusSource,
 } from "./types";
 import {
@@ -94,22 +95,31 @@ function resolveDealSampleStatus(
 }
 
 /**
- * Resolve company-level "Образцы" status
+ * Resolve ALL company-level "Образцы" statuses without collapsing multiple values.
+ * Unknown enum IDs are explicitly preserved as "Не классифицировано (ID)".
  */
-function resolveCompanySampleStatus(
+export function resolveCompanySampleStatuses(
   rawValues: string[],
   labels?: Record<string, string>
-): { label: string; raw: string } | undefined {
-  if (rawValues.length === 0) return undefined;
-  const first = rawValues[0];
-  if (COMPANY_SAMPLE_STATUS_MAP[first]) {
-    return { label: COMPANY_SAMPLE_STATUS_MAP[first], raw: first };
-  }
-  if (labels && labels[first]) {
-    return { label: labels[first], raw: first };
-  }
-  // Unknown enum ID: preserved explicitly, never silently discarded
-  return { label: `${UNCLASSIFIED_LABEL} (${first})`, raw: first };
+): SampleStatusEntry[] {
+  return rawValues.map((raw) => {
+    let label: string;
+    if (COMPANY_SAMPLE_STATUS_MAP[raw]) {
+      label = COMPANY_SAMPLE_STATUS_MAP[raw];
+    } else if (labels && labels[raw]) {
+      label = labels[raw];
+    } else if (/^\d+$/.test(raw)) {
+      label = `${UNCLASSIFIED_LABEL} (${raw})`;
+    } else {
+      label = raw;
+    }
+    return {
+      rawValue: raw,
+      label,
+      source: "COMPANY" as const,
+      fieldId: COMPANY_SAMPLES_FIELD_ID,
+    };
+  });
 }
 
 /**
@@ -121,6 +131,10 @@ export function normalizeDeals(
 ): CommercialDeal[] {
   const { userNames = {}, statusLabels = {} } = options;
   const dealLabels = statusLabels[DEAL_SAMPLE_TRANSFER_FIELD_ID] || {};
+  const testingLabels = statusLabels[DEAL_SAMPLE_TESTING_FIELD_ID] || {};
+  const dealProductLabels = statusLabels["UF_CRM_69257BBACD471"] || {};
+  const dealIndustryLabels = statusLabels["UF_CRM_6915D8C2C31D0"] || {};
+  const dealDirectionLabels = statusLabels[DEAL_DIRECTION_FIELD_ID] || {};
 
   return rawDeals.map((row) => {
     const id = String(row.ID || row.id || "").trim();
@@ -138,7 +152,16 @@ export function normalizeDeals(
 
     const rawTransfer = row[DEAL_SAMPLE_TRANSFER_FIELD_ID] ? String(row[DEAL_SAMPLE_TRANSFER_FIELD_ID]) : undefined;
     const sampleTransferStatus = resolveDealSampleStatus(rawTransfer, dealLabels);
-    const sampleTestingStatus = toStringArray(row[DEAL_SAMPLE_TESTING_FIELD_ID]);
+    const sampleTransferStatusRaw = rawTransfer;
+
+    const rawTesting = toStringArray(row[DEAL_SAMPLE_TESTING_FIELD_ID]);
+    const sampleTestingStatus = rawTesting.map((val) => {
+      if (testingLabels[val]) return testingLabels[val];
+      if (/^\d+$/.test(val)) return `${UNCLASSIFIED_LABEL} (${val})`;
+      return val;
+    });
+    const sampleTestingStatusRaw = rawTesting;
+
     const sentDates = extractIsoDates(row[DEAL_SAMPLE_SENT_DATE_FIELD_ID]);
     const sampleSentDate = sentDates[0];
     const tvlDetails = row[DEAL_SAMPLE_TVL_DETAILS_FIELD_ID] ? String(row[DEAL_SAMPLE_TVL_DETAILS_FIELD_ID]) : undefined;
@@ -151,9 +174,15 @@ export function normalizeDeals(
     const shipmentDates = extractIsoDates(row["UF_CRM_1584459666824"]);
     const shipmentDate = shipmentDates[0];
 
-    const productType = toStringArray(row["UF_CRM_69257BBACD471"]);
-    const industry = toStringArray(row["UF_CRM_6915D8C2C31D0"]);
-    const direction = toStringArray(row[DEAL_DIRECTION_FIELD_ID]);
+    const productTypeRaw = toStringArray(row["UF_CRM_69257BBACD471"]);
+    const productType = productTypeRaw.map((v) => dealProductLabels[v] || v);
+
+    const industryRaw = toStringArray(row["UF_CRM_6915D8C2C31D0"]);
+    const industry = industryRaw.map((v) => dealIndustryLabels[v] || v);
+
+    const directionRaw = toStringArray(row[DEAL_DIRECTION_FIELD_ID]);
+    const direction = directionRaw.map((v) => dealDirectionLabels[v] || v);
+
     const region = row["UF_CRM_69259C45EC14B"] ? String(row["UF_CRM_69259C45EC14B"]).trim() : undefined;
     const activityLast = row["ACTIVITY_LAST"] ? String(row["ACTIVITY_LAST"]).trim() : undefined;
     const activityNext = row["ACTIVITY_NEXT"] ? String(row["ACTIVITY_NEXT"]).trim() : undefined;
@@ -172,7 +201,9 @@ export function normalizeDeals(
       beginDate,
       closeDate,
       sampleTransferStatus,
+      sampleTransferStatusRaw,
       sampleTestingStatus,
+      sampleTestingStatusRaw,
       sampleSentDate,
       tvlDetails,
       markVolume,
@@ -181,8 +212,11 @@ export function normalizeDeals(
       paymentDate,
       shipmentDate,
       productType,
+      productTypeRaw,
       industry,
+      industryRaw,
       direction,
+      directionRaw,
       region,
       activityLast,
       activityNext,
@@ -193,6 +227,7 @@ export function normalizeDeals(
 /**
  * Normalize raw Bitrix Company records and join them with linked deals.
  * Implements deterministic precedence: Deal sample state > Company fallback.
+ * Preserves ALL statuses, partitions dates by provenance, and strictly gates bottlenecks.
  */
 export function normalizeCompanies(
   rawCompanies: Array<Record<string, any>>,
@@ -201,6 +236,9 @@ export function normalizeCompanies(
 ): CommercialCompany[] {
   const { userNames = {}, statusLabels = {}, now = new Date() } = options;
   const companySampleLabels = statusLabels[COMPANY_SAMPLES_FIELD_ID] || {};
+  const companyIndustryLabels = statusLabels["INDUSTRY"] || {};
+  const companyDirectionLabels = statusLabels[COMPANY_DIRECTION_FIELD_ID] || {};
+  const companyProductLabels = statusLabels[COMPANY_PRODUCT_TYPE_FIELD_ID] || {};
 
   // Group deals by company ID
   const dealsByCompany = new Map<string, CommercialDeal[]>();
@@ -223,10 +261,18 @@ export function normalizeCompanies(
     const responsibleId = String(row.ASSIGNED_BY_ID || row.responsibleId || "").trim();
     const responsibleName = userNames[responsibleId] || (responsibleId ? `ID ${responsibleId}` : "Не назначен");
     const dateCreate = row.DATE_CREATE ? String(row.DATE_CREATE) : undefined;
-    const industry = row.INDUSTRY ? String(row.INDUSTRY).trim() : undefined;
-    const direction = toStringArray(row[COMPANY_DIRECTION_FIELD_ID]);
+
+    const industryRaw = row.INDUSTRY ? String(row.INDUSTRY).trim() : undefined;
+    const industry = (industryRaw && companyIndustryLabels[industryRaw]) ? companyIndustryLabels[industryRaw] : industryRaw;
+
+    const directionRaw = toStringArray(row[COMPANY_DIRECTION_FIELD_ID]);
+    const direction = directionRaw.map((v) => companyDirectionLabels[v] || v);
+
     const region = row["UF_CRM_69259C45EC14B"] ? String(row["UF_CRM_69259C45EC14B"]).trim() : undefined;
-    const productType = toStringArray(row[COMPANY_PRODUCT_TYPE_FIELD_ID]);
+
+    const productTypeRaw = toStringArray(row[COMPANY_PRODUCT_TYPE_FIELD_ID]);
+    const productType = productTypeRaw.map((v) => companyProductLabels[v] || v);
+
     const appNew = row[COMPANY_APPLICATION_NEW_FIELD_ID] ? String(row[COMPANY_APPLICATION_NEW_FIELD_ID]).trim() : "";
     const appOld = row[COMPANY_APPLICATION_OLD_FIELD_ID] ? String(row[COMPANY_APPLICATION_OLD_FIELD_ID]).trim() : "";
     const application = appNew || appOld || undefined;
@@ -242,32 +288,86 @@ export function normalizeCompanies(
 
     const linkedDeals = dealsByCompany.get(id) || [];
 
-    // Deal precedence over Company fallback for sample status:
+    // Collect ALL sample status entries with complete provenance:
+    const sampleStatusEntries: SampleStatusEntry[] = [];
+
+    // 1. Deal-level sample statuses
+    for (const d of linkedDeals) {
+      if (d.sampleTransferStatus) {
+        sampleStatusEntries.push({
+          rawValue: d.sampleTransferStatusRaw || d.sampleTransferStatus,
+          label: d.sampleTransferStatus,
+          source: "DEAL",
+          fieldId: DEAL_SAMPLE_TRANSFER_FIELD_ID,
+        });
+      }
+      for (let i = 0; i < d.sampleTestingStatus.length; i++) {
+        const label = d.sampleTestingStatus[i];
+        const raw = d.sampleTestingStatusRaw?.[i] || label;
+        sampleStatusEntries.push({
+          rawValue: raw,
+          label,
+          source: "DEAL",
+          fieldId: DEAL_SAMPLE_TESTING_FIELD_ID,
+        });
+      }
+    }
+
+    // 2. Company-level sample statuses
+    const rawCompanySamples = toStringArray(row[COMPANY_SAMPLES_FIELD_ID]);
+    const companyStatusEntries = resolveCompanySampleStatuses(rawCompanySamples, companySampleLabels);
+    for (const entry of companyStatusEntries) {
+      sampleStatusEntries.push(entry);
+    }
+
+    // Compute distinct lists of labels and raw values
+    const sampleStatuses: string[] = [];
+    const sampleStatusRawValues: string[] = [];
+    for (const entry of sampleStatusEntries) {
+      if (!sampleStatuses.includes(entry.label)) {
+        sampleStatuses.push(entry.label);
+      }
+      if (!sampleStatusRawValues.includes(entry.rawValue)) {
+        sampleStatusRawValues.push(entry.rawValue);
+      }
+    }
+
+    // Backward-compatible single sampleStatus for primary UI display:
+    // Deal precedence over Company fallback
     let sampleStatus = "—";
     let sampleStatusRaw: string | undefined = undefined;
     let sampleStatusSource: SampleStatusSource = "NONE";
 
-    // 1. Look for deal sample process status
     const dealWithStatus = linkedDeals.find((d) => Boolean(d.sampleTransferStatus));
     if (dealWithStatus && dealWithStatus.sampleTransferStatus) {
       sampleStatus = dealWithStatus.sampleTransferStatus;
+      sampleStatusRaw = dealWithStatus.sampleTransferStatusRaw;
       sampleStatusSource = "DEAL";
-    } else {
-      // 2. Company fallback
-      const rawCompanySamples = toStringArray(row[COMPANY_SAMPLES_FIELD_ID]);
-      const resolvedCompany = resolveCompanySampleStatus(rawCompanySamples, companySampleLabels);
-      if (resolvedCompany) {
-        sampleStatus = resolvedCompany.label;
-        sampleStatusRaw = resolvedCompany.raw;
-        sampleStatusSource = "COMPANY";
-      }
+    } else if (companyStatusEntries.length > 0) {
+      sampleStatus = companyStatusEntries[0].label;
+      sampleStatusRaw = companyStatusEntries[0].rawValue;
+      sampleStatusSource = "COMPANY";
     }
 
-    // Dates reconciliation:
-    // Deal sent dates preferred, enriched with company dates
-    const dealDates = linkedDeals.map((d) => d.sampleSentDate).filter(Boolean) as string[];
-    const sampleAllDates = Array.from(new Set([...dealDates, ...companyDatesSingle, ...companyDatesMulti])).sort();
-    const sampleShipmentDate = dealDates[0] || companyDatesSingle[0] || companyDatesMulti[0] || undefined;
+    // Dates reconciliation with explicit provenance:
+    const sampleDealSentDates = Array.from(
+      new Set(linkedDeals.map((d) => d.sampleSentDate).filter(Boolean) as string[])
+    ).sort();
+    const sampleCompanyTransferDates = Array.from(
+      new Set([...companyDatesSingle, ...companyDatesMulti])
+    ).sort();
+    const sampleAllDates = Array.from(
+      new Set([...sampleDealSentDates, ...sampleCompanyTransferDates])
+    ).sort();
+
+    // Required Release 1 rule for period events:
+    // Use valid Deal shipment dates when Deal evidence exists.
+    // Use Company transfer dates only as fallback when no Deal date exists.
+    const sampleEventDatesForPeriodMetrics = sampleDealSentDates.length > 0
+      ? sampleDealSentDates
+      : sampleCompanyTransferDates;
+
+    const sampleShipmentDate = sampleDealSentDates[0] || sampleCompanyTransferDates[0] || undefined;
 
     // Primary deal for commercial overview
     const sortedDeals = [...linkedDeals].sort((a, b) => b.opportunity - a.opportunity);
@@ -292,26 +392,24 @@ export function normalizeCompanies(
       }
     }
 
-    // Bottleneck 3: Invoice sent / payment awaiting > 14 days
+    // Bottleneck 3: Invoice sent / payment awaiting
+    // Do not fabricate an invoice age using deal creation/begin date.
     for (const d of linkedDeals) {
       if (d.paymentStatus && INVOICE_SENT_STATUS_CODES.has(d.paymentStatus)) {
-        const refDate = d.beginDate || d.dateCreate;
-        const days = calculateDaysWaiting(refDate, now);
-        if (days !== null && days > COMMERCIAL_THRESHOLDS.PAYMENT_WAITING_ATTENTION_DAYS) {
-          attentionReasons.push(`Счёт ожидает оплаты ${days} дн. по сделке «${d.title}»`);
-        }
+        attentionReasons.push(`Счёт ожидает оплаты по сделке «${d.title}»`);
       }
     }
 
-    // Bottleneck 4: Stalled deal (active deal with no next activity or > 30 days without progress)
+    // Bottleneck 4: Stalled deal (active deal older than STALLED_DEAL_DAYS threshold)
     for (const d of linkedDeals) {
       if (!["WON", "LOSE"].includes(d.stageId)) {
         const refDate = d.beginDate || d.dateCreate;
         const days = calculateDaysWaiting(refDate, now) || 0;
         if (days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS) {
-          attentionReasons.push(`Сделка без движения ${days} дн. «${d.title}»`);
-        } else if (!d.activityNext) {
-          attentionReasons.push(`Нет следующего шага по сделке «${d.title}»`);
+          const reason = !d.activityNext
+            ? `Сделка без движения ${days} дн. (нет следующего шага) «${d.title}»`
+            : `Сделка без движения ${days} дн. «${d.title}»`;
+          attentionReasons.push(reason);
         }
       }
     }
@@ -323,14 +421,23 @@ export function normalizeCompanies(
       responsibleName,
       dateCreate,
       industry,
+      industryRaw,
       direction,
+      directionRaw,
       region,
       productType,
+      productTypeRaw,
       application,
       sampleStatus,
       sampleStatusRaw,
       sampleStatusSource,
+      sampleStatuses,
+      sampleStatusRawValues,
+      sampleStatusEntries,
       sampleShipmentDate,
+      sampleDealSentDates,
+      sampleCompanyTransferDates,
+      sampleEventDatesForPeriodMetrics,
       sampleAllDates,
       sampleTestResult,
       gradeGel,

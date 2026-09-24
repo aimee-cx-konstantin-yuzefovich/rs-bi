@@ -149,7 +149,7 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
           opportunity: 100_000,
           currencyId: "RUB",
           dateCreate: "2026-09-11",
-          sampleTestingStatus: [],
+          sampleTestingStatus: ["На испытании"],
           productType: [],
           industry: [],
           direction: [],
@@ -164,7 +164,7 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
           opportunity: 200_000,
           currencyId: "RUB",
           dateCreate: "2026-09-12",
-          sampleTestingStatus: [],
+          sampleTestingStatus: ["На испытании"],
           productType: [],
           industry: [],
           direction: [],
@@ -199,7 +199,8 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
     const wip = computeWipMetrics([multiDealCompany]);
     const inTestingWip = wip.find((w) => w.id === "На испытании")!;
     expect(inTestingWip.companyCount).toBe(1);
-    expect(inTestingWip.dealCount).toBe(3);
+    // Only the 2 deals matching the sample testing status are counted, excluding unrelated deal 3
+    expect(inTestingWip.dealCount).toBe(2);
     expect(inTestingWip.companyIds).toEqual(["999"]);
   });
 });
