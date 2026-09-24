@@ -46,3 +46,4 @@ prisma/db/
 .kilo/
 agent-ctx/
 skills/
+.env*

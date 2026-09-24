@@ -153,13 +153,22 @@ not database/CRM availability or successful SSO. `/api/bitrix/status` remains
 authenticated. Docker health status alone does not restart an unhealthy container;
 the restart policy applies when its process exits.
 
-## Vercel Preview Development Security
+## Vercel Development Bypass & Security Policy
 
-`AUTH_MODE=bypass` must only be used on Vercel Preview deployments.
+`AUTH_MODE=bypass` on Vercel is request-scoped and strictly restricted to approved hosts and client IPs:
 
-Preview deployments using bypass MUST be protected by Vercel Authentication / Deployment Protection.
+```text
+AUTH BYPASS = TRUE  <=>
+  1. AUTH_MODE=bypass
+  2. Running on Vercel (VERCEL=1)
+  3. Request hostname (normalized) strictly equals an entry in DEV_BYPASS_HOSTS
+  4. Request client IP (normalized) strictly equals an entry in DEV_BYPASS_ALLOWED_IPS
+```
 
-Do not expose an auth-bypassed deployment publicly if it has access to a real `BITRIX_WEBHOOK_URL`.
+If any condition fails, authentication fails closed and falls back to standard NextAuth / WordPress SSO.
+Custom production domains (e.g. `bi.russilica.com`, `bi-terminal.rus-silica.com`) and unapproved Vercel hosts remain strictly protected by WordPress SSO.
+
+In addition to application-level host/IP filtering, Vercel deployments are protected with Vercel Authentication / Deployment Protection (`ssoProtection.deploymentType: "all_except_custom_domains"`).
 
 ## Environment Configuration
 
@@ -178,23 +187,16 @@ Existing environment variables remain unchanged:
 - `BITRIX_WEBHOOK_URL`
 - `DATABASE_URL`
 
-### Vercel Preview
+### Vercel Development Deployment
 
 ```text
 AUTH_MODE=bypass
+DEV_BYPASS_HOSTS=rs-bi-git-main-constantinejozefowicz-8563s-projects.vercel.app
+DEV_BYPASS_ALLOWED_IPS=<fixed user public IPv4>
 NEXTAUTH_SECRET=<valid secret>
-BITRIX_WEBHOOK_URL=<development/test or explicitly approved webhook>
+BITRIX_WEBHOOK_URL=<approved webhook>
 ```
 
-`PROXY_SECRET` may remain configured but bypass mode should not depend on WordPress SSO.
-
-### Vercel Production
-
-```text
-AUTH_MODE=wordpress
-```
-
-or unset. Bypass must remain disabled.
 
 ## Verification
 

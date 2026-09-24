@@ -18,7 +18,8 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { shouldLog } from "@/lib/config";
-import { isAuthBypassEnabled, DEV_USER } from "@/lib/auth-mode";
+import { isRequestAuthBypassEnabled } from "@/lib/auth-bypass-server";
+import { DEV_USER } from "@/lib/auth-mode";
 
 export interface AuthSession {
   userId: string;  // Email (used as ID since no local user DB)
@@ -33,7 +34,7 @@ export interface AuthSession {
  * WordPress is the source of truth — we trust the JWT claims.
  */
 export async function requireAuth(): Promise<AuthSession | NextResponse> {
-  if (isAuthBypassEnabled()) {
+  if (await isRequestAuthBypassEnabled()) {
     return {
       userId: DEV_USER.id,
       email: DEV_USER.email,
@@ -85,7 +86,7 @@ export async function requireAuthOnly(): Promise<null | NextResponse> {
  * WordPress is the source of truth — role is set at sign-in from WP.
  */
 export async function requireAdmin(): Promise<AuthSession | NextResponse> {
-  if (isAuthBypassEnabled()) {
+  if (await isRequestAuthBypassEnabled()) {
     if (DEV_USER.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Доступ запрещён" },

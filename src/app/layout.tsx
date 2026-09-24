@@ -6,7 +6,7 @@ import { ThemeProvider } from "@/components/dashboard/theme-provider";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Providers } from "@/components/providers";
-import { isAuthBypassEnabled } from "@/lib/auth-mode";
+import { isRequestAuthBypassEnabled } from "@/lib/auth-bypass-server";
 
 const roboto = Roboto({
   weight: ["400", "500", "700"],
@@ -44,12 +44,12 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const authBypass = isAuthBypassEnabled();
+  const authBypass = await isRequestAuthBypassEnabled();
 
   return (
     <html lang="ru" suppressHydrationWarning>
