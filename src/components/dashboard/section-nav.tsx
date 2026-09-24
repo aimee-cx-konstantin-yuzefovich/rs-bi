@@ -7,12 +7,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Handshake, Building2, FlaskConical } from "lucide-react";
+import { Handshake, Building2, FlaskConical, TrendingUp } from "lucide-react";
 
 const SECTIONS = [
   { href: "/", label: "Сделки", icon: Handshake },
   { href: "/companies", label: "Компании", icon: Building2 },
   { href: "/samples", label: "Образцы", icon: FlaskConical },
+  { href: "/commercial-funnel", label: "Коммерческая воронка", icon: TrendingUp },
 ] as const;
 
 export function SectionNav({ variant = "dark" }: { variant?: "dark" | "light" }) {
