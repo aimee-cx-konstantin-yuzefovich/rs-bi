@@ -157,13 +157,22 @@ export async function createCommercialFunnelWorkbook(
   for (const k of datedKpis) {
     const row = summarySheet.addRow([
       k.label,
-      k.isCurrency ? `${k.currentValue.toLocaleString("ru-RU")} ₽` : k.currentValue,
-      k.isCurrency ? `${k.previousValue.toLocaleString("ru-RU")} ₽` : k.previousValue,
-      k.isCurrency ? `${k.delta.toLocaleString("ru-RU")} ₽` : k.delta,
+      k.currentValue,
+      k.previousValue,
+      k.delta,
       k.deltaPercent !== null ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%` : "—",
       k.companyIds.length,
     ]);
     row.height = 20;
+    if (k.isCurrency) {
+      row.getCell(2).numFmt = '#,##0 "₽"';
+      row.getCell(3).numFmt = '#,##0 "₽"';
+      row.getCell(4).numFmt = '+#,##0 "₽";-#,##0 "₽";0 "₽"';
+    } else {
+      row.getCell(2).numFmt = '#,##0';
+      row.getCell(3).numFmt = '#,##0';
+      row.getCell(4).numFmt = '+#,##0;-#,##0;0';
+    }
   }
   summarySheet.addRow([]);
 

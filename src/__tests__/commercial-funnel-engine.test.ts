@@ -389,4 +389,106 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
     expect(filtered).toHaveLength(1);
     expect(filtered[0].id).toBe("1");
   });
+
+  it("handles inverted custom date boundaries safely", () => {
+    const fixedNow = new Date(2026, 8, 24, 12, 0, 0);
+    const bounds = computePeriodBoundaries(
+      { periodPreset: "custom", customFrom: "2026-09-30", customTo: "2026-09-01" },
+      fixedNow
+    );
+
+    expect(bounds.currentStart.getTime()).toBeLessThan(bounds.currentEnd.getTime());
+    expect(bounds.currentStartStr).toBe("2026-09-01");
+    expect(bounds.currentEndStr).toBe("2026-09-30");
+  });
+
+  it("detects stalled deal older than 30 days (COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS)", () => {
+    const companies: CommercialCompany[] = [
+      {
+        id: "comp-stalled",
+        title: "Компания со старой сделкой",
+        responsibleId: "1",
+        direction: [],
+        productType: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        sampleAllDates: [],
+        gradeGel: [],
+        gradeSol: [],
+        deals: [
+          {
+            id: "deal-old",
+            title: "Зависшая сделка",
+            companyId: "comp-stalled",
+            responsibleId: "1",
+            stageId: "EXECUTING",
+            categoryId: "0",
+            opportunity: 500_000,
+            currencyId: "RUB",
+            dateCreate: "2026-08-01", // 54 days before fixedNow (2026-09-24)
+            sampleTestingStatus: [],
+            productType: [],
+            industry: [],
+            direction: [],
+          },
+        ],
+        hasAttention: false,
+        attentionReasons: [],
+      },
+    ];
+
+    const bottlenecks = computeBottlenecks(companies, fixedNow);
+    const stalledDeal = bottlenecks.find((b) => b.type === "stalled_deal");
+
+    expect(stalledDeal).toBeDefined();
+    expect(stalledDeal?.dealId).toBe("deal-old");
+    expect(stalledDeal?.daysWaiting).toBe(54);
+    expect(stalledDeal?.daysWaiting).toBeGreaterThan(30);
+  });
+
+  it("manager scorecard drill-down includes companies where manager owns a deal", () => {
+    const companies: CommercialCompany[] = [
+      {
+        id: "comp-owner-A",
+        title: "Компания Владельца А",
+        responsibleId: "user-A",
+        direction: [],
+        productType: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        sampleAllDates: [],
+        gradeGel: [],
+        gradeSol: [],
+        deals: [
+          {
+            id: "deal-mgr-B",
+            title: "Сделка Менеджера Б",
+            companyId: "comp-owner-A",
+            responsibleId: "user-B",
+            stageId: "EXECUTING",
+            categoryId: "0",
+            opportunity: 200_000,
+            currencyId: "RUB",
+            sampleTestingStatus: [],
+            productType: [],
+            industry: [],
+            direction: [],
+          },
+        ],
+        hasAttention: false,
+        attentionReasons: [],
+      },
+    ];
+
+    const scorecard = computeManagerScorecard(
+      companies,
+      bounds,
+      [],
+      { "user-A": "Менеджер А", "user-B": "Менеджер Б" }
+    );
+
+    const rowB = scorecard.find((m) => m.responsibleId === "user-B")!;
+    expect(rowB).toBeDefined();
+    expect(rowB.companyIds).toContain("comp-owner-A");
+  });
 });

@@ -89,31 +89,31 @@ export function computePeriodMetrics(
   const { currentStart, currentEnd, previousStart, previousEnd } = boundaries;
 
   // 1. Новые компании (Company DATE_CREATE in period)
-  const currentNewCompanyIds: string[] = [];
-  const prevNewCompanyIds: string[] = [];
+  const currentNewCompanyIds = new Set<string>();
+  const prevNewCompanyIds = new Set<string>();
 
   for (const c of companies) {
     if (isDateInPeriod(c.dateCreate, currentStart, currentEnd)) {
-      currentNewCompanyIds.push(c.id);
+      currentNewCompanyIds.add(c.id);
     }
     if (isDateInPeriod(c.dateCreate, previousStart, previousEnd)) {
-      prevNewCompanyIds.push(c.id);
+      prevNewCompanyIds.add(c.id);
     }
   }
 
   // 2. Образцы отправлены (Sample shipment date in period, unique companies)
-  const currentSampleSentCompanyIds: string[] = [];
-  const prevSampleSentCompanyIds: string[] = [];
+  const currentSampleSentCompanyIds = new Set<string>();
+  const prevSampleSentCompanyIds = new Set<string>();
 
   for (const c of companies) {
     // Check deal sent dates or company transfer dates
     const hasCurrentShipment = c.sampleAllDates.some((d) => isDateInPeriod(d, currentStart, currentEnd));
     if (hasCurrentShipment) {
-      currentSampleSentCompanyIds.push(c.id);
+      currentSampleSentCompanyIds.add(c.id);
     }
     const hasPrevShipment = c.sampleAllDates.some((d) => isDateInPeriod(d, previousStart, previousEnd));
     if (hasPrevShipment) {
-      prevSampleSentCompanyIds.push(c.id);
+      prevSampleSentCompanyIds.add(c.id);
     }
   }
 
@@ -196,16 +196,16 @@ export function computePeriodMetrics(
     buildKpi(
       "new_companies",
       "Новые компании",
-      currentNewCompanyIds.length,
-      prevNewCompanyIds.length,
-      currentNewCompanyIds
+      currentNewCompanyIds.size,
+      prevNewCompanyIds.size,
+      Array.from(currentNewCompanyIds)
     ),
     buildKpi(
       "samples_sent",
       "Образцы отправлены",
-      currentSampleSentCompanyIds.length,
-      prevSampleSentCompanyIds.length,
-      currentSampleSentCompanyIds
+      currentSampleSentCompanyIds.size,
+      prevSampleSentCompanyIds.size,
+      Array.from(currentSampleSentCompanyIds)
     ),
     buildKpi(
       "deals_created",
@@ -385,27 +385,35 @@ export function computeBottlenecks(
       }
     }
 
-    // 4. Stalled active deal (no next activity)
+    // 4. Stalled active deal (no next activity or > 30 days stalled)
     for (const d of c.deals) {
-      if (!["WON", "LOSE"].includes(d.stageId) && !d.activityNext) {
-        const refDate = d.dateCreate;
+      if (!["WON", "LOSE"].includes(d.stageId)) {
+        const refDate = d.beginDate || d.dateCreate;
         const days = calculateDaysWaiting(refDate, now) || 0;
-        items.push({
-          id: `bottleneck-noaction-${d.id}`,
-          companyId: c.id,
-          companyTitle: c.title,
-          responsibleId: d.responsibleId || c.responsibleId,
-          responsibleName: d.responsibleName || c.responsibleName || "Не назначен",
-          type: "stalled_deal",
-          issueLabel: "Нет следующего шага по сделке",
-          currentState: d.stageName || d.stageId,
-          relevantDate: refDate,
-          daysWaiting: days,
-          dealId: d.id,
-          dealTitle: d.title,
-          amount: d.opportunity,
-          nextAction: "Запланировать звонок / встречу с клиентом",
-        });
+        const isStalledByAge = days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS;
+        const hasNoNextAction = !d.activityNext;
+
+        if (isStalledByAge || hasNoNextAction) {
+          const issueLabel = hasNoNextAction
+            ? "Нет следующего шага по сделке"
+            : `Сделка без движения (${days} дн.)`;
+          items.push({
+            id: `bottleneck-stalled-${d.id}`,
+            companyId: c.id,
+            companyTitle: c.title,
+            responsibleId: d.responsibleId || c.responsibleId,
+            responsibleName: d.responsibleName || c.responsibleName || "Не назначен",
+            type: "stalled_deal",
+            issueLabel,
+            currentState: d.stageName || d.stageId,
+            relevantDate: refDate,
+            daysWaiting: days,
+            dealId: d.id,
+            dealTitle: d.title,
+            amount: d.opportunity,
+            nextAction: d.activityNext || "Запланировать звонок / встречу с клиентом",
+          });
+        }
       }
     }
   }
@@ -476,6 +484,9 @@ export function computeManagerScorecard(
     // Deals metrics
     for (const d of c.deals) {
       const dealManager = getOrCreate(d.responsibleId || c.responsibleId);
+      if (!dealManager.companyIds.includes(c.id)) {
+        dealManager.companyIds.push(c.id);
+      }
       if (isDateInPeriod(d.dateCreate, currentStart, currentEnd)) {
         dealManager.dealsCreated++;
       }

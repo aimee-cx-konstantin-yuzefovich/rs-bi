@@ -306,7 +306,11 @@ export function normalizeCompanies(
     // Bottleneck 4: Stalled deal (active deal with no next activity or > 30 days without progress)
     for (const d of linkedDeals) {
       if (!["WON", "LOSE"].includes(d.stageId)) {
-        if (!d.activityNext) {
+        const refDate = d.beginDate || d.dateCreate;
+        const days = calculateDaysWaiting(refDate, now) || 0;
+        if (days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS) {
+          attentionReasons.push(`Сделка без движения ${days} дн. «${d.title}»`);
+        } else if (!d.activityNext) {
           attentionReasons.push(`Нет следующего шага по сделке «${d.title}»`);
         }
       }

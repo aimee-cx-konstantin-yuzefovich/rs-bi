@@ -52,8 +52,15 @@ export function computePeriodBoundaries(
   if (periodPreset === "custom" && customFrom && customTo) {
     const [fy, fm, fd] = customFrom.split("-").map(Number);
     const [ty, tm, td] = customTo.split("-").map(Number);
-    currentStart = new Date(fy, fm - 1, fd, 0, 0, 0, 0);
-    currentEnd = new Date(ty, tm - 1, td, 23, 59, 59, 999);
+    let s = new Date(fy, fm - 1, fd, 0, 0, 0, 0);
+    let e = new Date(ty, tm - 1, td, 23, 59, 59, 999);
+    if (s.getTime() > e.getTime()) {
+      const tmp = s;
+      s = e;
+      e = tmp;
+    }
+    currentStart = s;
+    currentEnd = e;
   } else if (periodPreset === "quarter") {
     const currentMonth = now.getMonth();
     const quarterIndex = Math.floor(currentMonth / 3); // 0, 1, 2, 3
