@@ -14,7 +14,8 @@ import { PipelineFilter } from "./pipeline-filter";
 import { ResponsibleFilter } from "./responsible-filter";
 import { ConnectionHealth } from "./connection-health";
 import { SavedViews } from "./saved-views";
-import { RefreshCw, Download, Columns3, BarChart3, LogOut, User, Building2 } from "lucide-react";
+import { SectionNav } from "./section-nav";
+import { RefreshCw, Download, Columns3, BarChart3, LogOut, User } from "lucide-react";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
 import Link from "next/link";
@@ -105,16 +106,23 @@ export function Header() {
     <header className="z-30 header-gradient border-b border-white/10">
       {/* Top row: Brand + Actions */}
       <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
-          {/* Left: Brand */}
-          <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
-            <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
-            <span className="text-sm font-semibold tracking-wide text-white">
-              RusSilica
-            </span>
-            <span className="hidden sm:inline text-xs font-normal text-white/40">
-              BI Terminal
-            </span>
-          </Link>
+          {/* Left: Brand + section tabs */}
+          <div className="flex items-center gap-3 min-w-0">
+            <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
+              <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
+              <span className="text-sm font-semibold tracking-wide text-white">
+                RusSilica
+              </span>
+              <span className="hidden md:inline text-xs font-normal text-white/40">
+                BI Terminal
+              </span>
+            </Link>
+
+            {/* Сделки | Компании | Образцы */}
+            <div className="hidden sm:block">
+              <SectionNav variant="dark" />
+            </div>
+          </div>
 
           {/* Right: Actions */}
           <div className="flex items-center gap-1 shrink-0 ml-auto">
@@ -135,21 +143,6 @@ export function Header() {
 
             {/* Connection health */}
             <ConnectionHealth />
-
-            {/* Companies browser (independent of deals — true Bitrix24 company counts) */}
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Link href="/companies">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10"
-                  title="Все компании по ответственному"
-                >
-                  <Building2 className="h-3.5 w-3.5" />
-                  <span className="hidden lg:inline">Компании</span>
-                </Button>
-              </Link>
-            </motion.div>
 
             {/* Last sync time */}
             <div className="hidden lg:block">

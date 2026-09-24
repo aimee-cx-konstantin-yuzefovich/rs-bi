@@ -15,6 +15,7 @@ RusSilica BI Terminal — Next.js dashboard over Bitrix24 CRM data; users authen
 
 ## Hard rules
 
+- **Agent work style**: make changes in small, incremental steps — one file or small file group per tool call, run tests after each logical unit, commit after each passing step. Never attempt to emit entire multi-file features in a single giant response: if output limits truncate mid-work, the session stalls with no actionable result. Prefer many small safe steps over one big fragile one.
 - **Bitrix24 API**: all CRM calls MUST go through `bitrixGet`/`bitrixPost` from `src/lib/bitrix.ts` (method allowlist, SSRF protection, param sanitization). Raw `fetch` to Bitrix24 is forbidden.
 - **Config imports**: import `IS_PRODUCTION` / `WP_LOGIN_URL_CLIENT` from `src/lib/config.ts` (server-only secrets from `src/lib/config.server.ts`) instead of reading `process.env` directly.
 - **Middleware**: the Next.js middleware file is `src/proxy.ts` with default export named `proxy` — keep that file name, location, and export name (rate limiting, CORS, CSP live there). Ignore the stale `src/middleware.ts` mention in a `next.config.ts` comment.
