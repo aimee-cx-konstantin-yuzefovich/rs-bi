@@ -29,23 +29,13 @@ const ALLOWED_METHODS = new Set([
   "user.search",
 ]);
 
-/**
- * Check if a hostname falls within the 172.16.0.0/12 private range (RFC 1918).
- * This covers 172.16.x.x through 172.31.x.x — the previous code only checked 172.16.*
- */
-function is172PrivateRange(hostname: string): boolean {
-  // Match 172.X.X.X pattern
-  const match = /^172\.(\d{1,3})\./.exec(hostname);
-  if (!match) return false;
-  const secondOctet = parseInt(match[1], 10);
-  return secondOctet >= 16 && secondOctet <= 31;
-}
+import { assertSafeWebhookUrl } from "@/lib/network-safety";
 
 /**
  * Build full Bitrix24 API URL from a method path.
- * Validates method against allowlist to prevent SSRF.
+ * Validates method against allowlist and webhook endpoint against SSRF safety rules.
  */
-function buildUrl(method: string): string {
+async function buildUrl(method: string): Promise<string> {
   const WEBHOOK_URL = process.env.BITRIX_WEBHOOK_URL;
   
   if (!WEBHOOK_URL) {
@@ -57,36 +47,8 @@ function buildUrl(method: string): string {
     throw new Error(`Invalid API method: ${method}`);
   }
 
-  // Validate webhook URL format
-  const base = WEBHOOK_URL.replace(/\/+$/, "");
-  
-  try {
-    const parsed = new URL(base);
-    if (parsed.protocol !== 'https:') {
-      throw new Error("Webhook URL must use HTTPS");
-    }
-    
-    const hostname = parsed.hostname.toLowerCase();
-    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0' || hostname.startsWith('127.');
-    const isCloudMetadata = hostname.startsWith('169.254.') || hostname === 'metadata.google.internal';
-    const isPrivate =
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      is172PrivateRange(hostname) ||
-      hostname.startsWith('fc') ||
-      hostname.startsWith('fd') ||
-      hostname.startsWith('fe80');
-
-    if (isLocalhost || isCloudMetadata || isPrivate) {
-      throw new Error("Webhook URL cannot point to private IP ranges or localhost");
-    }
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("Webhook URL")) {
-      throw e;
-    }
-    throw new Error("Invalid webhook URL format");
-  }
-
+  const safeUrl = await assertSafeWebhookUrl(WEBHOOK_URL);
+  const base = safeUrl.toString().replace(/\/+$/, "");
   return `${base}/${method}`;
 }
 
@@ -120,7 +82,7 @@ export async function bitrixGet<T = unknown>(
   params?: Record<string, string | number | boolean>
 ): Promise<T> {
   try {
-    const url = new URL(buildUrl(method));
+    const url = new URL(await buildUrl(method));
     if (params) {
       // Sanitize parameter keys — only allow safe characters
       Object.entries(params).forEach(([key, value]) => {
@@ -175,7 +137,7 @@ export async function bitrixPost<T = unknown>(
   body?: Record<string, unknown>
 ): Promise<T> {
   try {
-    const url = buildUrl(method);
+    const url = await buildUrl(method);
 
     // Sanitize body — remove any keys that look suspicious
     const sanitizedBody: Record<string, unknown> = {};
