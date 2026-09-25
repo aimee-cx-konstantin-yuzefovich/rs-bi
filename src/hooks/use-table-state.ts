@@ -4,6 +4,7 @@ import { useDashboardStore, type DealData } from "@/store/dashboard-store";
 import {
   RESPONSIBLE_FIELD_ID,
   COMPANY_RESPONSIBLE_FIELD_ID,
+  getDealStageDisplayLabel,
 } from "@/lib/crm-constants";
 
 export function useTableState() {
@@ -149,6 +150,19 @@ export function useTableState() {
       }
 
       if (raw === null || raw === undefined || raw === "") return "";
+
+      if (field?.type === "char" || field?.type === "boolean") {
+        const rStr = String(raw).trim().toLowerCase();
+        if ((raw as unknown) === true || raw === "Y" || raw === "1" || rStr === "true" || rStr === "y") return "Да";
+        if ((raw as unknown) === false || raw === "N" || raw === "0" || rStr === "false" || rStr === "n") return "Нет";
+      }
+
+      if (colId === "STAGE_ID") {
+        const val = String(raw);
+        const listVal = field?.listValues?.find((lv) => lv.ID === val);
+        if (listVal?.VALUE) return listVal.VALUE;
+        return getDealStageDisplayLabel(val);
+      }
 
       if (colId === RESPONSIBLE_FIELD_ID) {
         const id = String(raw);

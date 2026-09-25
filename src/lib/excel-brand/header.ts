@@ -86,7 +86,9 @@ export function addOperationalHeader(
     worksheet.mergeCells(1, 2, 1, titleMergeEnd);
   }
   const titleCell = row1.getCell(2);
-  titleCell.value = options.title.toUpperCase();
+  const upperTitle = options.title.toUpperCase();
+  const safeTitle = /^[=\-+\@]/.test(upperTitle) ? "'" + upperTitle : upperTitle;
+  titleCell.value = safeTitle;
   titleCell.font = FONT_REPORT_TITLE;
   titleCell.alignment = { vertical: "middle", horizontal: "left" };
 

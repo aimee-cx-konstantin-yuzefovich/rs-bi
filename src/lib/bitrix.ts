@@ -66,12 +66,18 @@ function buildUrl(method: string): string {
       throw new Error("Webhook URL must use HTTPS");
     }
     
-    const hostname = parsed.hostname;
-    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
-    const isAwsMetadata = hostname === '169.254.169.254';
-    const isPrivate = hostname.startsWith('10.') || hostname.startsWith('192.168.') || is172PrivateRange(hostname);
+    const hostname = parsed.hostname.toLowerCase();
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0' || hostname.startsWith('127.');
+    const isCloudMetadata = hostname.startsWith('169.254.') || hostname === 'metadata.google.internal';
+    const isPrivate =
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      is172PrivateRange(hostname) ||
+      hostname.startsWith('fc') ||
+      hostname.startsWith('fd') ||
+      hostname.startsWith('fe80');
 
-    if (isLocalhost || isAwsMetadata || isPrivate) {
+    if (isLocalhost || isCloudMetadata || isPrivate) {
       throw new Error("Webhook URL cannot point to private IP ranges or localhost");
     }
   } catch (e) {

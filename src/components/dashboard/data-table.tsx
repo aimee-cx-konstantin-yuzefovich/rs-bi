@@ -725,14 +725,15 @@ function CellValue({
 
   // Boolean / char fields
   if (field?.type === "char" || field?.type === "boolean") {
-    if (raw === "Y" || raw === "1" || String(raw) === "true") {
+    const rStr = String(raw).trim().toLowerCase();
+    if ((raw as unknown) === true || raw === "Y" || raw === "1" || rStr === "true" || rStr === "y") {
       return (
         <Badge className="bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px] h-5 rounded-sm border-0 font-medium">
           Да
         </Badge>
       );
     }
-    if (raw === "N" || raw === "0" || String(raw) === "false") {
+    if ((raw as unknown) === false || raw === "N" || raw === "0" || rStr === "false" || rStr === "n") {
       return (
         <Badge variant="secondary" className="text-[10px] h-5 rounded-sm font-normal">
           Нет

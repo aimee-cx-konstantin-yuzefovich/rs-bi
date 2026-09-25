@@ -166,6 +166,7 @@ describe("Russian UI Localization Consistency", () => {
     it("correctly translates raw stages and category-prefixed stages to Russian", () => {
       expect(getDealStageDisplayLabel("WON")).toBe("Успешные");
       expect(getDealStageDisplayLabel("C1:WON")).toBe("Успешные");
+      expect(getDealStageDisplayLabel("C12:WON")).toBe("Успешные");
       expect(getDealStageDisplayLabel("LOSE")).toBe("Проиграны");
       expect(getDealStageDisplayLabel("LOST")).toBe("Проиграны");
       expect(getDealStageDisplayLabel("C2:LOSE")).toBe("Проиграны");
@@ -175,6 +176,7 @@ describe("Russian UI Localization Consistency", () => {
       expect(getDealStageDisplayLabel("PREPARATION")).toBe("Подготовка");
       expect(getDealStageDisplayLabel("EXECUTING")).toBe("В работе");
       expect(getDealStageDisplayLabel("PREPAYMENT_INVOICE")).toBe("Счёт на предоплату");
+      expect(getDealStageDisplayLabel("C99:PREPAYMENT_INVOICE")).toBe("Счёт на предоплату");
       expect(getDealStageDisplayLabel("FINAL_INVOICE")).toBe("Финальный счёт");
       expect(getDealStageDisplayLabel("INVOICE_SENT")).toBe("Счёт выставлен");
       expect(getDealStageDisplayLabel(null)).toBe("—");
@@ -232,6 +234,53 @@ describe("Russian UI Localization Consistency", () => {
       expect(screen.queryByText("LOSE")).not.toBeInTheDocument();
       expect(screen.queryByText("C1:WON")).not.toBeInTheDocument();
       expect(screen.queryByText("C2:LOSE")).not.toBeInTheDocument();
+    });
+
+    it("renders 'Да' and 'Нет' badges for boolean and char fields with boolean literals and various string casings", () => {
+      const deals = [
+        { ID: "101", TITLE: "Сделка 101", IS_ACTIVE: true },
+        { ID: "102", TITLE: "Сделка 102", IS_ACTIVE: "TRUE" },
+        { ID: "103", TITLE: "Сделка 103", IS_ACTIVE: false },
+        { ID: "104", TITLE: "Сделка 104", IS_ACTIVE: "0" },
+      ];
+      const fields = [
+        { id: "TITLE", title: "Название сделки", type: "string" },
+        { id: "IS_ACTIVE", title: "Активна", type: "boolean" },
+      ];
+
+      useDashboardStore.setState({
+        deals: deals as any,
+        allDeals: deals as any,
+        fields: fields as any,
+        selectedColumns: ["TITLE", "IS_ACTIVE"],
+        dealsLoading: false,
+        dealsError: null,
+      });
+
+      render(<DataTable />);
+
+      const yesBadges = screen.getAllByText("Да");
+      expect(yesBadges).toHaveLength(2);
+
+      const noBadges = screen.getAllByText("Нет");
+      expect(noBadges).toHaveLength(2);
+    });
+  });
+
+  describe("Operational Excel Header Formula Injection Prevention", () => {
+    it("sanitizes report title starting with '=' by prefixing apostrophe", async () => {
+      const ExcelJS = (await import("exceljs")).default;
+      const { addOperationalHeader } = await import("@/lib/excel-brand/header");
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("Test");
+
+      addOperationalHeader(ws, null, {
+        title: "=2+2",
+        colCount: 5,
+      });
+
+      const row1Cell = ws.getRow(1).getCell(2);
+      expect(row1Cell.value).toBe("'=2+2");
     });
   });
 

@@ -155,15 +155,18 @@ export function getDealStageDisplayLabel(stage?: string | null): string {
   if (!stage || typeof stage !== "string") return "—";
   const trim = stage.trim();
   const upper = trim.toUpperCase();
-  if (upper === "WON" || upper.endsWith(":WON")) return "Успешные";
-  if (upper === "LOSE" || upper === "LOST" || upper.endsWith(":LOSE") || upper.endsWith(":LOST")) return "Проиграны";
-  if (upper === "NEW" || upper.endsWith(":NEW")) return "Новые";
-  if (upper === "EXECUTING" || upper.endsWith(":EXECUTING")) return "В работе";
-  if (upper === "PREPARATION" || upper.endsWith(":PREPARATION")) return "Подготовка";
-  if (upper === "PREPAYMENT_INVOICE" || upper.endsWith(":PREPAYMENT_INVOICE")) return "Счёт на предоплату";
-  if (upper === "FINAL_INVOICE" || upper.endsWith(":FINAL_INVOICE")) return "Финальный счёт";
-  if (upper === "INVOICE_SENT" || upper.endsWith(":INVOICE_SENT")) return "Счёт выставлен";
-  return DEAL_STAGE_DISPLAY_LABELS[upper] || trim;
+  const colonIdx = upper.lastIndexOf(":");
+  const key = colonIdx !== -1 ? upper.slice(colonIdx + 1) : upper;
+
+  if (key === "WON") return "Успешные";
+  if (key === "LOSE" || key === "LOST") return "Проиграны";
+  if (key === "NEW") return "Новые";
+  if (key === "EXECUTING") return "В работе";
+  if (key === "PREPARATION") return "Подготовка";
+  if (key === "PREPAYMENT_INVOICE") return "Счёт на предоплату";
+  if (key === "FINAL_INVOICE") return "Финальный счёт";
+  if (key === "INVOICE_SENT") return "Счёт выставлен";
+  return DEAL_STAGE_DISPLAY_LABELS[key] || DEAL_STAGE_DISPLAY_LABELS[upper] || trim;
 }
 
 export const PAYMENT_STATUS_FIELD_ID = "UF_CRM_1584464068013";

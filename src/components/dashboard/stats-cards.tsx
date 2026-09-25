@@ -35,7 +35,7 @@ export function StatsCards() {
           (deal as any).CURRENCY ??
           (deal as any).currencyId;
         const cur = normalizeCurrencyCode(rawCurrency ? String(rawCurrency) : null);
-        opportunityByCurrency[cur] = (opportunityByCurrency[cur] || 0) + val;
+        opportunityByCurrency[cur] = Math.round(((opportunityByCurrency[cur] || 0) + val) * 100) / 100;
       }
     }
 
