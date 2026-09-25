@@ -626,7 +626,7 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       const currencyRussian = formatCurrencyToRussian(deal.currency);
       const sanitize = (s: string) => /^[=\-+\@]/.test(s) ? "'" + s : s;
       const dealRow = worksheet.addRow([
-        deal.id,
+        sanitize(String(deal.id || "")),
         sanitize(deal.title || ""),
         sanitize(stageRussian || ""),
         deal.opportunity !== null && deal.opportunity !== undefined ? deal.opportunity : "—",

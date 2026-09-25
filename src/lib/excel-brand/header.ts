@@ -180,7 +180,8 @@ export function addAccountHeader(
   const cleanTitle = (options.companyTitle || "Компания")
     .replace(/[\r\n\t]+/g, " ")
     .trim();
-  compCell.value = cleanTitle;
+  const safeTitle = /^[=\-+\@]/.test(cleanTitle) ? "'" + cleanTitle : cleanTitle;
+  compCell.value = safeTitle;
   compCell.font = { name: RS_FONT_FAMILY, size: 14, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
   compCell.alignment = { vertical: "middle", horizontal: "left" };
 

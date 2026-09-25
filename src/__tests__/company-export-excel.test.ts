@@ -404,3 +404,207 @@ describe("exportCompanyToExcel (browser download)", () => {
     expect(downloadedFilename).toBe("РусСилика_Компания_2026-09-10.xlsx");
   });
 });
+
+describe("Company Excel Formula-Injection Security & Binary Round-Trip Regression", () => {
+  it("sanitizes formula-injection characters (=, +, -, @) across all sections and proves non-formula binary round-trip", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const fixedDate = new Date("2026-09-10T12:00:00Z");
+
+    const workbook = createCompanyExcelWorkbook({
+      companyTitle: "=2+2 Вредоносная Компания",
+      companyId: "+12345",
+      companyFields: [
+        { label: "Комментарий", value: "=2+2" },
+        { label: "Телефон", value: "+SUM(A1:A2)" },
+        { label: "Email", value: "-1+1" },
+        { label: "Дополнительно", value: "@SUM(A1:A2)" },
+        { label: "Дата создания", value: "10.01.2025" }, // Native date invariant
+      ],
+      sampleFields: [
+        { label: "Марка предоставленных образцов (ГЕЛЬ)", value: "=2+2" },
+        { label: "Результат испытаний", value: "+SUM(A1:A2)" },
+        { label: "Комментарий по образцам", value: "-1+1" },
+        { label: "Особые отметки", value: "@SUM(A1:A2)" },
+      ],
+      deals: [
+        {
+          id: "deal-1",
+          title: "=2+2",
+          stage: "@SUM(A1:A2)",
+          opportunity: 500000, // Native number invariant
+          currency: "RUB",
+        },
+        {
+          id: "deal-2",
+          title: "+SUM(A1:A2)",
+          stage: "WON", // Enum stage -> translates safely to Russian
+          opportunity: 150000,
+          currency: "RUB",
+        },
+        {
+          id: "deal-3",
+          title: "-1+1",
+          stage: "=2+2",
+          opportunity: 250000,
+          currency: "USD",
+        },
+        {
+          id: "deal-4",
+          title: "@SUM(A1:A2)",
+          stage: "-1+1",
+          opportunity: 350000,
+          currency: "EUR",
+        },
+      ],
+      currentDate: fixedDate,
+    });
+
+    const worksheet = workbook.getWorksheet("Отчёт по компании");
+    expect(worksheet).toBeDefined();
+
+    // ─── 1. In-Memory Pre-Serialization Verification ───
+    // Account Header Title (Row 2, Col 2)
+    const titleCell = worksheet!.getCell("B2");
+    expect(String(titleCell.value)).toBe("'=2+2 Вредоносная Компания");
+
+    // Section 1 & Section 2 map
+    const preMap = new Map<string, any>();
+    worksheet!.eachRow((row) => {
+      if (row.getCell(1).isMerged) return;
+      const label = String(row.getCell(1).value || "");
+      const val = row.getCell(2).value;
+      if (label) preMap.set(label, val);
+    });
+
+    // A. Основная информация
+    expect(preMap.get("Комментарий")).toBe("'=2+2");
+    expect(preMap.get("Телефон")).toBe("'+SUM(A1:A2)");
+    expect(preMap.get("Эл. почта")).toBe("'-1+1");
+    expect(preMap.get("Дополнительно")).toBe("'@SUM(A1:A2)");
+    expect(preMap.get("Дата создания")).toBeInstanceOf(Date);
+
+    // B. Образцы
+    expect(preMap.get("Марка предоставленных образцов (ГЕЛЬ)")).toBe("'=2+2");
+    expect(preMap.get("Результат испытаний")).toBe("'+SUM(A1:A2)");
+    expect(preMap.get("Комментарий по образцам")).toBe("'-1+1");
+    expect(preMap.get("Особые отметки")).toBe("'@SUM(A1:A2)");
+
+    // ─── 2. Full Binary XLSX Serialization Round-Trip ───
+    const buffer = await workbook.xlsx.writeBuffer();
+    expect(buffer).toBeDefined();
+    expect(buffer.byteLength).toBeGreaterThan(0);
+
+    const reloaded = new ExcelJS.Workbook();
+    await reloaded.xlsx.load(buffer as any);
+    const reloadedSheet = reloaded.getWorksheet("Отчёт по компании")!;
+    expect(reloadedSheet).toBeDefined();
+
+    // Verify Title cell after reload: not Formula, is String, retains safe apostrophe prefix
+    const reloadedTitle = reloadedSheet.getCell("B2");
+    expect(reloadedTitle.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(reloadedTitle.type).toBe(ExcelJS.ValueType.String);
+    expect(reloadedTitle.value).toBe("'=2+2 Вредоносная Компания");
+
+    const reloadedMap = new Map<string, { value: any; type: number }>();
+    reloadedSheet.eachRow((row) => {
+      if (row.getCell(1).isMerged) return;
+      const label = String(row.getCell(1).value || "");
+      const cell = row.getCell(2);
+      if (label) reloadedMap.set(label, { value: cell.value, type: cell.type });
+    });
+
+    // A. Основная информация verification after binary reload
+    const c1 = reloadedMap.get("Комментарий")!;
+    expect(c1.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(c1.value).toBe("'=2+2");
+
+    const c2 = reloadedMap.get("Телефон")!;
+    expect(c2.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(c2.value).toBe("'+SUM(A1:A2)");
+
+    const c3 = reloadedMap.get("Эл. почта")!;
+    expect(c3.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(c3.value).toBe("'-1+1");
+
+    const c4 = reloadedMap.get("Дополнительно")!;
+    expect(c4.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(c4.value).toBe("'@SUM(A1:A2)");
+
+    // Invariant: Native date remains Date instance
+    const cDate = reloadedMap.get("Дата создания")!;
+    expect(cDate.type).toBe(ExcelJS.ValueType.Date);
+    expect(cDate.value).toBeInstanceOf(Date);
+
+    // B. Образцы verification after binary reload
+    const s1 = reloadedMap.get("Марка предоставленных образцов (ГЕЛЬ)")!;
+    expect(s1.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(s1.value).toBe("'=2+2");
+
+    const s2 = reloadedMap.get("Результат испытаний")!;
+    expect(s2.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(s2.value).toBe("'+SUM(A1:A2)");
+
+    const s3 = reloadedMap.get("Комментарий по образцам")!;
+    expect(s3.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(s3.value).toBe("'-1+1");
+
+    const s4 = reloadedMap.get("Особые отметки")!;
+    expect(s4.type).not.toBe(ExcelJS.ValueType.Formula);
+    expect(s4.value).toBe("'@SUM(A1:A2)");
+
+    // C. Связанные сделки — title & D. Связанные сделки — stage
+    const dealRowsReloaded: Array<{
+      id: string;
+      title: any;
+      titleType: number;
+      stage: any;
+      stageType: number;
+      opportunity: any;
+      oppType: number;
+    }> = [];
+
+    reloadedSheet.eachRow((row) => {
+      const cell1 = String(row.getCell(1).value || "");
+      if (cell1.startsWith("deal-")) {
+        dealRowsReloaded.push({
+          id: cell1,
+          title: row.getCell(2).value,
+          titleType: row.getCell(2).type,
+          stage: row.getCell(3).value,
+          stageType: row.getCell(3).type,
+          opportunity: row.getCell(4).value,
+          oppType: row.getCell(4).type,
+        });
+      }
+    });
+
+    expect(dealRowsReloaded).toHaveLength(4);
+
+    const d1 = dealRowsReloaded.find((d) => d.id === "deal-1")!;
+    expect(d1.titleType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(d1.title).toBe("'=2+2");
+    expect(d1.stageType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(d1.stage).toBe("'@SUM(A1:A2)");
+    // Invariant: Native number remains numeric
+    expect(d1.oppType).toBe(ExcelJS.ValueType.Number);
+    expect(d1.opportunity).toBe(500000);
+
+    const d2 = dealRowsReloaded.find((d) => d.id === "deal-2")!;
+    expect(d2.titleType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(d2.title).toBe("'+SUM(A1:A2)");
+    expect(d2.stageType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(d2.stage).toBe("Успешно завершена"); // WON translated safely
+
+    const d3 = dealRowsReloaded.find((d) => d.id === "deal-3")!;
+    expect(d3.titleType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(d3.title).toBe("'-1+1");
+    expect(d3.stageType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(d3.stage).toBe("'=2+2");
+
+    const d4 = dealRowsReloaded.find((d) => d.id === "deal-4")!;
+    expect(d4.titleType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(d4.title).toBe("'@SUM(A1:A2)");
+    expect(d4.stageType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(d4.stage).toBe("'-1+1");
+  });
+});
