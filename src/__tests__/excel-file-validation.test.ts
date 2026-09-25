@@ -8,6 +8,7 @@ import { buildWysiwygWorkbook, createCompanyExcelWorkbook } from "@/lib/export-u
 import { createCommercialFunnelWorkbook } from "@/lib/commercial-funnel/export-excel";
 import { generateDemoCommercialDataset } from "@/lib/commercial-funnel/demo-data";
 import type { CommercialFilters } from "@/lib/commercial-funnel/types";
+import { ATTENTION_BG, CURRENCY_NUMFMT, NUMFMT, SUCCESS_BG } from "@/lib/excel-brand";
 
 describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () => {
   const fixedNow = new Date("2026-09-24T12:00:00Z");
@@ -221,5 +222,95 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
     const bottlenecksSheet = parsedWorkbook.getWorksheet("Bottlenecks")!;
     expect(bottlenecksSheet.getCell("B1").value).toContain("КОММЕРЧЕСКАЯ ВОРОНКА");
     expect(bottlenecksSheet.views.some((v) => v.state === "frozen" && v.ySplit === 6)).toBe(true);
+  });
+
+  it("Report 5: Comprehensive Remediation Round-Trip — multi-currency, semantic status fills, field provenance, and Executive Summary attention section", async () => {
+    // 1. Multi-currency and provenance WYSIWYG
+    const rawIds = ["ID", "UF_CRM_PROD", "COMPANY_UF_CRM_PROD", "OPPORTUNITY", "STAGE_ID"];
+    const columns = ["ID", "Тип продукта", "Тип продукта", "Сумма", "Стадия"];
+    const data = [
+      ["1", "Гель-100", "Силика-1", 100000, "Оплачен"],
+      ["2", "Гель-200", "Силика-2", 5000, "Не оплачен"],
+      ["3", "Гель-300", "Силика-3", 7500, "В работе"],
+      ["4", "Гель-400", "Силика-4", 1200, "Ошибка"],
+    ];
+    const rowCurrencies = ["RUB", "USD", "EUR", null];
+
+    const sourceWysiwyg = await buildWysiwygWorkbook(data, columns, {
+      title: "Мультивалютный отчёт с провенансом",
+      rawColumnIds: rawIds,
+      rowCurrencies,
+    });
+
+    const wysiwygBuffer = await sourceWysiwyg.xlsx.writeBuffer();
+    const parsedWysiwyg = new ExcelJS.Workbook();
+    await parsedWysiwyg.xlsx.load(wysiwygBuffer as any);
+
+    const wysiwygSheet = parsedWysiwyg.getWorksheet("Сделки")!;
+    expect(wysiwygSheet).toBeDefined();
+
+    // Verify header provenance and disambiguation survived round-trip
+    expect(wysiwygSheet.getCell("B6").value).toBe("Тип продукта");
+    expect(wysiwygSheet.getCell("C6").value).toBe("Компания: Тип продукта");
+
+    // Verify row currencies numFmt survived round-trip
+    const row7Opp = wysiwygSheet.getCell("D7"); // RUB
+    expect(row7Opp.numFmt).toBe(CURRENCY_NUMFMT.RUB.MONEY);
+
+    const row8Opp = wysiwygSheet.getCell("D8"); // USD
+    expect(row8Opp.numFmt).toBe(CURRENCY_NUMFMT.USD.MONEY);
+    expect(row8Opp.numFmt).not.toContain("₽");
+
+    const row9Opp = wysiwygSheet.getCell("D9"); // EUR
+    expect(row9Opp.numFmt).toBe(CURRENCY_NUMFMT.EUR.MONEY);
+    expect(row9Opp.numFmt).not.toContain("₽");
+
+    const row10Opp = wysiwygSheet.getCell("D10"); // Unknown
+    expect(row10Opp.numFmt).toBe(NUMFMT.INTEGER);
+    expect(row10Opp.numFmt).not.toContain("₽");
+
+    // Verify semantic status styling survived round-trip
+    const paidCell = wysiwygSheet.getCell("E7"); // "Оплачен" -> SUCCESS
+    expect(paidCell.value).toBe("Оплачен");
+    expect(paidCell.fill).toBeDefined();
+    expect((paidCell.fill as any)?.fgColor?.argb).toContain(SUCCESS_BG);
+
+    const unpaidCell = wysiwygSheet.getCell("E8"); // "Не оплачен" -> ATTENTION (NEVER SUCCESS)
+    expect(unpaidCell.value).toBe("Не оплачен");
+    expect(unpaidCell.fill).toBeDefined();
+    expect((unpaidCell.fill as any)?.fgColor?.argb).toContain(ATTENTION_BG);
+    expect((unpaidCell.fill as any)?.fgColor?.argb).not.toContain(SUCCESS_BG);
+
+    // 2. Commercial Funnel Executive Summary Section 3 (Attention) round-trip
+    const demoData = generateDemoCommercialDataset();
+    const funnelWorkbook = await createCommercialFunnelWorkbook({
+      companies: demoData.companies,
+      deals: demoData.deals,
+      filters: {
+        periodPreset: "30days",
+        responsibleId: "all",
+        productType: "all",
+        industry: "all",
+        direction: "all",
+        region: "all",
+      },
+      userNames: demoData.userNames,
+      now: fixedNow,
+    });
+
+    const funnelBuffer = await funnelWorkbook.xlsx.writeBuffer();
+    const parsedFunnel = new ExcelJS.Workbook();
+    await parsedFunnel.xlsx.load(funnelBuffer as any);
+
+    const summarySheet = parsedFunnel.getWorksheet("Executive Summary")!;
+    const allSummaryTexts: string[] = [];
+    summarySheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        if (cell.value) allSummaryTexts.push(String(cell.value));
+      });
+    });
+
+    expect(allSummaryTexts.some((t) => t.includes("ТРЕБУЮТ ВНИМАНИЯ (УЗКИЕ МЕСТА)"))).toBe(true);
+    expect(allSummaryTexts.some((t) => t.includes("[KPI] Новые компании"))).toBe(true);
   });
 });
