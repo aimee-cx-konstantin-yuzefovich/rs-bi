@@ -123,4 +123,4 @@ deliberately `false`, don't disable it).
   `no-unused-vars`, etc. — see `eslint.config.mjs`). Don't "fix" these; they're off by design, not oversight.
 - UI is shadcn/ui components (`src/components/ui/*`, configured via `components.json`) + Tailwind v4 + Radix
   primitives. Don't hand-roll a component that already exists under `src/components/ui/`.
-- Tests use Vitest + Testing Library + jsdom (`vitest.config.ts`); test files live in `src/__tests__/`.
+- Tests use Vitest + Testing Library + jsdom (`vitest.config.mts`); test files live in `src/__tests__/`.
