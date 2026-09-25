@@ -269,6 +269,7 @@ const sortColumns = (columns: string[]) => {
 // Guards fetchCompanyBrowser against out-of-order responses: only the result
 // of the most recently *started* call is ever applied to the store.
 let companyBrowserRequestSeq = 0;
+let dealsRequestSeq = 0;
 
 // Guards background entity fetchers against duplicate concurrent requests (Promise coalescing)
 let inFlightCompaniesPromise: Promise<void> | null = null;
@@ -434,6 +435,7 @@ export const useDashboardStore = create<DashboardState>()(
       },
 
       fetchDeals: async (options?: { skipRelated?: boolean }) => {
+        const requestSeq = ++dealsRequestSeq;
         set({ dealsLoading: true, dealsError: null });
         try {
           const { dateFilter, selectedColumns } = get();
@@ -472,6 +474,7 @@ export const useDashboardStore = create<DashboardState>()(
           }
 
           const data = await response.json();
+          if (requestSeq !== dealsRequestSeq) return;
 
           if (!data.success) {
             throw new Error(data.error || "Failed to fetch deals");

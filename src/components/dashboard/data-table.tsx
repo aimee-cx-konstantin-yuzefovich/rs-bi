@@ -505,7 +505,7 @@ export function DataTable() {
                         className="group hover:bg-muted/30 transition-colors cursor-pointer"
                       >
                         {/* Fixed Row Number Cell */}
-                        <td className="sticky left-0 z-10 bg-card group-hover:bg-muted/30 transition-colors border-r border-border text-center px-2">
+                        <td className="sticky left-0 z-10 bg-card group-hover:bg-muted transition-colors border-r border-border text-center px-2">
                           <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
                             {rowIndex}
                           </span>

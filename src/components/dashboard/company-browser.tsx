@@ -794,7 +794,7 @@ export function CompanyBrowser() {
                   }}
                   className={highlightSamples && hasSamplesInfo(company) ? "cursor-pointer bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40" : "cursor-pointer"}
                 >
-                  <TableCell className={`text-xs text-muted-foreground tabular-nums sticky left-0 z-10 border-r border-border text-center ${highlightSamples && hasSamplesInfo(company) ? "bg-amber-100 dark:bg-amber-950/40" : "bg-card"}`}>
+                  <TableCell className={`text-xs text-muted-foreground tabular-nums sticky left-0 z-10 border-r border-border text-center ${highlightSamples && hasSamplesInfo(company) ? "bg-amber-100 dark:bg-amber-950" : "bg-card group-hover:bg-muted transition-colors"}`}>
                     {(currentPage - 1) * PAGE_SIZE + idx + 1}
                   </TableCell>
                   {columns.map((colId) => {

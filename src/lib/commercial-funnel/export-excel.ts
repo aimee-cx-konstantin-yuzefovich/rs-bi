@@ -90,6 +90,17 @@ function toExcelDate(dateStr?: string | null): Date | null {
 
   return null;
 }
+function sanitizeExcelValue(val: any): any {
+  if (typeof val === "string" && /^[=\-+\@]/.test(val)) {
+    return "'" + val;
+  }
+  return val;
+}
+
+function sRow(vals: any[]): any[] {
+  return vals.map(sanitizeExcelValue);
+}
+
 
 export interface BuildExcelOptions {
   companies: CommercialCompany[];
@@ -129,6 +140,20 @@ export async function createCommercialFunnelWorkbook(
 
   // Register logo once on workbook; reused across all 5 sheets
   const logoImageId = await registerBrandLogo(workbook);
+
+  // Monkey-patch addRow for formula injection prevention
+  const originalAddWorksheet = workbook.addWorksheet.bind(workbook);
+  workbook.addWorksheet = (name, options) => {
+    const sheet = originalAddWorksheet(name, options);
+    const originalAddRow = sheet.addRow.bind(sheet);
+    sheet.addRow = (vals: any, style?: string) => {
+      if (Array.isArray(vals)) {
+        return originalAddRow(sRow(vals), style);
+      }
+      return originalAddRow(vals, style);
+    };
+    return sheet;
+  };
 
 function formatPeriodPresetToRussian(preset: string): string {
   switch (preset) {

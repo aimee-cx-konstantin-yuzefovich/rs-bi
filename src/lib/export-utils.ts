@@ -247,7 +247,12 @@ function parseCellNativeValue(val: unknown): string | number | Date | null {
     if (!isNaN(num)) return num;
   }
 
-  return translateCrmValueToRussian(str);
+  let outStr = translateCrmValueToRussian(str);
+  // Formula Injection Prevention (CSV/Excel injection)
+  if (/^[=\-+\@]/.test(outStr)) {
+    outStr = "'" + outStr;
+  }
+  return outStr;
 }
 
 /**
