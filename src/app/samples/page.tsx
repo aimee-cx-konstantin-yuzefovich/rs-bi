@@ -13,6 +13,7 @@ import { useSearchParams } from "next/navigation";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { BarChart3 } from "lucide-react";
 import { SectionNav } from "@/components/dashboard/section-nav";
+import { ProductFooter } from "@/components/dashboard/footer";
 import { CompanyPreview } from "@/components/dashboard/company-preview";
 import { DealPreview } from "@/components/dashboard/deal-preview";
 import { useSamplesData } from "@/components/dashboard/samples/use-samples-data";
@@ -269,6 +270,7 @@ function SamplesContent() {
           образцов.
         </p>
       </main>
+      <ProductFooter />
 
       {selected && (
         <SamplePreview

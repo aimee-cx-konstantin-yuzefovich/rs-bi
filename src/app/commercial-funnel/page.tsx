@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { SectionNav } from "@/components/dashboard/section-nav";
+import { ProductFooter } from "@/components/dashboard/footer";
 import { CompanyPreview } from "@/components/dashboard/company-preview";
 import { DealPreview } from "@/components/dashboard/deal-preview";
 import { isCompanyId } from "@/lib/company-preview";
@@ -329,6 +330,7 @@ function CommercialFunnelContent() {
           </>
         )}
       </main>
+      <ProductFooter />
 
       {/* ─── DRILL-DOWN SHEET ─── */}
       <CommercialDrillDownSheet

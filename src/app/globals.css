@@ -95,6 +95,7 @@
   --header-to: #1A52A3;
   --header-text: #FFFFFF;
   --header-text-muted: rgba(255, 255, 255, 0.7);
+  --table-sticky-top: 0px;
 }
 
 .dark {
@@ -195,9 +196,16 @@
   border-bottom: 2px solid var(--border);
   white-space: nowrap;
   position: sticky;
-  top: 0;
+  top: var(--table-sticky-top, 0px);
   background: var(--card);
-  z-index: 2;
+  z-index: 20;
+}
+
+[data-slot="table-header"] th {
+  position: sticky;
+  top: var(--table-sticky-top, 0px);
+  background-color: var(--card);
+  z-index: 20;
 }
 
 .data-table td {

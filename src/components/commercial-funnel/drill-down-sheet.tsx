@@ -69,7 +69,7 @@ export function CommercialDrillDownSheet({
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-muted/50">
+                  <TableRow className="bg-muted">
                     <TableHead className="text-xs">Компания</TableHead>
                     <TableHead className="text-xs">Ответственный</TableHead>
                     <TableHead className="text-xs">Статус образцов</TableHead>

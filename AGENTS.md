@@ -30,3 +30,13 @@ RusSilica BI Terminal — Next.js dashboard over Bitrix24 CRM data; users authen
 
 - Production runs the Next.js `standalone` output via `node server.js` (Docker `CMD` / pm2) — not `next start`, not Vercel.
 - Host deploy path: `build-deploy.sh` creates a Linux `deploy-prod.zip` (standalone bundle + Prisma migrations). Artifacts exclude `.env*` and SQLite files. See `DEPLOYMENT.md` for `DEPLOY_ARCH`, the one-time existing-DB baseline, absolute `DATABASE_URL`, and the separate Docker volume path.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

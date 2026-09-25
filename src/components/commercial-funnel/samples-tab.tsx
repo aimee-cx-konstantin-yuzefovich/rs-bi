@@ -103,10 +103,9 @@ export function CommercialSamplesTab({
           </div>
         ) : (
           <div className="rounded-lg border bg-card overflow-hidden">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
+            <Table containerClassName="max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto">
+              <TableHeader>
+                <TableRow className="bg-muted">
                     <TableHead className="text-xs font-semibold">Компания</TableHead>
                     <TableHead className="text-xs font-semibold">Ответственный</TableHead>
                     <TableHead className="text-xs font-semibold">Сделка</TableHead>
@@ -238,7 +237,6 @@ export function CommercialSamplesTab({
                   ))}
                 </TableBody>
               </Table>
-            </div>
           </div>
         )}
       </div>

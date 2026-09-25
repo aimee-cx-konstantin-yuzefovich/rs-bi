@@ -4,6 +4,8 @@
 // Single source of truth for all Excel exports across the application.
 // ─────────────────────────────────────────────────────────────────────
 
+import { PRODUCT_NAME, PRODUCT_VERSION } from "../product-identity";
+
 /** Approved base brand colors (without '#' for ExcelJS ARGB / RGB hex) */
 export const RS_BLUE_PRIMARY = "1E509C";
 export const RS_ORANGE_ACCENT = "FF761C";
@@ -174,5 +176,5 @@ export function formatReportDateForFilename(
 
 /** Canonical company / report labels */
 export const RS_COMPANY_NAME = "РусСилика";
-export const RS_SYSTEM_TITLE = "RusSilica BI Terminal";
-export const RS_FOOTER_TEXT = "RusSilica BI Terminal • Внутренний управленческий отчёт";
+export const RS_SYSTEM_TITLE = PRODUCT_NAME;
+export const RS_FOOTER_TEXT = `${PRODUCT_NAME} v${PRODUCT_VERSION} • Внутренний управленческий отчёт`;

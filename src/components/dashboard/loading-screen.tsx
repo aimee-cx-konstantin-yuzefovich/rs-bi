@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { Check, CircleAlert, Minus } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import type { StartupState } from "@/lib/dashboard-startup";
+import {
+  PRODUCT_NAME,
+  PRODUCT_VERSION,
+  PRODUCT_LOADING_DESCRIPTION,
+} from "@/lib/product-identity";
 
 export const STARTUP_LABELS = [
   "Проверка подключения к Bitrix24",
@@ -106,8 +111,19 @@ export function LoadingScreen({ startup, onTimedOut }: { startup: StartupState; 
     <div data-testid="startup-overlay" className={`fixed inset-0 z-[100] overflow-y-auto bg-[#0B1120] px-5 py-8 text-[#F8FAFC] transition-opacity duration-200 motion-reduce:transition-none ${closing ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
       <section aria-label="Загрузка терминала" className="mx-auto flex min-h-full max-w-[560px] items-center">
         <div className="w-full rounded-none border border-[#334155] bg-[#111827] p-6 shadow-2xl sm:p-8">
-          <p className="text-3xl font-bold tracking-tight text-[#93C5FD]">RusSilica</p>
-          <p className="mt-2 text-sm text-[#CBD5E1]">Корпоративный BI Terminal</p>
+          <div>
+            <div className="flex items-baseline gap-2.5 flex-wrap">
+              <p className="text-3xl font-bold tracking-tight text-[#93C5FD]">
+                {PRODUCT_NAME}
+              </p>
+              <span className="text-sm font-medium text-slate-400 font-mono">
+                v{PRODUCT_VERSION}
+              </span>
+            </div>
+            <p className="mt-2 text-xs sm:text-sm text-[#CBD5E1] leading-relaxed">
+              {PRODUCT_LOADING_DESCRIPTION}
+            </p>
+          </div>
           <div role="status" aria-live="polite" aria-atomic="true" className="mt-8">
             <h1 className="text-xl font-semibold leading-snug text-[#F8FAFC]">{message}</h1>
             <span className="sr-only">{!closing && currentIndex >= 0 ? (STARTUP_LABELS[currentIndex] || `Этап ${currentIndex + 1}`) : ""}</span>

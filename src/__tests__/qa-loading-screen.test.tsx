@@ -212,8 +212,9 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
       expect(card?.className).toContain('rounded-none');
 
       // Brand typography
-      expect(screen.getByText('RusSilica')).toHaveClass('text-[#93C5FD]');
-      expect(screen.getByText('Корпоративный BI Terminal')).toHaveClass('text-[#CBD5E1]');
+      expect(screen.getByText('RusSilica BI Terminal')).toHaveClass('text-[#93C5FD]');
+      expect(screen.getByText('v3.1')).toBeInTheDocument();
+      expect(screen.getByText('Корпоративная аналитическая система, объединяющая клиентов, сделки, образцы и коммерческие процессы в единую управленческую картину.')).toBeInTheDocument();
 
       // Blinking cursor present when step is running
       rerender(<LoadingScreen startup={{ ...INITIAL_STARTUP, steps: ['complete', 'running', 'waiting', 'waiting', 'waiting'] }} />);

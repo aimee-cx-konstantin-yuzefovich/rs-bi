@@ -97,8 +97,8 @@ export function SamplesRegistry({
   }
 
   return (
-    <div className="rounded-md border overflow-x-auto">
-      <Table>
+    <div className="rounded-md border overflow-hidden">
+      <Table containerClassName="max-h-[calc(100vh-320px)] min-h-[420px] overflow-auto">
         <TableHeader>
           <TableRow>
             <TableHead className="text-xs min-w-[200px]">Компания</TableHead>

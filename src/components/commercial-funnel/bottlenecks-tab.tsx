@@ -63,10 +63,9 @@ export function CommercialBottlenecksTab({
         </div>
       ) : (
         <div className="rounded-lg border bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
+          <Table containerClassName="max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto">
+            <TableHeader>
+              <TableRow className="bg-muted">
                   <TableHead className="text-xs font-semibold">Компания</TableHead>
                   <TableHead className="text-xs font-semibold">Менеджер</TableHead>
                   <TableHead className="text-xs font-semibold">Проблема</TableHead>
@@ -153,7 +152,6 @@ export function CommercialBottlenecksTab({
                 ))}
               </TableBody>
             </Table>
-          </div>
         </div>
       )}
     </div>

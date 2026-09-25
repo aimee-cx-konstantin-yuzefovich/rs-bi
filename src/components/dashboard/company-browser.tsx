@@ -678,11 +678,11 @@ export function CompanyBrowser() {
       )}
 
       {/* Table */}
-      <div className="flex-1 min-h-0 overflow-auto rounded-md border">
-        <Table>
+      <div className="flex-1 min-h-0 rounded-md border overflow-hidden">
+        <Table containerClassName="h-full overflow-auto">
           <TableHeader>
             <TableRow>
-              <TableHead className="text-xs whitespace-nowrap w-10">№</TableHead>
+              <TableHead className="text-xs whitespace-nowrap w-10 sticky top-0 left-0 z-30 bg-card border-r border-b border-border text-center">№</TableHead>
               {columns.map((colId) => {
                 const field = getField(colId);
                 const isSorted = columnSort.columnId === colId;
@@ -768,7 +768,7 @@ export function CompanyBrowser() {
             {companyBrowserLoading && companyBrowserItems.length === 0 ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell><Skeleton className="h-4 w-6" /></TableCell>
+                  <TableCell className="sticky left-0 z-10 bg-card border-r border-border text-center"><Skeleton className="h-4 w-6 mx-auto" /></TableCell>
                   {columns.map((colId) => (
                     <TableCell key={colId}>
                       <Skeleton className="h-4 w-24" />
@@ -794,7 +794,7 @@ export function CompanyBrowser() {
                   }}
                   className={highlightSamples && hasSamplesInfo(company) ? "cursor-pointer bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40" : "cursor-pointer"}
                 >
-                  <TableCell className="text-xs text-muted-foreground tabular-nums">
+                  <TableCell className={`text-xs text-muted-foreground tabular-nums sticky left-0 z-10 border-r border-border text-center ${highlightSamples && hasSamplesInfo(company) ? "bg-amber-100 dark:bg-amber-950/40" : "bg-card"}`}>
                     {(currentPage - 1) * PAGE_SIZE + idx + 1}
                   </TableCell>
                   {columns.map((colId) => {

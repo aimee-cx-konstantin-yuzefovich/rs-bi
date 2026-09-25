@@ -84,10 +84,9 @@ export function CommercialManagersTab({
         </div>
       ) : (
         <div className="rounded-lg border bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
+          <Table containerClassName="max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto">
+            <TableHeader>
+              <TableRow className="bg-muted">
                   <TableHead className="text-xs font-semibold">Менеджер</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Новые компании</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Образцы отправлены</TableHead>
@@ -206,7 +205,6 @@ export function CommercialManagersTab({
                 </TableRow>
               </TableBody>
             </Table>
-          </div>
         </div>
       )}
     </div>

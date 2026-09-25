@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { CompanyBrowser } from "@/components/dashboard/company-browser";
 import { SectionNav } from "@/components/dashboard/section-nav";
+import { ProductFooter } from "@/components/dashboard/footer";
 import { BarChart3 } from "lucide-react";
 
 function CompaniesContent() {
@@ -93,6 +94,7 @@ function CompaniesContent() {
         )}
         <CompanyBrowser />
       </main>
+      <ProductFooter />
     </div>
   );
 }
