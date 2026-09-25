@@ -49,61 +49,17 @@ export interface NormalizeOptions {
   now?: Date;
 }
 
-/**
- * Normalizes currency codes according to domain rules:
- * RUR -> RUB, RUB -> RUB, USD -> USD, EUR -> EUR.
- * Other valid non-empty codes remain isolated by their code (e.g. GBP).
- * Missing/empty currency is represented explicitly as UNKNOWN. Never merged with RUB.
- */
-export function normalizeCurrencyCode(code?: string | null): string {
-  if (!code || typeof code !== "string") return "UNKNOWN";
-  const trimmed = code.trim().toUpperCase();
-  if (!trimmed) return "UNKNOWN";
-  if (trimmed === "RUR") return "RUB";
-  return trimmed;
-}
+import {
+  formatCurrencyAmount,
+  getCurrencySymbol,
+  normalizeCurrencyCode,
+} from "@/lib/currency";
 
-/**
- * Returns symbol for known currencies or code / label for unknown.
- */
-export function getCurrencySymbol(currencyId?: string | null): string {
-  const norm = normalizeCurrencyCode(currencyId);
-  switch (norm) {
-    case "RUB":
-      return "₽";
-    case "USD":
-      return "$";
-    case "EUR":
-      return "€";
-    case "UNKNOWN":
-      return "валюта не указана";
-    default:
-      return norm;
-  }
-}
-
-/**
- * Formats a monetary amount with currency truthfully according to domain presentation rules.
- */
-export function formatCurrencyAmount(amount: number, currencyId?: string | null): string {
-  if (amount === 0 && (currencyId === undefined || currencyId === null)) {
-    return "0";
-  }
-  const norm = normalizeCurrencyCode(currencyId);
-  const formatted = Math.round(amount).toLocaleString("ru-RU");
-  switch (norm) {
-    case "RUB":
-      return `${formatted} ₽`;
-    case "USD":
-      return `${formatted} $`;
-    case "EUR":
-      return `${formatted} €`;
-    case "UNKNOWN":
-      return `${formatted} — валюта не указана`;
-    default:
-      return `${formatted} ${norm}`;
-  }
-}
+export {
+  formatCurrencyAmount,
+  getCurrencySymbol,
+  normalizeCurrencyCode,
+};
 
 function toStringArray(value: unknown): string[] {
   if (value === null || value === undefined) return [];
@@ -284,6 +240,19 @@ export function normalizeDeals(
 }
 
 /**
+ * Checks whether a deal is active (not terminal WON/LOSE or category-prefixed :WON/:LOSE).
+ */
+export function isDealActive(d: CommercialDeal): boolean {
+  const stage = (d.stageId || "").toUpperCase();
+  return (
+    stage !== "WON" &&
+    stage !== "LOSE" &&
+    !stage.endsWith(":WON") &&
+    !stage.endsWith(":LOSE")
+  );
+}
+
+/**
  * Selects representative deal for one-row company analytical view
  * using a deterministic non-monetary priority rule.
  * Priority 1: active deals (stageId not WON and not LOSE) before closed deals.
@@ -307,11 +276,6 @@ export function selectRepresentativeDeal(
       }
     }
     return 0;
-  };
-
-  const isDealActive = (d: CommercialDeal): boolean => {
-    const stage = (d.stageId || "").toUpperCase();
-    return stage !== "WON" && stage !== "LOSE";
   };
 
   const sorted = [...linkedDeals].sort((a, b) => {
