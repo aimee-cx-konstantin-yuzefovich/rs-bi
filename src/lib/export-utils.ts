@@ -19,6 +19,9 @@ import {
   FONT_DATA,
   FONT_METADATA_LABEL,
   FILL_SECTION_HEADER_SOFT,
+  formatCurrencyToRussian,
+  formatHeaderToRussian,
+  formatStageToRussian,
   mapBusinessStatusToSemantic,
   NUMFMT,
   registerBrandLogo,
@@ -29,6 +32,7 @@ import {
   styleDataRows,
   styleTableHeader,
   THIN_BORDER,
+  translateCrmValueToRussian,
 } from "./excel-brand";
 
 export interface WysiwygExportOptions {
@@ -76,6 +80,8 @@ export async function buildWysiwygWorkbook(
     ? "Отчёт по компаниям"
     : "Отчёт по сделкам";
 
+  const cleanColumns = columns.map(formatHeaderToRussian);
+
   // 1. Operational Corporate Header (Rows 1-5)
   const tableHeaderRowIndex = addOperationalHeader(worksheet, imageId, {
     title: options?.title || defaultTitle,
@@ -83,13 +89,13 @@ export async function buildWysiwygWorkbook(
     generatedAt: now,
     recordCount: data.length,
     filtersText: options?.filtersText || "Все",
-    colCount: columns.length,
+    colCount: cleanColumns.length,
   });
 
   // 2. Table Header (Row 6)
   const tableHeaderRow = worksheet.getRow(tableHeaderRowIndex);
-  tableHeaderRow.values = columns;
-  styleTableHeader(tableHeaderRow, { colCount: columns.length });
+  tableHeaderRow.values = cleanColumns;
+  styleTableHeader(tableHeaderRow, { colCount: cleanColumns.length });
 
   // 3. Freeze panes: keep header rows 1-6 visible when scrolling
   worksheet.views = [
@@ -103,7 +109,7 @@ export async function buildWysiwygWorkbook(
   // 4. AutoFilter anchored strictly to table header row
   worksheet.autoFilter = {
     from: { row: tableHeaderRowIndex, column: 1 },
-    to: { row: tableHeaderRowIndex, column: columns.length },
+    to: { row: tableHeaderRowIndex, column: cleanColumns.length },
   };
 
   // 5. Data rows (Row 7+)
@@ -115,7 +121,7 @@ export async function buildWysiwygWorkbook(
   const endDataRow = startDataRow + data.length - 1;
 
   if (data.length > 0) {
-    styleDataRows(worksheet, startDataRow, endDataRow, columns.length, {
+    styleDataRows(worksheet, startDataRow, endDataRow, cleanColumns.length, {
       highlightRows: options?.highlightRows,
       highlightColorArgb: options?.highlightColorArgb,
       headerRowIndex: tableHeaderRowIndex,
@@ -200,7 +206,7 @@ function parseCellNativeValue(val: unknown): string | number | Date | null {
     if (!isNaN(num)) return num;
   }
 
-  return str;
+  return translateCrmValueToRussian(str);
 }
 
 /**
@@ -276,9 +282,10 @@ export interface CompanyExportDeal {
 
 export interface ExportCompanyOptions {
   companyTitle: string;
-  companyId: string;
-  companyFields: CompanyExportField[];
-  sampleFields: CompanyExportField[];
+  companyId?: string;
+  companyFields?: CompanyExportField[];
+  fields?: CompanyExportField[];
+  sampleFields?: CompanyExportField[];
   deals?: CompanyExportDeal[];
   currentDate?: Date;
   fileName?: string;
@@ -325,14 +332,15 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     .trim();
 
   // Extract responsible name from fields if not provided directly
-  const responsibleField = options.companyFields.find((f) =>
-    f.id?.includes("ASSIGNED_BY") || f.label.toLowerCase().includes("ответственный")
+  const rawCompanyFields = options.companyFields || (options as any).fields || [];
+  const responsibleField = rawCompanyFields.find((f: any) =>
+    f.id?.includes("ASSIGNED_BY") || f.label?.toLowerCase().includes("ответственный")
   );
   const responsibleName = options.responsibleName || responsibleField?.value;
 
   addAccountHeader(worksheet, imageId, {
     companyTitle: cleanTitle,
-    companyId: options.companyId,
+    companyId: options.companyId || "—",
     responsibleName,
     generatedAt: now,
     colCount: 5,
@@ -341,13 +349,15 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   // Section 1: Основная информация
   addSectionHeader(worksheet, "Основная информация", 5);
 
-  const fields = [...options.companyFields];
-  if (!fields.some((f) => f.id === "ID" || f.label.toLowerCase().includes("id компании"))) {
+  const fields = [...rawCompanyFields];
+  if (options.companyId && !fields.some((f) => f.id === "ID" || f.label?.toLowerCase().includes("id компании"))) {
     fields.unshift({ id: "ID", label: "ID компании", value: options.companyId });
   }
 
   for (const field of fields) {
-    const row = worksheet.addRow([field.label, field.value || "—"]);
+    const cleanLabel = formatHeaderToRussian(field.label);
+    const cleanVal = typeof field.value === "string" ? translateCrmValueToRussian(field.value) : (field.value || "—");
+    const row = worksheet.addRow([cleanLabel, cleanVal]);
     row.height = 20;
     worksheet.mergeCells(row.number, 2, row.number, 5);
 
@@ -371,7 +381,9 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   const sampleFields = options.sampleFields || [];
   if (sampleFields.length > 0) {
     for (const field of sampleFields) {
-      const row = worksheet.addRow([field.label, field.value || "—"]);
+      const cleanLabel = formatHeaderToRussian(field.label);
+      const cleanVal = typeof field.value === "string" ? translateCrmValueToRussian(field.value) : (field.value || "—");
+      const row = worksheet.addRow([cleanLabel, cleanVal]);
       row.height = 20;
       worksheet.mergeCells(row.number, 2, row.number, 5);
 
@@ -381,10 +393,10 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       labelCell.alignment = { vertical: "middle", indent: 1 };
 
       const valueCell = row.getCell(2);
-      const valStr = String(field.value || "").trim();
+      const valStr = String(cleanVal || "").trim();
       const semantic = mapBusinessStatusToSemantic(valStr);
       if (
-        (field.label.includes("Результат") || field.label.includes("Статус")) &&
+        (cleanLabel.includes("Результат") || cleanLabel.includes("Статус")) &&
         (semantic === "SUCCESS" || semantic === "ATTENTION" || semantic === "NEGATIVE")
       ) {
         applyStatusCell(valueCell, valStr);
@@ -417,12 +429,14 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     styleTableHeader(dealColHeaders, { colCount: 5 });
 
     for (const deal of deals) {
+      const stageRussian = formatStageToRussian(deal.stage);
+      const currencyRussian = formatCurrencyToRussian(deal.currency);
       const dealRow = worksheet.addRow([
         deal.id,
         deal.title,
-        deal.stage || "—",
+        stageRussian,
         deal.opportunity !== null && deal.opportunity !== undefined ? deal.opportunity : "—",
-        deal.currency || "RUB",
+        currencyRussian,
       ]);
       dealRow.height = 20;
 
@@ -436,8 +450,8 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
           cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
           cell.font = FONT_DATA;
         } else if (c === 3) {
-          if (deal.stage && deal.stage !== "—") {
-            applyStatusCell(cell, deal.stage);
+          if (stageRussian && stageRussian !== "—") {
+            applyStatusCell(cell, stageRussian);
           } else {
             cell.font = FONT_DATA;
             cell.alignment = { vertical: "middle", horizontal: "center" };

@@ -25,6 +25,9 @@ import {
   addCorporateFooter,
   NUMFMT,
   isCurrencyHeader,
+  formatHeaderToRussian,
+  formatStageToRussian,
+  formatCurrencyToRussian,
 } from "@/lib/excel-brand";
 
 describe("Excel Brand System — Tokens", () => {
@@ -312,3 +315,118 @@ describe("Excel Brand System — Currency Header Detection", () => {
   });
 });
 
+describe("Excel Brand System — Pure Russian Reports (No English CRM Terms)", () => {
+  it("translates raw Bitrix field IDs and English titles (Opportunity, Title, Stage, etc.) to Russian", () => {
+    expect(formatHeaderToRussian("Opportunity")).toBe("Сумма");
+    expect(formatHeaderToRussian("OPPORTUNITY")).toBe("Сумма");
+    expect(formatHeaderToRussian("TITLE")).toBe("Название");
+    expect(formatHeaderToRussian("STAGE_ID")).toBe("Стадия");
+    expect(formatHeaderToRussian("COMPANY_TITLE")).toBe("Компания");
+    expect(formatHeaderToRussian("DATE_CREATE")).toBe("Дата создания");
+    expect(formatHeaderToRussian("DATE_MODIFY")).toBe("Дата изменения");
+    expect(formatHeaderToRussian("ASSIGNED_BY_ID")).toBe("Ответственный");
+    expect(formatHeaderToRussian("CURRENCY_ID")).toBe("Валюта");
+    expect(formatHeaderToRussian("COMMENTS")).toBe("Комментарий");
+    expect(formatHeaderToRussian("PHONE")).toBe("Телефон");
+    expect(formatHeaderToRussian("EMAIL")).toBe("Эл. почта");
+    expect(formatHeaderToRussian("BEGINDATE")).toBe("Дата начала");
+    expect(formatHeaderToRussian("CLOSEDATE")).toBe("Дата завершения");
+    expect(formatHeaderToRussian("PROBABILITY")).toBe("Вероятность");
+    expect(formatHeaderToRussian("TYPE_ID")).toBe("Тип");
+    expect(formatHeaderToRussian("Компания: TITLE")).toBe("Название");
+    expect(formatHeaderToRussian("Компания: OPPORTUNITY")).toBe("Сумма");
+  });
+
+  it("translates raw Bitrix stages and payment statuses to Russian", () => {
+    expect(formatStageToRussian("WON")).toBe("Успешно завершена");
+    expect(formatStageToRussian("LOSE")).toBe("Провалена");
+    expect(formatStageToRussian("NEW")).toBe("Новая сделка");
+    expect(formatStageToRussian("EXECUTING")).toBe("В работе");
+    expect(formatStageToRussian("PREPARATION")).toBe("Подготовка");
+    expect(formatStageToRussian("PREPAYMENT_INVOICE")).toBe("Счёт на предоплату");
+  });
+
+  it("translates currency codes to Russian symbols", () => {
+    expect(formatCurrencyToRussian("RUB")).toBe("₽");
+    expect(formatCurrencyToRussian("RUR")).toBe("₽");
+    expect(formatCurrencyToRussian("USD")).toBe("$");
+    expect(formatCurrencyToRussian("EUR")).toBe("€");
+    expect(formatCurrencyToRussian(null)).toBe("₽");
+  });
+
+  it("guarantees buildWysiwygWorkbook cleanses raw English column names like Opportunity", async () => {
+    const { buildWysiwygWorkbook } = await import("@/lib/export-utils");
+
+    const rawColumns = ["ID", "OPPORTUNITY", "TITLE", "STAGE_ID", "CURRENCY_ID"];
+    const rawData = [
+      ["501", 1500000, "Сделка 501", "WON", "RUB"],
+      ["502", 250000, "Сделка 502", "LOSE", "RUB"],
+    ];
+
+    const workbook = await buildWysiwygWorkbook(rawData, rawColumns, {
+      title: "Отчёт по сделкам",
+    });
+
+    const sheet = workbook.getWorksheet("Сделки")!;
+
+    // Header row 6 must be pure Russian, NO 'OPPORTUNITY' or 'Opportunity'
+    const headerValues = sheet.getRow(6).values as string[];
+    expect(headerValues).not.toContain("OPPORTUNITY");
+    expect(headerValues).not.toContain("Opportunity");
+    expect(headerValues).toContain("Сумма");
+    expect(headerValues).toContain("Название");
+    expect(headerValues).toContain("Стадия");
+    expect(headerValues).toContain("Валюта");
+
+    // Data rows must translate WON / LOSE / RUB to Russian
+    const row7 = sheet.getRow(7);
+    expect(row7.getCell(4).value).toBe("Успешно завершена"); // WON translated
+    expect(row7.getCell(5).value).toBe("₽"); // RUB translated
+
+    const row8 = sheet.getRow(8);
+    expect(row8.getCell(4).value).toBe("Провалена"); // LOSE translated
+    expect(row8.getCell(5).value).toBe("₽");
+  });
+
+  it("guarantees createCompanyExcelWorkbook translates deal stages, currencies, and headers to Russian", async () => {
+    const { createCompanyExcelWorkbook } = await import("@/lib/export-utils");
+
+    const workbook = createCompanyExcelWorkbook({
+      companyTitle: "ООО Квант",
+      fields: [
+        { label: "TITLE", value: "ООО Квант" },
+        { label: "OPPORTUNITY", value: "1000000" },
+      ],
+      sampleFields: [
+        { label: "Результат", value: "WON" },
+      ],
+      deals: [
+        { id: "10", title: "Тестовая поставка", stage: "WON", opportunity: 500000, currency: "RUB" },
+      ],
+    });
+
+    const sheet = workbook.getWorksheet("Отчёт по компании")!;
+    expect(sheet).toBeDefined();
+
+    // Check that company field labels are translated
+    let foundSumma = false;
+    let foundRubSymbol = false;
+    let foundWonTranslated = false;
+
+    sheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        if (cell.value === "Сумма") foundSumma = true;
+        if (cell.value === "₽") foundRubSymbol = true;
+        if (cell.value === "Успешно завершена") foundWonTranslated = true;
+        // Verify no raw English words
+        expect(cell.value).not.toBe("OPPORTUNITY");
+        expect(cell.value).not.toBe("RUB");
+        expect(cell.value).not.toBe("WON");
+      });
+    });
+
+    expect(foundSumma).toBe(true);
+    expect(foundRubSymbol).toBe(true);
+    expect(foundWonTranslated).toBe(true);
+  });
+});

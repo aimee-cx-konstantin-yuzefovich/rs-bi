@@ -14,7 +14,7 @@ import {
   THIN_BORDER,
 } from "./styles";
 import { ATTENTION_BG, NUMFMT, RS_BORDER } from "./tokens";
-import { applyStatusCell, mapBusinessStatusToSemantic } from "./status";
+import { applyStatusCell, mapBusinessStatusToSemantic, translateCrmValueToRussian } from "./status";
 
 export interface StyleTableHeaderOptions {
   height?: number;
@@ -50,6 +50,145 @@ export interface StyleDataRowsOptions {
   statusColumnIndices?: number[];
   moneyColumnIndices?: number[];
   headerRowIndex?: number;
+}
+
+/**
+ * Ensures column titles are displayed strictly in Russian, translating
+ * raw CRM field identifiers and English titles like "Opportunity", "Title", "Stage".
+ */
+export function formatHeaderToRussian(colName: string): string {
+  if (!colName || typeof colName !== "string") return "";
+  const trim = colName.trim();
+
+  // Strip leading "Компания: " or "Сделка: " if present
+  const stripped = trim.replace(/^(Компания|Сделка):\s*/i, "");
+  const lower = stripped.toLowerCase();
+  const upper = stripped.toUpperCase();
+
+  if (lower === "opportunity" || lower === "opportunity_amount" || upper === "OPPORTUNITY") {
+    return "Сумма";
+  }
+  if (lower === "title" || upper === "TITLE") {
+    return "Название";
+  }
+  if (lower === "stage" || lower === "stage_id" || upper === "STAGE_ID") {
+    return "Стадия";
+  }
+  if (lower === "company_title" || upper === "COMPANY_TITLE") {
+    return "Компания";
+  }
+  if (lower === "company_id" || upper === "COMPANY_ID") {
+    return "ID компании";
+  }
+  if (lower === "date_create" || upper === "DATE_CREATE" || upper === "COMPANY_DATE_CREATE") {
+    return "Дата создания";
+  }
+  if (lower === "date_modify" || upper === "DATE_MODIFY" || upper === "COMPANY_DATE_MODIFY") {
+    return "Дата изменения";
+  }
+  if (
+    lower === "assigned_by_id" ||
+    upper === "ASSIGNED_BY_ID" ||
+    upper === "COMPANY_ASSIGNED_BY_ID" ||
+    lower === "responsible" ||
+    lower === "assigned_by"
+  ) {
+    return "Ответственный";
+  }
+  if (lower === "currency" || lower === "currency_id" || upper === "CURRENCY_ID") {
+    return "Валюта";
+  }
+  if (lower === "comments" || upper === "COMMENTS" || upper === "COMPANY_COMMENTS") {
+    return "Комментарий";
+  }
+  if (lower === "phone" || upper === "PHONE") {
+    return "Телефон";
+  }
+  if (lower === "email" || upper === "EMAIL") {
+    return "Эл. почта";
+  }
+  if (lower === "status" || lower === "status_id" || upper === "STATUS_ID") {
+    return "Статус";
+  }
+  if (lower === "revenue" || upper === "COMPANY_REVENUE") {
+    return "Годовой оборот";
+  }
+  if (lower === "industry" || upper === "COMPANY_INDUSTRY") {
+    return "Сфера деятельности";
+  }
+  if (upper === "ACTIVITY_LAST") {
+    return "Последняя активность";
+  }
+  if (upper === "ACTIVITY_NEXT") {
+    return "Следующее действие";
+  }
+  if (upper === "BEGINDATE" || lower === "begindate") {
+    return "Дата начала";
+  }
+  if (upper === "CLOSEDATE" || lower === "closedate") {
+    return "Дата завершения";
+  }
+  if (upper === "PROBABILITY" || lower === "probability") {
+    return "Вероятность";
+  }
+  if (upper === "TYPE_ID" || upper === "TYPE" || lower === "type") {
+    return "Тип";
+  }
+  if (upper === "SOURCE_ID" || upper === "SOURCE" || lower === "source") {
+    return "Источник";
+  }
+  if (upper === "SOURCE_DESCRIPTION") {
+    return "Описание источника";
+  }
+  if (upper === "CREATED_BY_ID" || upper === "CREATED_BY") {
+    return "Кем создана";
+  }
+  if (upper === "MODIFY_BY_ID" || upper === "MODIFY_BY") {
+    return "Кем изменена";
+  }
+  if (upper === "OPENED") {
+    return "Доступна для всех";
+  }
+  if (upper === "LEAD_ID") {
+    return "Лид";
+  }
+  if (upper === "CONTACT_ID") {
+    return "Контакт";
+  }
+  if (upper === "WEB") {
+    return "Сайт";
+  }
+  if (upper === "ADDRESS") {
+    return "Адрес";
+  }
+  if (upper === "BANKING_DETAILS") {
+    return "Реквизиты";
+  }
+  if (upper === "NAME") {
+    return "Имя";
+  }
+  if (upper === "LAST_NAME") {
+    return "Фамилия";
+  }
+  if (upper === "SECOND_NAME") {
+    return "Отчество";
+  }
+  if (upper === "POST") {
+    return "Должность";
+  }
+  if (upper === "TAX_VALUE") {
+    return "Налог";
+  }
+  if (upper === "ADDITIONAL_INFO") {
+    return "Дополнительная информация";
+  }
+
+  if (upper.startsWith("COMPANY_")) {
+    const sub = upper.replace(/^COMPANY_/, "");
+    return formatHeaderToRussian(sub);
+  }
+
+  return stripped;
 }
 
 /**
@@ -117,10 +256,19 @@ export function styleDataRows(
 
     for (let c = 1; c <= colCount; c++) {
       const cell = row.getCell(c);
-      const val = cell.value;
+      let val = cell.value;
 
       // Base border
       cell.border = THIN_BORDER;
+
+      // Translate any untranslated English CRM strings in cell values
+      if (typeof val === "string") {
+        const translated = translateCrmValueToRussian(val);
+        if (translated !== val) {
+          val = translated;
+          cell.value = translated;
+        }
+      }
 
       // Check if cell is specifically identified as status column or is a status string
       const isStatusCol = options?.statusColumnIndices?.includes(c);

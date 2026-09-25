@@ -17,6 +17,7 @@ import { SavedViews } from "./saved-views";
 import { SectionNav } from "./section-nav";
 import { RefreshCw, Download, Columns3, BarChart3, LogOut, User } from "lucide-react";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
+import { formatHeaderToRussian, formatStageToRussian } from "@/lib/excel-brand";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
 import Link from "next/link";
 import { useCallback } from "react";
@@ -47,7 +48,10 @@ export function Header() {
   const handleExport = useCallback(() => {
     if (sortedDeals.length === 0 || columns.length === 0) return;
 
-    const exportColumns = columns.map((colId) => fieldMap.get(colId)?.title || colId);
+    const exportColumns = columns.map((colId) => {
+      const title = fieldMap.get(colId)?.title;
+      return formatHeaderToRussian(title || colId);
+    });
     const exportData = sortedDeals.map((deal) =>
       columns.map((colId) => {
         const raw = deal[colId];
@@ -55,6 +59,14 @@ export function Header() {
         const field = fieldMap.get(colId);
         
         if (resolved === null || resolved === undefined || resolved === "") return null;
+
+        if (colId === "STAGE_ID" || field?.id === "STAGE_ID") {
+          return formatStageToRussian(resolved);
+        }
+
+        if (colId === "CURRENCY_ID" || field?.id === "CURRENCY_ID") {
+          return resolved === "RUB" ? "₽" : resolved;
+        }
 
         if (field?.type === "char" || field?.type === "boolean") {
           if (raw === "Y" || raw === "1" || String(raw) === "true") return "Да";
@@ -69,7 +81,7 @@ export function Header() {
           }
         }
 
-        if (field?.type === "double" || field?.type === "integer" || field?.id === "OPPORTUNITY") {
+        if (field?.type === "double" || field?.type === "integer" || field?.id === "OPPORTUNITY" || colId === "OPPORTUNITY") {
           const num = parseFloat(resolved);
           if (!isNaN(num)) {
             return num;

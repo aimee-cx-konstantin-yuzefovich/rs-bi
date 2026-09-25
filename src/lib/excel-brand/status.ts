@@ -129,15 +129,95 @@ export function mapBusinessStatusToSemantic(status?: string | null): SemanticSta
 }
 
 /**
- * Applies semantic badge styling to an Excel cell while preserving its original text.
+ * Translates raw Bitrix stage IDs and English status codes to clear Russian business labels.
+ */
+export function formatStageToRussian(stage?: string | null): string {
+  if (!stage || typeof stage !== "string") return "—";
+  const trim = stage.trim();
+  const upper = trim.toUpperCase();
+  if (upper === "WON") return "Успешно завершена";
+  if (upper === "LOSE" || upper === "LOST") return "Провалена";
+  if (upper === "NEW") return "Новая сделка";
+  if (upper === "EXECUTING") return "В работе";
+  if (upper === "PREPARATION") return "Подготовка";
+  if (upper === "PREPAYMENT_INVOICE") return "Счёт на предоплату";
+  if (upper === "FINAL_INVOICE") return "Финальный счёт";
+  if (upper === "INVOICE_SENT") return "Счёт выставлен";
+  if (upper === "OPPORTUNITY") return "Сумма сделки";
+  return trim;
+}
+
+/**
+ * Translates raw English payment status codes to Russian.
+ */
+export function formatPaymentStatusToRussian(status?: string | null): string {
+  if (!status || typeof status !== "string") return "—";
+  const trim = status.trim();
+  const upper = trim.toUpperCase();
+  if (upper === "PAID") return "Оплачено";
+  if (upper === "UNPAID") return "Не оплачено";
+  if (upper === "INVOICE_SENT") return "Счёт выставлен";
+  if (upper === "AWAITING_CONFIRMATION") return "Ожидает подтверждения";
+  if (upper === "PAYMENT_PROCESSED") return "Платёж обработан";
+  if (upper === "REFUNDED") return "Возврат";
+  if (upper === "ERROR") return "Ошибка";
+  return trim;
+}
+
+/**
+ * Translates English currency codes to Russian currency symbols.
+ */
+export function formatCurrencyToRussian(currency?: string | null): string {
+  if (!currency || typeof currency !== "string") return "₽";
+  const upper = currency.trim().toUpperCase();
+  if (upper === "RUB" || upper === "RUR") return "₽";
+  if (upper === "USD") return "$";
+  if (upper === "EUR") return "€";
+  return currency.trim();
+}
+
+/**
+ * Translates general English CRM and boolean values into Russian.
+ */
+export function translateCrmValueToRussian(val: string): string {
+  if (!val || typeof val !== "string") return "";
+  const trim = val.trim();
+  const upper = trim.toUpperCase();
+  const lower = trim.toLowerCase();
+
+  if (lower === "opportunity") return "Сумма сделки";
+  if (upper === "WON") return "Успешно завершена";
+  if (upper === "LOSE" || upper === "LOST") return "Провалена";
+  if (upper === "NEW") return "Новая сделка";
+  if (upper === "EXECUTING") return "В работе";
+  if (upper === "PREPARATION") return "Подготовка";
+  if (upper === "PREPAYMENT_INVOICE") return "Счёт на предоплату";
+  if (upper === "FINAL_INVOICE") return "Финальный счёт";
+  if (upper === "PAID") return "Оплачено";
+  if (upper === "UNPAID") return "Не оплачено";
+  if (upper === "RUB" || upper === "RUR") return "₽";
+  if (upper === "TRUE") return "Да";
+  if (upper === "FALSE") return "Нет";
+
+  return trim;
+}
+
+/**
+ * Applies semantic badge styling to an Excel cell, translating raw English CRM values.
  */
 export function applyStatusCell(
   cell: ExcelJS.Cell,
   statusText?: string | null,
-  options?: { border?: boolean; bold?: boolean }
+  options?: { border?: boolean; bold?: boolean; translateEnglish?: boolean }
 ): void {
-  const semantic = mapBusinessStatusToSemantic(statusText);
+  const text = statusText || (typeof cell.value === "string" ? cell.value : null);
+  const semantic = mapBusinessStatusToSemantic(text);
   const colors = getStatusColors(semantic);
+
+  // If cell text is an untranslated English CRM term, translate to Russian
+  if (options?.translateEnglish !== false && typeof cell.value === "string") {
+    cell.value = translateCrmValueToRussian(cell.value);
+  }
 
   cell.fill = {
     type: "pattern",

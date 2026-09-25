@@ -8,6 +8,7 @@ import {
   COMPANY_SAMPLES_FIELD_TITLE,
 } from "@/lib/crm-constants";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
+import { formatHeaderToRussian } from "@/lib/excel-brand";
 import { CompanyPreview } from "./company-preview";
 import { DealPreview } from "./deal-preview";
 import { isCompanyId, defaultSampleFields } from "@/lib/company-preview";
@@ -416,7 +417,7 @@ export function CompanyBrowser() {
   const handleExport = useCallback(() => {
     if (sortedItems.length === 0 || columns.length === 0) return;
 
-    const exportColumns = columns.map((colId) => columnTitle(colId));
+    const exportColumns = columns.map((colId) => formatHeaderToRussian(columnTitle(colId)));
     const exportData = sortedItems.map((company) =>
       columns.map((colId) => {
         const field = getField(colId);
@@ -431,7 +432,7 @@ export function CompanyBrowser() {
     if (columnFilters.length > 0) {
       columnFilters.forEach((f) => {
         if (f.value.trim()) {
-          filtersSummary.push(`${columnTitle(f.columnId)}: "${f.value.trim()}"`);
+          filtersSummary.push(`${formatHeaderToRussian(columnTitle(f.columnId))}: "${f.value.trim()}"`);
         }
       });
     }

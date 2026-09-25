@@ -39,6 +39,8 @@ import {
   FONT_REPORT_SUBTITLE,
   FONT_REPORT_TITLE,
   FONT_SECTION_HEADER_WHITE,
+  formatPaymentStatusToRussian,
+  formatStageToRussian,
   NUMFMT,
   registerBrandLogo,
   REPORT_TIMEZONE,
@@ -117,7 +119,19 @@ export async function createCommercialFunnelWorkbook(
   // Register logo once on workbook; reused across all 5 sheets
   const logoImageId = await registerBrandLogo(workbook);
 
-  const periodLabel = `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${filters.periodPreset})`;
+function formatPeriodPresetToRussian(preset: string): string {
+  switch (preset) {
+    case "7days": return "7 дней";
+    case "14days": return "14 дней";
+    case "30days": return "30 дней";
+    case "90days": return "90 дней";
+    case "custom": return "Пользовательский период";
+    case "all": return "Все";
+    default: return preset;
+  }
+}
+
+  const periodLabel = `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${formatPeriodPresetToRussian(filters.periodPreset)})`;
   const respLabel =
     filters.responsibleId && filters.responsibleId !== "all"
       ? userNames[filters.responsibleId] || `ID ${filters.responsibleId}`
@@ -174,7 +188,7 @@ export async function createCommercialFunnelWorkbook(
   const paramRows: [string, string][] = [
     ["Период анализа:", periodLabel],
     ["Предыдущий период для сравнения:", `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
-    ["Бизнес-часовой пояс:", `${COMMERCIAL_TIMEZONE} (MSK, UTC+3)`],
+    ["Бизнес-часовой пояс:", `Москва (${COMMERCIAL_TIMEZONE}, UTC+3)`],
     ["Дата и время формирования:", now.toISOString().replace("T", " ").slice(0, 19)],
     ["Ответственный:", respLabel],
     ["Продукт:", prodLabel],
@@ -250,7 +264,7 @@ export async function createCommercialFunnelWorkbook(
   summarySheet.addRow([]); // Spacer
 
   // Section 2: WIP Table
-  addSectionHeader(summarySheet, "ТЕКУЩИЙ ПОРТФЕЛЬ / СЕЙЧАС В РАБОТЕ (WIP)", 6);
+  addSectionHeader(summarySheet, "ТЕКУЩИЙ ПОРТФЕЛЬ / СЕЙЧАС В РАБОТЕ", 6);
 
   const wipTableHeader = summarySheet.addRow([
     "Статус / Этап",
@@ -357,9 +371,9 @@ export async function createCommercialFunnelWorkbook(
       sampleDateVal,
       c.sampleTestResult || "—",
       c.primaryDealTitle || "—",
-      c.primaryDealStageName || c.primaryDealStageId || "—",
+      c.primaryDealStageName || formatStageToRussian(c.primaryDealStageId),
       c.primaryDealOpportunity || 0,
-      c.primaryDealPaymentStatus || "—",
+      formatPaymentStatusToRussian(c.primaryDealPaymentStatus),
       paymentDateVal,
       c.primaryDealActivityNext || "—",
       c.hasAttention ? "Да" : "Нет",
@@ -678,7 +692,7 @@ export async function downloadCommercialFunnelExcel(
   const periodPart =
     options.filters.periodPreset === "custom" && options.filters.customFrom && options.filters.customTo
       ? `${options.filters.customFrom}_${options.filters.customTo}`
-      : options.filters.periodPreset;
+      : options.filters.periodPreset.replace("days", "дней");
   a.download = `РусСилика_Коммерческая_воронка_${periodPart}_${dateStr}.xlsx`;
   a.click();
   window.URL.revokeObjectURL(url);
