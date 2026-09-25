@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 describe("createCompanyExcelWorkbook", () => {
-  it("creates an Excel workbook with correct title, sections, samples, and deals", () => {
+  it("creates a branded Account Report with logo, corporate header, sections, samples, and deals", () => {
     const fixedDate = new Date("2026-09-10T12:00:00Z");
     const workbook = createCompanyExcelWorkbook({
       companyTitle: "ООО РусСилика",
@@ -42,14 +42,16 @@ describe("createCompanyExcelWorkbook", () => {
     const worksheet = workbook.getWorksheet("Отчёт по компании");
     expect(worksheet).toBeDefined();
 
-    // Check row 1 title format: «Отчёт по компании: (название компании) Дата: (текущая дата)»
-    const titleCell = worksheet?.getCell("A1");
-    const dateStr = fixedDate.toLocaleDateString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-    expect(titleCell?.value).toBe(`Отчёт по компании: ООО РусСилика Дата: ${dateStr}`);
+    // Check branded corporate header
+    const titleCell = worksheet?.getCell("B1");
+    expect(titleCell?.value).toBe("ОТЧЁТ ПО КОМПАНИИ");
+
+    const compCell = worksheet?.getCell("B2");
+    expect(compCell?.value).toBe("ООО РусСилика");
+
+    const metaCell = worksheet?.getCell("B3");
+    expect(metaCell?.value).toContain("CRM ID: 123");
+    expect(metaCell?.value).toContain("10.09.2026");
 
     // Check sections exist
     const rowsValues: string[] = [];
@@ -72,6 +74,9 @@ describe("createCompanyExcelWorkbook", () => {
     expect(rowsValues).toContain("Дата передачи образцов");
     expect(rowsValues).toContain("Результат испытаний");
     expect(rowsValues).toContain("Комментарий");
+
+    // Check footer exists
+    expect(worksheet?.headerFooter.oddFooter).toContain("RusSilica BI Terminal");
   });
 
   it("handles empty deals and empty sample fields gracefully", () => {
@@ -113,10 +118,10 @@ describe("createCompanyExcelWorkbook", () => {
     });
 
     const worksheet = workbook.getWorksheet("Отчёт по компании");
-    const titleCell = worksheet?.getCell("A1");
-    expect(titleCell?.value).toContain('Отчёт по компании: ООО "Рога & Копыта / РусСилика" (Филиал) Дата: 10.09.2026');
-    expect(String(titleCell?.value)).not.toContain("\r");
-    expect(String(titleCell?.value)).not.toContain("\n");
+    const compCell = worksheet?.getCell("B2");
+    expect(compCell?.value).toBe('ООО "Рога & Копыта / РусСилика" (Филиал)');
+    expect(String(compCell?.value)).not.toContain("\r");
+    expect(String(compCell?.value)).not.toContain("\n");
   });
 });
 
@@ -147,7 +152,7 @@ describe("exportCompanyToExcel (browser download)", () => {
     });
 
     expect(mockClick).toHaveBeenCalled();
-    expect(downloadedFilename).toBe("Отчет_ООО _ХимПром_Восток_2026-09-10.xlsx");
+    expect(downloadedFilename).toBe("РусСилика_Компания_ООО _ХимПром_Восток_2026-09-10.xlsx");
     expect(downloadedFilename).not.toMatch(/[\\/:*?"<>|\r\n\t]/);
   });
 
@@ -172,6 +177,6 @@ describe("exportCompanyToExcel (browser download)", () => {
     });
 
     expect(mockClick).toHaveBeenCalled();
-    expect(downloadedFilename).toBe("Отчет_Компания_2026-09-10.xlsx");
+    expect(downloadedFilename).toBe("РусСилика_Компания_2026-09-10.xlsx");
   });
 });

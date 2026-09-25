@@ -424,14 +424,44 @@ export function CompanyBrowser() {
       })
     );
 
+    const filtersSummary: string[] = [];
+    if (activeName && activeName !== "Все ответственные") {
+      filtersSummary.push(`Ответственный: ${activeName}`);
+    }
+    if (columnFilters.length > 0) {
+      columnFilters.forEach((f) => {
+        if (f.value.trim()) {
+          filtersSummary.push(`${columnTitle(f.columnId)}: "${f.value.trim()}"`);
+        }
+      });
+    }
+    if (highlightSamples) {
+      filtersSummary.push("Режим: Выделение компаний с образцами");
+    }
+
+    const periodLabel =
+      companyDateFilter.preset === "custom" && companyDateFilter.customFrom && companyDateFilter.customTo
+        ? `${companyDateFilter.customFrom} — ${companyDateFilter.customTo}`
+        : companyDateFilter.preset === "7days"
+        ? "Последние 7 дней"
+        : companyDateFilter.preset === "14days"
+        ? "Последние 14 дней"
+        : companyDateFilter.preset === "30days"
+        ? "Последние 30 дней"
+        : companyDateFilter.preset === "90days"
+        ? "Последние 90 дней"
+        : "Все";
+
     exportToExcelWysiwyg(exportData, exportColumns, {
+      title: "Отчёт по компаниям",
       sheetName: "Компании",
-      fileNamePrefix: "russilica_companies",
+      fileNamePrefix: "РусСилика_Компании",
+      period: periodLabel,
+      filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
       // Mirror the on-screen "Образцы" highlight in the exported file.
       highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedItems, columns, fieldMap, userNames, highlightSamples]);
+  }, [sortedItems, columns, fieldMap, userNames, highlightSamples, activeName, columnFilters, companyDateFilter]);
 
   const previewFields = (company: Record<string, unknown>) => {
     const sampleIds = new Set([

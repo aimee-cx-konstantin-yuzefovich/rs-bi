@@ -89,15 +89,15 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
 
     // 3. Verify Companies sheet matches filtered companies count exactly
     const companiesSheet = workbook.getWorksheet("Companies")!;
-    expect(companiesSheet.rowCount - 1).toBe(filtered.length);
+    expect(companiesSheet.rowCount - 6).toBe(filtered.length);
 
     // 4. Verify Bottlenecks sheet matches UI bottlenecks count exactly
     const bottlenecksSheet = workbook.getWorksheet("Bottlenecks")!;
-    expect(bottlenecksSheet.rowCount - 1).toBe(uiBottlenecks.length);
+    expect(bottlenecksSheet.rowCount - 6).toBe(uiBottlenecks.length);
 
     // 5. Verify Managers sheet matches UI managers scorecard count exactly
     const managersSheet = workbook.getWorksheet("Managers")!;
-    expect(managersSheet.rowCount - 1).toBe(uiManagers.length);
+    expect(managersSheet.rowCount - 6).toBe(uiManagers.length);
 
     // 6. Verify Executive Summary sheet contains the exact dated KPI values
     const summarySheet = workbook.getWorksheet("Executive Summary")!;

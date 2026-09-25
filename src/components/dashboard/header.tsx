@@ -24,8 +24,16 @@ import { motion } from "framer-motion";
 
 export function Header() {
   const { data: session } = useSession();
-  const { dealsLoading, syncData, setColumnSelectorOpen } =
-    useDashboardStore();
+  const {
+    dealsLoading,
+    syncData,
+    setColumnSelectorOpen,
+    dateFilter,
+    pipelineFilter,
+    responsibleFilter,
+    searchQuery,
+    userNames,
+  } = useDashboardStore();
   const { sortedDeals, columns, fieldMap, resolveValue } = useTableState();
 
   const handleSync = async () => {
@@ -46,7 +54,7 @@ export function Header() {
         const resolved = resolveValue(deal, colId);
         const field = fieldMap.get(colId);
         
-        if (!resolved) return "";
+        if (resolved === null || resolved === undefined || resolved === "") return null;
 
         if (field?.type === "char" || field?.type === "boolean") {
           if (raw === "Y" || raw === "1" || String(raw) === "true") return "Да";
@@ -56,28 +64,22 @@ export function Header() {
         if (field?.type === "money" && raw) {
           const parts = String(raw).split("|");
           const amount = parseFloat(parts[0]);
-          const currency = parts[1] || "";
           if (!isNaN(amount)) {
-            return `${amount.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+            return amount;
           }
         }
 
         if (field?.type === "double" || field?.type === "integer" || field?.id === "OPPORTUNITY") {
           const num = parseFloat(resolved);
           if (!isNaN(num)) {
-            if (field?.type === "integer") {
-              return Math.round(num).toLocaleString("ru-RU");
-            }
-            return num.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            return num;
           }
         }
 
         if (field?.type === "date" || field?.type === "datetime" || field?.id === "DATE_CREATE" || field?.id === "DATE_MODIFY") {
           const d = new Date(resolved);
           if (!isNaN(d.getTime())) {
-            const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
-            const timeStr = field?.type === "datetime" ? ` ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "";
-            return `${dateStr}${timeStr}`;
+            return d;
           }
         }
 
@@ -85,8 +87,38 @@ export function Header() {
       })
     );
 
-    exportToExcelWysiwyg(exportData, exportColumns);
-  }, [sortedDeals, columns, fieldMap, resolveValue]);
+    const filtersSummary: string[] = [];
+    if (responsibleFilter && responsibleFilter !== "all") {
+      filtersSummary.push(`Ответственный: ${userNames[responsibleFilter] || responsibleFilter}`);
+    }
+    if (pipelineFilter && pipelineFilter !== "all") {
+      filtersSummary.push(`Воронка: ${pipelineFilter}`);
+    }
+    if (searchQuery && searchQuery.trim()) {
+      filtersSummary.push(`Поиск: "${searchQuery.trim()}"`);
+    }
+
+    const periodLabel =
+      dateFilter.preset === "custom" && dateFilter.customFrom && dateFilter.customTo
+        ? `${dateFilter.customFrom} — ${dateFilter.customTo}`
+        : dateFilter.preset === "7days"
+        ? "Последние 7 дней"
+        : dateFilter.preset === "14days"
+        ? "Последние 14 дней"
+        : dateFilter.preset === "30days"
+        ? "Последние 30 дней"
+        : dateFilter.preset === "90days"
+        ? "Последние 90 дней"
+        : "Все";
+
+    exportToExcelWysiwyg(exportData, exportColumns, {
+      title: "Отчёт по сделкам",
+      sheetName: "Сделки",
+      fileNamePrefix: "РусСилика_Сделки",
+      period: periodLabel,
+      filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
+    });
+  }, [sortedDeals, columns, fieldMap, resolveValue, dateFilter, pipelineFilter, responsibleFilter, searchQuery, userNames]);
 
   const handleLogout = () => {
     // Очистить персистентное состояние перед выходом

@@ -1,65 +1,238 @@
+// src/lib/export-utils.ts
+// ─────────────────────────────────────────────────────────────────────
+// Excel export utilities for RusSilica BI Terminal.
+// Implements unified corporate branding across Deals, Companies, and Single Company reports.
+// ─────────────────────────────────────────────────────────────────────
+
 import ExcelJS from "exceljs";
+import {
+  addAccountHeader,
+  addBrandLogo,
+  addCorporateDivider,
+  addCorporateFooter,
+  addOperationalHeader,
+  addSectionHeader,
+  applyRowBorders,
+  applyStatusCell,
+  autoFitColumns,
+  configureWorksheetPrint,
+  FONT_DATA,
+  FONT_METADATA_LABEL,
+  FILL_SECTION_HEADER_SOFT,
+  mapBusinessStatusToSemantic,
+  NUMFMT,
+  registerBrandLogo,
+  REPORT_TIMEZONE,
+  RS_FONT_FAMILY,
+  RS_SYSTEM_TITLE,
+  RS_TEXT_SECONDARY,
+  styleDataRows,
+  styleTableHeader,
+  THIN_BORDER,
+} from "./excel-brand";
+
+export interface WysiwygExportOptions {
+  sheetName?: string;
+  fileNamePrefix?: string;
+  title?: string;
+  period?: string;
+  filtersText?: string;
+  // Parallel array to `data` — true marks a row for a highlighted fill,
+  // mirroring an on-screen row highlight (e.g. the "Образцы" toggle).
+  highlightRows?: boolean[];
+  highlightColorArgb?: string;
+  logoImageId?: number | null;
+}
+
+/**
+ * Builds an ExcelJS Workbook for WYSIWYG export (Deals or Companies).
+ * Anchors compact corporate header on rows 1-5, table header on row 6,
+ * and freeze panes below the table header.
+ */
+export async function buildWysiwygWorkbook(
+  data: (string | number | Date | null | undefined)[][],
+  columns: string[],
+  options?: WysiwygExportOptions
+): Promise<ExcelJS.Workbook> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = RS_SYSTEM_TITLE;
+  workbook.lastModifiedBy = RS_SYSTEM_TITLE;
+  const now = new Date();
+  workbook.created = now;
+  workbook.modified = now;
+
+  const sheetName = options?.sheetName || "Сделки";
+  const worksheet = workbook.addWorksheet(sheetName, {
+    views: [{ showGridLines: true }],
+  });
+
+  // Register / Add logo
+  let imageId = options?.logoImageId ?? null;
+  if (imageId === null) {
+    imageId = await registerBrandLogo(workbook);
+  }
+
+  const defaultTitle = sheetName.toLowerCase().includes("компан")
+    ? "Отчёт по компаниям"
+    : "Отчёт по сделкам";
+
+  // 1. Operational Corporate Header (Rows 1-5)
+  const tableHeaderRowIndex = addOperationalHeader(worksheet, imageId, {
+    title: options?.title || defaultTitle,
+    period: options?.period || "Все",
+    generatedAt: now,
+    recordCount: data.length,
+    filtersText: options?.filtersText || "Все",
+    colCount: columns.length,
+  });
+
+  // 2. Table Header (Row 6)
+  const tableHeaderRow = worksheet.getRow(tableHeaderRowIndex);
+  tableHeaderRow.values = columns;
+  styleTableHeader(tableHeaderRow, { colCount: columns.length });
+
+  // 3. Freeze panes: keep header rows 1-6 visible when scrolling
+  worksheet.views = [
+    {
+      state: "frozen",
+      ySplit: tableHeaderRowIndex,
+      showGridLines: true,
+    },
+  ];
+
+  // 4. AutoFilter anchored strictly to table header row
+  worksheet.autoFilter = {
+    from: { row: tableHeaderRowIndex, column: 1 },
+    to: { row: tableHeaderRowIndex, column: columns.length },
+  };
+
+  // 5. Data rows (Row 7+)
+  const startDataRow = tableHeaderRowIndex + 1;
+  for (const rawRow of data) {
+    const parsedRow = rawRow.map((val) => parseCellNativeValue(val));
+    worksheet.addRow(parsedRow);
+  }
+  const endDataRow = startDataRow + data.length - 1;
+
+  if (data.length > 0) {
+    styleDataRows(worksheet, startDataRow, endDataRow, columns.length, {
+      highlightRows: options?.highlightRows,
+      highlightColorArgb: options?.highlightColorArgb,
+    });
+  }
+
+  // 6. Auto-fit column widths
+  autoFitColumns(worksheet, { minWidth: 12, maxWidth: 50 });
+  const col1 = worksheet.getColumn(1);
+  if (!col1.width || col1.width < 14) {
+    col1.width = 14;
+  }
+
+  // 7. Print setup & Corporate Footer
+  configureWorksheetPrint(worksheet, {
+    orientation: "landscape",
+    fitToWidth: 1,
+    fitToHeight: 0,
+    printTitlesRow: `${tableHeaderRowIndex}:${tableHeaderRowIndex}`,
+  });
+  addCorporateFooter(worksheet);
+
+  return workbook;
+}
+
+/**
+ * Parses raw cell value preserving native Excel dates, numbers, and nulls.
+ */
+function parseCellNativeValue(val: unknown): string | number | Date | null {
+  if (val === null || val === undefined || val === "" || val === "—") {
+    return null;
+  }
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? null : val;
+  }
+  if (typeof val === "number") {
+    return isNaN(val) ? null : val;
+  }
+  if (typeof val === "boolean") {
+    return val ? "Да" : "Нет";
+  }
+
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // Check ISO date: YYYY-MM-DD
+  const isoDateMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const [_, y, m, d] = isoDateMatch;
+    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12, 0, 0));
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  // Check Russian date: DD.MM.YYYY
+  const ruDateMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (ruDateMatch) {
+    const [_, d, m, y] = ruDateMatch;
+    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12, 0, 0));
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  return str;
+}
+
+/**
+ * Standardizes filename prefix according to Russian internal business names.
+ */
+function resolveWysiwygFileName(prefix?: string, defaultPrefix = "РусСилика_Сделки"): string {
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10);
+
+  if (!prefix) {
+    return `${defaultPrefix}_${dateStr}.xlsx`;
+  }
+  if (prefix.toLowerCase().includes("deal") || prefix.toLowerCase().includes("сделк")) {
+    return `РусСилика_Сделки_${dateStr}.xlsx`;
+  }
+  if (prefix.toLowerCase().includes("compan") || prefix.toLowerCase().includes("компан")) {
+    return `РусСилика_Компании_${dateStr}.xlsx`;
+  }
+
+  const safePrefix = prefix.replace(/[\x00-\x1f\x7f\\/:*?"<>|]/g, "_").trim();
+  return `${safePrefix || defaultPrefix}_${dateStr}.xlsx`;
+}
 
 /**
  * Export deals (or company) data to Excel (.xlsx) file.
  * WYSIWYG export: exports exactly what is displayed in the table (filtered, sorted, resolved).
  */
 export async function exportToExcelWysiwyg(
-  data: string[][],
+  data: (string | number | Date | null | undefined)[][],
   columns: string[],
-  options?: {
-    sheetName?: string;
-    fileNamePrefix?: string;
-    // Parallel array to `data` — true marks a row for a highlighted fill,
-    // mirroring an on-screen row highlight (e.g. the "Образцы" toggle).
-    highlightRows?: boolean[];
-    highlightColorArgb?: string;
-  }
+  options?: WysiwygExportOptions
 ): Promise<void> {
   if (data.length === 0 || columns.length === 0) return;
 
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet(options?.sheetName || "Сделки");
+  const workbook = await buildWysiwygWorkbook(data, columns, options);
+  const buffer = await workbook.xlsx.writeBuffer();
 
-  // Add headers
-  worksheet.addRow(columns);
-
-  // Add data
-  data.forEach((row) => {
-    worksheet.addRow(row);
-  });
-
-  // Apply the same highlight shown on screen, if requested.
-  if (options?.highlightRows) {
-    const fillColor = options.highlightColorArgb || "FFFCE8B0"; // amber, matching the on-screen highlight
-    options.highlightRows.forEach((shouldHighlight, dataIndex) => {
-      if (!shouldHighlight) return;
-      const row = worksheet.getRow(dataIndex + 2); // +1 for header row, +1 for 1-based indexing
-      row.eachCell({ includeEmpty: true }, (cell) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fillColor } };
-      });
-    });
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
   }
 
-  // Auto-size columns
-  worksheet.columns.forEach((column, idx) => {
-    const maxLen = Math.max(
-      columns[idx].length,
-      ...data.slice(0, 100).map((row) => String(row[idx] || "").length)
-    );
-    column.width = Math.min(Math.max(maxLen + 2, 10), 60);
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
-
-  // Generate and download
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10);
-  a.download = `${options?.fileNamePrefix || "russilica_deals"}_${dateStr}.xlsx`;
+
+  const defaultName = options?.sheetName?.toLowerCase().includes("компан")
+    ? "РусСилика_Компании"
+    : "РусСилика_Сделки";
+  a.download = resolveWysiwygFileName(options?.fileNamePrefix, defaultName);
+
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
 }
 
@@ -85,67 +258,65 @@ export interface ExportCompanyOptions {
   deals?: CompanyExportDeal[];
   currentDate?: Date;
   fileName?: string;
+  responsibleName?: string;
+  workbook?: ExcelJS.Workbook;
+  logoImageId?: number | null;
 }
 
 /**
- * Creates an ExcelJS Workbook representing a full report for a company card,
+ * Creates an ExcelJS Workbook representing a full branded Account Report for a company card,
  * including main information, sample fields, and related deals.
  */
 export function createCompanyExcelWorkbook(options: ExportCompanyOptions): ExcelJS.Workbook {
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet("Отчёт по компании");
+  const workbook = options.workbook || new ExcelJS.Workbook();
+  workbook.creator = RS_SYSTEM_TITLE;
+  workbook.lastModifiedBy = RS_SYSTEM_TITLE;
+  const now = options.currentDate || new Date();
+  workbook.created = now;
+  workbook.modified = now;
 
-  worksheet.views = [{ showGridLines: true }];
-
-  const currentDate = options.currentDate || new Date();
-  const dateStr = currentDate.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
+  const worksheet = workbook.addWorksheet("Отчёт по компании", {
+    views: [{ showGridLines: true }],
   });
 
-  const thinBorder: Partial<ExcelJS.Borders> = {
-    top: { style: "thin", color: { argb: "FFE2E8F0" } },
-    left: { style: "thin", color: { argb: "FFE2E8F0" } },
-    bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
-    right: { style: "thin", color: { argb: "FFE2E8F0" } },
-  };
+  // Register / Add logo on this workbook instance
+  let imageId = (workbook as any).__russilica_logo_id__ ?? options.logoImageId ?? null;
+  if (imageId === null && typeof window === "undefined" && typeof process !== "undefined" && process.versions?.node) {
+    try {
+      const nodeRequire = eval("require");
+      const fs = nodeRequire("fs");
+      const path = nodeRequire("path");
+      const logoPath = path.join(process.cwd(), "public", "brand", "russilica-logo.png");
+      if (fs.existsSync(logoPath)) {
+        const buf = fs.readFileSync(logoPath);
+        imageId = workbook.addImage({ buffer: buf, extension: "png" });
+        (workbook as any).__russilica_logo_id__ = imageId;
+      }
+    } catch {}
+  }
 
-  const applyBorders = (row: ExcelJS.Row, startCol = 1, endCol = 5) => {
-    for (let c = startCol; c <= endCol; c++) {
-      row.getCell(c).border = thinBorder;
-    }
-  };
-
-  // 1. Title Banner
-  const cleanTitle = (options.companyTitle || "Без названия")
+  // Account Header (Rows 1 to 6)
+  const cleanTitle = (options.companyTitle || "Компания")
     .replace(/[\r\n\t]+/g, " ")
     .trim();
-  const titleText = `Отчёт по компании: ${cleanTitle || "Без названия"} Дата: ${dateStr}`;
-  const titleRow = worksheet.addRow([titleText]);
-  titleRow.height = 28;
-  worksheet.mergeCells(1, 1, 1, 5);
 
-  const titleCell = titleRow.getCell(1);
-  titleCell.font = { name: "Calibri", size: 13, bold: true, color: { argb: "FF1A52A3" } };
-  titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8EFF8" } };
-  titleCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
-  applyBorders(titleRow, 1, 5);
+  // Extract responsible name from fields if not provided directly
+  const responsibleField = options.companyFields.find((f) =>
+    f.id?.includes("ASSIGNED_BY") || f.label.toLowerCase().includes("ответственный")
+  );
+  const responsibleName = options.responsibleName || responsibleField?.value;
 
-  // Spacer
-  worksheet.addRow([]);
+  addAccountHeader(worksheet, imageId, {
+    companyTitle: cleanTitle,
+    companyId: options.companyId,
+    responsibleName,
+    generatedAt: now,
+    colCount: 5,
+  });
 
-  // 2. Section: Основная информация
-  const mainHeaderRow = worksheet.addRow(["Основная информация"]);
-  mainHeaderRow.height = 22;
-  worksheet.mergeCells(mainHeaderRow.number, 1, mainHeaderRow.number, 5);
-  const mainHeaderCell = mainHeaderRow.getCell(1);
-  mainHeaderCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
-  mainHeaderCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A52A3" } };
-  mainHeaderCell.alignment = { vertical: "middle", indent: 1 };
-  applyBorders(mainHeaderRow, 1, 5);
+  // Section 1: Основная информация
+  addSectionHeader(worksheet, "Основная информация", 5);
 
-  // Include Company ID if not already in fields
   const fields = [...options.companyFields];
   if (!fields.some((f) => f.id === "ID" || f.label.toLowerCase().includes("id компании"))) {
     fields.unshift({ id: "ID", label: "ID компании", value: options.companyId });
@@ -157,29 +328,21 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     worksheet.mergeCells(row.number, 2, row.number, 5);
 
     const labelCell = row.getCell(1);
-    labelCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF475569" } };
-    labelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
-    labelCell.alignment = { vertical: "middle" };
+    labelCell.font = FONT_METADATA_LABEL;
+    labelCell.fill = FILL_SECTION_HEADER_SOFT;
+    labelCell.alignment = { vertical: "middle", indent: 1 };
 
     const valueCell = row.getCell(2);
-    valueCell.font = { name: "Calibri", size: 10, color: { argb: "FF0F172A" } };
-    valueCell.alignment = { vertical: "middle", wrapText: true };
+    valueCell.font = FONT_DATA;
+    valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
 
-    applyBorders(row, 1, 5);
+    applyRowBorders(row, 1, 5);
   }
 
-  // Spacer
   worksheet.addRow([]);
 
-  // 3. Section: Образцы
-  const sampleHeaderRow = worksheet.addRow(["Образцы"]);
-  sampleHeaderRow.height = 22;
-  worksheet.mergeCells(sampleHeaderRow.number, 1, sampleHeaderRow.number, 5);
-  const sampleHeaderCell = sampleHeaderRow.getCell(1);
-  sampleHeaderCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
-  sampleHeaderCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A52A3" } };
-  sampleHeaderCell.alignment = { vertical: "middle", indent: 1 };
-  applyBorders(sampleHeaderRow, 1, 5);
+  // Section 2: Образцы
+  addSectionHeader(worksheet, "Образцы", 5);
 
   const sampleFields = options.sampleFields || [];
   if (sampleFields.length > 0) {
@@ -189,54 +352,45 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       worksheet.mergeCells(row.number, 2, row.number, 5);
 
       const labelCell = row.getCell(1);
-      labelCell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF475569" } };
-      labelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
-      labelCell.alignment = { vertical: "middle" };
+      labelCell.font = FONT_METADATA_LABEL;
+      labelCell.fill = FILL_SECTION_HEADER_SOFT;
+      labelCell.alignment = { vertical: "middle", indent: 1 };
 
       const valueCell = row.getCell(2);
-      valueCell.font = { name: "Calibri", size: 10, color: { argb: "FF0F172A" } };
-      valueCell.alignment = { vertical: "middle", wrapText: true };
+      const valStr = String(field.value || "").trim();
+      const semantic = mapBusinessStatusToSemantic(valStr);
+      if (
+        (field.label.includes("Результат") || field.label.includes("Статус")) &&
+        (semantic === "SUCCESS" || semantic === "ATTENTION" || semantic === "NEGATIVE")
+      ) {
+        applyStatusCell(valueCell, valStr);
+      } else {
+        valueCell.font = FONT_DATA;
+        valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
+      }
 
-      applyBorders(row, 1, 5);
+      applyRowBorders(row, 1, 5);
     }
   } else {
     const emptyRow = worksheet.addRow(["Нет данных по образцам"]);
     emptyRow.height = 20;
     worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, 5);
     const emptyCell = emptyRow.getCell(1);
-    emptyCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: "FF64748B" } };
-    emptyCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+    emptyCell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+    emptyCell.fill = FILL_SECTION_HEADER_SOFT;
     emptyCell.alignment = { vertical: "middle", indent: 1 };
-    applyBorders(emptyRow, 1, 5);
+    applyRowBorders(emptyRow, 1, 5);
   }
 
-  // Spacer
   worksheet.addRow([]);
 
-  // 4. Section: Связанные сделки
+  // Section 3: Связанные сделки
   const deals = options.deals || [];
-  const dealsHeaderRow = worksheet.addRow([`Связанные сделки (${deals.length})`]);
-  dealsHeaderRow.height = 22;
-  worksheet.mergeCells(dealsHeaderRow.number, 1, dealsHeaderRow.number, 5);
-  const dealsHeaderCell = dealsHeaderRow.getCell(1);
-  dealsHeaderCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFFFF" } };
-  dealsHeaderCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A52A3" } };
-  dealsHeaderCell.alignment = { vertical: "middle", indent: 1 };
-  applyBorders(dealsHeaderRow, 1, 5);
+  addSectionHeader(worksheet, `Связанные сделки (${deals.length})`, 5);
 
   if (deals.length > 0) {
     const dealColHeaders = worksheet.addRow(["ID сделки", "Название сделки", "Стадия", "Сумма", "Валюта"]);
-    dealColHeaders.height = 20;
-    for (let c = 1; c <= 5; c++) {
-      const cell = dealColHeaders.getCell(c);
-      cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF334155" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
-      cell.alignment = {
-        vertical: "middle",
-        horizontal: c === 4 ? "right" : c === 1 || c === 5 ? "center" : "left",
-      };
-      cell.border = thinBorder;
-    }
+    styleTableHeader(dealColHeaders, { colCount: 5 });
 
     for (const deal of deals) {
       const dealRow = worksheet.addRow([
@@ -250,16 +404,27 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
 
       for (let c = 1; c <= 5; c++) {
         const cell = dealRow.getCell(c);
-        cell.font = { name: "Calibri", size: 10, color: { argb: "FF0F172A" } };
-        cell.alignment = {
-          vertical: "middle",
-          horizontal: c === 4 ? "right" : c === 1 || c === 5 ? "center" : "left",
-          wrapText: c === 2,
-        };
-        if (c === 4 && typeof deal.opportunity === "number") {
-          cell.numFmt = "#,##0.00";
+        cell.border = THIN_BORDER;
+        if (c === 1 || c === 5) {
+          cell.alignment = { vertical: "middle", horizontal: "center" };
+          cell.font = FONT_DATA;
+        } else if (c === 2) {
+          cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+          cell.font = FONT_DATA;
+        } else if (c === 3) {
+          if (deal.stage && deal.stage !== "—") {
+            applyStatusCell(cell, deal.stage);
+          } else {
+            cell.font = FONT_DATA;
+            cell.alignment = { vertical: "middle", horizontal: "center" };
+          }
+        } else if (c === 4) {
+          cell.font = FONT_DATA;
+          cell.alignment = { vertical: "middle", horizontal: "right" };
+          if (typeof deal.opportunity === "number") {
+            cell.numFmt = NUMFMT.MONEY_PRECISE;
+          }
         }
-        cell.border = thinBorder;
       }
     }
   } else {
@@ -267,27 +432,38 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     emptyRow.height = 20;
     worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, 5);
     const emptyCell = emptyRow.getCell(1);
-    emptyCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: "FF64748B" } };
-    emptyCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+    emptyCell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+    emptyCell.fill = FILL_SECTION_HEADER_SOFT;
     emptyCell.alignment = { vertical: "middle", indent: 1 };
-    applyBorders(emptyRow, 1, 5);
+    applyRowBorders(emptyRow, 1, 5);
   }
 
   // Column Widths
-  worksheet.getColumn(1).width = 42;
-  worksheet.getColumn(2).width = 46;
+  worksheet.getColumn(1).width = 38;
+  worksheet.getColumn(2).width = 44;
   worksheet.getColumn(3).width = 24;
   worksheet.getColumn(4).width = 18;
   worksheet.getColumn(5).width = 12;
+
+  // Print Setup & Corporate Footer
+  configureWorksheetPrint(worksheet, {
+    orientation: "portrait",
+    fitToWidth: 1,
+    fitToHeight: 0,
+  });
+  addCorporateFooter(worksheet);
 
   return workbook;
 }
 
 /**
- * Downloads an Excel (.xlsx) file with full company report.
+ * Downloads an Excel (.xlsx) file with full branded company report.
  */
 export async function exportCompanyToExcel(options: ExportCompanyOptions): Promise<void> {
-  const workbook = createCompanyExcelWorkbook(options);
+  const workbook = new ExcelJS.Workbook();
+  const logoImageId = await registerBrandLogo(workbook);
+  createCompanyExcelWorkbook({ ...options, workbook, logoImageId });
+
   const buffer = await workbook.xlsx.writeBuffer();
 
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -302,13 +478,14 @@ export async function exportCompanyToExcel(options: ExportCompanyOptions): Promi
   a.href = url;
 
   // Sanitize filename: remove control characters, newlines, tabs and filesystem-forbidden characters
-  const rawTitle = (options.companyTitle || "Компания")
+  const rawTitle = (options.companyTitle || "")
     .replace(/[\x00-\x1f\x7f\\/:*?"<>|]/g, "_")
     .trim();
-  const safeTitle = (rawTitle.replace(/^_+|_+$/g, "").trim() || "Компания").slice(0, 50);
+  const safeTitle = rawTitle.replace(/^_+|_+$/g, "").trim().slice(0, 50);
   const now = options.currentDate || new Date();
   const dateStr = now.toISOString().slice(0, 10);
-  a.download = options.fileName || `Отчет_${safeTitle}_${dateStr}.xlsx`;
+  const prefix = safeTitle ? `РусСилика_Компания_${safeTitle}` : "РусСилика_Компания";
+  a.download = options.fileName || `${prefix}_${dateStr}.xlsx`;
 
   document.body.appendChild(a);
   a.click();

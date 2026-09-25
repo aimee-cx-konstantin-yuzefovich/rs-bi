@@ -50,13 +50,13 @@ describe("Commercial Funnel — Excel Export", () => {
     });
 
     const companiesSheet = workbook.getWorksheet("Companies")!;
-    // Row 1 is header, data rows start at row 2
-    const excelCompanyRowCount = companiesSheet.rowCount - 1;
+    // Rows 1-5 are operational header, row 6 is table header, data rows start at row 7
+    const excelCompanyRowCount = companiesSheet.rowCount - 6;
     expect(excelCompanyRowCount).toBe(demoData.companies.length);
 
     const bottlenecksSheet = workbook.getWorksheet("Bottlenecks")!;
     const engineBottlenecks = computeBottlenecks(demoData.companies, fixedNow);
-    const excelBottlenecksRowCount = bottlenecksSheet.rowCount - 1;
+    const excelBottlenecksRowCount = bottlenecksSheet.rowCount - 6;
     expect(excelBottlenecksRowCount).toBe(engineBottlenecks.length);
 
     const bounds = computePeriodBoundaries(filters, fixedNow);
@@ -67,7 +67,7 @@ describe("Commercial Funnel — Excel Export", () => {
       demoData.userNames
     );
     const managersSheet = workbook.getWorksheet("Managers")!;
-    const excelManagersRowCount = managersSheet.rowCount - 1;
+    const excelManagersRowCount = managersSheet.rowCount - 6;
     expect(excelManagersRowCount).toBe(engineManagers.length);
   });
 
@@ -98,9 +98,9 @@ describe("Commercial Funnel — Excel Export", () => {
     let verifiedDateCreate = false;
     let verifiedNullDate = false;
 
-    // Iterate data rows (row 2 onwards)
+    // Iterate data rows (row 7 onwards, after branded header rows 1-6)
     companiesSheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return;
+      if (rowNumber <= 6) return;
       // Col 4: dateCreate
       const dateCreateCell = row.getCell(4);
       if (dateCreateCell.value !== null) {
@@ -124,7 +124,7 @@ describe("Commercial Funnel — Excel Export", () => {
 
     const samplesSheet = workbook.getWorksheet("Samples")!;
     samplesSheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return;
+      if (rowNumber <= 6) return;
       // Col 7: shipmentDate
       const shipmentCell = row.getCell(7);
       if (shipmentCell.value !== null) {

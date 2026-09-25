@@ -1,6 +1,6 @@
 // src/lib/commercial-funnel/export-excel.ts
 // ─────────────────────────────────────────────────────────────────────
-// Structured 5-sheet Excel report generator for Commercial Funnel v1.
+// Structured 5-sheet RusSilica Management Excel report generator.
 // Consumes the EXACT same analytical dataset and engine metrics as the UI.
 // Sheets: Executive Summary, Companies, Samples, Managers, Bottlenecks.
 // ─────────────────────────────────────────────────────────────────────
@@ -24,6 +24,32 @@ import type {
   CommercialDeal,
   CommercialFilters,
 } from "./types";
+import {
+  addBrandLogo,
+  addCorporateDivider,
+  addCorporateFooter,
+  addOperationalHeader,
+  addSectionHeader,
+  applyStatusCell,
+  autoFitColumns,
+  configureWorksheetPrint,
+  FONT_DATA,
+  FONT_METADATA_LABEL,
+  FONT_METADATA_VALUE,
+  FONT_REPORT_SUBTITLE,
+  FONT_REPORT_TITLE,
+  FONT_SECTION_HEADER_WHITE,
+  NUMFMT,
+  registerBrandLogo,
+  REPORT_TIMEZONE,
+  RS_BLUE_PRIMARY,
+  RS_FONT_FAMILY,
+  RS_SYSTEM_TITLE,
+  RS_TEXT_SECONDARY,
+  styleDataRows,
+  styleTableHeader,
+  THIN_BORDER,
+} from "@/lib/excel-brand";
 
 /**
  * Convert ISO date or datetime string to native Date object for Excel.
@@ -60,67 +86,8 @@ export interface BuildExcelOptions {
   now?: Date;
 }
 
-const HEADER_FILL: ExcelJS.Fill = {
-  type: "pattern",
-  pattern: "solid",
-  fgColor: { argb: "FF1E293B" }, // Slate-800
-};
-
-const HEADER_FONT: Partial<ExcelJS.Font> = {
-  name: "Calibri",
-  size: 11,
-  bold: true,
-  color: { argb: "FFFFFFFF" },
-};
-
-const SECTION_HEADER_FILL: ExcelJS.Fill = {
-  type: "pattern",
-  pattern: "solid",
-  fgColor: { argb: "FFF1F5F9" }, // Slate-100
-};
-
-const SECTION_HEADER_FONT: Partial<ExcelJS.Font> = {
-  name: "Calibri",
-  size: 12,
-  bold: true,
-  color: { argb: "FF0F172A" },
-};
-
-function styleHeaderRow(row: ExcelJS.Row) {
-  row.height = 26;
-  row.eachCell((cell) => {
-    cell.fill = HEADER_FILL;
-    cell.font = HEADER_FONT;
-    cell.alignment = { vertical: "middle", horizontal: "left" };
-    cell.border = {
-      top: { style: "thin", color: { argb: "FFCBD5E1" } },
-      bottom: { style: "medium", color: { argb: "FF0F172A" } },
-      left: { style: "thin", color: { argb: "FFCBD5E1" } },
-      right: { style: "thin", color: { argb: "FFCBD5E1" } },
-    };
-  });
-}
-
-function autoFitColumns(sheet: ExcelJS.Worksheet) {
-  sheet.columns.forEach((col) => {
-    let maxLen = 12;
-    if (col && col.eachCell) {
-      col.eachCell({ includeEmpty: false }, (cell) => {
-        const val = cell.value;
-        const str = typeof val === "object" && val !== null && "text" in val
-          ? String((val as any).text)
-          : String(val ?? "");
-        if (str.length > maxLen) {
-          maxLen = str.length;
-        }
-      });
-    }
-    col.width = Math.min(Math.max(maxLen + 3, 12), 50);
-  });
-}
-
 /**
- * Builds the authoritative 5-sheet Excel workbook.
+ * Builds the authoritative branded 5-sheet RusSilica Commercial Funnel workbook.
  */
 export async function createCommercialFunnelWorkbook(
   options: BuildExcelOptions
@@ -142,53 +109,102 @@ export async function createCommercialFunnelWorkbook(
   const sampleRegister = buildSampleRegister(filteredCompanies, now);
 
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "RusSilica BI Terminal";
-  workbook.lastModifiedBy = "RusSilica BI Terminal";
+  workbook.creator = RS_SYSTEM_TITLE;
+  workbook.lastModifiedBy = RS_SYSTEM_TITLE;
   workbook.created = now;
   workbook.modified = now;
 
+  // Register logo once on workbook; reused across all 5 sheets
+  const logoImageId = await registerBrandLogo(workbook);
+
+  const periodLabel = `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${filters.periodPreset})`;
+  const respLabel =
+    filters.responsibleId && filters.responsibleId !== "all"
+      ? userNames[filters.responsibleId] || `ID ${filters.responsibleId}`
+      : "Все";
+  const prodLabel = filters.productType && filters.productType !== "all" ? filters.productType : "Все";
+  const indLabel = filters.industry && filters.industry !== "all" ? filters.industry : "Все";
+  const dirLabel = filters.direction && filters.direction !== "all" ? filters.direction : "Все";
+  const regLabel = filters.region && filters.region !== "all" ? filters.region : "Все";
+  const customDatesLabel =
+    filters.periodPreset === "custom" && filters.customFrom && filters.customTo
+      ? `${filters.customFrom} — ${filters.customTo}`
+      : "Не применяются";
+
+  const filtersSummaryText = `Ответственный: ${respLabel} | Продукт: ${prodLabel} | Отрасль: ${indLabel} | Направление: ${dirLabel} | Регион: ${regLabel}`;
+
   // ═══════════════════════════════════════════════════════════════════
-  // SHEET 1: Executive Summary
+  // SHEET 1: Executive Summary (Branded Management Report)
   // ═══════════════════════════════════════════════════════════════════
   const summarySheet = workbook.addWorksheet("Executive Summary", {
     views: [{ showGridLines: true }],
   });
 
-  summarySheet.addRow(["ОТЧЁТ: КОММЕРЧЕСКАЯ ВОРОНКА (RUSILICA BI)"]);
-  summarySheet.getRow(1).font = { name: "Calibri", size: 16, bold: true, color: { argb: "FF0F172A" } };
+  const col1 = summarySheet.getColumn(1);
+  col1.width = 46;
+
+  // Place larger logo in Col A (height ~82px, width ~83px)
+  if (logoImageId !== null) {
+    addBrandLogo(summarySheet, logoImageId, { height: 82, col: 0.15, row: 0.15 });
+  }
+
+  // Row 1: Title
+  const row1 = summarySheet.getRow(1);
+  row1.height = 28;
+  summarySheet.mergeCells(1, 2, 1, 6);
+  const titleCell = row1.getCell(2);
+  titleCell.value = "КОММЕРЧЕСКАЯ ВОРОНКА";
+  titleCell.font = FONT_REPORT_TITLE;
+  titleCell.alignment = { vertical: "middle", horizontal: "left" };
+
+  // Row 2: Subtitle
+  const row2 = summarySheet.getRow(2);
+  row2.height = 20;
+  summarySheet.mergeCells(2, 2, 2, 6);
+  const subCell = row2.getCell(2);
+  subCell.value = "Управленческий отчёт RusSilica BI";
+  subCell.font = FONT_REPORT_SUBTITLE;
+  subCell.alignment = { vertical: "middle", horizontal: "left" };
+
   summarySheet.addRow([]);
 
-  // Report parameters & full filter disclosure
-  summarySheet.addRow(["Параметры отчёта"]);
-  summarySheet.getRow(3).font = SECTION_HEADER_FONT;
-  summarySheet.addRow(["Период анализа:", `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${filters.periodPreset})`]);
-  summarySheet.addRow(["Предыдущий период для сравнения:", `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`]);
-  summarySheet.addRow(["Бизнес-часовой пояс:", `${COMMERCIAL_TIMEZONE} (MSK, UTC+3)`]);
-  summarySheet.addRow(["Дата и время формирования:", now.toISOString().replace("T", " ").slice(0, 19)]);
+  // Report parameters & full filter disclosures
+  addSectionHeader(summarySheet, "ПАРАМЕТРЫ ОТЧЁТА", 6, { soft: true, height: 20 });
 
-  const respLabel = filters.responsibleId && filters.responsibleId !== "all"
-    ? (userNames[filters.responsibleId] || `ID ${filters.responsibleId}`)
-    : "Все";
-  const prodLabel = filters.productType && filters.productType !== "all" ? filters.productType : "Все";
-  const indLabel = filters.industry && filters.industry !== "all" ? filters.industry : "Все";
-  const dirLabel = filters.direction && filters.direction !== "all" ? filters.direction : "Все";
-  const regLabel = filters.region && filters.region !== "all" ? filters.region : "Все";
-  const customDatesLabel = filters.periodPreset === "custom" && filters.customFrom && filters.customTo
-    ? `${filters.customFrom} — ${filters.customTo}`
-    : "Не применяются";
+  const paramRows: [string, string][] = [
+    ["Период анализа:", periodLabel],
+    ["Предыдущий период для сравнения:", `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
+    ["Бизнес-часовой пояс:", `${COMMERCIAL_TIMEZONE} (MSK, UTC+3)`],
+    ["Дата и время формирования:", now.toISOString().replace("T", " ").slice(0, 19)],
+    ["Ответственный:", respLabel],
+    ["Продукт:", prodLabel],
+    ["Отрасль:", indLabel],
+    ["Направление:", dirLabel],
+    ["Регион:", regLabel],
+    ["Пользовательский диапазон:", customDatesLabel],
+  ];
 
-  summarySheet.addRow(["Ответственный:", respLabel]);
-  summarySheet.addRow(["Продукт:", prodLabel]);
-  summarySheet.addRow(["Отрасль:", indLabel]);
-  summarySheet.addRow(["Направление:", dirLabel]);
-  summarySheet.addRow(["Регион:", regLabel]);
-  summarySheet.addRow(["Пользовательский диапазон:", customDatesLabel]);
-  summarySheet.addRow([]);
+  for (const [lbl, val] of paramRows) {
+    const r = summarySheet.addRow([lbl, val]);
+    r.height = 18;
+    summarySheet.mergeCells(r.number, 2, r.number, 6);
 
-  // Dated KPIs table
-  const datedHeaderRowIndex = summarySheet.rowCount + 1;
-  summarySheet.addRow(["АКТИВНОСТЬ ЗА ПЕРИОД (СОБЫТИЯ С НАДЁЖНОЙ ДАТОЙ)"]);
-  summarySheet.getRow(datedHeaderRowIndex).font = SECTION_HEADER_FONT;
+    const lCell = r.getCell(1);
+    lCell.font = FONT_METADATA_LABEL;
+    lCell.alignment = { vertical: "middle", indent: 1 };
+
+    const vCell = r.getCell(2);
+    vCell.font = FONT_METADATA_VALUE;
+    vCell.alignment = { vertical: "middle", indent: 1 };
+  }
+
+  // Corporate Divider beneath metadata
+  const divRowNum = summarySheet.rowCount + 1;
+  addCorporateDivider(summarySheet, divRowNum, 6);
+  summarySheet.addRow([]); // Spacer
+
+  // Section 1: Dated KPIs table (Crucial: keeps exact cell positions for reconciliation tests)
+  addSectionHeader(summarySheet, "АКТИВНОСТЬ ЗА ПЕРИОД (СОБЫТИЯ С НАДЁЖНОЙ ДАТОЙ)", 6);
 
   const kpiTableHeader = summarySheet.addRow([
     "Метрика",
@@ -198,8 +214,9 @@ export async function createCommercialFunnelWorkbook(
     "Изменение %",
     "Уникальных компаний",
   ]);
-  styleHeaderRow(kpiTableHeader);
+  styleTableHeader(kpiTableHeader, { colCount: 6 });
 
+  const startKpiRow = summarySheet.rowCount + 1;
   for (const k of datedKpis) {
     const row = summarySheet.addRow([
       k.label,
@@ -210,45 +227,71 @@ export async function createCommercialFunnelWorkbook(
       k.companyIds.length,
     ]);
     row.height = 20;
+
+    for (let c = 1; c <= 6; c++) {
+      const cell = row.getCell(c);
+      cell.border = THIN_BORDER;
+      cell.font = FONT_DATA;
+    }
+
     if (k.isCurrency) {
-      row.getCell(2).numFmt = '#,##0 "₽"';
-      row.getCell(3).numFmt = '#,##0 "₽"';
-      row.getCell(4).numFmt = '+#,##0 "₽";-#,##0 "₽";0 "₽"';
+      row.getCell(2).numFmt = NUMFMT.MONEY;
+      row.getCell(3).numFmt = NUMFMT.MONEY;
+      row.getCell(4).numFmt = NUMFMT.DELTA_MONEY;
     } else {
-      row.getCell(2).numFmt = '#,##0';
-      row.getCell(3).numFmt = '#,##0';
-      row.getCell(4).numFmt = '+#,##0;-#,##0;0';
+      row.getCell(2).numFmt = NUMFMT.INTEGER;
+      row.getCell(3).numFmt = NUMFMT.INTEGER;
+      row.getCell(4).numFmt = NUMFMT.DELTA_INTEGER;
     }
   }
-  summarySheet.addRow([]);
+  const endKpiRow = summarySheet.rowCount;
+  styleDataRows(summarySheet, startKpiRow, endKpiRow, 6);
 
-  // WIP Table
-  const wipHeaderRowIndex = summarySheet.rowCount + 1;
-  summarySheet.addRow(["ТЕКУЩИЙ ПОРТФЕЛЬ / СЕЙЧАС В РАБОТЕ (WIP)"]);
-  summarySheet.getRow(wipHeaderRowIndex).font = SECTION_HEADER_FONT;
+  summarySheet.addRow([]); // Spacer
+
+  // Section 2: WIP Table
+  addSectionHeader(summarySheet, "ТЕКУЩИЙ ПОРТФЕЛЬ / СЕЙЧАС В РАБОТЕ (WIP)", 6);
 
   const wipTableHeader = summarySheet.addRow([
     "Статус / Этап",
     "Уникальных компаний",
     "Связанных сделок",
   ]);
-  styleHeaderRow(wipTableHeader);
+  styleTableHeader(wipTableHeader, { colCount: 3 });
 
+  const startWipRow = summarySheet.rowCount + 1;
   for (const w of wipKpis) {
     const row = summarySheet.addRow([w.label, w.companyCount, w.dealCount]);
     row.height = 20;
+    row.getCell(2).numFmt = NUMFMT.INTEGER;
+    row.getCell(3).numFmt = NUMFMT.INTEGER;
+  }
+  const endWipRow = summarySheet.rowCount;
+  styleDataRows(summarySheet, startWipRow, endWipRow, 3);
+
+  // Auto-fit summary sheet columns
+  autoFitColumns(summarySheet, { minWidth: 14, maxWidth: 50 });
+  const col1Width = summarySheet.getColumn(1).width ?? 0;
+  if (col1Width < 44) {
+    summarySheet.getColumn(1).width = 44;
   }
 
-  autoFitColumns(summarySheet);
+  // Print Setup & Corporate Footer
+  configureWorksheetPrint(summarySheet, {
+    orientation: "portrait",
+    fitToWidth: 1,
+    fitToHeight: 1,
+  });
+  addCorporateFooter(summarySheet);
 
   // ═══════════════════════════════════════════════════════════════════
   // SHEET 2: Companies (One row = one Company)
   // ═══════════════════════════════════════════════════════════════════
   const companiesSheet = workbook.addWorksheet("Companies", {
-    views: [{ state: "frozen", ySplit: 1, showGridLines: true }],
+    views: [{ showGridLines: true }],
   });
 
-  const companiesHeader = companiesSheet.addRow([
+  const companiesColumns = [
     "ID компании",
     "Название компании",
     "Ответственный",
@@ -268,17 +311,38 @@ export async function createCommercialFunnelWorkbook(
     "Следующий шаг",
     "Требует внимания",
     "Причина внимания",
-  ]);
-  styleHeaderRow(companiesHeader);
-  companiesSheet.autoFilter = { from: "A1", to: "S1" };
+  ];
 
+  const compHeaderRowIndex = addOperationalHeader(companiesSheet, logoImageId, {
+    title: "Коммерческая воронка: Компании",
+    period: periodLabel,
+    generatedAt: now,
+    recordCount: filteredCompanies.length,
+    filtersText: filtersSummaryText,
+    colCount: companiesColumns.length,
+  });
+
+  const companiesHeader = companiesSheet.getRow(compHeaderRowIndex);
+  companiesHeader.values = companiesColumns;
+  styleTableHeader(companiesHeader, { colCount: companiesColumns.length });
+
+  companiesSheet.views = [
+    { state: "frozen", ySplit: compHeaderRowIndex, showGridLines: true },
+  ];
+  companiesSheet.autoFilter = {
+    from: { row: compHeaderRowIndex, column: 1 },
+    to: { row: compHeaderRowIndex, column: companiesColumns.length },
+  };
+
+  const startCompRow = compHeaderRowIndex + 1;
   for (const c of filteredCompanies) {
     const dateCreateVal = toExcelDate(c.dateCreate);
     const sampleDateVal = toExcelDate(c.sampleShipmentDate);
     const paymentDateVal = toExcelDate(c.primaryDealPaymentDate);
-    const sampleStatusDisplay = c.sampleStatuses && c.sampleStatuses.length > 0
-      ? c.sampleStatuses.join(", ")
-      : c.sampleStatus;
+    const sampleStatusDisplay =
+      c.sampleStatuses && c.sampleStatuses.length > 0
+        ? c.sampleStatuses.join(", ")
+        : c.sampleStatus;
 
     const row = companiesSheet.addRow([
       c.id,
@@ -303,25 +367,46 @@ export async function createCommercialFunnelWorkbook(
     ]);
     row.height = 20;
 
-    // Format native Date cells
-    if (dateCreateVal) row.getCell(4).numFmt = "dd.mm.yyyy";
-    if (sampleDateVal) row.getCell(10).numFmt = "dd.mm.yyyy";
-    if (paymentDateVal) row.getCell(16).numFmt = "dd.mm.yyyy";
+    // Native Date formats
+    if (dateCreateVal) row.getCell(4).numFmt = NUMFMT.DATE;
+    if (sampleDateVal) row.getCell(10).numFmt = NUMFMT.DATE;
+    if (paymentDateVal) row.getCell(16).numFmt = NUMFMT.DATE;
 
-    // Format currency cell
-    const cellOpportunity = row.getCell(14);
-    cellOpportunity.numFmt = "#,##0";
+    // Currency format
+    row.getCell(14).numFmt = NUMFMT.INTEGER;
+
+    // Status styling
+    if (sampleStatusDisplay && sampleStatusDisplay !== "—") {
+      applyStatusCell(row.getCell(8), sampleStatusDisplay);
+    }
+    if (c.primaryDealPaymentStatus && c.primaryDealPaymentStatus !== "—") {
+      applyStatusCell(row.getCell(15), c.primaryDealPaymentStatus);
+    }
+    if (c.hasAttention) {
+      applyStatusCell(row.getCell(18), "Да");
+    }
+  }
+  const endCompRow = startCompRow + filteredCompanies.length - 1;
+  if (filteredCompanies.length > 0) {
+    styleDataRows(companiesSheet, startCompRow, endCompRow, companiesColumns.length);
   }
   autoFitColumns(companiesSheet);
+  configureWorksheetPrint(companiesSheet, {
+    orientation: "landscape",
+    fitToWidth: 1,
+    fitToHeight: 0,
+    printTitlesRow: `${compHeaderRowIndex}:${compHeaderRowIndex}`,
+  });
+  addCorporateFooter(companiesSheet);
 
   // ═══════════════════════════════════════════════════════════════════
   // SHEET 3: Samples (Granular sample register)
   // ═══════════════════════════════════════════════════════════════════
   const samplesSheet = workbook.addWorksheet("Samples", {
-    views: [{ state: "frozen", ySplit: 1, showGridLines: true }],
+    views: [{ showGridLines: true }],
   });
 
-  const samplesHeader = samplesSheet.addRow([
+  const samplesColumns = [
     "Компания",
     "Ответственный",
     "Сделка",
@@ -336,10 +421,30 @@ export async function createCommercialFunnelWorkbook(
     "Количество ГЕЛЬ",
     "Количество ЗОЛЬ",
     "Следующий шаг",
-  ]);
-  styleHeaderRow(samplesHeader);
-  samplesSheet.autoFilter = { from: "A1", to: "N1" };
+  ];
 
+  const samplesHeaderRowIndex = addOperationalHeader(samplesSheet, logoImageId, {
+    title: "Коммерческая воронка: Регистр образцов",
+    period: periodLabel,
+    generatedAt: now,
+    recordCount: sampleRegister.length,
+    filtersText: filtersSummaryText,
+    colCount: samplesColumns.length,
+  });
+
+  const samplesHeader = samplesSheet.getRow(samplesHeaderRowIndex);
+  samplesHeader.values = samplesColumns;
+  styleTableHeader(samplesHeader, { colCount: samplesColumns.length });
+
+  samplesSheet.views = [
+    { state: "frozen", ySplit: samplesHeaderRowIndex, showGridLines: true },
+  ];
+  samplesSheet.autoFilter = {
+    from: { row: samplesHeaderRowIndex, column: 1 },
+    to: { row: samplesHeaderRowIndex, column: samplesColumns.length },
+  };
+
+  const startSamplesRow = samplesHeaderRowIndex + 1;
   for (const s of sampleRegister) {
     const shipmentDateVal = toExcelDate(s.shipmentDate);
     const row = samplesSheet.addRow([
@@ -359,18 +464,39 @@ export async function createCommercialFunnelWorkbook(
       s.nextAction || "—",
     ]);
     row.height = 20;
-    if (shipmentDateVal) row.getCell(7).numFmt = "dd.mm.yyyy";
+
+    if (shipmentDateVal) row.getCell(7).numFmt = NUMFMT.DATE;
+    if (typeof s.daysSinceSent === "number") row.getCell(8).numFmt = NUMFMT.INTEGER;
+
+    // Status styling
+    if (s.status && s.status !== "—") {
+      applyStatusCell(row.getCell(5), s.status);
+    }
+    if (s.testResult && s.testResult !== "—") {
+      applyStatusCell(row.getCell(9), s.testResult);
+    }
+  }
+  const endSamplesRow = startSamplesRow + sampleRegister.length - 1;
+  if (sampleRegister.length > 0) {
+    styleDataRows(samplesSheet, startSamplesRow, endSamplesRow, samplesColumns.length);
   }
   autoFitColumns(samplesSheet);
+  configureWorksheetPrint(samplesSheet, {
+    orientation: "landscape",
+    fitToWidth: 1,
+    fitToHeight: 0,
+    printTitlesRow: `${samplesHeaderRowIndex}:${samplesHeaderRowIndex}`,
+  });
+  addCorporateFooter(samplesSheet);
 
   // ═══════════════════════════════════════════════════════════════════
   // SHEET 4: Managers (Scorecard per responsible)
   // ═══════════════════════════════════════════════════════════════════
   const managersSheet = workbook.addWorksheet("Managers", {
-    views: [{ state: "frozen", ySplit: 1, showGridLines: true }],
+    views: [{ showGridLines: true }],
   });
 
-  const managersHeader = managersSheet.addRow([
+  const managersColumns = [
     "Менеджер",
     "Новые компании (период)",
     "Образцы отправлены (период)",
@@ -382,10 +508,30 @@ export async function createCommercialFunnelWorkbook(
     "Получено оплат (период)",
     `${PAYMENT_AMOUNT_LABEL} (₽)`,
     "Требуют внимания",
-  ]);
-  styleHeaderRow(managersHeader);
-  managersSheet.autoFilter = { from: "A1", to: "K1" };
+  ];
 
+  const managersHeaderRowIndex = addOperationalHeader(managersSheet, logoImageId, {
+    title: "Коммерческая воронка: Показатели менеджеров",
+    period: periodLabel,
+    generatedAt: now,
+    recordCount: managerScorecard.length,
+    filtersText: filtersSummaryText,
+    colCount: managersColumns.length,
+  });
+
+  const managersHeader = managersSheet.getRow(managersHeaderRowIndex);
+  managersHeader.values = managersColumns;
+  styleTableHeader(managersHeader, { colCount: managersColumns.length });
+
+  managersSheet.views = [
+    { state: "frozen", ySplit: managersHeaderRowIndex, showGridLines: true },
+  ];
+  managersSheet.autoFilter = {
+    from: { row: managersHeaderRowIndex, column: 1 },
+    to: { row: managersHeaderRowIndex, column: managersColumns.length },
+  };
+
+  const startManagersRow = managersHeaderRowIndex + 1;
   for (const m of managerScorecard) {
     const row = managersSheet.addRow([
       m.name,
@@ -401,19 +547,39 @@ export async function createCommercialFunnelWorkbook(
       m.bottlenecksCount,
     ]);
     row.height = 20;
-    const cellAmount = row.getCell(10);
-    cellAmount.numFmt = "#,##0";
+
+    for (let c = 2; c <= 9; c++) {
+      row.getCell(c).numFmt = NUMFMT.INTEGER;
+    }
+    row.getCell(10).numFmt = NUMFMT.INTEGER;
+    row.getCell(11).numFmt = NUMFMT.INTEGER;
+
+    if (m.bottlenecksCount > 0) {
+      applyStatusCell(row.getCell(11), "Внимание");
+      row.getCell(11).value = m.bottlenecksCount;
+    }
+  }
+  const endManagersRow = startManagersRow + managerScorecard.length - 1;
+  if (managerScorecard.length > 0) {
+    styleDataRows(managersSheet, startManagersRow, endManagersRow, managersColumns.length);
   }
   autoFitColumns(managersSheet);
+  configureWorksheetPrint(managersSheet, {
+    orientation: "landscape",
+    fitToWidth: 1,
+    fitToHeight: 0,
+    printTitlesRow: `${managersHeaderRowIndex}:${managersHeaderRowIndex}`,
+  });
+  addCorporateFooter(managersSheet);
 
   // ═══════════════════════════════════════════════════════════════════
   // SHEET 5: Bottlenecks (Actionable items requiring attention)
   // ═══════════════════════════════════════════════════════════════════
   const bottlenecksSheet = workbook.addWorksheet("Bottlenecks", {
-    views: [{ state: "frozen", ySplit: 1, showGridLines: true }],
+    views: [{ showGridLines: true }],
   });
 
-  const bottlenecksHeader = bottlenecksSheet.addRow([
+  const bottlenecksColumns = [
     "Компания",
     "Менеджер",
     "Проблема / Причина",
@@ -423,10 +589,30 @@ export async function createCommercialFunnelWorkbook(
     "Сделка",
     "Сумма (₽)",
     "Следующий шаг / Рекомендация",
-  ]);
-  styleHeaderRow(bottlenecksHeader);
-  bottlenecksSheet.autoFilter = { from: "A1", to: "I1" };
+  ];
 
+  const botHeaderRowIndex = addOperationalHeader(bottlenecksSheet, logoImageId, {
+    title: "Коммерческая воронка: Узкие места",
+    period: periodLabel,
+    generatedAt: now,
+    recordCount: bottlenecks.length,
+    filtersText: filtersSummaryText,
+    colCount: bottlenecksColumns.length,
+  });
+
+  const bottlenecksHeader = bottlenecksSheet.getRow(botHeaderRowIndex);
+  bottlenecksHeader.values = bottlenecksColumns;
+  styleTableHeader(bottlenecksHeader, { colCount: bottlenecksColumns.length });
+
+  bottlenecksSheet.views = [
+    { state: "frozen", ySplit: botHeaderRowIndex, showGridLines: true },
+  ];
+  bottlenecksSheet.autoFilter = {
+    from: { row: botHeaderRowIndex, column: 1 },
+    to: { row: botHeaderRowIndex, column: bottlenecksColumns.length },
+  };
+
+  const startBotRow = botHeaderRowIndex + 1;
   for (const b of bottlenecks) {
     const relevantDateVal = toExcelDate(b.relevantDate);
     const row = bottlenecksSheet.addRow([
@@ -441,17 +627,33 @@ export async function createCommercialFunnelWorkbook(
       b.nextAction || "—",
     ]);
     row.height = 20;
-    if (relevantDateVal) row.getCell(5).numFmt = "dd.mm.yyyy";
-    const cellAmount = row.getCell(8);
-    cellAmount.numFmt = "#,##0";
+
+    if (relevantDateVal) row.getCell(5).numFmt = NUMFMT.DATE;
+    if (typeof b.daysWaiting === "number") row.getCell(6).numFmt = NUMFMT.INTEGER;
+    row.getCell(8).numFmt = NUMFMT.INTEGER;
+
+    // Attention styling
+    applyStatusCell(row.getCell(3), "Внимание");
+    row.getCell(3).value = b.issueLabel;
+  }
+  const endBotRow = startBotRow + bottlenecks.length - 1;
+  if (bottlenecks.length > 0) {
+    styleDataRows(bottlenecksSheet, startBotRow, endBotRow, bottlenecksColumns.length);
   }
   autoFitColumns(bottlenecksSheet);
+  configureWorksheetPrint(bottlenecksSheet, {
+    orientation: "landscape",
+    fitToWidth: 1,
+    fitToHeight: 0,
+    printTitlesRow: `${botHeaderRowIndex}:${botHeaderRowIndex}`,
+  });
+  addCorporateFooter(bottlenecksSheet);
 
   return workbook;
 }
 
 /**
- * Browser helper to download the workbook as an .xlsx file.
+ * Browser helper to download the workbook as an .xlsx file with Russian business name.
  */
 export async function downloadCommercialFunnelExcel(
   options: BuildExcelOptions
@@ -465,7 +667,7 @@ export async function downloadCommercialFunnelExcel(
   const a = document.createElement("a");
   a.href = url;
   const dateStr = (options.now || new Date()).toISOString().slice(0, 10);
-  a.download = `commercial_funnel_${options.filters.periodPreset}_${dateStr}.xlsx`;
+  a.download = `РусСилика_Коммерческая_воронка_${options.filters.periodPreset}_${dateStr}.xlsx`;
   a.click();
   window.URL.revokeObjectURL(url);
 }
