@@ -327,7 +327,6 @@ export function CompanyBrowser() {
 
   useEffect(() => {
     fetchCompanyBrowser();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyFieldsKey]);
 
   // Reset to page 1 whenever the underlying result set changes for any reason
@@ -384,7 +383,6 @@ export function CompanyBrowser() {
     }
 
     return items;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyBrowserItems, companyDateFilter, columnFilters, userNames, fieldMap]);
 
   const sortedItems = useMemo(() => {
@@ -397,7 +395,6 @@ export function CompanyBrowser() {
       if (typeof aVal === "number" && typeof bVal === "number") return (aVal - bVal) * dir;
       return String(aVal).localeCompare(String(bVal), "ru") * dir;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredItems, columnSort, userNames, fieldMap]);
 
   const samplesCount = useMemo(
