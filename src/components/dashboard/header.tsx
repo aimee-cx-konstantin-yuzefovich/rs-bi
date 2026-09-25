@@ -111,13 +111,17 @@ export function Header() {
         ? "Последние 90 дней"
         : "Все";
 
-    exportToExcelWysiwyg(exportData, exportColumns, {
-      title: "Отчёт по сделкам",
-      sheetName: "Сделки",
-      fileNamePrefix: "РусСилика_Сделки",
-      period: periodLabel,
-      filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
-    });
+    try {
+      exportToExcelWysiwyg(exportData, exportColumns, {
+        title: "Отчёт по сделкам",
+        sheetName: "Сделки",
+        fileNamePrefix: "РусСилика_Сделки",
+        period: periodLabel,
+        filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
+      });
+    } catch (err) {
+      console.error("Ошибка при экспорте сделок в Excel:", err);
+    }
   }, [sortedDeals, columns, fieldMap, resolveValue, dateFilter, pipelineFilter, responsibleFilter, searchQuery, userNames]);
 
   const handleLogout = () => {

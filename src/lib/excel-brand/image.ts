@@ -25,13 +25,13 @@ export async function getRusSilicaLogoBuffer(): Promise<Uint8Array | null> {
   }
 
   logoBufferPromise = (async () => {
-    // 1. Node.js environment (Vitest, server-side Next.js, scripts)
-    if (typeof window === "undefined" && typeof process !== "undefined" && process.versions?.node) {
+    // 1. Node.js environment (Vitest, server-side Next.js, scripts, including Vitest jsdom)
+    const isNode = typeof process !== "undefined" && Boolean(process.versions?.node);
+    if (isNode) {
       try {
-        const fsName = "fs";
-        const pathName = "path";
-        const fs = await import(/* webpackIgnore: true */ fsName);
-        const path = await import(/* webpackIgnore: true */ pathName);
+        const req = (globalThis as any).__non_webpack_require__ ?? eval("require");
+        const fs = req("fs");
+        const path = req("path");
         const localPath = path.join(process.cwd(), LOGO_CANONICAL_PATH);
         if (fs.existsSync(localPath)) {
           const buffer = fs.readFileSync(localPath);

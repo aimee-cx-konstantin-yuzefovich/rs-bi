@@ -23,6 +23,8 @@ import {
   addCorporateDivider,
   configureWorksheetPrint,
   addCorporateFooter,
+  NUMFMT,
+  isCurrencyHeader,
 } from "@/lib/excel-brand";
 
 describe("Excel Brand System — Tokens", () => {
@@ -243,6 +245,70 @@ describe("Deals & Companies WYSIWYG Export via buildWysiwygWorkbook", () => {
       from: { row: 6, column: 1 },
       to: { row: 6, column: 3 },
     });
+  });
+
+  it("auto-detects currency columns and formats numbers with NUMFMT.MONEY", async () => {
+    const { buildWysiwygWorkbook } = await import("@/lib/export-utils");
+
+    const columns = ["ID", "Компания", "Сумма сделки", "Количество", "Дата создания", "Дата встречи"];
+    const nowWithTime = new Date("2026-05-15T14:30:00Z");
+    const dateOnly = new Date("2026-05-15T00:00:00Z");
+
+    const data = [
+      ["1", "ООО Силика", 1250000, 42, nowWithTime, dateOnly],
+      ["2", "АО Пром", "250 000 ₽", 10, "2026-06-01 10:15", "01.06.2026"],
+    ];
+
+    const workbook = await buildWysiwygWorkbook(data, columns, {
+      title: "Отчёт с автоопределением валюты",
+      sheetName: "Сделки",
+    });
+
+    const sheet = workbook.getWorksheet("Сделки")!;
+
+    // Row 7 (first data row)
+    const row7 = sheet.getRow(7);
+    expect(row7.getCell(3).value).toBe(1250000);
+    expect(row7.getCell(3).numFmt).toBe(NUMFMT.MONEY); // Auto-detected from "Сумма сделки"
+    expect(row7.getCell(4).value).toBe(42);
+    expect(row7.getCell(4).numFmt).toBe(NUMFMT.INTEGER); // Quantity is integer
+
+    // Datetime with time component
+    expect(row7.getCell(5).value).toBeInstanceOf(Date);
+    expect(row7.getCell(5).numFmt).toBe(NUMFMT.DATETIME);
+
+    // Date-only without time component
+    expect(row7.getCell(6).value).toBeInstanceOf(Date);
+    expect(row7.getCell(6).numFmt).toBe(NUMFMT.DATE);
+
+    // Row 8 (second data row - parsed from string with ₽ and datetime string)
+    const row8 = sheet.getRow(8);
+    expect(row8.getCell(3).value).toBe(250000); // Parsed from "250 000 ₽"
+    expect(row8.getCell(3).numFmt).toBe(NUMFMT.MONEY);
+    expect(row8.getCell(5).value).toBeInstanceOf(Date);
+    expect(row8.getCell(5).numFmt).toBe(NUMFMT.DATETIME); // "2026-06-01 10:15"
+    expect(row8.getCell(6).value).toBeInstanceOf(Date);
+    expect(row8.getCell(6).numFmt).toBe(NUMFMT.DATE); // "01.06.2026"
+  });
+});
+
+describe("Excel Brand System — Currency Header Detection", () => {
+  it("accurately identifies currency header variations", () => {
+    expect(isCurrencyHeader("Сумма")).toBe(true);
+    expect(isCurrencyHeader("Сумма сделки")).toBe(true);
+    expect(isCurrencyHeader("Сумма (₽)")).toBe(true);
+    expect(isCurrencyHeader("Оборот компании")).toBe(true);
+    expect(isCurrencyHeader("Бюджет проекта")).toBe(true);
+    expect(isCurrencyHeader("Opportunity")).toBe(true);
+    expect(isCurrencyHeader("OPPORTUNITY_AMOUNT")).toBe(true);
+    expect(isCurrencyHeader("Выручка")).toBe(true);
+    expect(isCurrencyHeader("Цена за тонну")).toBe(true);
+
+    expect(isCurrencyHeader("ID сделки")).toBe(false);
+    expect(isCurrencyHeader("Название компании")).toBe(false);
+    expect(isCurrencyHeader("Дата создания")).toBe(false);
+    expect(isCurrencyHeader("Статус")).toBe(false);
+    expect(isCurrencyHeader("Количество")).toBe(false);
   });
 });
 

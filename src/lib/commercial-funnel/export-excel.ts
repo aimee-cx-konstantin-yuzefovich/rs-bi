@@ -388,7 +388,9 @@ export async function createCommercialFunnelWorkbook(
   }
   const endCompRow = startCompRow + filteredCompanies.length - 1;
   if (filteredCompanies.length > 0) {
-    styleDataRows(companiesSheet, startCompRow, endCompRow, companiesColumns.length);
+    styleDataRows(companiesSheet, startCompRow, endCompRow, companiesColumns.length, {
+      headerRowIndex: compHeaderRowIndex,
+    });
   }
   autoFitColumns(companiesSheet);
   configureWorksheetPrint(companiesSheet, {
@@ -478,7 +480,9 @@ export async function createCommercialFunnelWorkbook(
   }
   const endSamplesRow = startSamplesRow + sampleRegister.length - 1;
   if (sampleRegister.length > 0) {
-    styleDataRows(samplesSheet, startSamplesRow, endSamplesRow, samplesColumns.length);
+    styleDataRows(samplesSheet, startSamplesRow, endSamplesRow, samplesColumns.length, {
+      headerRowIndex: samplesHeaderRowIndex,
+    });
   }
   autoFitColumns(samplesSheet);
   configureWorksheetPrint(samplesSheet, {
@@ -561,7 +565,9 @@ export async function createCommercialFunnelWorkbook(
   }
   const endManagersRow = startManagersRow + managerScorecard.length - 1;
   if (managerScorecard.length > 0) {
-    styleDataRows(managersSheet, startManagersRow, endManagersRow, managersColumns.length);
+    styleDataRows(managersSheet, startManagersRow, endManagersRow, managersColumns.length, {
+      headerRowIndex: managersHeaderRowIndex,
+    });
   }
   autoFitColumns(managersSheet);
   configureWorksheetPrint(managersSheet, {
@@ -638,7 +644,9 @@ export async function createCommercialFunnelWorkbook(
   }
   const endBotRow = startBotRow + bottlenecks.length - 1;
   if (bottlenecks.length > 0) {
-    styleDataRows(bottlenecksSheet, startBotRow, endBotRow, bottlenecksColumns.length);
+    styleDataRows(bottlenecksSheet, startBotRow, endBotRow, bottlenecksColumns.length, {
+      headerRowIndex: botHeaderRowIndex,
+    });
   }
   autoFitColumns(bottlenecksSheet);
   configureWorksheetPrint(bottlenecksSheet, {
@@ -667,7 +675,11 @@ export async function downloadCommercialFunnelExcel(
   const a = document.createElement("a");
   a.href = url;
   const dateStr = (options.now || new Date()).toISOString().slice(0, 10);
-  a.download = `РусСилика_Коммерческая_воронка_${options.filters.periodPreset}_${dateStr}.xlsx`;
+  const periodPart =
+    options.filters.periodPreset === "custom" && options.filters.customFrom && options.filters.customTo
+      ? `${options.filters.customFrom}_${options.filters.customTo}`
+      : options.filters.periodPreset;
+  a.download = `РусСилика_Коммерческая_воронка_${periodPart}_${dateStr}.xlsx`;
   a.click();
   window.URL.revokeObjectURL(url);
 }

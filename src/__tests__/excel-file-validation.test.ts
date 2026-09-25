@@ -49,6 +49,7 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
     expect(sheet.getCell("A7").value).toBe("101");
     expect(sheet.getCell("C7").value).toBeInstanceOf(Date);
     expect(sheet.getCell("D7").value).toBe(1500000);
+    expect(sourceWorkbook.getWorksheet("Сделки")!.getCell("D7").numFmt).toBe('#,##0 "₽"');
 
     // Check views / freeze panes
     const view = sheet.views.find((v) => v.state === "frozen");

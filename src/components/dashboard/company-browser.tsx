@@ -452,15 +452,19 @@ export function CompanyBrowser() {
         ? "Последние 90 дней"
         : "Все";
 
-    exportToExcelWysiwyg(exportData, exportColumns, {
-      title: "Отчёт по компаниям",
-      sheetName: "Компании",
-      fileNamePrefix: "РусСилика_Компании",
-      period: periodLabel,
-      filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
-      // Mirror the on-screen "Образцы" highlight in the exported file.
-      highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
-    });
+    try {
+      exportToExcelWysiwyg(exportData, exportColumns, {
+        title: "Отчёт по компаниям",
+        sheetName: "Компании",
+        fileNamePrefix: "РусСилика_Компании",
+        period: periodLabel,
+        filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
+        // Mirror the on-screen "Образцы" highlight in the exported file.
+        highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
+      });
+    } catch (err) {
+      console.error("Ошибка при экспорте компаний в Excel:", err);
+    }
   }, [sortedItems, columns, fieldMap, userNames, highlightSamples, activeName, columnFilters, companyDateFilter]);
 
   const previewFields = (company: Record<string, unknown>) => {

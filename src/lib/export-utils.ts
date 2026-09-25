@@ -118,6 +118,7 @@ export async function buildWysiwygWorkbook(
     styleDataRows(worksheet, startDataRow, endDataRow, columns.length, {
       highlightRows: options?.highlightRows,
       highlightColorArgb: options?.highlightColorArgb,
+      headerRowIndex: tableHeaderRowIndex,
     });
   }
 
@@ -160,20 +161,43 @@ function parseCellNativeValue(val: unknown): string | number | Date | null {
   const str = String(val).trim();
   if (!str) return null;
 
-  // Check ISO date: YYYY-MM-DD
-  const isoDateMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoDateMatch) {
-    const [_, y, m, d] = isoDateMatch;
-    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12, 0, 0));
+  // 1. Check ISO Datetime: YYYY-MM-DD[T ]HH:mm(:ss)?(.sss)?(Z|[+-]HH:mm)?
+  const isoDateTimeMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/);
+  if (isoDateTimeMatch) {
+    const dt = new Date(str.includes("T") || str.includes("Z") ? str : str.replace(" ", "T") + "Z");
     if (!isNaN(dt.getTime())) return dt;
   }
 
-  // Check Russian date: DD.MM.YYYY
+  // 2. Check Russian Datetime: DD.MM.YYYY[T ]HH:mm(:ss)?
+  const ruDateTimeMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (ruDateTimeMatch) {
+    const [_, d, m, y, hh, mm, ss] = ruDateTimeMatch;
+    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss || 0)));
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  // 3. Check pure ISO date: YYYY-MM-DD
+  const isoDateMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const [_, y, m, d] = isoDateMatch;
+    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 0, 0, 0));
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  // 4. Check pure Russian date: DD.MM.YYYY
   const ruDateMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (ruDateMatch) {
     const [_, d, m, y] = ruDateMatch;
-    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12, 0, 0));
+    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 0, 0, 0));
     if (!isNaN(dt.getTime())) return dt;
+  }
+
+  // 5. Check formatted money string with currency symbol (e.g. "120 000 ₽" or "50000 руб")
+  const moneyMatch = str.match(/^([+-]?[\d\s]+(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|RUB)$/i);
+  if (moneyMatch) {
+    const cleanNum = moneyMatch[1].replace(/\s+/g, "").replace(",", ".");
+    const num = parseFloat(cleanNum);
+    if (!isNaN(num)) return num;
   }
 
   return str;
@@ -281,9 +305,9 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
 
   // Register / Add logo on this workbook instance
   let imageId = (workbook as any).__russilica_logo_id__ ?? options.logoImageId ?? null;
-  if (imageId === null && typeof window === "undefined" && typeof process !== "undefined" && process.versions?.node) {
+  if (imageId === null && typeof process !== "undefined" && Boolean(process.versions?.node)) {
     try {
-      const nodeRequire = eval("require");
+      const nodeRequire = (globalThis as any).__non_webpack_require__ ?? eval("require");
       const fs = nodeRequire("fs");
       const path = nodeRequire("path");
       const logoPath = path.join(process.cwd(), "public", "brand", "russilica-logo.png");

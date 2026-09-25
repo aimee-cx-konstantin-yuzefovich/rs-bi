@@ -48,6 +48,27 @@ export interface StyleDataRowsOptions {
   highlightRows?: boolean[];
   highlightColorArgb?: string;
   statusColumnIndices?: number[];
+  moneyColumnIndices?: number[];
+  headerRowIndex?: number;
+}
+
+/**
+ * Checks whether a column header represents monetary/currency values.
+ */
+export function isCurrencyHeader(title: string): boolean {
+  if (!title) return false;
+  const lower = title.toLowerCase();
+  return (
+    lower.includes("сумм") ||
+    lower.includes("₽") ||
+    lower.includes("руб") ||
+    lower.includes("оборо") ||
+    lower.includes("бюджет") ||
+    lower.includes("стоимост") ||
+    lower.includes("выручк") ||
+    lower.includes("opportunity") ||
+    lower.includes("цена")
+  );
 }
 
 /**
@@ -61,6 +82,21 @@ export function styleDataRows(
   colCount: number,
   options?: StyleDataRowsOptions
 ): void {
+  // Identify money columns: either passed explicitly in options.moneyColumnIndices
+  // or auto-detected by inspecting the header row text
+  const moneyColIndices = new Set<number>(options?.moneyColumnIndices ?? []);
+  const headerRowNum = options?.headerRowIndex ?? (startRow > 1 ? startRow - 1 : null);
+  if (headerRowNum !== null && headerRowNum > 0) {
+    const headerRow = worksheet.getRow(headerRowNum);
+    for (let c = 1; c <= colCount; c++) {
+      const headerCell = headerRow.getCell(c);
+      const headerText = String(headerCell.value ?? "");
+      if (isCurrencyHeader(headerText)) {
+        moneyColIndices.add(c);
+      }
+    }
+  }
+
   for (let r = startRow; r <= endRow; r++) {
     const row = worksheet.getRow(r);
     row.height = row.height && row.height > 20 ? row.height : 20;
@@ -101,7 +137,11 @@ export function styleDataRows(
         cell.font = FONT_DATA;
         cell.alignment = { vertical: "middle", horizontal: "center" };
         if (!cell.numFmt) {
-          cell.numFmt = NUMFMT.DATE;
+          const hasTime =
+            val.getUTCHours() !== 0 ||
+            val.getUTCMinutes() !== 0 ||
+            val.getUTCSeconds() !== 0;
+          cell.numFmt = hasTime ? NUMFMT.DATETIME : NUMFMT.DATE;
         }
         continue;
       }
@@ -111,7 +151,12 @@ export function styleDataRows(
         cell.font = FONT_DATA;
         cell.alignment = { vertical: "middle", horizontal: "right" };
         if (!cell.numFmt) {
-          cell.numFmt = NUMFMT.INTEGER;
+          if (moneyColIndices.has(c)) {
+            const hasCents = Math.abs(val % 1) > 0.001;
+            cell.numFmt = hasCents ? NUMFMT.MONEY_PRECISE : NUMFMT.MONEY;
+          } else {
+            cell.numFmt = NUMFMT.INTEGER;
+          }
         }
         continue;
       }
