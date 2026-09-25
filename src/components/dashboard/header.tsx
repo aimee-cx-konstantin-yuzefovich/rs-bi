@@ -130,6 +130,8 @@ export function Header() {
         fileNamePrefix: "РусСилика_Сделки",
         period: periodLabel,
         filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
+        rawColumnIds: columns,
+        rowCurrencies: sortedDeals.map((d: any) => d.CURRENCY_ID),
       });
     } catch (err) {
       console.error("Ошибка при экспорте сделок в Excel:", err);

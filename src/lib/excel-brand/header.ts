@@ -17,6 +17,7 @@ import {
   THIN_BORDER,
 } from "./styles";
 import {
+  formatReportDateTime,
   REPORT_TIMEZONE,
   RS_BLUE_PRIMARY,
   RS_FONT_FAMILY,
@@ -69,13 +70,7 @@ export function addOperationalHeader(
 ): number {
   const colCount = Math.max(options.colCount, 5);
   const now = options.generatedAt || new Date();
-  const dateStr = now.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const dateStr = formatReportDateTime(now);
 
   // Ensure first column has sufficient width for the logo
   const col1 = worksheet.getColumn(1);
@@ -110,7 +105,7 @@ export function addOperationalHeader(
   const metaCell = row2.getCell(2);
   const periodStr = options.period || "Все";
   const countStr = options.recordCount !== undefined ? options.recordCount : 0;
-  metaCell.value = `Период: ${periodStr}   |   Сформировано: ${dateStr} (${REPORT_TIMEZONE})   |   Записей: ${countStr}`;
+  metaCell.value = `Период: ${periodStr}   |   Сформировано: ${dateStr} (Москва, UTC+3)   |   Записей: ${countStr}`;
   metaCell.font = { name: RS_FONT_FAMILY, size: 9, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
   metaCell.alignment = { vertical: "middle", horizontal: "left" };
 
@@ -155,11 +150,7 @@ export function addAccountHeader(
 ): number {
   const colCount = options.colCount ?? 5;
   const now = options.generatedAt || new Date();
-  const dateStr = now.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  const dateStr = formatReportDateTime(now);
 
   // Ensure first column has sufficient width for ~70px logo
   const col1 = worksheet.getColumn(1);
@@ -200,7 +191,7 @@ export function addAccountHeader(
   const metaCell = row3.getCell(2);
   const idStr = options.companyId ? `CRM ID: ${options.companyId}   |   ` : "";
   const respStr = options.responsibleName ? `Ответственный: ${options.responsibleName}   |   ` : "";
-  metaCell.value = `${idStr}${respStr}Дата формирования: ${dateStr} (${REPORT_TIMEZONE})`;
+  metaCell.value = `${idStr}${respStr}Дата формирования: ${dateStr} (Москва, UTC+3)`;
   metaCell.font = { name: RS_FONT_FAMILY, size: 9, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
   metaCell.alignment = { vertical: "middle", horizontal: "left" };
 

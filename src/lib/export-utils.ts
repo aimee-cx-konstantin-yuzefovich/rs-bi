@@ -19,9 +19,12 @@ import {
   FONT_DATA,
   FONT_METADATA_LABEL,
   FILL_SECTION_HEADER_SOFT,
+  disambiguateHeaders,
   formatCurrencyToRussian,
   formatHeaderToRussian,
+  formatReportDateForFilename,
   formatStageToRussian,
+  getMoneyNumFmt,
   mapBusinessStatusToSemantic,
   NUMFMT,
   registerBrandLogo,
@@ -46,6 +49,9 @@ export interface WysiwygExportOptions {
   highlightRows?: boolean[];
   highlightColorArgb?: string;
   logoImageId?: number | null;
+  rawColumnIds?: string[];
+  rowCurrencies?: (string | null | undefined)[];
+  columnCurrencies?: Record<number, string | null | undefined>;
 }
 
 /**
@@ -80,7 +86,11 @@ export async function buildWysiwygWorkbook(
     ? "Отчёт по компаниям"
     : "Отчёт по сделкам";
 
-  const cleanColumns = columns.map(formatHeaderToRussian);
+  const rawColumnIds = options?.rawColumnIds;
+  const cleanColumns = columns.map((col, idx) =>
+    formatHeaderToRussian(col, { fieldId: rawColumnIds?.[idx] })
+  );
+  const finalColumns = disambiguateHeaders(cleanColumns, rawColumnIds);
 
   // 1. Operational Corporate Header (Rows 1-5)
   const tableHeaderRowIndex = addOperationalHeader(worksheet, imageId, {
@@ -89,13 +99,13 @@ export async function buildWysiwygWorkbook(
     generatedAt: now,
     recordCount: data.length,
     filtersText: options?.filtersText || "Все",
-    colCount: cleanColumns.length,
+    colCount: finalColumns.length,
   });
 
   // 2. Table Header (Row 6)
   const tableHeaderRow = worksheet.getRow(tableHeaderRowIndex);
-  tableHeaderRow.values = cleanColumns;
-  styleTableHeader(tableHeaderRow, { colCount: cleanColumns.length });
+  tableHeaderRow.values = finalColumns;
+  styleTableHeader(tableHeaderRow, { colCount: finalColumns.length });
 
   // 3. Freeze panes: keep header rows 1-6 visible when scrolling
   worksheet.views = [
@@ -109,10 +119,33 @@ export async function buildWysiwygWorkbook(
   // 4. AutoFilter anchored strictly to table header row
   worksheet.autoFilter = {
     from: { row: tableHeaderRowIndex, column: 1 },
-    to: { row: tableHeaderRowIndex, column: cleanColumns.length },
+    to: { row: tableHeaderRowIndex, column: finalColumns.length },
   };
 
   // 5. Data rows (Row 7+)
+  const detectedColCurrencies: Record<number, string | null | undefined> = { ...(options?.columnCurrencies || {}) };
+  for (let c = 0; c < finalColumns.length; c++) {
+    const colIdx = c + 1;
+    if (detectedColCurrencies[colIdx]) continue;
+    for (const row of data) {
+      const val = row[c];
+      if (typeof val === "string") {
+        if (/₽|руб|RUB/i.test(val)) {
+          detectedColCurrencies[colIdx] = "RUB";
+          break;
+        }
+        if (/\$|USD/i.test(val)) {
+          detectedColCurrencies[colIdx] = "USD";
+          break;
+        }
+        if (/€|EUR/i.test(val)) {
+          detectedColCurrencies[colIdx] = "EUR";
+          break;
+        }
+      }
+    }
+  }
+
   const startDataRow = tableHeaderRowIndex + 1;
   for (const rawRow of data) {
     const parsedRow = rawRow.map((val) => parseCellNativeValue(val));
@@ -121,10 +154,12 @@ export async function buildWysiwygWorkbook(
   const endDataRow = startDataRow + data.length - 1;
 
   if (data.length > 0) {
-    styleDataRows(worksheet, startDataRow, endDataRow, cleanColumns.length, {
+    styleDataRows(worksheet, startDataRow, endDataRow, finalColumns.length, {
       highlightRows: options?.highlightRows,
       highlightColorArgb: options?.highlightColorArgb,
       headerRowIndex: tableHeaderRowIndex,
+      rowCurrencies: options?.rowCurrencies,
+      columnCurrencies: detectedColCurrencies,
     });
   }
 
@@ -214,7 +249,7 @@ function parseCellNativeValue(val: unknown): string | number | Date | null {
  */
 function resolveWysiwygFileName(prefix?: string, defaultPrefix = "РусСилика_Сделки"): string {
   const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10);
+  const dateStr = formatReportDateForFilename(now);
 
   if (!prefix) {
     return `${defaultPrefix}_${dateStr}.xlsx`;
@@ -269,7 +304,8 @@ export async function exportToExcelWysiwyg(
 export interface CompanyExportField {
   id?: string;
   label: string;
-  value: string;
+  value: string | null | undefined;
+  type?: string;
 }
 
 export interface CompanyExportDeal {
@@ -292,6 +328,85 @@ export interface ExportCompanyOptions {
   responsibleName?: string;
   workbook?: ExcelJS.Workbook;
   logoImageId?: number | null;
+}
+
+/**
+ * Normalizes field values for the Single Company report:
+ * converts reliable date fields into native Date objects with correct numFmt,
+ * preserves blank cells for null/empty values, and translates string values.
+ */
+export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
+  value: Date | string | number | null;
+  numFmt?: string;
+} {
+  const raw = field.value;
+  if (raw === null || raw === undefined || raw === "" || raw === "—") {
+    return { value: null };
+  }
+
+  const str = String(raw).trim();
+  if (!str || str === "—") {
+    return { value: null };
+  }
+
+  const idUpper = (field.id || "").toUpperCase();
+  const labelLower = (field.label || "").toLowerCase();
+  const typeLower = (field.type || "").toLowerCase();
+
+  const isExplicitDateField =
+    typeLower === "date" ||
+    typeLower === "datetime" ||
+    idUpper.includes("DATE_CREATE") ||
+    idUpper.includes("DATE_MODIFY") ||
+    idUpper.includes("DATE") ||
+    idUpper.includes("UF_CRM_1740925760") ||
+    idUpper.includes("UF_CRM_1741517789") ||
+    labelLower.includes("дата") ||
+    labelLower.includes("date");
+
+  if (isExplicitDateField) {
+    // 1. DD.MM.YYYY [HH:mm[:ss]]
+    const dmyMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (dmyMatch) {
+      const [_, day, month, year, h, m, s] = dmyMatch;
+      const hasTime = h !== undefined && m !== undefined;
+      const hours = hasTime ? Number(h) : 12;
+      const minutes = hasTime ? Number(m) : 0;
+      const seconds = s ? Number(s) : 0;
+      const d = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), hours, minutes, seconds));
+      if (!isNaN(d.getTime())) {
+        return {
+          value: d,
+          numFmt: hasTime ? NUMFMT.DATETIME : NUMFMT.DATE,
+        };
+      }
+    }
+
+    // 2. YYYY-MM-DD (date only)
+    const ymdMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (ymdMatch) {
+      const [_, year, month, day] = ymdMatch;
+      const d = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12, 0, 0));
+      if (!isNaN(d.getTime())) {
+        return { value: d, numFmt: NUMFMT.DATE };
+      }
+    }
+
+    // 3. ISO datetime: YYYY-MM-DDTHH:mm:ss
+    const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (isoMatch) {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        const hasTime = d.getUTCHours() !== 0 || d.getUTCMinutes() !== 0;
+        return {
+          value: d,
+          numFmt: hasTime ? NUMFMT.DATETIME : NUMFMT.DATE,
+        };
+      }
+    }
+  }
+
+  return { value: translateCrmValueToRussian(str) };
 }
 
 /**
@@ -355,9 +470,9 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   }
 
   for (const field of fields) {
-    const cleanLabel = formatHeaderToRussian(field.label);
-    const cleanVal = typeof field.value === "string" ? translateCrmValueToRussian(field.value) : (field.value || "—");
-    const row = worksheet.addRow([cleanLabel, cleanVal]);
+    const cleanLabel = formatHeaderToRussian(field.label, { preserveProvenance: false });
+    const parsed = normalizeCompanyReportFieldValue(field);
+    const row = worksheet.addRow([cleanLabel, parsed.value ?? "—"]);
     row.height = 20;
     worksheet.mergeCells(row.number, 2, row.number, 5);
 
@@ -368,7 +483,12 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
 
     const valueCell = row.getCell(2);
     valueCell.font = FONT_DATA;
-    valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
+    if (parsed.value instanceof Date) {
+      valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+      valueCell.numFmt = parsed.numFmt || NUMFMT.DATE;
+    } else {
+      valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
+    }
 
     applyRowBorders(row, 1, 5);
   }
@@ -381,9 +501,9 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   const sampleFields = options.sampleFields || [];
   if (sampleFields.length > 0) {
     for (const field of sampleFields) {
-      const cleanLabel = formatHeaderToRussian(field.label);
-      const cleanVal = typeof field.value === "string" ? translateCrmValueToRussian(field.value) : (field.value || "—");
-      const row = worksheet.addRow([cleanLabel, cleanVal]);
+      const cleanLabel = formatHeaderToRussian(field.label, { preserveProvenance: false });
+      const parsed = normalizeCompanyReportFieldValue(field);
+      const row = worksheet.addRow([cleanLabel, parsed.value ?? "—"]);
       row.height = 20;
       worksheet.mergeCells(row.number, 2, row.number, 5);
 
@@ -393,16 +513,22 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       labelCell.alignment = { vertical: "middle", indent: 1 };
 
       const valueCell = row.getCell(2);
-      const valStr = String(cleanVal || "").trim();
-      const semantic = mapBusinessStatusToSemantic(valStr);
-      if (
-        (cleanLabel.includes("Результат") || cleanLabel.includes("Статус")) &&
-        (semantic === "SUCCESS" || semantic === "ATTENTION" || semantic === "NEGATIVE")
-      ) {
-        applyStatusCell(valueCell, valStr);
-      } else {
+      if (parsed.value instanceof Date) {
         valueCell.font = FONT_DATA;
-        valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
+        valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+        valueCell.numFmt = parsed.numFmt || NUMFMT.DATE;
+      } else {
+        const valStr = String(parsed.value ?? "").trim();
+        const semantic = mapBusinessStatusToSemantic(valStr);
+        if (
+          (cleanLabel.includes("Результат") || cleanLabel.includes("Статус")) &&
+          (semantic === "SUCCESS" || semantic === "ATTENTION" || semantic === "NEGATIVE")
+        ) {
+          applyStatusCell(valueCell, valStr);
+        } else {
+          valueCell.font = FONT_DATA;
+          valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
+        }
       }
 
       applyRowBorders(row, 1, 5);
@@ -460,7 +586,8 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
           cell.font = FONT_DATA;
           cell.alignment = { vertical: "middle", horizontal: "right" };
           if (typeof deal.opportunity === "number") {
-            cell.numFmt = NUMFMT.MONEY_PRECISE;
+            const hasCents = Math.abs(deal.opportunity % 1) > 0.001;
+            cell.numFmt = getMoneyNumFmt(deal.currency, hasCents);
           }
         }
       }
@@ -521,7 +648,7 @@ export async function exportCompanyToExcel(options: ExportCompanyOptions): Promi
     .trim();
   const safeTitle = rawTitle.replace(/^_+|_+$/g, "").trim().slice(0, 50);
   const now = options.currentDate || new Date();
-  const dateStr = now.toISOString().slice(0, 10);
+  const dateStr = formatReportDateForFilename(now);
   const prefix = safeTitle ? `РусСилика_Компания_${safeTitle}` : "РусСилика_Компания";
   a.download = options.fileName || `${prefix}_${dateStr}.xlsx`;
 

@@ -30,6 +30,7 @@ import {
   addCorporateFooter,
   addOperationalHeader,
   addSectionHeader,
+  applyRowBorders,
   applyStatusCell,
   autoFitColumns,
   configureWorksheetPrint,
@@ -40,6 +41,8 @@ import {
   FONT_REPORT_TITLE,
   FONT_SECTION_HEADER_WHITE,
   formatPaymentStatusToRussian,
+  formatReportDateForFilename,
+  formatReportDateTime,
   formatStageToRussian,
   NUMFMT,
   registerBrandLogo,
@@ -189,7 +192,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     ["Период анализа:", periodLabel],
     ["Предыдущий период для сравнения:", `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
     ["Бизнес-часовой пояс:", `Москва (${COMMERCIAL_TIMEZONE}, UTC+3)`],
-    ["Дата и время формирования:", now.toISOString().replace("T", " ").slice(0, 19)],
+    ["Дата и время формирования:", `${formatReportDateTime(now)} (Москва, UTC+3)`],
     ["Ответственный:", respLabel],
     ["Продукт:", prodLabel],
     ["Отрасль:", indLabel],
@@ -215,6 +218,102 @@ function formatPeriodPresetToRussian(preset: string): string {
   // Corporate Divider beneath metadata
   const divRowNum = summarySheet.rowCount + 1;
   addCorporateDivider(summarySheet, divRowNum, 6);
+  summarySheet.addRow([]); // Spacer
+
+  // ── Executive KPI Cards (drawn strictly from datedKpis) ──
+  addSectionHeader(summarySheet, "КЛЮЧЕВЫЕ ПОКАЗАТЕЛИ (KPI)", 6, { soft: true, height: 20 });
+
+  const kpiNewComp = datedKpis.find((k) => k.id === "new_companies");
+  const kpiSamples = datedKpis.find((k) => k.id === "samples_sent");
+  const kpiDeals = datedKpis.find((k) => k.id === "deals_created");
+  const kpiPayments = datedKpis.find((k) => k.id === "payments_received");
+  const kpiAmount = datedKpis.find((k) => k.id === "payment_amount");
+
+  // Row 1: Top 3 volume metrics (New Companies, Samples Sent, Deals Created)
+  const valRow1 = summarySheet.addRow([
+    kpiNewComp?.currentValue ?? 0,
+    null,
+    kpiSamples?.currentValue ?? 0,
+    null,
+    kpiDeals?.currentValue ?? 0,
+    null,
+  ]);
+  valRow1.height = 26;
+  summarySheet.mergeCells(valRow1.number, 1, valRow1.number, 2);
+  summarySheet.mergeCells(valRow1.number, 3, valRow1.number, 4);
+  summarySheet.mergeCells(valRow1.number, 5, valRow1.number, 6);
+
+  const lblRow1 = summarySheet.addRow([
+    `[KPI] ${kpiNewComp?.label ?? "Новые компании"}`,
+    null,
+    `[KPI] ${kpiSamples?.label ?? "Образцы отправлены"}`,
+    null,
+    `[KPI] ${kpiDeals?.label ?? "Создано сделок"}`,
+    null,
+  ]);
+  lblRow1.height = 18;
+  summarySheet.mergeCells(lblRow1.number, 1, lblRow1.number, 2);
+  summarySheet.mergeCells(lblRow1.number, 3, lblRow1.number, 4);
+  summarySheet.mergeCells(lblRow1.number, 5, lblRow1.number, 6);
+
+  // Row 2: Bottom 2 conversion/financial metrics (Payments Received, Payment Amount)
+  const valRow2 = summarySheet.addRow([
+    kpiPayments?.currentValue ?? 0,
+    null,
+    null,
+    kpiAmount?.currentValue ?? 0,
+    null,
+    null,
+  ]);
+  valRow2.height = 26;
+  summarySheet.mergeCells(valRow2.number, 1, valRow2.number, 3);
+  summarySheet.mergeCells(valRow2.number, 4, valRow2.number, 6);
+
+  const lblRow2 = summarySheet.addRow([
+    `[KPI] ${kpiPayments?.label ?? "Получено оплат"}`,
+    null,
+    null,
+    `[KPI] ${kpiAmount?.label ?? "Сумма полученных оплат"}`,
+    null,
+    null,
+  ]);
+  lblRow2.height = 18;
+  summarySheet.mergeCells(lblRow2.number, 1, lblRow2.number, 3);
+  summarySheet.mergeCells(lblRow2.number, 4, lblRow2.number, 6);
+
+  // Style KPI Cards
+  const kpiCardFill = {
+    type: "pattern" as const,
+    pattern: "solid" as const,
+    fgColor: { argb: "FFF3F6FA" },
+  };
+
+  [valRow1, valRow2].forEach((row) => {
+    for (let c = 1; c <= 6; c++) {
+      const cell = row.getCell(c);
+      cell.fill = kpiCardFill;
+      cell.border = THIN_BORDER;
+      cell.font = { name: RS_FONT_FAMILY, size: 14, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    }
+  });
+
+  valRow1.getCell(1).numFmt = NUMFMT.INTEGER;
+  valRow1.getCell(3).numFmt = NUMFMT.INTEGER;
+  valRow1.getCell(5).numFmt = NUMFMT.INTEGER;
+  valRow2.getCell(1).numFmt = NUMFMT.INTEGER;
+  valRow2.getCell(4).numFmt = NUMFMT.MONEY;
+
+  [lblRow1, lblRow2].forEach((row) => {
+    for (let c = 1; c <= 6; c++) {
+      const cell = row.getCell(c);
+      cell.fill = kpiCardFill;
+      cell.border = THIN_BORDER;
+      cell.font = { name: RS_FONT_FAMILY, size: 9, bold: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    }
+  });
+
   summarySheet.addRow([]); // Spacer
 
   // Section 1: Dated KPIs table (Crucial: keeps exact cell positions for reconciliation tests)
@@ -282,6 +381,72 @@ function formatPeriodPresetToRussian(preset: string): string {
   }
   const endWipRow = summarySheet.rowCount;
   styleDataRows(summarySheet, startWipRow, endWipRow, 3);
+
+  summarySheet.addRow([]); // Spacer
+
+  // Section 3: Attention / Bottlenecks summary
+  addSectionHeader(summarySheet, "ТРЕБУЮТ ВНИМАНИЯ (УЗКИЕ МЕСТА)", 6);
+
+  if (bottlenecks.length === 0) {
+    const emptyRow = summarySheet.addRow([
+      "Узких мест и зависших процессов не обнаружено. Все процессы выполняются штатно.",
+    ]);
+    emptyRow.height = 20;
+    summarySheet.mergeCells(emptyRow.number, 1, emptyRow.number, 6);
+    const cell = emptyRow.getCell(1);
+    cell.font = FONT_METADATA_LABEL;
+    cell.alignment = { vertical: "middle", indent: 1 };
+  } else {
+    const attentionHeader = summarySheet.addRow([
+      "Компания",
+      "Менеджер",
+      "Причина внимания",
+      "Текущее состояние",
+      "Дней ожидания",
+      "Сумма (₽)",
+    ]);
+    styleTableHeader(attentionHeader, { colCount: 6 });
+
+    const startAttentionRow = summarySheet.rowCount + 1;
+    const topBottlenecks = bottlenecks.slice(0, 5);
+
+    for (const b of topBottlenecks) {
+      const row = summarySheet.addRow([
+        b.companyTitle,
+        b.responsibleName,
+        b.issueLabel,
+        b.currentState,
+        b.daysWaiting,
+        b.amount || 0,
+      ]);
+      row.height = 20;
+
+      for (let c = 1; c <= 6; c++) {
+        const cell = row.getCell(c);
+        cell.border = THIN_BORDER;
+        cell.font = FONT_DATA;
+      }
+
+      if (typeof b.daysWaiting === "number") row.getCell(5).numFmt = NUMFMT.INTEGER;
+      row.getCell(6).numFmt = NUMFMT.MONEY;
+
+      applyStatusCell(row.getCell(3), "Внимание");
+      row.getCell(3).value = b.issueLabel;
+    }
+    const endAttentionRow = summarySheet.rowCount;
+    styleDataRows(summarySheet, startAttentionRow, endAttentionRow, 6);
+
+    if (bottlenecks.length > 5) {
+      const moreRow = summarySheet.addRow([
+        `Показано 5 из ${bottlenecks.length} узких мест. Полный реестр доступен на листе «Bottlenecks».`,
+      ]);
+      moreRow.height = 18;
+      summarySheet.mergeCells(moreRow.number, 1, moreRow.number, 6);
+      const moreCell = moreRow.getCell(1);
+      moreCell.font = { name: RS_FONT_FAMILY, size: 9, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+      moreCell.alignment = { vertical: "middle", indent: 1 };
+    }
+  }
 
   // Auto-fit summary sheet columns
   autoFitColumns(summarySheet, { minWidth: 14, maxWidth: 50 });
@@ -688,7 +853,7 @@ export async function downloadCommercialFunnelExcel(
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  const dateStr = (options.now || new Date()).toISOString().slice(0, 10);
+  const dateStr = formatReportDateForFilename(options.now || new Date());
   const periodPart =
     options.filters.periodPreset === "custom" && options.filters.customFrom && options.filters.customTo
       ? `${options.filters.customFrom}_${options.filters.customTo}`

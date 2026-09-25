@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, waitForElementToBeRemoved } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DealPreview } from "@/components/dashboard/deal-preview";
 import { CompanyPreview } from "@/components/dashboard/company-preview";
@@ -179,8 +179,8 @@ describe("Deal Preview Component and Navigation", () => {
     fetchMock.mockResolvedValue(ok(dealDetail("101", "Сделка", "")));
     render(<DealPreview id="101" onClose={() => {}} />);
 
-    await screen.findByRole("heading", { name: "Сделка" });
-    expect(screen.getByText("Без названия")).toBeInTheDocument();
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+    expect(await screen.findByText("Без названия")).toBeInTheDocument();
     expect(screen.queryByText("42")).not.toBeInTheDocument();
     expect(screen.queryByText("ID 42")).not.toBeInTheDocument();
     expect(screen.queryByText("Компания 42")).not.toBeInTheDocument();

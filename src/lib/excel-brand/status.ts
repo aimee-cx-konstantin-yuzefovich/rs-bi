@@ -67,17 +67,24 @@ export function mapBusinessStatusToSemantic(status?: string | null): SemanticSta
     s.includes("не подош") ||
     s.includes("отказ") ||
     s.includes("брак") ||
+    s.includes("возвращ") ||
+    s.includes("возврат") ||
+    s === "refunded" ||
     s === "lose" ||
     s === "lost" ||
     s === "провалена" ||
     s === "отменена" ||
-    s === "ошибка"
+    s.includes("ошибк") ||
+    s === "error"
   ) {
     return "NEGATIVE";
   }
 
-  // 2. ATTENTION (check before in_progress)
+  // 2. ATTENTION (check explicit negative/unpaid phrases BEFORE positive success like "оплачен")
   if (
+    s.includes("не оплачен") ||
+    s.includes("неоплачен") ||
+    s === "unpaid" ||
     s.includes("внимани") ||
     s.includes("доработк") ||
     s.includes("завис") ||
@@ -92,12 +99,15 @@ export function mapBusinessStatusToSemantic(status?: string | null): SemanticSta
   // 3. SUCCESS
   if (
     s.includes("оплачен") ||
-    s.includes("подош") || // подошёл / подошли
+    s.includes("проведен") ||
+    s.includes("проведён") ||
+    s.includes("подош") ||
     s.includes("успеш") ||
     s === "won" ||
     s === "завершена" ||
     s === "выполнено" ||
-    s === "да"
+    s === "да" ||
+    s === "true"
   ) {
     return "SUCCESS";
   }
@@ -107,21 +117,25 @@ export function mapBusinessStatusToSemantic(status?: string | null): SemanticSta
     s.includes("отправлен") ||
     s.includes("испытан") ||
     s.includes("работе") ||
+    s.includes("выставлен") ||
     s.includes("счет") ||
     s.includes("счёт") ||
     s.includes("подготовк") ||
     s.includes("передан") ||
     s.includes("тестирован") ||
+    s.includes("ожидает") ||
     s === "new" ||
     s === "executing" ||
     s === "prepayment_invoice" ||
-    s === "preparation"
+    s === "preparation" ||
+    s === "invoice_sent" ||
+    s === "awaiting_confirmation"
   ) {
     return "IN_PROGRESS";
   }
 
   // 5. NEUTRAL
-  if (s.includes("не требуется") || s === "нет" || s === "все" || s === "всё") {
+  if (s.includes("не требуется") || s === "нет" || s === "false" || s === "все" || s === "всё") {
     return "NEUTRAL";
   }
 
@@ -166,14 +180,17 @@ export function formatPaymentStatusToRussian(status?: string | null): string {
 
 /**
  * Translates English currency codes to Russian currency symbols.
+ * Missing or unknown currency safely returns "—" to avoid misleading false-RUB defaults.
  */
 export function formatCurrencyToRussian(currency?: string | null): string {
-  if (!currency || typeof currency !== "string") return "₽";
-  const upper = currency.trim().toUpperCase();
-  if (upper === "RUB" || upper === "RUR") return "₽";
-  if (upper === "USD") return "$";
-  if (upper === "EUR") return "€";
-  return currency.trim();
+  if (!currency || typeof currency !== "string") return "—";
+  const trim = currency.trim();
+  if (!trim || trim === "—") return "—";
+  const upper = trim.toUpperCase();
+  if (upper === "RUB" || upper === "RUR" || upper === "₽") return "₽";
+  if (upper === "USD" || upper === "$") return "$";
+  if (upper === "EUR" || upper === "€") return "€";
+  return trim;
 }
 
 /**

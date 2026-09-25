@@ -57,13 +57,100 @@ export const NUMFMT = {
   MONEY: '#,##0 "₽"',
   MONEY_PRECISE: '#,##0.00 "₽"',
   INTEGER: "#,##0",
+  DECIMAL_2: "#,##0.00",
   PERCENT: "0.0%",
   DELTA_MONEY: '+#,##0 "₽";-#,##0 "₽";0 "₽"',
   DELTA_INTEGER: "+#,##0;-#,##0;0",
 } as const;
 
+/** Currency-aware number format masks */
+export const CURRENCY_NUMFMT = {
+  RUB: {
+    MONEY: '#,##0 "₽"',
+    MONEY_PRECISE: '#,##0.00 "₽"',
+  },
+  USD: {
+    MONEY: '$#,##0',
+    MONEY_PRECISE: '$#,##0.00',
+  },
+  EUR: {
+    MONEY: '#,##0 "€"',
+    MONEY_PRECISE: '#,##0.00 "€"',
+  },
+  UNKNOWN: {
+    MONEY: '#,##0',
+    MONEY_PRECISE: '#,##0.00',
+  },
+} as const;
+
+/**
+ * Returns currency-aware Excel number format mask.
+ * Missing or unknown currency safely defaults to neutral numeric formatting.
+ */
+export function getMoneyNumFmt(currency?: string | null, precise: boolean = false): string {
+  if (!currency || typeof currency !== "string") {
+    return precise ? CURRENCY_NUMFMT.UNKNOWN.MONEY_PRECISE : CURRENCY_NUMFMT.UNKNOWN.MONEY;
+  }
+  const upper = currency.trim().toUpperCase();
+  if (upper === "RUB" || upper === "RUR" || upper === "₽") {
+    return precise ? CURRENCY_NUMFMT.RUB.MONEY_PRECISE : CURRENCY_NUMFMT.RUB.MONEY;
+  }
+  if (upper === "USD" || upper === "$") {
+    return precise ? CURRENCY_NUMFMT.USD.MONEY_PRECISE : CURRENCY_NUMFMT.USD.MONEY;
+  }
+  if (upper === "EUR" || upper === "€") {
+    return precise ? CURRENCY_NUMFMT.EUR.MONEY_PRECISE : CURRENCY_NUMFMT.EUR.MONEY;
+  }
+  return precise ? CURRENCY_NUMFMT.UNKNOWN.MONEY_PRECISE : CURRENCY_NUMFMT.UNKNOWN.MONEY;
+}
+
 /** Standard business timezone for management reports */
 export const REPORT_TIMEZONE = "Europe/Moscow";
+
+/**
+ * Formats a Date in the designated business timezone (default: Europe/Moscow).
+ * Uses Intl.DateTimeFormat for strict timezone correctness without manual offset math.
+ */
+export function formatReportDateTime(
+  date: Date = new Date(),
+  timezone: string = REPORT_TIMEZONE
+): string {
+  const formatter = new Intl.DateTimeFormat("ru-RU", {
+    timeZone: timezone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return formatter.format(date).replace(",", "");
+}
+
+export function formatReportDate(
+  date: Date = new Date(),
+  timezone: string = REPORT_TIMEZONE
+): string {
+  const formatter = new Intl.DateTimeFormat("ru-RU", {
+    timeZone: timezone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  return formatter.format(date);
+}
+
+export function formatReportDateForFilename(
+  date: Date = new Date(),
+  timezone: string = REPORT_TIMEZONE
+): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(date);
+}
 
 /** Canonical company / report labels */
 export const RS_COMPANY_NAME = "РусСилика";

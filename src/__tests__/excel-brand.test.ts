@@ -24,11 +24,18 @@ import {
   configureWorksheetPrint,
   addCorporateFooter,
   NUMFMT,
+  CURRENCY_NUMFMT,
+  getMoneyNumFmt,
+  formatReportDateTime,
+  formatReportDate,
+  formatReportDateForFilename,
   isCurrencyHeader,
   formatHeaderToRussian,
+  disambiguateHeaders,
   formatStageToRussian,
   formatCurrencyToRussian,
 } from "@/lib/excel-brand";
+import { normalizeCompanyReportFieldValue } from "@/lib/export-utils";
 
 describe("Excel Brand System — Tokens", () => {
   it("defines canonical approved colors", () => {
@@ -333,8 +340,10 @@ describe("Excel Brand System — Pure Russian Reports (No English CRM Terms)", (
     expect(formatHeaderToRussian("CLOSEDATE")).toBe("Дата завершения");
     expect(formatHeaderToRussian("PROBABILITY")).toBe("Вероятность");
     expect(formatHeaderToRussian("TYPE_ID")).toBe("Тип");
-    expect(formatHeaderToRussian("Компания: TITLE")).toBe("Название");
-    expect(formatHeaderToRussian("Компания: OPPORTUNITY")).toBe("Сумма");
+    expect(formatHeaderToRussian("Компания: TITLE")).toBe("Компания: Название");
+    expect(formatHeaderToRussian("Компания: OPPORTUNITY")).toBe("Компания: Сумма");
+    expect(formatHeaderToRussian("COMPANY_TITLE", { fieldId: "COMPANY_TITLE" })).toBe("Компания");
+    expect(formatHeaderToRussian("COMPANY_ASSIGNED_BY_ID", { fieldId: "COMPANY_ASSIGNED_BY_ID" })).toBe("Ответственный компании");
   });
 
   it("translates raw Bitrix stages and payment statuses to Russian", () => {
@@ -351,7 +360,8 @@ describe("Excel Brand System — Pure Russian Reports (No English CRM Terms)", (
     expect(formatCurrencyToRussian("RUR")).toBe("₽");
     expect(formatCurrencyToRussian("USD")).toBe("$");
     expect(formatCurrencyToRussian("EUR")).toBe("€");
-    expect(formatCurrencyToRussian(null)).toBe("₽");
+    expect(formatCurrencyToRussian(null)).toBe("—");
+    expect(formatCurrencyToRussian(undefined)).toBe("—");
   });
 
   it("guarantees buildWysiwygWorkbook cleanses raw English column names like Opportunity", async () => {
@@ -428,5 +438,167 @@ describe("Excel Brand System — Pure Russian Reports (No English CRM Terms)", (
     expect(foundSumma).toBe(true);
     expect(foundRubSymbol).toBe(true);
     expect(foundWonTranslated).toBe(true);
+  });
+});
+
+describe("Excel Brand System — Multi-Currency Formatting (P1-2)", () => {
+  it("resolves exact numFmt for canonical currencies and neutral fallback for unknown", () => {
+    // RUB
+    expect(getMoneyNumFmt("RUB", false)).toBe(CURRENCY_NUMFMT.RUB.MONEY);
+    expect(getMoneyNumFmt("RUB", true)).toBe(CURRENCY_NUMFMT.RUB.MONEY_PRECISE);
+    expect(getMoneyNumFmt("₽", false)).toBe(CURRENCY_NUMFMT.RUB.MONEY);
+
+    // USD
+    expect(getMoneyNumFmt("USD", false)).toBe(CURRENCY_NUMFMT.USD.MONEY);
+    expect(getMoneyNumFmt("USD", true)).toBe(CURRENCY_NUMFMT.USD.MONEY_PRECISE);
+    expect(getMoneyNumFmt("$", false)).toBe(CURRENCY_NUMFMT.USD.MONEY);
+
+    // EUR
+    expect(getMoneyNumFmt("EUR", false)).toBe(CURRENCY_NUMFMT.EUR.MONEY);
+    expect(getMoneyNumFmt("EUR", true)).toBe(CURRENCY_NUMFMT.EUR.MONEY_PRECISE);
+    expect(getMoneyNumFmt("€", false)).toBe(CURRENCY_NUMFMT.EUR.MONEY);
+
+    // Unknown or null: neutral numeric format, NEVER falsely defaults to RUB
+    expect(getMoneyNumFmt(null, false)).toBe(NUMFMT.INTEGER);
+    expect(getMoneyNumFmt(null, true)).toBe(NUMFMT.DECIMAL_2);
+    expect(getMoneyNumFmt(undefined, false)).toBe(NUMFMT.INTEGER);
+    expect(getMoneyNumFmt("GBP", false)).toBe(NUMFMT.INTEGER);
+    expect(getMoneyNumFmt("XYZ", true)).toBe(NUMFMT.DECIMAL_2);
+  });
+
+  it("applies row-specific currencies in Deals WYSIWYG export without converting or cross-contaminating", async () => {
+    const { buildWysiwygWorkbook } = await import("@/lib/export-utils");
+
+    const columns = ["ID", "Название", "Сумма", "Валюта"];
+    const data = [
+      ["101", "Сделка в рублях", 100000, "₽"],
+      ["102", "Сделка в долларах", 5000, "$"],
+      ["103", "Сделка в евро", 7500, "€"],
+      ["104", "Сделка без валюты", 2000, "—"],
+    ];
+
+    const workbook = await buildWysiwygWorkbook(data, columns, {
+      title: "Мультивалютный отчёт",
+      rowCurrencies: ["RUB", "USD", "EUR", null],
+    });
+
+    const sheet = workbook.getWorksheet("Сделки")!;
+    // Row 7 (RUB): #,##0 "₽"
+    expect(sheet.getRow(7).getCell(3).numFmt).toBe(CURRENCY_NUMFMT.RUB.MONEY);
+    // Row 8 (USD): $#,##0 - NEVER ₽
+    expect(sheet.getRow(8).getCell(3).numFmt).toBe(CURRENCY_NUMFMT.USD.MONEY);
+    expect(sheet.getRow(8).getCell(3).numFmt).not.toContain("₽");
+    // Row 9 (EUR): #,##0 "€" - NEVER ₽
+    expect(sheet.getRow(9).getCell(3).numFmt).toBe(CURRENCY_NUMFMT.EUR.MONEY);
+    expect(sheet.getRow(9).getCell(3).numFmt).not.toContain("₽");
+    // Row 10 (Neutral): #,##0 - NEVER ₽
+    expect(sheet.getRow(10).getCell(3).numFmt).toBe(NUMFMT.INTEGER);
+    expect(sheet.getRow(10).getCell(3).numFmt).not.toContain("₽");
+  });
+});
+
+describe("Excel Brand System — Semantic Status Taxonomy & Truthfulness (P1-3)", () => {
+  it("never classifies negative or unpaid phrases as SUCCESS", () => {
+    // Explicit negative phrases must NOT match "оплачен" or other positive substrings
+    expect(mapBusinessStatusToSemantic("Не оплачен")).toBe("ATTENTION");
+    expect(mapBusinessStatusToSemantic("Не оплачено")).toBe("ATTENTION");
+    expect(mapBusinessStatusToSemantic("не оплачен")).toBe("ATTENTION");
+    expect(mapBusinessStatusToSemantic("неоплачен")).toBe("ATTENTION");
+    expect(mapBusinessStatusToSemantic("unpaid")).toBe("ATTENTION");
+
+    expect(mapBusinessStatusToSemantic("Не подошёл")).toBe("NEGATIVE");
+    expect(mapBusinessStatusToSemantic("Не подошел")).toBe("NEGATIVE");
+    expect(mapBusinessStatusToSemantic("Не подошли")).toBe("NEGATIVE");
+    expect(mapBusinessStatusToSemantic("Возвращен")).toBe("NEGATIVE");
+    expect(mapBusinessStatusToSemantic("Ошибка")).toBe("NEGATIVE");
+
+    // Positive phrases
+    expect(mapBusinessStatusToSemantic("Оплачен")).toBe("SUCCESS");
+    expect(mapBusinessStatusToSemantic("Оплачено")).toBe("SUCCESS");
+    expect(mapBusinessStatusToSemantic("Платеж проведен")).toBe("SUCCESS");
+    expect(mapBusinessStatusToSemantic("Платёж проведен")).toBe("SUCCESS");
+    expect(mapBusinessStatusToSemantic("Подошли")).toBe("SUCCESS");
+    expect(mapBusinessStatusToSemantic("Подошёл")).toBe("SUCCESS");
+
+    // In-progress phrases
+    expect(mapBusinessStatusToSemantic("Выставлен счет")).toBe("IN_PROGRESS");
+    expect(mapBusinessStatusToSemantic("Выставлен счёт")).toBe("IN_PROGRESS");
+    expect(mapBusinessStatusToSemantic("Ожидает подтверждения")).toBe("IN_PROGRESS");
+    expect(mapBusinessStatusToSemantic("В работе")).toBe("IN_PROGRESS");
+  });
+});
+
+describe("Excel Brand System — Header Provenance & Disambiguation (P1-4)", () => {
+  it("preserves company provenance and disambiguates duplicate titles in mixed exports", () => {
+    // Single header translation with provenance
+    expect(formatHeaderToRussian("Тип продукта", { fieldId: "UF_CRM_DEAL_PROD" })).toBe("Тип продукта");
+    expect(
+      formatHeaderToRussian("Тип продукта", {
+        fieldId: "COMPANY_UF_CRM_PROD",
+        entity: "COMPANY",
+        preserveProvenance: true,
+      })
+    ).toBe("Компания: Тип продукта");
+
+    // Disambiguation of identical header strings
+    const rawHeaders = ["Тип продукта", "Тип продукта"];
+    const rawIds = ["UF_CRM_DEAL_PROD", "COMPANY_UF_CRM_PROD"];
+    const disambiguated = disambiguateHeaders(rawHeaders, rawIds);
+    expect(disambiguated).toEqual(["Тип продукта", "Компания: Тип продукта"]);
+    expect(new Set(disambiguated).size).toBe(2);
+  });
+});
+
+describe("Excel Brand System — Europe/Moscow Timezone Handling (P2-1)", () => {
+  it("formats dates and datetimes strictly in Europe/Moscow timezone across midnight boundaries", () => {
+    // 2026-09-24 22:30:00 UTC is 2026-09-25 01:30:00 MSK (UTC+3)
+    const utcMidnightBoundary = new Date("2026-09-24T22:30:00.000Z");
+
+    const formattedDate = formatReportDate(utcMidnightBoundary);
+    expect(formattedDate).toBe("25.09.2026"); // In MSK it is already the 25th!
+
+    const formattedFilename = formatReportDateForFilename(utcMidnightBoundary);
+    expect(formattedFilename).toBe("2026-09-25"); // In MSK it is the 25th!
+
+    const formattedDateTime = formatReportDateTime(utcMidnightBoundary);
+    expect(formattedDateTime).toContain("25.09.2026");
+    expect(formattedDateTime).toContain("01:30");
+  });
+});
+
+describe("Excel Brand System — Single Company Native Dates & Currency (P2-3)", () => {
+  it("converts company date strings to native Excel Date values while preserving text and nulls", () => {
+    const dateField = normalizeCompanyReportFieldValue({
+      id: "DATE_CREATE",
+      label: "Дата создания",
+      value: "2026-05-15T10:00:00Z",
+      type: "datetime",
+    });
+    expect(dateField.value).toBeInstanceOf(Date);
+    expect(dateField.numFmt).toBe(NUMFMT.DATETIME);
+
+    const ruDateField = normalizeCompanyReportFieldValue({
+      id: "UF_CRM_DATE",
+      label: "Дата отправки образца",
+      value: "15.05.2026",
+    });
+    expect(ruDateField.value).toBeInstanceOf(Date);
+    expect(ruDateField.numFmt).toBe(NUMFMT.DATE);
+
+    const textField = normalizeCompanyReportFieldValue({
+      id: "TITLE",
+      label: "Название компании",
+      value: "ООО РусСилика",
+    });
+    expect(textField.value).toBe("ООО РусСилика");
+    expect(textField.numFmt).toBeUndefined();
+
+    const nullField = normalizeCompanyReportFieldValue({
+      id: "DATE_MODIFY",
+      label: "Дата изменения",
+      value: null,
+      type: "date",
+    });
+    expect(nullField.value).toBeNull();
   });
 });

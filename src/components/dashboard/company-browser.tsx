@@ -462,6 +462,7 @@ export function CompanyBrowser() {
         filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
         // Mirror the on-screen "Образцы" highlight in the exported file.
         highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
+        rawColumnIds: columns,
       });
     } catch (err) {
       console.error("Ошибка при экспорте компаний в Excel:", err);
