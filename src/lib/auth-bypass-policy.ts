@@ -39,10 +39,12 @@ export function normalizeHost(rawHost: string | null | undefined): string | null
     return trimmed.slice(1, closingBracket);
   }
 
-  // Handle host:port
-  const colonIndex = trimmed.indexOf(":");
-  if (colonIndex !== -1) {
-    return trimmed.slice(0, colonIndex);
+  // Handle host:port — only when there is exactly one colon (DNS host or IPv4 with port).
+  // Unbracketed IPv6 literals contain 2 or more colons and must not be truncated.
+  const firstColon = trimmed.indexOf(":");
+  const lastColon = trimmed.lastIndexOf(":");
+  if (firstColon !== -1 && firstColon === lastColon) {
+    return trimmed.slice(0, firstColon);
   }
 
   return trimmed;

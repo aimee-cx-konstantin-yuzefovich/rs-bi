@@ -40,6 +40,28 @@ blockList.addSubnet("fe80::", 10, "ipv6");       // RFC 4291 Link-local unicast
 blockList.addSubnet("ff00::", 8, "ipv6");        // RFC 4291 Multicast
 blockList.addSubnet("2001:db8::", 32, "ipv6");   // RFC 3849 Documentation
 blockList.addSubnet("100::", 64, "ipv6");        // RFC 6666 Discard-only
+blockList.addSubnet("64:ff9b::", 96, "ipv6");        // RFC 6052 Well-Known NAT64 Prefix
+blockList.addSubnet("64:ff9b:1::", 48, "ipv6");      // RFC 8215 Local-Use IPv4/IPv6 Translation Prefix
+blockList.addSubnet("0:0:0:0:ffff:0:0:0", 96, "ipv6"); // RFC 2765/RFC 6145 SIIT IPv4-Translated
+blockList.addSubnet("2002::", 16, "ipv6");           // RFC 3056 6to4 encapsulation
+blockList.addSubnet("2001::", 32, "ipv6");           // RFC 4380 Teredo tunneling
+blockList.addSubnet("2001:2::", 48, "ipv6");         // RFC 5180 Benchmarking
+blockList.addSubnet("2001:20::", 28, "ipv6");        // RFC 7343 ORCHIDv2
+
+/**
+ * Restricted ports list according to WHATWG Fetch standard to prevent protocol smuggling
+ * and internal port scanning (SSH, SMTP, Redis, Memcached, databases, etc.).
+ */
+export const RESTRICTED_PORTS = new Set([
+  "1", "7", "9", "11", "13", "15", "17", "19", "20", "21", "22", "23", "25",
+  "37", "42", "43", "53", "69", "77", "79", "87", "95", "101", "102", "103",
+  "104", "109", "110", "111", "113", "115", "117", "119", "123", "135", "137",
+  "138", "139", "143", "161", "179", "389", "445", "465", "512", "513", "514",
+  "515", "526", "530", "531", "532", "540", "548", "554", "556", "563", "587",
+  "601", "636", "993", "995", "1719", "1720", "1723", "2049", "3306", "3659",
+  "4045", "5060", "5061", "5432", "6000", "6379", "6665", "6666", "6667", "6668",
+  "6669", "6697", "11211", "27017"
+]);
 
 /**
  * Normalizes a raw hostname or IP string:
@@ -112,6 +134,14 @@ export async function assertSafeWebhookUrl(
 
   if (parsed.protocol !== "https:") {
     throw new Error("Webhook URL must use HTTPS");
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error("Webhook URL cannot contain credentials");
+  }
+
+  if (parsed.port && RESTRICTED_PORTS.has(parsed.port)) {
+    throw new Error("Webhook URL uses a restricted port");
   }
 
   const cleanHost = normalizeHostname(parsed.hostname);

@@ -99,6 +99,7 @@ export async function bitrixGet<T = unknown>(
       method: "GET",
       headers: { "Content-Type": "application/json" },
       next: { revalidate: 0 },
+      redirect: "error", // Prevent HTTP redirect SSRF bypasses
       signal: AbortSignal.timeout(15_000), // 15s timeout to prevent hanging requests (DoS)
     });
 
@@ -160,6 +161,7 @@ export async function bitrixPost<T = unknown>(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: Object.keys(sanitizedBody).length > 0 ? JSON.stringify(sanitizedBody) : undefined,
+      redirect: "error", // Prevent HTTP redirect SSRF bypasses
       signal: AbortSignal.timeout(30_000), // 30s timeout for POST (may need longer for pagination)
     });
 

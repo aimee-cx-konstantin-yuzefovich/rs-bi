@@ -36,6 +36,11 @@ describe("Request-Scoped Development Auth Bypass Policy", () => {
       expect(normalizeHost("[2001:db8::1]")).toBe("2001:db8::1");
     });
 
+    it("handles unbracketed IPv6 literal hostnames without truncating at colons", () => {
+      expect(normalizeHost("::1")).toBe("::1");
+      expect(normalizeHost("2001:db8::1")).toBe("2001:db8::1");
+    });
+
     it("trims whitespace from hostnames", () => {
       expect(normalizeHost("  rs-bi-dev.vercel.app  ")).toBe("rs-bi-dev.vercel.app");
     });

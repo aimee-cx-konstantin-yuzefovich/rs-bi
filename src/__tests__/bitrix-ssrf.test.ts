@@ -60,6 +60,14 @@ describe("SSRF Protection & Network Safety Suite", () => {
         "ff02::1",
         "2001:db8::1",
         "100::1",
+        "64:ff9b::1",
+        "64:ff9b::127.0.0.1",
+        "64:ff9b:1::1",
+        "::ffff:0:127.0.0.1",
+        "2002:7f00:1::",
+        "2001:0::1",
+        "2001:2::1",
+        "2001:20::1",
       ];
 
       for (const ip of unsafeIpv6) {
@@ -245,6 +253,40 @@ describe("SSRF Protection & Network Safety Suite", () => {
         expect(result).toBeInstanceOf(URL);
       }
     });
+
+    it("18. rejects webhook URLs containing user credentials", async () => {
+      await expect(assertSafeWebhookUrl("https://user:pass@russilica.bitrix24.ru/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot contain credentials");
+      await expect(assertSafeWebhookUrl("https://admin@russilica.bitrix24.ru/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot contain credentials");
+    });
+
+    it("19. rejects webhook URLs targeting restricted sensitive service ports", async () => {
+      await expect(assertSafeWebhookUrl("https://russilica.bitrix24.ru:22/rest/1/abc"))
+        .rejects.toThrow("Webhook URL uses a restricted port");
+      await expect(assertSafeWebhookUrl("https://russilica.bitrix24.ru:25/rest/1/abc"))
+        .rejects.toThrow("Webhook URL uses a restricted port");
+      await expect(assertSafeWebhookUrl("https://russilica.bitrix24.ru:6379/rest/1/abc"))
+        .rejects.toThrow("Webhook URL uses a restricted port");
+      await expect(assertSafeWebhookUrl("https://russilica.bitrix24.ru:11211/rest/1/abc"))
+        .rejects.toThrow("Webhook URL uses a restricted port");
+    });
+
+    it("20. accepts webhook URLs on standard custom HTTPS ports", async () => {
+      const mockLookup = vi.fn();
+      const safeCustom = await assertSafeWebhookUrl("https://8.8.8.8:8443/rest/1/abc", mockLookup);
+      expect(safeCustom.port).toBe("8443");
+      expect(mockLookup).not.toHaveBeenCalled();
+    });
+
+    it("21. rejects transition IPv6 literal URLs (NAT64, SIIT, 6to4)", async () => {
+      await expect(assertSafeWebhookUrl("https://[64:ff9b::127.0.0.1]/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://[::ffff:0:127.0.0.1]/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://[2002:7f00:1::]/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+    });
   });
 
   describe("Bitrix Client Integration Protection", () => {
@@ -254,7 +296,7 @@ describe("SSRF Protection & Network Safety Suite", () => {
       process.env.BITRIX_WEBHOOK_URL = originalEnv;
     });
 
-    it("18. bitrixGet fails closed and sanitizes error when webhook points to SSRF target", async () => {
+    it("22. bitrixGet fails closed and sanitizes error when webhook points to SSRF target", async () => {
       process.env.BITRIX_WEBHOOK_URL = "https://127.0.0.1/rest/1/key";
 
       await expect(bitrixGet("crm.deal.list")).rejects.toThrow(
@@ -262,7 +304,7 @@ describe("SSRF Protection & Network Safety Suite", () => {
       );
     });
 
-    it("19. bitrixGet rejects unconfigured webhook cleanly", async () => {
+    it("23. bitrixGet rejects unconfigured webhook cleanly", async () => {
       delete process.env.BITRIX_WEBHOOK_URL;
 
       await expect(bitrixGet("crm.deal.list")).rejects.toThrow(
@@ -270,7 +312,7 @@ describe("SSRF Protection & Network Safety Suite", () => {
       );
     });
 
-    it("20. bitrixGet rejects disallowed methods before resolving network address", async () => {
+    it("24. bitrixGet rejects disallowed methods before resolving network address", async () => {
       process.env.BITRIX_WEBHOOK_URL = "https://127.0.0.1/rest/1/key";
 
       await expect(bitrixGet("disallowed.method")).rejects.toThrow(
@@ -278,7 +320,7 @@ describe("SSRF Protection & Network Safety Suite", () => {
       );
     });
 
-    it("21. bitrixPost fails closed and sanitizes error when webhook points to bracketed IPv6 loopback target", async () => {
+    it("25. bitrixPost fails closed and sanitizes error when webhook points to bracketed IPv6 loopback target", async () => {
       process.env.BITRIX_WEBHOOK_URL = "https://[::1]/rest/1/key";
 
       await expect(bitrixPost("crm.deal.list", { id: 1 })).rejects.toThrow(
@@ -286,12 +328,28 @@ describe("SSRF Protection & Network Safety Suite", () => {
       );
     });
 
-    it("22. bitrixGet fails closed when webhook points to ULA IPv6 target", async () => {
+    it("26. bitrixGet fails closed when webhook points to ULA IPv6 target", async () => {
       process.env.BITRIX_WEBHOOK_URL = "https://[fc00::1]/rest/1/key";
 
       await expect(bitrixGet("crm.deal.list")).rejects.toThrow(
         "Failed to crm.deal.list. Please try again later."
       );
+    });
+
+    it("27. bitrixGet fails closed if remote server attempts an HTTP redirect", async () => {
+      process.env.BITRIX_WEBHOOK_URL = "https://8.8.8.8/rest/1/key";
+
+      const originalFetch = globalThis.fetch;
+      // Simulate fetch rejecting with redirect error as configured by redirect: 'error'
+      globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed: unexpected redirect"));
+
+      try {
+        await expect(bitrixGet("crm.deal.list")).rejects.toThrow(
+          "Failed to crm.deal.list. Please try again later."
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 });
