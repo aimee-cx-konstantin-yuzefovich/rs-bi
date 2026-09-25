@@ -81,10 +81,9 @@ export function isSpecialUnsafeHost(hostname: string): boolean {
   return false;
 }
 
-export type DnsLookupFunction = (
-  hostname: string,
-  options: { all: boolean; verbatim: boolean }
-) => Promise<dns.LookupAddress[]>;
+export type DnsLookupFunction =
+  | typeof dns.promises.lookup
+  | ((hostname: string, options: { all: true; verbatim: boolean }) => Promise<dns.LookupAddress[]>);
 
 /**
  * Validates a webhook URL against SSRF vulnerabilities:
@@ -137,7 +136,8 @@ export async function assertSafeWebhookUrl(
   // 3. DNS resolution validation for domain names
   let resolvedAddresses: dns.LookupAddress[];
   try {
-    resolvedAddresses = await lookupFn(cleanHost, { all: true, verbatim: true });
+    const lookupResult = await (lookupFn as any)(cleanHost, { all: true, verbatim: true });
+    resolvedAddresses = Array.isArray(lookupResult) ? lookupResult : [lookupResult];
   } catch (err) {
     console.error(`[Bitrix24 SSRF] DNS lookup failed for host ${cleanHost}:`, err);
     throw new Error("Webhook URL host could not be resolved");
