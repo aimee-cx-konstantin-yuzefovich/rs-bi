@@ -19,6 +19,7 @@ import {
   isDateInPeriod,
   safeDeltaPercent,
 } from "./date-utils";
+import { normalizeCurrencyCode } from "./normalize";
 import type {
   BottleneckItem,
   CommercialCompany,
@@ -109,7 +110,7 @@ export function computePeriodMetrics(
   const prevSampleSentCompanyIds = new Set<string>();
 
   for (const c of companies) {
-    const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates;
+    const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates || [];
     const hasCurrentShipment = eventDates.some((d) => isDateInPeriod(d, currentStart, currentEnd));
     if (hasCurrentShipment) {
       currentSampleSentCompanyIds.add(c.id);
@@ -136,26 +137,29 @@ export function computePeriodMetrics(
   }
 
   // 4. Получено оплат (Payment date in period + paid status, unique companies)
-  // Sums OPPORTUNITY for deals with confirmed payment in the period.
+  // Tracks OPPORTUNITY isolated by currency without cross-currency aggregation.
   const currentPaidCompanyIds = new Set<string>();
   const prevPaidCompanyIds = new Set<string>();
-  let currentPaymentSum = 0;
-  let prevPaymentSum = 0;
+  const currentPaymentAmountsByCurrency: Record<string, number> = {};
+  const prevPaymentAmountsByCurrency: Record<string, number> = {};
   const currentPaymentSumCompanyIds = new Set<string>();
   const prevPaymentSumCompanyIds = new Set<string>();
 
   for (const c of companies) {
     for (const d of c.deals) {
       if (d.paymentStatus && PAID_STATUS_CODES.has(d.paymentStatus) && d.paymentDate) {
+        const normCurrency = normalizeCurrencyCode(d.currencyId);
         if (isDateInPeriod(d.paymentDate, currentStart, currentEnd)) {
           currentPaidCompanyIds.add(c.id);
-          currentPaymentSum += d.opportunity;
           currentPaymentSumCompanyIds.add(c.id);
+          currentPaymentAmountsByCurrency[normCurrency] =
+            (currentPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity;
         }
         if (isDateInPeriod(d.paymentDate, previousStart, previousEnd)) {
           prevPaidCompanyIds.add(c.id);
-          prevPaymentSum += d.opportunity;
           prevPaymentSumCompanyIds.add(c.id);
+          prevPaymentAmountsByCurrency[normCurrency] =
+            (prevPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity;
         }
       }
     }
@@ -181,20 +185,83 @@ export function computePeriodMetrics(
   const buildKpi = (
     id: string,
     label: string,
-    curr: number,
-    prev: number,
+    curr: number | null,
+    prev: number | null,
     companyIds: string[],
-    isCurrency = false
+    isCurrency = false,
+    extra?: Partial<DatedKpi>
   ): DatedKpi => ({
     id,
     label,
     currentValue: curr,
     previousValue: prev,
-    delta: curr - prev,
-    deltaPercent: safeDeltaPercent(curr, prev),
+    delta: curr !== null && prev !== null ? curr - prev : null,
+    deltaPercent: curr !== null && prev !== null ? safeDeltaPercent(curr, prev) : null,
     companyIds,
     isCurrency,
+    ...extra,
   });
+
+  const distinctCurrencies = Array.from(
+    new Set([
+      ...Object.keys(currentPaymentAmountsByCurrency),
+      ...Object.keys(prevPaymentAmountsByCurrency),
+    ])
+  ).sort();
+
+  let paymentKpi: DatedKpi;
+  if (distinctCurrencies.length === 0) {
+    paymentKpi = buildKpi(
+      "payment_amount",
+      PAYMENT_AMOUNT_LABEL,
+      0,
+      0,
+      Array.from(currentPaymentSumCompanyIds),
+      true,
+      {
+        isMultiCurrency: false,
+        currencyId: "RUB",
+        currencyBreakdown: { current: {}, previous: {} },
+      }
+    );
+  } else if (distinctCurrencies.length === 1) {
+    const cur = distinctCurrencies[0];
+    const currAmt = currentPaymentAmountsByCurrency[cur] || 0;
+    const prevAmt = prevPaymentAmountsByCurrency[cur] || 0;
+    paymentKpi = buildKpi(
+      "payment_amount",
+      PAYMENT_AMOUNT_LABEL,
+      Math.round(currAmt),
+      Math.round(prevAmt),
+      Array.from(currentPaymentSumCompanyIds),
+      true,
+      {
+        isMultiCurrency: false,
+        currencyId: cur,
+        currencyBreakdown: {
+          current: currentPaymentAmountsByCurrency,
+          previous: prevPaymentAmountsByCurrency,
+        },
+      }
+    );
+  } else {
+    // Multiple currencies present: NEVER expose a false cross-currency total.
+    paymentKpi = buildKpi(
+      "payment_amount",
+      PAYMENT_AMOUNT_LABEL,
+      null,
+      null,
+      Array.from(currentPaymentSumCompanyIds),
+      true,
+      {
+        isMultiCurrency: true,
+        currencyBreakdown: {
+          current: currentPaymentAmountsByCurrency,
+          previous: prevPaymentAmountsByCurrency,
+        },
+      }
+    );
+  }
 
   return [
     buildKpi(
@@ -225,14 +292,7 @@ export function computePeriodMetrics(
       prevPaidCompanyIds.size,
       Array.from(currentPaidCompanyIds)
     ),
-    buildKpi(
-      "payment_amount",
-      PAYMENT_AMOUNT_LABEL,
-      Math.round(currentPaymentSum),
-      Math.round(prevPaymentSum),
-      Array.from(currentPaymentSumCompanyIds),
-      true
-    ),
+    paymentKpi,
     buildKpi(
       "shipments",
       "Отгрузки",
@@ -358,6 +418,7 @@ export function computeBottlenecks(
           dealId: c.primaryDealId,
           dealTitle: c.primaryDealTitle,
           amount: c.primaryDealOpportunity,
+          currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
           nextAction: c.primaryDealActivityNext || "Уточнить результаты испытаний у технолога клиента",
         });
       }
@@ -383,6 +444,7 @@ export function computeBottlenecks(
           dealId: c.primaryDealId,
           dealTitle: c.primaryDealTitle,
           amount: c.primaryDealOpportunity,
+          currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
           nextAction: "Выставить коммерческое предложение / подготовить договор",
         });
       }
@@ -419,6 +481,7 @@ export function computeBottlenecks(
             dealId: d.id,
             dealTitle: d.title,
             amount: d.opportunity,
+            currencyId: d.currencyId,
             nextAction: d.activityNext || "Запланировать звонок / встречу с клиентом",
           });
         }
@@ -459,6 +522,7 @@ export function computeManagerScorecard(
         dealsCreated: 0,
         paymentsReceived: 0,
         paymentAmount: 0,
+        paymentAmountsByCurrency: {},
         bottlenecksCount: 0,
         companyIds: [],
       };
@@ -502,7 +566,9 @@ export function computeManagerScorecard(
       if (d.paymentStatus && PAID_STATUS_CODES.has(d.paymentStatus) && d.paymentDate) {
         if (isDateInPeriod(d.paymentDate, currentStart, currentEnd)) {
           dealManager.paymentsReceived++;
-          dealManager.paymentAmount += d.opportunity;
+          const normCur = normalizeCurrencyCode(d.currencyId);
+          dealManager.paymentAmountsByCurrency![normCur] =
+            (dealManager.paymentAmountsByCurrency![normCur] || 0) + d.opportunity;
         }
       }
     }
@@ -513,6 +579,16 @@ export function computeManagerScorecard(
     const row = managerMap.get(b.responsibleId);
     if (row) {
       row.bottlenecksCount++;
+    }
+  }
+
+  // Settle paymentAmount: if exactly 1 currency, retain that amount; if multiple, do not sum across currencies
+  for (const row of managerMap.values()) {
+    const currs = Object.keys(row.paymentAmountsByCurrency || {});
+    if (currs.length === 1) {
+      row.paymentAmount = row.paymentAmountsByCurrency![currs[0]];
+    } else {
+      row.paymentAmount = 0;
     }
   }
 
@@ -581,7 +657,7 @@ export function buildSampleRegister(
         responsibleName: c.responsibleName || "Не назначен",
         dealId: c.primaryDealId,
         dealTitle: c.primaryDealTitle,
-        productType: c.productType.join(", ") || "—",
+        productType: c.productType?.join(", ") || "—",
         status: statusDisplay,
         statuses: companyStatuses,
         statusRawValues: c.sampleStatusRawValues || (c.sampleStatusRaw ? [c.sampleStatusRaw] : []),
@@ -589,8 +665,8 @@ export function buildSampleRegister(
         shipmentDate: c.sampleShipmentDate,
         daysSinceSent: days !== null ? days : undefined,
         testResult: c.sampleTestResult,
-        gradeGel: c.gradeGel.join(", ") || undefined,
-        gradeSol: c.gradeSol.join(", ") || undefined,
+        gradeGel: c.gradeGel?.join(", ") || undefined,
+        gradeSol: c.gradeSol?.join(", ") || undefined,
         qtyGel: c.qtyGel !== undefined ? `${c.qtyGel} кг` : undefined,
         qtySol: c.qtySol !== undefined ? `${c.qtySol} л` : undefined,
         nextAction: c.primaryDealActivityNext,

@@ -123,6 +123,80 @@ describe("createCompanyExcelWorkbook", () => {
     expect(String(compCell?.value)).not.toContain("\r");
     expect(String(compCell?.value)).not.toContain("\n");
   });
+
+  it("strictly writes native null for empty date fields while preserving '—' for empty text fields", async () => {
+    const { NUMFMT } = await import("@/lib/excel-brand");
+    const ExcelJS = (await import("exceljs")).default;
+
+    const workbook = createCompanyExcelWorkbook({
+      companyTitle: "Тест Дат",
+      companyId: "555",
+      companyFields: [
+        { label: "Дата создания", value: "15.03.2026", type: "date" },
+        { label: "Дата изменения", value: null, type: "date" },
+        { label: "Дата следующего контакта", value: "", type: "date" },
+        { label: "Комментарий", value: null, type: "string" },
+      ],
+      sampleFields: [
+        { label: "Дата отправки образцов", value: "2026-04-10", type: "date" },
+        { label: "Дата передачи образцов", value: null, type: "date" },
+        { label: "Результат испытаний", value: "", type: "string" },
+      ],
+      deals: [],
+    });
+
+    const worksheet = workbook.getWorksheet("Отчёт по компании")!;
+    expect(worksheet).toBeDefined();
+
+    // Map rows to label and cell value
+    const cellMap = new Map<string, any>();
+    const numFmtMap = new Map<string, any>();
+
+    worksheet.eachRow((row) => {
+      const label = String(row.getCell(1).value || "");
+      const val = row.getCell(2).value;
+      const fmt = row.getCell(2).numFmt;
+      if (label) {
+        cellMap.set(label, val);
+        numFmtMap.set(label, fmt);
+      }
+    });
+
+    // 1. Populated dates must be native Date instances with date numFmt
+    expect(cellMap.get("Дата создания")).toBeInstanceOf(Date);
+    expect(numFmtMap.get("Дата создания")).toBe(NUMFMT.DATE);
+
+    expect(cellMap.get("Дата отправки образцов")).toBeInstanceOf(Date);
+    expect(numFmtMap.get("Дата отправки образцов")).toBe(NUMFMT.DATE);
+
+    // 2. Empty dates (null or "") must be genuinely null in Excel cell
+    expect(cellMap.get("Дата изменения")).toBeNull();
+    expect(cellMap.get("Дата следующего контакта")).toBeNull();
+    expect(cellMap.get("Дата передачи образцов")).toBeNull();
+
+    // 3. Ordinary empty text fields may remain "—"
+    expect(cellMap.get("Комментарий")).toBe("—");
+    expect(cellMap.get("Результат испытаний")).toBe("—");
+
+    // 4. Binary serialization round-trip: blank date remains blank/null, populated date remains Date
+    const buffer = await workbook.xlsx.writeBuffer();
+    const reloaded = new ExcelJS.Workbook();
+    await reloaded.xlsx.load(buffer as any);
+    const reloadedSheet = reloaded.getWorksheet("Отчёт по компании")!;
+
+    const reloadedMap = new Map<string, any>();
+    reloadedSheet.eachRow((row) => {
+      const label = String(row.getCell(1).value || "");
+      const val = row.getCell(2).value;
+      if (label) reloadedMap.set(label, val);
+    });
+
+    expect(reloadedMap.get("Дата создания")).toBeInstanceOf(Date);
+    expect(reloadedMap.get("Дата изменения")).toBeNull();
+    expect(reloadedMap.get("Дата следующего контакта")).toBeNull();
+    expect(reloadedMap.get("Дата передачи образцов")).toBeNull();
+    expect(reloadedMap.get("Комментарий")).toBe("—");
+  });
 });
 
 describe("exportCompanyToExcel (browser download)", () => {

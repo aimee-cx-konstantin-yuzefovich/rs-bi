@@ -26,6 +26,7 @@ import type {
   PeriodBoundaries,
   WipKpi,
 } from "@/lib/commercial-funnel/types";
+import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
 
 interface OverviewTabProps {
   datedKpis: DatedKpi[];
@@ -80,8 +81,8 @@ export function CommercialOverviewTab({
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {datedKpis.map((kpi) => {
             const Icon = getIconForDatedKpi(kpi.id);
-            const isPositive = kpi.delta > 0;
-            const isNegative = kpi.delta < 0;
+            const isPositive = kpi.delta !== null && kpi.delta > 0;
+            const isNegative = kpi.delta !== null && kpi.delta < 0;
 
             return (
               <Card
@@ -102,15 +103,59 @@ export function CommercialOverviewTab({
                   <Icon className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
                 </CardHeader>
                 <CardContent className="p-3 pt-0">
-                  <div className="text-lg font-bold tracking-tight">
-                    {kpi.isCurrency
-                      ? `${kpi.currentValue.toLocaleString("ru-RU")} ₽`
-                      : kpi.currentValue}
-                  </div>
+                  {kpi.isMultiCurrency && kpi.currencyBreakdown ? (
+                    <div className="space-y-0.5">
+                      {Object.entries(kpi.currencyBreakdown.current).length > 0 ? (
+                        Object.entries(kpi.currencyBreakdown.current).map(([cur, amt]) => (
+                          <div key={cur} className="text-base font-bold tracking-tight">
+                            {formatCurrencyAmount(amt, cur)}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-lg font-bold tracking-tight">0 ₽</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-lg font-bold tracking-tight">
+                      {kpi.isCurrency
+                        ? formatCurrencyAmount(kpi.currentValue ?? 0, kpi.currencyId || "RUB")
+                        : (kpi.currentValue ?? 0)}
+                    </div>
+                  )}
 
                   {/* Previous period comparison */}
-                  <div className="flex items-center gap-1 mt-1 text-[11px]">
-                    {kpi.delta !== 0 ? (
+                  <div className="mt-1 text-[11px]">
+                    {kpi.isMultiCurrency && kpi.currencyBreakdown ? (
+                      <div className="flex flex-col gap-0.5">
+                        {Array.from(
+                          new Set([
+                            ...Object.keys(kpi.currencyBreakdown.current),
+                            ...Object.keys(kpi.currencyBreakdown.previous),
+                          ])
+                        ).sort().map((cur) => {
+                          const cVal = kpi.currencyBreakdown!.current[cur] || 0;
+                          const pVal = kpi.currencyBreakdown!.previous[cur] || 0;
+                          const curDelta = cVal - pVal;
+                          if (curDelta === 0) return null;
+                          const isCurPos = curDelta > 0;
+                          return (
+                            <span
+                              key={cur}
+                              className={`inline-flex items-center font-medium ${
+                                isCurPos ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                              }`}
+                            >
+                              {isCurPos ? (
+                                <ArrowUpRight className="h-3 w-3 inline mr-0.5 shrink-0" />
+                              ) : (
+                                <ArrowDownRight className="h-3 w-3 inline mr-0.5 shrink-0" />
+                              )}
+                              {curDelta > 0 ? "+" : ""}{formatCurrencyAmount(curDelta, cur)}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : kpi.delta !== null && kpi.delta !== 0 ? (
                       <span
                         className={`inline-flex items-center font-medium ${
                           isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
@@ -121,7 +166,9 @@ export function CommercialOverviewTab({
                         ) : (
                           <ArrowDownRight className="h-3 w-3 inline mr-0.5" />
                         )}
-                        {kpi.isCurrency ? `${kpi.delta > 0 ? "+" : ""}${kpi.delta.toLocaleString("ru-RU")} ₽` : `${kpi.delta > 0 ? "+" : ""}${kpi.delta}`}
+                        {kpi.isCurrency
+                          ? `${kpi.delta > 0 ? "+" : ""}${formatCurrencyAmount(kpi.delta, kpi.currencyId || "RUB")}`
+                          : `${kpi.delta > 0 ? "+" : ""}${kpi.delta}`}
                         {kpi.deltaPercent !== null && ` (${kpi.deltaPercent > 0 ? "+" : ""}${kpi.deltaPercent}%)`}
                       </span>
                     ) : (

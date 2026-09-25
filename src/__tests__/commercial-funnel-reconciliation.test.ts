@@ -203,4 +203,132 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
     expect(inTestingWip.dealCount).toBe(2);
     expect(inTestingWip.companyIds).toEqual(["999"]);
   });
+
+  it("RECONCILIATION 5: Multi-currency payment amounts are never cross-summed into RUB across UI and Excel", async () => {
+    const multiCurCompanies: CommercialCompany[] = [
+      {
+        id: "c-101",
+        title: "Компания 101",
+        responsibleId: "u1",
+        dateCreate: "2026-09-01",
+        direction: [],
+        productType: [],
+        sampleAllDates: [],
+        deals: [
+          {
+            id: "d-1",
+            title: "Сделка Рубли",
+            companyId: "c-101",
+            responsibleId: "u1",
+            stageId: "EXECUTING",
+            categoryId: "0",
+            opportunity: 1_000_000,
+            currencyId: "RUB",
+            paymentStatus: "109",
+            paymentDate: "2026-09-10",
+            sampleTestingStatus: [],
+            productType: [],
+            industry: [],
+            direction: [],
+          },
+        ],
+        primaryDealId: "d-1",
+        primaryDealTitle: "Сделка Рубли",
+        primaryDealOpportunity: 1_000_000,
+        primaryDealCurrencyId: "RUB",
+        primaryDealPaymentStatus: "109",
+        primaryDealPaymentDate: "2026-09-10",
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        gradeGel: [],
+        gradeSol: [],
+        hasAttention: false,
+        attentionReasons: [],
+      },
+      {
+        id: "c-102",
+        title: "Компания 102",
+        responsibleId: "u2",
+        dateCreate: "2026-09-02",
+        direction: [],
+        productType: [],
+        sampleAllDates: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        gradeGel: [],
+        gradeSol: [],
+        deals: [
+          {
+            id: "d-2",
+            title: "Сделка Доллары",
+            companyId: "c-102",
+            responsibleId: "u2",
+            stageId: "EXECUTING",
+            categoryId: "0",
+            opportunity: 15_000,
+            currencyId: "USD",
+            paymentStatus: "109",
+            paymentDate: "2026-09-12",
+            sampleTestingStatus: [],
+            productType: [],
+            industry: [],
+            direction: [],
+          },
+        ],
+        primaryDealId: "d-2",
+        primaryDealTitle: "Сделка Доллары",
+        primaryDealOpportunity: 15_000,
+        primaryDealCurrencyId: "USD",
+        primaryDealPaymentStatus: "109",
+        primaryDealPaymentDate: "2026-09-12",
+        hasAttention: false,
+        attentionReasons: [],
+      },
+    ];
+
+    const kpis = computePeriodMetrics(multiCurCompanies, bounds);
+    const payAmtKpi = kpis.find((k) => k.id === "payment_amount")!;
+
+    // 1. Proves engine refuses to aggregate cross-currency numbers
+    expect(payAmtKpi.isMultiCurrency).toBe(true);
+    expect(payAmtKpi.currentValue).toBeNull();
+    expect(payAmtKpi.currencyBreakdown?.current["RUB"]).toBe(1_000_000);
+    expect(payAmtKpi.currencyBreakdown?.current["USD"]).toBe(15_000);
+    expect(payAmtKpi.companyIds).toEqual(["c-101", "c-102"]);
+
+    // 2. Proves Excel export accurately reflects this exact analytical truth
+    const workbook = await createCommercialFunnelWorkbook({
+      companies: multiCurCompanies,
+      deals: multiCurCompanies.flatMap((c) => c.deals),
+      filters,
+      now: fixedNow,
+    });
+
+    const summarySheet = workbook.getWorksheet("Executive Summary")!;
+    let foundRubExcel = false;
+    let foundUsdExcel = false;
+    let foundFalseSum = false;
+
+    summarySheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        const valStr = String(cell.value || "");
+        if (valStr.includes("1015000") || valStr.includes("1 015 000")) {
+          foundFalseSum = true;
+        }
+      });
+      const lbl = String(row.getCell(1).value || "");
+      if (lbl.includes("Сумма сделок с полученной оплатой — RUB")) {
+        foundRubExcel = true;
+        expect(row.getCell(2).value).toBe(1_000_000);
+      }
+      if (lbl.includes("Сумма сделок с полученной оплатой — USD")) {
+        foundUsdExcel = true;
+        expect(row.getCell(2).value).toBe(15_000);
+      }
+    });
+
+    expect(foundRubExcel).toBe(true);
+    expect(foundUsdExcel).toBe(true);
+    expect(foundFalseSum).toBe(false);
+  });
 });

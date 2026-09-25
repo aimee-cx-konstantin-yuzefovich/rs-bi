@@ -80,6 +80,15 @@ export function mapBusinessStatusToSemantic(status?: string | null): SemanticSta
     return "NEGATIVE";
   }
 
+  // 1.5. Explicit negated neutral phrases (must precede ATTENTION "требует")
+  if (
+    s.includes("не требует") ||
+    s.includes("не требуется") ||
+    s.includes("не требуются")
+  ) {
+    return "NEUTRAL";
+  }
+
   // 2. ATTENTION (check explicit negative/unpaid phrases BEFORE positive success like "оплачен")
   if (
     s.includes("не оплачен") ||

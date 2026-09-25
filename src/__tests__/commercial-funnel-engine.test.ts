@@ -1097,4 +1097,318 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
     expect(register[0].statuses).toContain("На испытании");
     expect(register[0].statuses).toContain("Не классифицировано (265)");
   });
+
+  describe("Multi-Currency Monetary Correctness (P1 Invariants)", () => {
+    const fixedNow = new Date(2026, 8, 24, 12, 0, 0); // 2026-09-24
+    const filters: CommercialFilters = {
+      periodPreset: "30days",
+      responsibleId: "all",
+      productType: "all",
+      industry: "all",
+      direction: "all",
+      region: "all",
+    };
+    const bounds = computePeriodBoundaries(filters, fixedNow);
+
+    it("Section 12: isolates currencies and never aggregates RUB + USD + EUR into one sum", () => {
+      const companyA: CommercialCompany = {
+        id: "comp-A",
+        title: "Компания А",
+        responsibleId: "1",
+        direction: [],
+        productType: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        sampleAllDates: [],
+        gradeGel: [],
+        gradeSol: [],
+        deals: [
+          {
+            id: "deal-A",
+            title: "Сделка А (RUB)",
+            companyId: "comp-A",
+            responsibleId: "1",
+            stageId: "WON",
+            categoryId: "0",
+            opportunity: 1_000_000,
+            currencyId: "RUB",
+            paymentStatus: "113",
+            paymentDate: "2026-09-15",
+            productType: [],
+            industry: [],
+            direction: [],
+            sampleTestingStatus: [],
+          },
+        ],
+        hasAttention: false,
+        attentionReasons: [],
+      };
+
+      const companyB: CommercialCompany = {
+        id: "comp-B",
+        title: "Компания Б",
+        responsibleId: "1",
+        direction: [],
+        productType: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        sampleAllDates: [],
+        gradeGel: [],
+        gradeSol: [],
+        deals: [
+          {
+            id: "deal-B",
+            title: "Сделка Б (USD)",
+            companyId: "comp-B",
+            responsibleId: "1",
+            stageId: "WON",
+            categoryId: "0",
+            opportunity: 20_000,
+            currencyId: "USD",
+            paymentStatus: "113",
+            paymentDate: "2026-09-16",
+            productType: [],
+            industry: [],
+            direction: [],
+            sampleTestingStatus: [],
+          },
+        ],
+        hasAttention: false,
+        attentionReasons: [],
+      };
+
+      const companyC: CommercialCompany = {
+        id: "comp-C",
+        title: "Компания В",
+        responsibleId: "1",
+        direction: [],
+        productType: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        sampleAllDates: [],
+        gradeGel: [],
+        gradeSol: [],
+        deals: [
+          {
+            id: "deal-C",
+            title: "Сделка В (EUR)",
+            companyId: "comp-C",
+            responsibleId: "1",
+            stageId: "WON",
+            categoryId: "0",
+            opportunity: 10_000,
+            currencyId: "EUR",
+            paymentStatus: "113",
+            paymentDate: "2026-09-17",
+            productType: [],
+            industry: [],
+            direction: [],
+            sampleTestingStatus: [],
+          },
+        ],
+        hasAttention: false,
+        attentionReasons: [],
+      };
+
+      const companyD: CommercialCompany = {
+        id: "comp-D",
+        title: "Компания Г",
+        responsibleId: "1",
+        direction: [],
+        productType: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        sampleAllDates: [],
+        gradeGel: [],
+        gradeSol: [],
+        deals: [
+          {
+            id: "deal-D",
+            title: "Сделка Г (Unpaid USD)",
+            companyId: "comp-D",
+            responsibleId: "1",
+            stageId: "EXECUTING",
+            categoryId: "0",
+            opportunity: 50_000,
+            currencyId: "USD",
+            paymentStatus: "103", // Unpaid
+            paymentDate: "2026-09-18",
+            productType: [],
+            industry: [],
+            direction: [],
+            sampleTestingStatus: [],
+          },
+        ],
+        hasAttention: false,
+        attentionReasons: [],
+      };
+
+      const kpis = computePeriodMetrics([companyA, companyB, companyC, companyD], bounds);
+
+      // Unique count must be strictly 3 unique paid companies
+      const paymentsCountKpi = kpis.find((k) => k.id === "payments_received")!;
+      expect(paymentsCountKpi.currentValue).toBe(3);
+      expect(paymentsCountKpi.companyIds).toHaveLength(3);
+      expect(paymentsCountKpi.companyIds).toContain("comp-A");
+      expect(paymentsCountKpi.companyIds).toContain("comp-B");
+      expect(paymentsCountKpi.companyIds).toContain("comp-C");
+      expect(paymentsCountKpi.companyIds).not.toContain("comp-D");
+
+      // Monetary amount KPI must be isolated by currency
+      const amountKpi = kpis.find((k) => k.id === "payment_amount")!;
+      expect(amountKpi.isMultiCurrency).toBe(true);
+      expect(amountKpi.currentValue).toBeNull(); // No false single aggregate!
+      expect(amountKpi.currencyBreakdown).toBeDefined();
+
+      const currentBreakdown = amountKpi.currencyBreakdown!.current;
+      expect(currentBreakdown.RUB).toBe(1_000_000);
+      expect(currentBreakdown.USD).toBe(20_000);
+      expect(currentBreakdown.EUR).toBe(10_000);
+
+      // Unpaid deal 50,000 USD contributed 0
+      expect(currentBreakdown.USD).not.toBe(70_000);
+
+      // Hard check: NO 1,030,000 anywhere
+      expect(JSON.stringify(amountKpi)).not.toContain("1030000");
+    });
+
+    it("Section 13: calculates per-currency delta without cross-currency global delta", () => {
+      // CURRENT: RUB 1,000,000; USD 20,000
+      // PREVIOUS: RUB 800,000; USD 30,000; EUR 5,000
+      const currentDealA: CommercialDeal = {
+        id: "d-curr-1",
+        title: "Сделка Текущая RUB",
+        companyId: "c-1",
+        responsibleId: "1",
+        stageId: "WON",
+        categoryId: "0",
+        opportunity: 1_000_000,
+        currencyId: "RUB",
+        paymentStatus: "113",
+        paymentDate: "2026-09-10", // In current period (2026-08-25 to 2026-09-24)
+        sampleTestingStatus: [],
+        productType: [],
+        industry: [],
+        direction: [],
+      };
+      const currentDealB: CommercialDeal = {
+        id: "d-curr-2",
+        title: "Сделка Текущая USD",
+        companyId: "c-2",
+        responsibleId: "1",
+        stageId: "WON",
+        categoryId: "0",
+        opportunity: 20_000,
+        currencyId: "USD",
+        paymentStatus: "113",
+        paymentDate: "2026-09-12",
+        sampleTestingStatus: [],
+        productType: [],
+        industry: [],
+        direction: [],
+      };
+
+      const prevDealA: CommercialDeal = {
+        id: "d-prev-1",
+        title: "Сделка Прошлая RUB",
+        companyId: "c-3",
+        responsibleId: "1",
+        stageId: "WON",
+        categoryId: "0",
+        opportunity: 800_000,
+        currencyId: "RUB",
+        paymentStatus: "113",
+        paymentDate: "2026-08-10", // In previous period (2026-07-26 to 2026-08-24)
+        sampleTestingStatus: [],
+        productType: [],
+        industry: [],
+        direction: [],
+      };
+      const prevDealB: CommercialDeal = {
+        id: "d-prev-2",
+        title: "Сделка Прошлая USD",
+        companyId: "c-4",
+        responsibleId: "1",
+        stageId: "WON",
+        categoryId: "0",
+        opportunity: 30_000,
+        currencyId: "USD",
+        paymentStatus: "113",
+        paymentDate: "2026-08-12",
+        sampleTestingStatus: [],
+        productType: [],
+        industry: [],
+        direction: [],
+      };
+      const prevDealC: CommercialDeal = {
+        id: "d-prev-3",
+        title: "Сделка Прошлая EUR",
+        companyId: "c-5",
+        responsibleId: "1",
+        stageId: "WON",
+        categoryId: "0",
+        opportunity: 5_000,
+        currencyId: "EUR",
+        paymentStatus: "113",
+        paymentDate: "2026-08-14",
+        sampleTestingStatus: [],
+        productType: [],
+        industry: [],
+        direction: [],
+      };
+
+      const makeCompany = (id: string, deals: CommercialDeal[]): CommercialCompany => ({
+        id,
+        title: `Компания ${id}`,
+        responsibleId: "1",
+        direction: [],
+        productType: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        sampleAllDates: [],
+        gradeGel: [],
+        gradeSol: [],
+        deals,
+        hasAttention: false,
+        attentionReasons: [],
+      });
+
+      const companies = [
+        makeCompany("c-1", [currentDealA]),
+        makeCompany("c-2", [currentDealB]),
+        makeCompany("c-3", [prevDealA]),
+        makeCompany("c-4", [prevDealB]),
+        makeCompany("c-5", [prevDealC]),
+      ];
+
+      const kpis = computePeriodMetrics(companies, bounds);
+      const amountKpi = kpis.find((k) => k.id === "payment_amount")!;
+
+      expect(amountKpi.isMultiCurrency).toBe(true);
+      expect(amountKpi.currentValue).toBeNull();
+      expect(amountKpi.previousValue).toBeNull();
+      expect(amountKpi.delta).toBeNull(); // No cross-currency delta!
+
+      const currBreakdown = amountKpi.currencyBreakdown!.current;
+      const prevBreakdown = amountKpi.currencyBreakdown!.previous;
+
+      expect(currBreakdown.RUB).toBe(1_000_000);
+      expect(currBreakdown.USD).toBe(20_000);
+      expect(currBreakdown.EUR).toBeUndefined();
+
+      expect(prevBreakdown.RUB).toBe(800_000);
+      expect(prevBreakdown.USD).toBe(30_000);
+      expect(prevBreakdown.EUR).toBe(5_000);
+
+      // Independent currency deltas
+      const rubDelta = (currBreakdown.RUB || 0) - (prevBreakdown.RUB || 0);
+      expect(rubDelta).toBe(200_000);
+
+      const usdDelta = (currBreakdown.USD || 0) - (prevBreakdown.USD || 0);
+      expect(usdDelta).toBe(-10_000);
+
+      const eurDelta = (currBreakdown.EUR || 0) - (prevBreakdown.EUR || 0);
+      expect(eurDelta).toBe(-5_000);
+    });
+  });
 });

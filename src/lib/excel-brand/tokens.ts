@@ -104,6 +104,26 @@ export function getMoneyNumFmt(currency?: string | null, precise: boolean = fals
   return precise ? CURRENCY_NUMFMT.UNKNOWN.MONEY_PRECISE : CURRENCY_NUMFMT.UNKNOWN.MONEY;
 }
 
+/**
+ * Returns currency-aware Excel delta number format mask.
+ */
+export function getDeltaMoneyNumFmt(currency?: string | null): string {
+  if (!currency || typeof currency !== "string") {
+    return NUMFMT.DELTA_INTEGER;
+  }
+  const upper = currency.trim().toUpperCase();
+  if (upper === "RUB" || upper === "RUR" || upper === "₽") {
+    return NUMFMT.DELTA_MONEY;
+  }
+  if (upper === "USD" || upper === "$") {
+    return '+$#,##0;-$#,##0;$0';
+  }
+  if (upper === "EUR" || upper === "€") {
+    return '+#,##0 "€";-#,##0 "€";0 "€"';
+  }
+  return `+#,##0 "${upper}";-#,##0 "${upper}";0 "${upper}"`;
+}
+
 /** Standard business timezone for management reports */
 export const REPORT_TIMEZONE = "Europe/Moscow";
 

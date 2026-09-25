@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Building2, ExternalLink } from "lucide-react";
 import type { CommercialCompany } from "@/lib/commercial-funnel/types";
+import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
 
 interface DrillDownSheetProps {
   open: boolean;
@@ -107,7 +108,14 @@ export function CommercialDrillDownSheet({
                       </TableCell>
                       <TableCell className="text-xs text-right font-medium">
                         {c.primaryDealOpportunity
-                          ? `${c.primaryDealOpportunity.toLocaleString("ru-RU")} ₽`
+                          ? formatCurrencyAmount(
+                              c.primaryDealOpportunity,
+                              c.primaryDealCurrencyId ||
+                                (c.primaryDealId
+                                  ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId
+                                  : undefined) ||
+                                "RUB"
+                            )
                           : "—"}
                       </TableCell>
                       <TableCell className="text-xs">

@@ -69,6 +69,24 @@ describe("Excel Brand System — Tokens", () => {
     expect(mapBusinessStatusToSemantic("—")).toBe("NEUTRAL");
   });
 
+  it("strictly respects precedence rule: 'Не требуется' must be NEUTRAL, not ATTENTION", () => {
+    // Negated neutral phrases must never trigger ATTENTION merely because of substring 'требует'
+    expect(mapBusinessStatusToSemantic("Не требуется")).toBe("NEUTRAL");
+    expect(mapBusinessStatusToSemantic("Не требуются образцы")).toBe("NEUTRAL");
+    expect(mapBusinessStatusToSemantic("Не требует действий")).toBe("NEUTRAL");
+
+    // Positive attention phrases must remain ATTENTION
+    expect(mapBusinessStatusToSemantic("Требует внимания")).toBe("ATTENTION");
+    expect(mapBusinessStatusToSemantic("Требует доработки")).toBe("ATTENTION");
+    expect(mapBusinessStatusToSemantic("Требуется доработка")).toBe("ATTENTION");
+
+    // Payment and sample outcomes
+    expect(mapBusinessStatusToSemantic("Не оплачен")).toBe("ATTENTION");
+    expect(mapBusinessStatusToSemantic("Оплачен")).toBe("SUCCESS");
+    expect(mapBusinessStatusToSemantic("Не подошли")).toBe("NEGATIVE");
+    expect(mapBusinessStatusToSemantic("Подошли")).toBe("SUCCESS");
+  });
+
   it("retrieves status colors with high contrast", () => {
     const success = getStatusColors("SUCCESS");
     expect(success.bg).toBe(SUCCESS_BG);
@@ -600,5 +618,22 @@ describe("Excel Brand System — Single Company Native Dates & Currency (P2-3)",
       type: "date",
     });
     expect(nullField.value).toBeNull();
+    expect(nullField.isDateField).toBe(true);
+
+    const emptyDateField = normalizeCompanyReportFieldValue({
+      id: "UF_CRM_DATE",
+      label: "Дата отправки образца",
+      value: "",
+    });
+    expect(emptyDateField.value).toBeNull();
+    expect(emptyDateField.isDateField).toBe(true);
+
+    const emptyTextField = normalizeCompanyReportFieldValue({
+      id: "COMMENTS",
+      label: "Комментарий",
+      value: "",
+    });
+    expect(emptyTextField.value).toBeNull();
+    expect(emptyTextField.isDateField).toBe(false);
   });
 });

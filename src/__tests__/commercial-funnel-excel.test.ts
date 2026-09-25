@@ -7,7 +7,7 @@ import { createCommercialFunnelWorkbook } from "@/lib/commercial-funnel/export-e
 import { generateDemoCommercialDataset } from "@/lib/commercial-funnel/demo-data";
 import { computeBottlenecks, computeManagerScorecard, computePeriodMetrics, computeWipMetrics } from "@/lib/commercial-funnel/engine";
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
-import type { CommercialFilters } from "@/lib/commercial-funnel/types";
+import type { CommercialCompany, CommercialFilters } from "@/lib/commercial-funnel/types";
 
 describe("Commercial Funnel — Excel Export", () => {
   const demoData = generateDemoCommercialDataset();
@@ -177,5 +177,162 @@ describe("Commercial Funnel — Excel Export", () => {
 
     // Truthful payment label
     expect(allCellTexts.some((t) => t.includes("Сумма сделок с полученной оплатой"))).toBe(true);
+  });
+
+  it("exports multi-currency dataset truthfully without cross-currency sum or false RUB assumptions", async () => {
+    const multiCurCompanies: CommercialCompany[] = [
+      {
+        id: "c-rub",
+        title: "Компания Рублевая",
+        responsibleId: "u1",
+        responsibleName: "Менеджер Рублев",
+        dateCreate: "2026-09-01",
+        direction: [],
+        productType: [],
+        sampleAllDates: [],
+        deals: [
+          {
+            id: "d-rub",
+            title: "Сделка Руб",
+            companyId: "c-rub",
+            responsibleId: "u1",
+            stageId: "EXECUTING",
+            categoryId: "0",
+            opportunity: 1_500_000,
+            currencyId: "RUB",
+            paymentStatus: "109",
+            paymentDate: "2026-09-10",
+            sampleTestingStatus: [],
+            productType: [],
+            industry: [],
+            direction: [],
+          },
+        ],
+        primaryDealId: "d-rub",
+        primaryDealTitle: "Сделка Руб",
+        primaryDealOpportunity: 1_500_000,
+        primaryDealCurrencyId: "RUB",
+        primaryDealPaymentStatus: "109",
+        primaryDealPaymentDate: "2026-09-10",
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        gradeGel: [],
+        gradeSol: [],
+        hasAttention: false,
+        attentionReasons: [],
+      },
+      {
+        id: "c-usd",
+        title: "Компания Долларовая",
+        responsibleId: "u2",
+        responsibleName: "Менеджер Долларов",
+        dateCreate: "2026-09-02",
+        direction: [],
+        productType: [],
+        sampleAllDates: [],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        gradeGel: [],
+        gradeSol: [],
+        deals: [
+          {
+            id: "d-usd",
+            title: "Сделка Долл",
+            companyId: "c-usd",
+            responsibleId: "u2",
+            stageId: "EXECUTING",
+            categoryId: "0",
+            opportunity: 25_000,
+            currencyId: "USD",
+            dateCreate: "2026-07-01",
+            paymentStatus: "113",
+            paymentDate: "2026-09-12",
+            sampleTestingStatus: [],
+            productType: [],
+            industry: [],
+            direction: [],
+          },
+        ],
+        primaryDealId: "d-usd",
+        primaryDealTitle: "Сделка Долл",
+        primaryDealOpportunity: 25_000,
+        primaryDealCurrencyId: "USD",
+        primaryDealPaymentStatus: "113",
+        primaryDealPaymentDate: "2026-09-12",
+        hasAttention: true,
+        attentionReasons: ["Нет задач"],
+      },
+    ];
+
+    const multiCurDeals = multiCurCompanies.flatMap((c) => c.deals);
+
+    const workbook = await createCommercialFunnelWorkbook({
+      companies: multiCurCompanies,
+      deals: multiCurDeals,
+      filters: {
+        periodPreset: "30days",
+        responsibleId: "all",
+        productType: "all",
+        industry: "all",
+        direction: "all",
+        region: "all",
+      },
+      userNames: { u1: "Менеджер Рублев", u2: "Менеджер Долларов" },
+      now: fixedNow,
+    });
+
+    // 1. Executive Summary: Section 1 should have per-currency payment rows
+    const summarySheet = workbook.getWorksheet("Executive Summary")!;
+    let foundRubRow = false;
+    let foundUsdRow = false;
+
+    summarySheet.eachRow((row) => {
+      const lbl = String(row.getCell(1).value || "");
+      if (lbl.includes("Сумма сделок с полученной оплатой — RUB")) {
+        foundRubRow = true;
+        expect(row.getCell(2).value).toBe(1_500_000);
+        expect(row.getCell(2).numFmt).toContain("₽");
+      }
+      if (lbl.includes("Сумма сделок с полученной оплатой — USD")) {
+        foundUsdRow = true;
+        expect(row.getCell(2).value).toBe(25_000);
+        expect(row.getCell(2).numFmt).toContain("$");
+        expect(row.getCell(2).numFmt).not.toContain("₽");
+      }
+    });
+
+    expect(foundRubRow).toBe(true);
+    expect(foundUsdRow).toBe(true);
+
+    // 2. Companies Sheet: Headers must NOT have hardcoded (₽)
+    const compSheet = workbook.getWorksheet("Companies")!;
+    const compHeaderRow = compSheet.getRow(6);
+    expect(compHeaderRow.getCell(14).value).toBe("Сумма");
+
+    // Row 7 is c-rub, Row 8 is c-usd
+    const rubCompRow = compSheet.getRow(7);
+    expect(rubCompRow.getCell(14).value).toBe(1_500_000);
+    expect(rubCompRow.getCell(14).numFmt).toContain("₽");
+
+    const usdCompRow = compSheet.getRow(8);
+    expect(usdCompRow.getCell(14).value).toBe(25_000);
+    expect(usdCompRow.getCell(14).numFmt).toContain("$");
+    expect(usdCompRow.getCell(14).numFmt).not.toContain("₽");
+
+    // 3. Managers Sheet: Per-currency payment columns
+    const mgrSheet = workbook.getWorksheet("Managers")!;
+    const mgrHeaderRow = mgrSheet.getRow(6);
+    const mgrHeaders = (mgrHeaderRow.values as string[]).slice(1);
+    expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (RUB)");
+    expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (USD)");
+
+    // 4. Bottlenecks Sheet: Header is "Сумма", formatted with USD for usd deal
+    const botSheet = workbook.getWorksheet("Bottlenecks")!;
+    const botHeaderRow = botSheet.getRow(6);
+    expect(botHeaderRow.getCell(8).value).toBe("Сумма");
+    const botRow = botSheet.getRow(7);
+    expect(botRow.getCell(8).value).toBe(25_000);
+    expect(botRow.getCell(8).numFmt).toContain("$");
+    expect(botRow.getCell(8).numFmt).not.toContain("₽");
   });
 });

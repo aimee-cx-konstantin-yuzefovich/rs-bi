@@ -15,6 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import type { BottleneckItem } from "@/lib/commercial-funnel/types";
+import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
 
 interface BottlenecksTabProps {
   bottlenecks: BottleneckItem[];
@@ -73,7 +74,7 @@ export function CommercialBottlenecksTab({
                   <TableHead className="text-xs font-semibold">Дата события</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Дней ожидания</TableHead>
                   <TableHead className="text-xs font-semibold">Сделка</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Сумма (₽)</TableHead>
+                  <TableHead className="text-xs font-semibold text-right">Сумма</TableHead>
                   <TableHead className="text-xs font-semibold">Следующий шаг / Рекомендация</TableHead>
                 </TableRow>
               </TableHeader>
@@ -140,7 +141,7 @@ export function CommercialBottlenecksTab({
                     {/* Сумма */}
                     <TableCell className="text-xs text-right font-medium whitespace-nowrap">
                       {item.amount
-                        ? `${item.amount.toLocaleString("ru-RU")} ₽`
+                        ? formatCurrencyAmount(item.amount, item.currencyId || "RUB")
                         : "—"}
                     </TableCell>
 

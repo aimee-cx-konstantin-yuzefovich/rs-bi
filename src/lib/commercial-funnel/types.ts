@@ -109,6 +109,7 @@ export interface CommercialCompany {
   primaryDealStageId?: string;
   primaryDealStageName?: string;
   primaryDealOpportunity?: number;
+  primaryDealCurrencyId?: string;
   primaryDealPaymentStatus?: string;
   primaryDealPaymentDate?: string;
   primaryDealActivityNext?: string;
@@ -119,12 +120,18 @@ export interface CommercialCompany {
 export interface DatedKpi {
   id: string;
   label: string;
-  currentValue: number;
-  previousValue: number;
-  delta: number;
+  currentValue: number | null;
+  previousValue: number | null;
+  delta: number | null;
   deltaPercent: number | null; // null if denominator is 0
   companyIds: string[];
   isCurrency?: boolean;
+  currencyId?: string;
+  isMultiCurrency?: boolean;
+  currencyBreakdown?: {
+    current: Record<string, number>;
+    previous: Record<string, number>;
+  };
 }
 
 export interface WipKpi {
@@ -155,6 +162,7 @@ export interface BottleneckItem {
   dealId?: string;
   dealTitle?: string;
   amount?: number;
+  currencyId?: string;
   nextAction?: string;
 }
 
@@ -170,6 +178,7 @@ export interface ManagerScorecardRow {
   dealsCreated: number;
   paymentsReceived: number;
   paymentAmount: number;
+  paymentAmountsByCurrency?: Record<string, number>;
   bottlenecksCount: number;
   companyIds: string[];
 }

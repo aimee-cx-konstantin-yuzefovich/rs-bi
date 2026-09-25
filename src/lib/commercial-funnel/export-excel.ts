@@ -8,6 +8,7 @@
 import ExcelJS from "exceljs";
 import {
   COMMERCIAL_TIMEZONE,
+  PAID_STATUS_CODES,
   PAYMENT_AMOUNT_LABEL,
 } from "./constants";
 import {
@@ -18,7 +19,12 @@ import {
   computeWipMetrics,
   filterCompaniesByDimensions,
 } from "./engine";
-import { computePeriodBoundaries } from "./date-utils";
+import {
+  computePeriodBoundaries,
+  isDateInPeriod,
+  safeDeltaPercent,
+} from "./date-utils";
+import { normalizeCurrencyCode } from "./normalize";
 import type {
   CommercialCompany,
   CommercialDeal,
@@ -44,6 +50,8 @@ import {
   formatReportDateForFilename,
   formatReportDateTime,
   formatStageToRussian,
+  getDeltaMoneyNumFmt,
+  getMoneyNumFmt,
   NUMFMT,
   registerBrandLogo,
   REPORT_TIMEZONE,
@@ -257,62 +265,134 @@ function formatPeriodPresetToRussian(preset: string): string {
   summarySheet.mergeCells(lblRow1.number, 5, lblRow1.number, 6);
 
   // Row 2: Bottom 2 conversion/financial metrics (Payments Received, Payment Amount)
-  const valRow2 = summarySheet.addRow([
-    kpiPayments?.currentValue ?? 0,
-    null,
-    null,
-    kpiAmount?.currentValue ?? 0,
-    null,
-    null,
-  ]);
-  valRow2.height = 26;
-  summarySheet.mergeCells(valRow2.number, 1, valRow2.number, 3);
-  summarySheet.mergeCells(valRow2.number, 4, valRow2.number, 6);
-
-  const lblRow2 = summarySheet.addRow([
-    `[KPI] ${kpiPayments?.label ?? "Получено оплат"}`,
-    null,
-    null,
-    `[KPI] ${kpiAmount?.label ?? "Сумма полученных оплат"}`,
-    null,
-    null,
-  ]);
-  lblRow2.height = 18;
-  summarySheet.mergeCells(lblRow2.number, 1, lblRow2.number, 3);
-  summarySheet.mergeCells(lblRow2.number, 4, lblRow2.number, 6);
-
-  // Style KPI Cards
   const kpiCardFill = {
     type: "pattern" as const,
     pattern: "solid" as const,
     fgColor: { argb: "FFF3F6FA" },
   };
 
-  [valRow1, valRow2].forEach((row) => {
-    for (let c = 1; c <= 6; c++) {
-      const cell = row.getCell(c);
-      cell.fill = kpiCardFill;
-      cell.border = THIN_BORDER;
-      cell.font = { name: RS_FONT_FAMILY, size: 14, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
-      cell.alignment = { vertical: "middle", horizontal: "center" };
-    }
-  });
+  // Style Row 1
+  for (let c = 1; c <= 6; c++) {
+    const vCell = valRow1.getCell(c);
+    vCell.fill = kpiCardFill;
+    vCell.border = THIN_BORDER;
+    vCell.font = { name: RS_FONT_FAMILY, size: 14, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
+    vCell.alignment = { vertical: "middle", horizontal: "center" };
 
+    const lCell = lblRow1.getCell(c);
+    lCell.fill = kpiCardFill;
+    lCell.border = THIN_BORDER;
+    lCell.font = { name: RS_FONT_FAMILY, size: 9, bold: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+    lCell.alignment = { vertical: "middle", horizontal: "center" };
+  }
   valRow1.getCell(1).numFmt = NUMFMT.INTEGER;
   valRow1.getCell(3).numFmt = NUMFMT.INTEGER;
   valRow1.getCell(5).numFmt = NUMFMT.INTEGER;
-  valRow2.getCell(1).numFmt = NUMFMT.INTEGER;
-  valRow2.getCell(4).numFmt = NUMFMT.MONEY;
 
-  [lblRow1, lblRow2].forEach((row) => {
+  const isMultiCurr = Boolean(kpiAmount?.isMultiCurrency && kpiAmount?.currencyBreakdown);
+  const cardCurrs = isMultiCurr
+    ? Object.keys(kpiAmount!.currencyBreakdown!.current || {}).sort()
+    : [];
+
+  let valRow2: ExcelJS.Row;
+  let lblRow2: ExcelJS.Row;
+
+  if (isMultiCurr && cardCurrs.length > 1) {
+    const cardRows: ExcelJS.Row[] = [];
+    for (let i = 0; i < cardCurrs.length; i++) {
+      const cur = cardCurrs[i];
+      const amt = kpiAmount!.currencyBreakdown!.current[cur] || 0;
+      const r = summarySheet.addRow([
+        i === 0 ? (kpiPayments?.currentValue ?? 0) : null,
+        null,
+        null,
+        cur,
+        amt,
+        null,
+      ]);
+      r.height = 24;
+      summarySheet.mergeCells(r.number, 5, r.number, 6);
+      for (let c = 1; c <= 6; c++) {
+        const cell = r.getCell(c);
+        cell.fill = kpiCardFill;
+        cell.border = THIN_BORDER;
+        cell.font = { name: RS_FONT_FAMILY, size: 12, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
+        cell.alignment = { vertical: "middle", horizontal: "center" };
+      }
+      r.getCell(4).font = { name: RS_FONT_FAMILY, size: 10, bold: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+      r.getCell(5).numFmt = getMoneyNumFmt(cur);
+      cardRows.push(r);
+    }
+    const firstNum = cardRows[0].number;
+    const lastNum = cardRows[cardRows.length - 1].number;
+    summarySheet.mergeCells(firstNum, 1, lastNum, 3);
+    cardRows[0].getCell(1).numFmt = NUMFMT.INTEGER;
+    valRow2 = cardRows[0];
+
+    lblRow2 = summarySheet.addRow([
+      `[KPI] ${kpiPayments?.label ?? "Получено оплат"}`,
+      null,
+      null,
+      `[KPI] ${kpiAmount?.label ?? "Сумма полученных оплат"}`,
+      null,
+      null,
+    ]);
+    lblRow2.height = 18;
+    summarySheet.mergeCells(lblRow2.number, 1, lblRow2.number, 3);
+    summarySheet.mergeCells(lblRow2.number, 4, lblRow2.number, 6);
     for (let c = 1; c <= 6; c++) {
-      const cell = row.getCell(c);
+      const cell = lblRow2.getCell(c);
       cell.fill = kpiCardFill;
       cell.border = THIN_BORDER;
       cell.font = { name: RS_FONT_FAMILY, size: 9, bold: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
       cell.alignment = { vertical: "middle", horizontal: "center" };
     }
-  });
+  } else {
+    const singleCurrency = kpiAmount?.currencyId || cardCurrs[0] || "RUB";
+    const singleAmt = isMultiCurr && cardCurrs.length === 1
+      ? kpiAmount!.currencyBreakdown!.current[cardCurrs[0]] || 0
+      : (kpiAmount?.currentValue ?? 0);
+
+    valRow2 = summarySheet.addRow([
+      kpiPayments?.currentValue ?? 0,
+      null,
+      null,
+      singleAmt,
+      null,
+      null,
+    ]);
+    valRow2.height = 26;
+    summarySheet.mergeCells(valRow2.number, 1, valRow2.number, 3);
+    summarySheet.mergeCells(valRow2.number, 4, valRow2.number, 6);
+
+    lblRow2 = summarySheet.addRow([
+      `[KPI] ${kpiPayments?.label ?? "Получено оплат"}`,
+      null,
+      null,
+      `[KPI] ${kpiAmount?.label ?? "Сумма полученных оплат"}`,
+      null,
+      null,
+    ]);
+    lblRow2.height = 18;
+    summarySheet.mergeCells(lblRow2.number, 1, lblRow2.number, 3);
+    summarySheet.mergeCells(lblRow2.number, 4, lblRow2.number, 6);
+
+    for (let c = 1; c <= 6; c++) {
+      const cell = valRow2.getCell(c);
+      cell.fill = kpiCardFill;
+      cell.border = THIN_BORDER;
+      cell.font = { name: RS_FONT_FAMILY, size: 14, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+
+      const lCell = lblRow2.getCell(c);
+      lCell.fill = kpiCardFill;
+      lCell.border = THIN_BORDER;
+      lCell.font = { name: RS_FONT_FAMILY, size: 9, bold: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+      lCell.alignment = { vertical: "middle", horizontal: "center" };
+    }
+    valRow2.getCell(1).numFmt = NUMFMT.INTEGER;
+    valRow2.getCell(4).numFmt = getMoneyNumFmt(singleCurrency);
+  }
 
   summarySheet.addRow([]); // Spacer
 
@@ -331,30 +411,78 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   const startKpiRow = summarySheet.rowCount + 1;
   for (const k of datedKpis) {
-    const row = summarySheet.addRow([
-      k.label,
-      k.currentValue,
-      k.previousValue,
-      k.delta,
-      k.deltaPercent !== null ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%` : "—",
-      k.companyIds.length,
-    ]);
-    row.height = 20;
+    if (k.id === "payment_amount" && k.isMultiCurrency && k.currencyBreakdown) {
+      const allCurrs = Array.from(
+        new Set([
+          ...Object.keys(k.currencyBreakdown.current),
+          ...Object.keys(k.currencyBreakdown.previous),
+        ])
+      ).sort();
 
-    for (let c = 1; c <= 6; c++) {
-      const cell = row.getCell(c);
-      cell.border = THIN_BORDER;
-      cell.font = FONT_DATA;
-    }
+      for (const cur of allCurrs) {
+        const currAmt = k.currencyBreakdown.current[cur] || 0;
+        const prevAmt = k.currencyBreakdown.previous[cur] || 0;
+        const deltaAmt = currAmt - prevAmt;
+        const pct = safeDeltaPercent(currAmt, prevAmt);
+        const pctStr = pct !== null ? `${pct > 0 ? "+" : ""}${pct}%` : "—";
+        const compCount = filteredCompanies.filter((c) =>
+          c.deals.some(
+            (d) =>
+              d.paymentStatus &&
+              PAID_STATUS_CODES.has(d.paymentStatus) &&
+              d.paymentDate &&
+              isDateInPeriod(d.paymentDate, boundaries.currentStart, boundaries.currentEnd) &&
+              normalizeCurrencyCode(d.currencyId) === cur
+          )
+        ).length;
 
-    if (k.isCurrency) {
-      row.getCell(2).numFmt = NUMFMT.MONEY;
-      row.getCell(3).numFmt = NUMFMT.MONEY;
-      row.getCell(4).numFmt = NUMFMT.DELTA_MONEY;
+        const row = summarySheet.addRow([
+          `${k.label} — ${cur}`,
+          currAmt,
+          prevAmt,
+          deltaAmt,
+          pctStr,
+          compCount,
+        ]);
+        row.height = 20;
+
+        for (let c = 1; c <= 6; c++) {
+          const cell = row.getCell(c);
+          cell.border = THIN_BORDER;
+          cell.font = FONT_DATA;
+        }
+
+        row.getCell(2).numFmt = getMoneyNumFmt(cur);
+        row.getCell(3).numFmt = getMoneyNumFmt(cur);
+        row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
+      }
     } else {
-      row.getCell(2).numFmt = NUMFMT.INTEGER;
-      row.getCell(3).numFmt = NUMFMT.INTEGER;
-      row.getCell(4).numFmt = NUMFMT.DELTA_INTEGER;
+      const row = summarySheet.addRow([
+        k.label,
+        k.currentValue ?? 0,
+        k.previousValue ?? 0,
+        k.delta ?? 0,
+        k.deltaPercent !== null ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%` : "—",
+        k.companyIds.length,
+      ]);
+      row.height = 20;
+
+      for (let c = 1; c <= 6; c++) {
+        const cell = row.getCell(c);
+        cell.border = THIN_BORDER;
+        cell.font = FONT_DATA;
+      }
+
+      if (k.isCurrency) {
+        const cur = k.currencyId || "RUB";
+        row.getCell(2).numFmt = getMoneyNumFmt(cur);
+        row.getCell(3).numFmt = getMoneyNumFmt(cur);
+        row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
+      } else {
+        row.getCell(2).numFmt = NUMFMT.INTEGER;
+        row.getCell(3).numFmt = NUMFMT.INTEGER;
+        row.getCell(4).numFmt = NUMFMT.DELTA_INTEGER;
+      }
     }
   }
   const endKpiRow = summarySheet.rowCount;
@@ -403,7 +531,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       "Причина внимания",
       "Текущее состояние",
       "Дней ожидания",
-      "Сумма (₽)",
+      "Сумма",
     ]);
     styleTableHeader(attentionHeader, { colCount: 6 });
 
@@ -428,7 +556,8 @@ function formatPeriodPresetToRussian(preset: string): string {
       }
 
       if (typeof b.daysWaiting === "number") row.getCell(5).numFmt = NUMFMT.INTEGER;
-      row.getCell(6).numFmt = NUMFMT.MONEY;
+      const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : "RUB";
+      row.getCell(6).numFmt = getMoneyNumFmt(botCur);
 
       applyStatusCell(row.getCell(3), "Внимание");
       row.getCell(3).value = b.issueLabel;
@@ -484,7 +613,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     "Результат испытаний",
     "Текущая сделка",
     "Коммерческий этап",
-    "Сумма (₽)",
+    "Сумма",
     "Статус оплаты",
     "Дата оплаты",
     "Следующий шаг",
@@ -552,7 +681,8 @@ function formatPeriodPresetToRussian(preset: string): string {
     if (paymentDateVal) row.getCell(16).numFmt = NUMFMT.DATE;
 
     // Currency format
-    row.getCell(14).numFmt = NUMFMT.INTEGER;
+    const dealCur = c.primaryDealCurrencyId ? normalizeCurrencyCode(c.primaryDealCurrencyId) : "RUB";
+    row.getCell(14).numFmt = getMoneyNumFmt(dealCur);
 
     // Status styling
     if (sampleStatusDisplay && sampleStatusDisplay !== "—") {
@@ -679,6 +809,14 @@ function formatPeriodPresetToRussian(preset: string): string {
     views: [{ showGridLines: true }],
   });
 
+  const allManagerCurrencies = Array.from(
+    new Set(
+      managerScorecard.flatMap((m) => Object.keys(m.paymentAmountsByCurrency || {}))
+    )
+  ).sort();
+
+  const isMultiManagerCurrencies = allManagerCurrencies.length > 1;
+
   const managersColumns = [
     "Менеджер",
     "Новые компании (период)",
@@ -689,7 +827,9 @@ function formatPeriodPresetToRussian(preset: string): string {
     "Требуют доработки",
     "Создано сделок (период)",
     "Получено оплат (период)",
-    `${PAYMENT_AMOUNT_LABEL} (₽)`,
+    ...(isMultiManagerCurrencies
+      ? allManagerCurrencies.map((cur) => `${PAYMENT_AMOUNT_LABEL} (${cur})`)
+      : [`${PAYMENT_AMOUNT_LABEL} (${allManagerCurrencies[0] || "RUB"})`]),
     "Требуют внимания",
   ];
 
@@ -716,6 +856,10 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   const startManagersRow = managersHeaderRowIndex + 1;
   for (const m of managerScorecard) {
+    const payAmounts = isMultiManagerCurrencies
+      ? allManagerCurrencies.map((cur) => m.paymentAmountsByCurrency?.[cur] || 0)
+      : [m.paymentAmount];
+
     const row = managersSheet.addRow([
       m.name,
       m.newCompanies,
@@ -726,7 +870,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       m.sampleRework,
       m.dealsCreated,
       m.paymentsReceived,
-      m.paymentAmount,
+      ...payAmounts,
       m.bottlenecksCount,
     ]);
     row.height = 20;
@@ -734,12 +878,27 @@ function formatPeriodPresetToRussian(preset: string): string {
     for (let c = 2; c <= 9; c++) {
       row.getCell(c).numFmt = NUMFMT.INTEGER;
     }
-    row.getCell(10).numFmt = NUMFMT.INTEGER;
-    row.getCell(11).numFmt = NUMFMT.INTEGER;
 
-    if (m.bottlenecksCount > 0) {
-      applyStatusCell(row.getCell(11), "Внимание");
-      row.getCell(11).value = m.bottlenecksCount;
+    if (isMultiManagerCurrencies) {
+      for (let i = 0; i < allManagerCurrencies.length; i++) {
+        row.getCell(10 + i).numFmt = getMoneyNumFmt(allManagerCurrencies[i]);
+      }
+      const attentionCol = 10 + allManagerCurrencies.length;
+      row.getCell(attentionCol).numFmt = NUMFMT.INTEGER;
+
+      if (m.bottlenecksCount > 0) {
+        applyStatusCell(row.getCell(attentionCol), "Внимание");
+        row.getCell(attentionCol).value = m.bottlenecksCount;
+      }
+    } else {
+      const singleCur = allManagerCurrencies[0] || "RUB";
+      row.getCell(10).numFmt = getMoneyNumFmt(singleCur);
+      row.getCell(11).numFmt = NUMFMT.INTEGER;
+
+      if (m.bottlenecksCount > 0) {
+        applyStatusCell(row.getCell(11), "Внимание");
+        row.getCell(11).value = m.bottlenecksCount;
+      }
     }
   }
   const endManagersRow = startManagersRow + managerScorecard.length - 1;
@@ -772,7 +931,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     "Дата события",
     "Дней ожидания",
     "Сделка",
-    "Сумма (₽)",
+    "Сумма",
     "Следующий шаг / Рекомендация",
   ];
 
@@ -815,7 +974,8 @@ function formatPeriodPresetToRussian(preset: string): string {
 
     if (relevantDateVal) row.getCell(5).numFmt = NUMFMT.DATE;
     if (typeof b.daysWaiting === "number") row.getCell(6).numFmt = NUMFMT.INTEGER;
-    row.getCell(8).numFmt = NUMFMT.INTEGER;
+    const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : "RUB";
+    row.getCell(8).numFmt = getMoneyNumFmt(botCur);
 
     // Attention styling
     applyStatusCell(row.getCell(3), "Внимание");

@@ -15,6 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Users } from "lucide-react";
 import type { ManagerScorecardRow } from "@/lib/commercial-funnel/types";
+import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
 
 interface ManagersTabProps {
   scorecard: ManagerScorecardRow[];
@@ -86,7 +87,7 @@ export function CommercialManagersTab({
                   <TableHead className="text-xs font-semibold text-right">Доработка</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Создано сделок</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Получено оплат</TableHead>
-                  <TableHead className="text-xs font-semibold text-right" title="Сумма сделок с полученной оплатой">Сумма сделок с получ. оплатой (₽)</TableHead>
+                  <TableHead className="text-xs font-semibold text-right" title="Сумма сделок с полученной оплатой">Сумма сделок с получ. оплатой</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Требуют внимания</TableHead>
                 </TableRow>
               </TableHeader>
@@ -131,9 +132,17 @@ export function CommercialManagersTab({
                       {row.paymentsReceived || "—"}
                     </TableCell>
                     <TableCell className="text-xs text-right font-semibold whitespace-nowrap">
-                      {row.paymentAmount > 0
-                        ? `${row.paymentAmount.toLocaleString("ru-RU")} ₽`
-                        : "—"}
+                      {row.paymentAmountsByCurrency && Object.keys(row.paymentAmountsByCurrency).length > 0 ? (
+                        <div className="flex flex-col gap-0.5 items-end">
+                          {Object.entries(row.paymentAmountsByCurrency).map(([cur, amt]) => (
+                            <span key={cur}>{formatCurrencyAmount(amt, cur)}</span>
+                          ))}
+                        </div>
+                      ) : row.paymentAmount > 0 ? (
+                        formatCurrencyAmount(row.paymentAmount, "RUB")
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-right">
                       {row.bottlenecksCount > 0 ? (

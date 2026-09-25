@@ -338,17 +338,8 @@ export interface ExportCompanyOptions {
 export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
   value: Date | string | number | null;
   numFmt?: string;
+  isDateField?: boolean;
 } {
-  const raw = field.value;
-  if (raw === null || raw === undefined || raw === "" || raw === "—") {
-    return { value: null };
-  }
-
-  const str = String(raw).trim();
-  if (!str || str === "—") {
-    return { value: null };
-  }
-
   const idUpper = (field.id || "").toUpperCase();
   const labelLower = (field.label || "").toLowerCase();
   const typeLower = (field.type || "").toLowerCase();
@@ -364,7 +355,27 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
     labelLower.includes("дата") ||
     labelLower.includes("date");
 
+  const raw = field.value;
+  if (raw === null || raw === undefined || raw === "" || raw === "—") {
+    return { value: null, isDateField: isExplicitDateField };
+  }
+
+  const str = String(raw).trim();
+  if (!str || str === "—") {
+    return { value: null, isDateField: isExplicitDateField };
+  }
+
   if (isExplicitDateField) {
+    if ((raw as unknown) instanceof Date && !isNaN(((raw as unknown) as Date).getTime())) {
+      const dateObj = (raw as unknown) as Date;
+      const hasTime = dateObj.getUTCHours() !== 0 || dateObj.getUTCMinutes() !== 0;
+      return {
+        value: dateObj,
+        numFmt: hasTime ? NUMFMT.DATETIME : NUMFMT.DATE,
+        isDateField: true,
+      };
+    }
+
     // 1. DD.MM.YYYY [HH:mm[:ss]]
     const dmyMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
     if (dmyMatch) {
@@ -378,6 +389,7 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
         return {
           value: d,
           numFmt: hasTime ? NUMFMT.DATETIME : NUMFMT.DATE,
+          isDateField: true,
         };
       }
     }
@@ -388,7 +400,7 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
       const [_, year, month, day] = ymdMatch;
       const d = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12, 0, 0));
       if (!isNaN(d.getTime())) {
-        return { value: d, numFmt: NUMFMT.DATE };
+        return { value: d, numFmt: NUMFMT.DATE, isDateField: true };
       }
     }
 
@@ -401,12 +413,15 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
         return {
           value: d,
           numFmt: hasTime ? NUMFMT.DATETIME : NUMFMT.DATE,
+          isDateField: true,
         };
       }
     }
+
+    return { value: translateCrmValueToRussian(str), isDateField: true };
   }
 
-  return { value: translateCrmValueToRussian(str) };
+  return { value: translateCrmValueToRussian(str), isDateField: false };
 }
 
 /**
@@ -472,7 +487,10 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   for (const field of fields) {
     const cleanLabel = formatHeaderToRussian(field.label, { preserveProvenance: false });
     const parsed = normalizeCompanyReportFieldValue(field);
-    const row = worksheet.addRow([cleanLabel, parsed.value ?? "—"]);
+    const cellValue = parsed.isDateField
+      ? (parsed.value instanceof Date ? parsed.value : null)
+      : (parsed.value ?? "—");
+    const row = worksheet.addRow([cleanLabel, cellValue]);
     row.height = 20;
     worksheet.mergeCells(row.number, 2, row.number, 5);
 
@@ -483,9 +501,11 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
 
     const valueCell = row.getCell(2);
     valueCell.font = FONT_DATA;
-    if (parsed.value instanceof Date) {
+    if (cellValue instanceof Date) {
       valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
       valueCell.numFmt = parsed.numFmt || NUMFMT.DATE;
+    } else if (cellValue === null) {
+      valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
     } else {
       valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
     }
@@ -503,7 +523,10 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     for (const field of sampleFields) {
       const cleanLabel = formatHeaderToRussian(field.label, { preserveProvenance: false });
       const parsed = normalizeCompanyReportFieldValue(field);
-      const row = worksheet.addRow([cleanLabel, parsed.value ?? "—"]);
+      const cellValue = parsed.isDateField
+        ? (parsed.value instanceof Date ? parsed.value : null)
+        : (parsed.value ?? "—");
+      const row = worksheet.addRow([cleanLabel, cellValue]);
       row.height = 20;
       worksheet.mergeCells(row.number, 2, row.number, 5);
 
@@ -513,12 +536,15 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       labelCell.alignment = { vertical: "middle", indent: 1 };
 
       const valueCell = row.getCell(2);
-      if (parsed.value instanceof Date) {
+      if (cellValue instanceof Date) {
         valueCell.font = FONT_DATA;
         valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
         valueCell.numFmt = parsed.numFmt || NUMFMT.DATE;
+      } else if (cellValue === null) {
+        valueCell.font = FONT_DATA;
+        valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
       } else {
-        const valStr = String(parsed.value ?? "").trim();
+        const valStr = String(cellValue).trim();
         const semantic = mapBusinessStatusToSemantic(valStr);
         if (
           (cleanLabel.includes("Результат") || cleanLabel.includes("Статус")) &&

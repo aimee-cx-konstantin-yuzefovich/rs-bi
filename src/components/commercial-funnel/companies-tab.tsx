@@ -15,6 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, Building2, ExternalLink } from "lucide-react";
 import type { CommercialCompany } from "@/lib/commercial-funnel/types";
+import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
 
 interface CompaniesTabProps {
   companies: CommercialCompany[];
@@ -59,7 +60,7 @@ export function CommercialCompaniesTab({
                   <TableHead className="text-xs font-semibold">Результат</TableHead>
                   <TableHead className="text-xs font-semibold">Текущая сделка</TableHead>
                   <TableHead className="text-xs font-semibold">Этап сделки</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Сумма (₽)</TableHead>
+                  <TableHead className="text-xs font-semibold text-right">Сумма</TableHead>
                   <TableHead className="text-xs font-semibold">Оплата</TableHead>
                   <TableHead className="text-xs font-semibold">Следующий шаг</TableHead>
                   <TableHead className="text-xs font-semibold">Внимание</TableHead>
@@ -149,7 +150,14 @@ export function CommercialCompaniesTab({
                     {/* Сумма */}
                     <TableCell className="text-xs text-right font-medium whitespace-nowrap">
                       {c.primaryDealOpportunity
-                        ? `${c.primaryDealOpportunity.toLocaleString("ru-RU")} ₽`
+                        ? formatCurrencyAmount(
+                            c.primaryDealOpportunity,
+                            c.primaryDealCurrencyId ||
+                              (c.primaryDealId
+                                ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId
+                                : undefined) ||
+                              "RUB"
+                          )
                         : "—"}
                     </TableCell>
 

@@ -8,7 +8,7 @@ import { buildWysiwygWorkbook, createCompanyExcelWorkbook } from "@/lib/export-u
 import { createCommercialFunnelWorkbook } from "@/lib/commercial-funnel/export-excel";
 import { generateDemoCommercialDataset } from "@/lib/commercial-funnel/demo-data";
 import type { CommercialFilters } from "@/lib/commercial-funnel/types";
-import { ATTENTION_BG, CURRENCY_NUMFMT, NUMFMT, SUCCESS_BG } from "@/lib/excel-brand";
+import { ATTENTION_BG, CURRENCY_NUMFMT, NEUTRAL_BG, NUMFMT, SUCCESS_BG } from "@/lib/excel-brand";
 
 describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () => {
   const fixedNow = new Date("2026-09-24T12:00:00Z");
@@ -312,5 +312,190 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
 
     expect(allSummaryTexts.some((t) => t.includes("ТРЕБУЮТ ВНИМАНИЯ (УЗКИЕ МЕСТА)"))).toBe(true);
     expect(allSummaryTexts.some((t) => t.includes("[KPI] Новые компании"))).toBe(true);
+  });
+
+  it("Report 6: Residual Correctness Round-Trip — blank dates, 'Не требуется' NEUTRAL semantics, multi-currency funnel", async () => {
+    // 1. Single Company Report with empty date fields, non-date empty fields, and 'Не требуется'
+    const sourceCompanyWb = createCompanyExcelWorkbook({
+      companyTitle: "Тест Остаточных Исправлений",
+      companyId: "9999",
+      companyFields: [
+        { label: "Дата создания", value: "2026-05-15" },
+        { label: "Телефон", value: "" }, // Non-date empty field -> " — "
+      ],
+      sampleFields: [
+        { label: "Дата передачи / отправки", value: "" }, // Date empty field -> genuine null
+        { label: "Статус образцов", value: "Не требуется" }, // Negated neutral phrase -> NEUTRAL, not ATTENTION
+        { label: "Результат испытаний", value: "Не требуются" }, // Negated neutral phrase -> NEUTRAL
+      ],
+      deals: [],
+      currentDate: fixedNow,
+    });
+
+    const companyBuffer = await sourceCompanyWb.xlsx.writeBuffer();
+    const parsedCompanyWb = new ExcelJS.Workbook();
+    await parsedCompanyWb.xlsx.load(companyBuffer as any);
+
+    const companySheet = parsedCompanyWb.getWorksheet("Отчёт по компании")!;
+    expect(companySheet).toBeDefined();
+
+    let foundCreatedDate = false;
+    let foundEmptyPhone = false;
+    let foundEmptySampleDate = false;
+    let foundNotRequiredSample = false;
+    let foundNotRequiredResult = false;
+
+    companySheet.eachRow((row) => {
+      const label = String(row.getCell(1).value || "");
+      const valCell = row.getCell(2);
+
+      if (label === "Дата создания") {
+        foundCreatedDate = true;
+        expect(valCell.value).toBeInstanceOf(Date);
+      }
+      if (label === "Телефон") {
+        foundEmptyPhone = true;
+        expect(valCell.value).toBe("—");
+      }
+      if (label === "Дата передачи / отправки") {
+        foundEmptySampleDate = true;
+        // MUST remain genuinely blank Excel cell, never textual "—"
+        expect(valCell.value).toBeNull();
+      }
+      if (label === "Статус образцов") {
+        foundNotRequiredSample = true;
+        expect(valCell.value).toBe("Не требуется");
+        const fillArgb = (valCell.fill as any)?.fgColor?.argb;
+        // Must NOT have ATTENTION background
+        expect(fillArgb).toBeUndefined();
+      }
+      if (label === "Результат испытаний") {
+        foundNotRequiredResult = true;
+        expect(valCell.value).toBe("Не требуются");
+        const fillArgb = (valCell.fill as any)?.fgColor?.argb;
+        expect(fillArgb).toBeUndefined();
+      }
+    });
+
+    expect(foundCreatedDate).toBe(true);
+    expect(foundEmptyPhone).toBe(true);
+    expect(foundEmptySampleDate).toBe(true);
+    expect(foundNotRequiredSample).toBe(true);
+    expect(foundNotRequiredResult).toBe(true);
+
+    // 2. Commercial Funnel Multi-Currency XLSX Round-Trip
+    const multiCurWb = await createCommercialFunnelWorkbook({
+      companies: [
+        {
+          id: "c-rub",
+          title: "Компания Рубли",
+          responsibleId: "u1",
+          dateCreate: "2026-09-01",
+          direction: [],
+          productType: [],
+          sampleAllDates: [],
+          deals: [
+            {
+              id: "d-rub",
+              title: "Сделка 1",
+              companyId: "c-rub",
+              responsibleId: "u1",
+              stageId: "EXECUTING",
+              categoryId: "0",
+              opportunity: 500_000,
+              currencyId: "RUB",
+              paymentStatus: "109",
+              paymentDate: "2026-09-10",
+              sampleTestingStatus: [],
+              productType: [],
+              industry: [],
+              direction: [],
+            },
+          ],
+          primaryDealId: "d-rub",
+          primaryDealOpportunity: 500_000,
+          primaryDealCurrencyId: "RUB",
+          primaryDealPaymentStatus: "109",
+          primaryDealPaymentDate: "2026-09-10",
+          sampleStatus: "—",
+          sampleStatusSource: "NONE",
+          gradeGel: [],
+          gradeSol: [],
+          hasAttention: false,
+          attentionReasons: [],
+        },
+        {
+          id: "c-usd",
+          title: "Компания Доллары",
+          responsibleId: "u2",
+          dateCreate: "2026-09-02",
+          direction: [],
+          productType: [],
+          sampleAllDates: [],
+          sampleStatus: "—",
+          sampleStatusSource: "NONE",
+          gradeGel: [],
+          gradeSol: [],
+          deals: [
+            {
+              id: "d-usd",
+              title: "Сделка 2",
+              companyId: "c-usd",
+              responsibleId: "u2",
+              stageId: "EXECUTING",
+              categoryId: "0",
+              opportunity: 12_000,
+              currencyId: "USD",
+              paymentStatus: "109",
+              paymentDate: "2026-09-11",
+              sampleTestingStatus: [],
+              productType: [],
+              industry: [],
+              direction: [],
+            },
+          ],
+          primaryDealId: "d-usd",
+          primaryDealOpportunity: 12_000,
+          primaryDealCurrencyId: "USD",
+          primaryDealPaymentStatus: "109",
+          primaryDealPaymentDate: "2026-09-11",
+          hasAttention: false,
+          attentionReasons: [],
+        },
+      ],
+      deals: [],
+      filters: {
+        periodPreset: "30days",
+        responsibleId: "all",
+        productType: "all",
+        industry: "all",
+        direction: "all",
+        region: "all",
+      },
+      now: fixedNow,
+    });
+
+    const multiCurBuffer = await multiCurWb.xlsx.writeBuffer();
+    const parsedMultiCurWb = new ExcelJS.Workbook();
+    await parsedMultiCurWb.xlsx.load(multiCurBuffer as any);
+
+    const summarySheet = parsedMultiCurWb.getWorksheet("Executive Summary")!;
+    let foundRubLine = false;
+    let foundUsdLine = false;
+
+    summarySheet.eachRow((row) => {
+      const lbl = String(row.getCell(1).value || "");
+      if (lbl.includes("Сумма сделок с полученной оплатой — RUB")) {
+        foundRubLine = true;
+        expect(row.getCell(2).value).toBe(500_000);
+      }
+      if (lbl.includes("Сумма сделок с полученной оплатой — USD")) {
+        foundUsdLine = true;
+        expect(row.getCell(2).value).toBe(12_000);
+      }
+    });
+
+    expect(foundRubLine).toBe(true);
+    expect(foundUsdLine).toBe(true);
   });
 });
