@@ -436,6 +436,7 @@ export const useDashboardStore = create<DashboardState>()(
 
       fetchDeals: async (options?: { skipRelated?: boolean }) => {
         const requestSeq = ++dealsRequestSeq;
+        const isCurrentRequest = () => requestSeq === dealsRequestSeq;
         set({ dealsLoading: true, dealsError: null });
         try {
           const { dateFilter, selectedColumns } = get();
@@ -468,13 +469,15 @@ export const useDashboardStore = create<DashboardState>()(
             }),
           });
 
+          if (!isCurrentRequest()) return;
+
           // Check HTTP status — fetch doesn't throw on 401/403/500
           if (!response.ok) {
             throw new Error(`API returned ${response.status}`);
           }
 
           const data = await response.json();
-          if (requestSeq !== dealsRequestSeq) return;
+          if (!isCurrentRequest()) return;
 
           if (!data.success) {
             throw new Error(data.error || "Failed to fetch deals");
@@ -502,6 +505,7 @@ export const useDashboardStore = create<DashboardState>()(
             get().fetchActivitiesData();
           }
         } catch (error) {
+          if (!isCurrentRequest()) return;
           const message = error instanceof Error ? error.message : "Не удалось загрузить данные";
           set({
             dealsLoading: false,
