@@ -59,8 +59,8 @@ export function CommercialManagersTab({
       for (const [cur, amt] of Object.entries(row.paymentAmountsByCurrency)) {
         totalPaymentAmountsByCurrency[cur] = (totalPaymentAmountsByCurrency[cur] || 0) + amt;
       }
-    } else if (row.paymentAmount > 0) {
-      totalPaymentAmountsByCurrency["RUB"] = (totalPaymentAmountsByCurrency["RUB"] || 0) + row.paymentAmount;
+    } else if (row.paymentAmount !== null && row.paymentAmount > 0) {
+      totalPaymentAmountsByCurrency["UNKNOWN"] = (totalPaymentAmountsByCurrency["UNKNOWN"] || 0) + row.paymentAmount;
     }
   }
 
@@ -148,8 +148,8 @@ export function CommercialManagersTab({
                             <span key={cur}>{formatCurrencyAmount(amt, cur)}</span>
                           ))}
                         </div>
-                      ) : row.paymentAmount > 0 ? (
-                        formatCurrencyAmount(row.paymentAmount, "RUB")
+                      ) : row.paymentAmount !== null && row.paymentAmount > 0 ? (
+                        formatCurrencyAmount(row.paymentAmount, "UNKNOWN")
                       ) : (
                         "—"
                       )}

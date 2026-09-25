@@ -352,6 +352,11 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
     idUpper.includes("DATE") ||
     idUpper.includes("UF_CRM_1740925760") ||
     idUpper.includes("UF_CRM_1741517789") ||
+    idUpper.includes("UF_CRM_1764156557536") ||
+    idUpper.includes("UF_CRM_1753187313314") ||
+    idUpper.includes("UF_CRM_1774879952785") ||
+    idUpper.includes("UF_CRM_1584460062014") ||
+    idUpper.includes("UF_CRM_1584459666824") ||
     labelLower.includes("дата") ||
     labelLower.includes("date");
 

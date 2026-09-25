@@ -177,8 +177,8 @@ export interface ManagerScorecardRow {
   sampleRework: number;
   dealsCreated: number;
   paymentsReceived: number;
-  paymentAmount: number;
-  paymentAmountsByCurrency?: Record<string, number>;
+  paymentAmount: number | null;
+  paymentAmountsByCurrency: Record<string, number>;
   bottlenecksCount: number;
   companyIds: string[];
 }

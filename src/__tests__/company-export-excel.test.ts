@@ -132,12 +132,15 @@ describe("createCompanyExcelWorkbook", () => {
       companyTitle: "Тест Дат",
       companyId: "555",
       companyFields: [
-        { label: "Дата создания", value: "15.03.2026", type: "date" },
-        { label: "Дата изменения", value: null, type: "date" },
+        { id: "DATE_CREATE", label: "Дата создания", value: "15.03.2026" },
+        { id: "DATE_MODIFY", label: "Дата изменения", value: null },
+        { id: "UF_CRM_1764156557536", label: "Дата образцов (мульти)", value: "" },
+        { id: "UF_CRM_1753187313314", label: "Дата образцов (сингл)", value: "—" },
         { label: "Дата следующего контакта", value: "", type: "date" },
         { label: "Комментарий", value: null, type: "string" },
       ],
       sampleFields: [
+        { id: "UF_CRM_1774879952785", label: "Дата отправки сделки", value: undefined },
         { label: "Дата отправки образцов", value: "2026-04-10", type: "date" },
         { label: "Дата передачи образцов", value: null, type: "date" },
         { label: "Результат испытаний", value: "", type: "string" },
@@ -173,6 +176,9 @@ describe("createCompanyExcelWorkbook", () => {
     expect(cellMap.get("Дата изменения")).toBeNull();
     expect(cellMap.get("Дата следующего контакта")).toBeNull();
     expect(cellMap.get("Дата передачи образцов")).toBeNull();
+    expect(cellMap.get("Дата образцов (мульти)")).toBeNull();
+    expect(cellMap.get("Дата образцов (сингл)")).toBeNull();
+    expect(cellMap.get("Дата отправки сделки")).toBeNull();
 
     // 3. Ordinary empty text fields may remain "—"
     expect(cellMap.get("Комментарий")).toBe("—");
@@ -195,6 +201,9 @@ describe("createCompanyExcelWorkbook", () => {
     expect(reloadedMap.get("Дата изменения")).toBeNull();
     expect(reloadedMap.get("Дата следующего контакта")).toBeNull();
     expect(reloadedMap.get("Дата передачи образцов")).toBeNull();
+    expect(reloadedMap.get("Дата образцов (мульти)")).toBeNull();
+    expect(reloadedMap.get("Дата образцов (сингл)")).toBeNull();
+    expect(reloadedMap.get("Дата отправки сделки")).toBeNull();
     expect(reloadedMap.get("Комментарий")).toBe("—");
   });
 });

@@ -3,6 +3,7 @@
 // Unit tests for the 5-sheet Commercial Funnel Excel export.
 
 import { describe, expect, it } from "vitest";
+import ExcelJS from "exceljs";
 import { createCommercialFunnelWorkbook } from "@/lib/commercial-funnel/export-excel";
 import { generateDemoCommercialDataset } from "@/lib/commercial-funnel/demo-data";
 import { computeBottlenecks, computeManagerScorecard, computePeriodMetrics, computeWipMetrics } from "@/lib/commercial-funnel/engine";
@@ -393,5 +394,134 @@ describe("Commercial Funnel — Excel Export", () => {
     expect(compRow.getCell(14).numFmt).not.toContain("₽");
     expect(compRow.getCell(14).numFmt).not.toContain("$");
     expect(compRow.getCell(14).numFmt).not.toContain("€");
+  });
+
+  it("OpenXML Round-Trip: preserves per-currency formats, UNKNOWN neutral format, and explicit labels after XLSX reload", async () => {
+    const dealRub: CommercialDeal = {
+      id: "d-rub",
+      title: "Сделка RUB",
+      companyId: "c-1",
+      responsibleId: "u1",
+      stageId: "WON",
+      categoryId: "0",
+      opportunity: 1_000_000,
+      currencyId: "RUB",
+      paymentStatus: "113",
+      paymentDate: "2026-09-10",
+      sampleTestingStatus: [],
+      productType: [],
+      industry: [],
+      direction: [],
+    };
+
+    const dealUsd: CommercialDeal = {
+      id: "d-usd",
+      title: "Сделка USD",
+      companyId: "c-2",
+      responsibleId: "u2",
+      stageId: "WON",
+      categoryId: "0",
+      opportunity: 20_000,
+      currencyId: "USD",
+      paymentStatus: "113",
+      paymentDate: "2026-09-12",
+      sampleTestingStatus: [],
+      productType: [],
+      industry: [],
+      direction: [],
+    };
+
+    const dealUnknown: CommercialDeal = {
+      id: "d-unk",
+      title: "Сделка UNKNOWN",
+      companyId: "c-3",
+      responsibleId: "u3",
+      stageId: "WON",
+      categoryId: "0",
+      opportunity: 10_000,
+      currencyId: "", // UNKNOWN
+      paymentStatus: "113",
+      paymentDate: "2026-09-14",
+      sampleTestingStatus: [],
+      productType: [],
+      industry: [],
+      direction: [],
+    };
+
+    const makeComp = (id: string, deal: CommercialDeal, respId: string, curId?: string): CommercialCompany => ({
+      id,
+      title: `Компания ${id}`,
+      responsibleId: respId,
+      responsibleName: `Менеджер ${respId}`,
+      sampleStatus: "Не требуется",
+      sampleStatusSource: "NONE",
+      gradeGel: [],
+      gradeSol: [],
+      productType: [],
+      direction: [],
+      sampleAllDates: [],
+      deals: [deal],
+      primaryDealId: deal.id,
+      primaryDealTitle: deal.title,
+      primaryDealOpportunity: deal.opportunity,
+      primaryDealCurrencyId: curId,
+      primaryDealPaymentStatus: "Оплачен",
+      primaryDealPaymentDate: deal.paymentDate,
+      hasAttention: false,
+      attentionReasons: [],
+    });
+
+    const companies = [
+      makeComp("c-1", dealRub, "u1", "RUB"),
+      makeComp("c-2", dealUsd, "u2", "USD"),
+      makeComp("c-3", dealUnknown, "u3", undefined),
+    ];
+
+    const sourceWb = await createCommercialFunnelWorkbook({
+      companies,
+      deals: [dealRub, dealUsd, dealUnknown],
+      filters,
+      userNames: { u1: "Менеджер Рублев", u2: "Менеджер Долларов", u3: "Менеджер Безвалютный" },
+      now: fixedNow,
+    });
+
+    // Write binary buffer and reload via ExcelJS
+    const buffer = await sourceWb.xlsx.writeBuffer();
+    const reloadedWb = new ExcelJS.Workbook();
+    await reloadedWb.xlsx.load(buffer as any);
+
+    // 1. Executive Summary: Check Section 1 currency rows
+    const summarySheet = reloadedWb.getWorksheet("Executive Summary")!;
+    const rowLabels: string[] = [];
+    const rowNumFmts: Record<string, string | undefined> = {};
+    summarySheet.eachRow((row) => {
+      const lbl = String(row.getCell(1).value || "");
+      if (lbl) {
+        rowLabels.push(lbl);
+        rowNumFmts[lbl] = row.getCell(2).numFmt;
+      }
+    });
+
+    expect(rowLabels).toContain("Сумма сделок с полученной оплатой — RUB");
+    expect(rowLabels).toContain("Сумма сделок с полученной оплатой — USD");
+    expect(rowLabels).toContain("Сумма сделок с полученной оплатой — валюта не указана");
+
+    expect(rowNumFmts["Сумма сделок с полученной оплатой — RUB"]).toContain("₽");
+    expect(rowNumFmts["Сумма сделок с полученной оплатой — USD"]).toContain("$");
+    expect(rowNumFmts["Сумма сделок с полученной оплатой — валюта не указана"]).toBe("#,##0");
+
+    // 2. Managers sheet: Check headers include (валюта не указана)
+    const mgrSheet = reloadedWb.getWorksheet("Managers")!;
+    const mgrHeaderRow = mgrSheet.getRow(6);
+    const mgrHeaders = (mgrHeaderRow.values as string[]).slice(1);
+    expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (RUB)");
+    expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (USD)");
+    expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (валюта не указана)");
+
+    // 3. Companies sheet: Check row numFmts
+    const compSheet = reloadedWb.getWorksheet("Companies")!;
+    expect(compSheet.getRow(7).getCell(14).numFmt).toContain("₽");
+    expect(compSheet.getRow(8).getCell(14).numFmt).toContain("$");
+    expect(compSheet.getRow(9).getCell(14).numFmt).toBe("#,##0");
   });
 });

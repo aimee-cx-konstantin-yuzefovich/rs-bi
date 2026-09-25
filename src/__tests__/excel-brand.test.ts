@@ -12,6 +12,7 @@ import {
   SUCCESS_BG,
   SUCCESS_TEXT,
   ATTENTION_BG,
+  applyStatusCell,
   mapBusinessStatusToSemantic,
   getStatusColors,
   getRusSilicaLogoBuffer,
@@ -635,5 +636,39 @@ describe("Excel Brand System — Single Company Native Dates & Currency (P2-3)",
     });
     expect(emptyTextField.value).toBeNull();
     expect(emptyTextField.isDateField).toBe(false);
+  });
+
+  it("OpenXML Round-Trip: preserves semantic status fill and font colors after XLSX serialization and reload", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("StatusTest");
+
+    const row = ws.addRow(["Не требуется", "Требует внимания", "Оплачен", "Не подошли"]);
+    applyStatusCell(row.getCell(1), "Не требуется");
+    applyStatusCell(row.getCell(2), "Требует внимания");
+    applyStatusCell(row.getCell(3), "Оплачен");
+    applyStatusCell(row.getCell(4), "Не подошли");
+
+    // Write binary buffer and reload via ExcelJS
+    const buffer = await wb.xlsx.writeBuffer();
+    const reloaded = new ExcelJS.Workbook();
+    await reloaded.xlsx.load(buffer as any);
+    const reloadedWs = reloaded.getWorksheet("StatusTest")!;
+    const reloadedRow = reloadedWs.getRow(1);
+
+    // "Не требуется" -> NEUTRAL (no bright warning fill, subdued text)
+    const neutralFill = reloadedRow.getCell(1).fill as any;
+    expect(neutralFill?.fgColor?.argb).not.toBe(`FF${ATTENTION_BG}`);
+
+    // "Требует внимания" -> ATTENTION (amber/yellow warning fill)
+    const attentionFill = reloadedRow.getCell(2).fill as any;
+    expect(attentionFill?.fgColor?.argb).toBe(`FF${ATTENTION_BG}`);
+
+    // "Оплачен" -> SUCCESS (green fill)
+    const successFill = reloadedRow.getCell(3).fill as any;
+    expect(successFill?.fgColor?.argb).toBe(`FF${SUCCESS_BG}`);
+
+    // "Не подошли" -> NEGATIVE (red fill)
+    const negativeFill = reloadedRow.getCell(4).fill as any;
+    expect(negativeFill?.fgColor?.argb).toBe("FFFDECEC");
   });
 });

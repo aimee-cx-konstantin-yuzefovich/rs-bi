@@ -291,7 +291,12 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   const isMultiCurr = Boolean(kpiAmount?.isMultiCurrency && kpiAmount?.currencyBreakdown);
   const cardCurrs = isMultiCurr
-    ? Object.keys(kpiAmount!.currencyBreakdown!.current || {}).sort()
+    ? Array.from(
+        new Set([
+          ...Object.keys(kpiAmount!.currencyBreakdown!.current || {}),
+          ...Object.keys(kpiAmount!.currencyBreakdown!.previous || {}),
+        ])
+      ).sort()
     : [];
 
   let valRow2: ExcelJS.Row;
@@ -302,11 +307,12 @@ function formatPeriodPresetToRussian(preset: string): string {
     for (let i = 0; i < cardCurrs.length; i++) {
       const cur = cardCurrs[i];
       const amt = kpiAmount!.currencyBreakdown!.current[cur] || 0;
+      const curDisplay = cur === "UNKNOWN" ? "валюта не указана" : cur;
       const r = summarySheet.addRow([
         i === 0 ? (kpiPayments?.currentValue ?? 0) : null,
         null,
         null,
-        cur,
+        curDisplay,
         amt,
         null,
       ]);
@@ -436,8 +442,9 @@ function formatPeriodPresetToRussian(preset: string): string {
           )
         ).length;
 
+        const curLabel = cur === "UNKNOWN" ? "валюта не указана" : cur;
         const row = summarySheet.addRow([
-          `${k.label} — ${cur}`,
+          `${k.label} — ${curLabel}`,
           currAmt,
           prevAmt,
           deltaAmt,
@@ -828,9 +835,9 @@ function formatPeriodPresetToRussian(preset: string): string {
     "Создано сделок (период)",
     "Получено оплат (период)",
     ...(isMultiManagerCurrencies
-      ? allManagerCurrencies.map((cur) => `${PAYMENT_AMOUNT_LABEL} (${cur})`)
+      ? allManagerCurrencies.map((cur) => `${PAYMENT_AMOUNT_LABEL} (${cur === "UNKNOWN" ? "валюта не указана" : cur})`)
       : allManagerCurrencies.length === 1
-      ? [`${PAYMENT_AMOUNT_LABEL} (${allManagerCurrencies[0]})`]
+      ? [`${PAYMENT_AMOUNT_LABEL} (${allManagerCurrencies[0] === "UNKNOWN" ? "валюта не указана" : allManagerCurrencies[0]})`]
       : [PAYMENT_AMOUNT_LABEL]),
     "Требуют внимания",
   ];
@@ -860,7 +867,7 @@ function formatPeriodPresetToRussian(preset: string): string {
   for (const m of managerScorecard) {
     const payAmounts = isMultiManagerCurrencies
       ? allManagerCurrencies.map((cur) => m.paymentAmountsByCurrency?.[cur] || 0)
-      : [m.paymentAmount];
+      : [m.paymentAmount ?? 0];
 
     const row = managersSheet.addRow([
       m.name,

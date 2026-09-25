@@ -586,9 +586,11 @@ export function computeManagerScorecard(
   for (const row of managerMap.values()) {
     const currs = Object.keys(row.paymentAmountsByCurrency || {});
     if (currs.length === 1) {
-      row.paymentAmount = row.paymentAmountsByCurrency![currs[0]];
-    } else {
+      row.paymentAmount = row.paymentAmountsByCurrency[currs[0]];
+    } else if (currs.length === 0) {
       row.paymentAmount = 0;
+    } else {
+      row.paymentAmount = null; // Mixed currencies: scalar sum forbidden
     }
   }
 

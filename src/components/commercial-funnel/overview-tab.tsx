@@ -105,15 +105,25 @@ export function CommercialOverviewTab({
                 <CardContent className="p-3 pt-0">
                   {kpi.isMultiCurrency && kpi.currencyBreakdown ? (
                     <div className="space-y-0.5">
-                      {Object.entries(kpi.currencyBreakdown.current).length > 0 ? (
-                        Object.entries(kpi.currencyBreakdown.current).map(([cur, amt]) => (
-                          <div key={cur} className="text-base font-bold tracking-tight">
-                            {formatCurrencyAmount(amt, cur)}
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-lg font-bold tracking-tight">0</div>
-                      )}
+                      {(() => {
+                        const allCurrs = Array.from(
+                          new Set([
+                            ...Object.keys(kpi.currencyBreakdown.current),
+                            ...Object.keys(kpi.currencyBreakdown.previous),
+                          ])
+                        ).sort();
+                        if (allCurrs.length === 0) {
+                          return <div className="text-lg font-bold tracking-tight">0</div>;
+                        }
+                        return allCurrs.map((cur) => {
+                          const amt = kpi.currencyBreakdown!.current[cur] || 0;
+                          return (
+                            <div key={cur} className="text-base font-bold tracking-tight">
+                              {formatCurrencyAmount(amt, cur)}
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   ) : (
                     <div className="text-lg font-bold tracking-tight">

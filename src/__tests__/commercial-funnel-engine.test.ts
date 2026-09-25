@@ -1508,12 +1508,105 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         RUB: 1_000_000,
         USD: 15_000,
       });
+      // In multi-currency mode, scalar paymentAmount MUST be null to prevent cross-currency summation
+      expect(mgr1.paymentAmount).toBeNull();
 
       expect(mgr2).toBeDefined();
       expect(mgr2.paymentsReceived).toBe(1);
       expect(mgr2.paymentAmountsByCurrency).toEqual({
         EUR: 5_000,
       });
+      // In single currency mode, scalar paymentAmount matches the single currency total
+      expect(mgr2.paymentAmount).toBe(5_000);
+    });
+
+    it("unpaid deals (status != 109/113) are strictly excluded from payment received metrics", () => {
+      const bounds = computePeriodBoundaries({ periodPreset: "30days" }, new Date(2026, 8, 24));
+      const unpaidDeal: CommercialDeal = {
+        id: "d-unpaid",
+        title: "Сделка с неоплаченным счетом",
+        companyId: "c-unpaid",
+        responsibleId: "mgr-1",
+        stageId: "EXECUTING",
+        categoryId: "0",
+        opportunity: 500_000,
+        currencyId: "RUB",
+        paymentStatus: "103", // Unpaid invoice (INVOICE_SENT)
+        paymentDate: "2026-09-10",
+        sampleTestingStatus: [],
+        productType: [],
+        industry: [],
+        direction: [],
+      };
+
+      const company: CommercialCompany = {
+        id: "c-unpaid",
+        title: "Компания с неоплаченным счетом",
+        responsibleId: "mgr-1",
+        responsibleName: "Менеджер 1",
+        sampleStatus: "Не требуется",
+        sampleStatusSource: "NONE",
+        gradeGel: [],
+        gradeSol: [],
+        productType: [],
+        direction: [],
+        sampleAllDates: [],
+        deals: [unpaidDeal],
+        hasAttention: true,
+        attentionReasons: ["Счёт ожидает оплаты"],
+      };
+
+      const scorecard = computeManagerScorecard([company], bounds);
+      const mgr1 = scorecard.find((m) => m.responsibleId === "mgr-1")!;
+      expect(mgr1.paymentsReceived).toBe(0);
+      expect(mgr1.paymentAmount).toBe(0);
+      expect(mgr1.paymentAmountsByCurrency).toEqual({});
+
+      const kpis = computePeriodMetrics([company], bounds);
+      const paymentKpi = kpis.find((k) => k.id === "payment_amount")!;
+      expect(paymentKpi.currentValue).toBe(0);
+      expect(paymentKpi.currencyBreakdown?.current).toEqual({});
+    });
+
+    it("normalizes two deals on one company with different currencies without cross-pairing amount and currency", () => {
+      const rawCompany = {
+        ID: "100",
+        TITLE: "Компания с двумя сделками",
+        ASSIGNED_BY_ID: "1",
+      };
+
+      const rawDealRub = {
+        ID: "d-rub",
+        TITLE: "Сделка Рублевая",
+        COMPANY_ID: "100",
+        ASSIGNED_BY_ID: "1",
+        OPPORTUNITY: "1000000",
+        CURRENCY_ID: "RUB",
+      };
+
+      const rawDealUsd = {
+        ID: "d-usd",
+        TITLE: "Сделка Долларовая",
+        COMPANY_ID: "100",
+        ASSIGNED_BY_ID: "1",
+        OPPORTUNITY: "50000",
+        CURRENCY_ID: "USD",
+      };
+
+      // Case 1: RUB deal has higher opportunity (1,000,000 > 50,000)
+      const deals1 = normalizeDeals([rawDealRub, rawDealUsd]);
+      const companies1 = normalizeCompanies([rawCompany], deals1);
+      expect(companies1[0].primaryDealId).toBe("d-rub");
+      expect(companies1[0].primaryDealOpportunity).toBe(1_000_000);
+      expect(companies1[0].primaryDealCurrencyId).toBe("RUB");
+
+      // Case 2: USD deal has higher opportunity (2,000,000 > 1,000,000)
+      const rawDealUsdHigh = { ...rawDealUsd, OPPORTUNITY: "2000000" };
+      const deals2 = normalizeDeals([rawDealRub, rawDealUsdHigh]);
+      const companies2 = normalizeCompanies([rawCompany], deals2);
+      expect(companies2[0].primaryDealId).toBe("d-usd");
+      expect(companies2[0].primaryDealOpportunity).toBe(2_000_000);
+      expect(companies2[0].primaryDealCurrencyId).toBe("USD");
     });
   });
 });
