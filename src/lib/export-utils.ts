@@ -451,10 +451,18 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
       }
     }
 
-    return { value: translateCrmValueToRussian(str), isDateField: true };
+    let outStr = translateCrmValueToRussian(str);
+    if (/^[=\-+\@]/.test(outStr)) {
+      outStr = "'" + outStr;
+    }
+    return { value: outStr, isDateField: true };
   }
 
-  return { value: translateCrmValueToRussian(str), isDateField: false };
+  let outStr = translateCrmValueToRussian(str);
+  if (/^[=\-+\@]/.test(outStr)) {
+    outStr = "'" + outStr;
+  }
+  return { value: outStr, isDateField: false };
 }
 
 /**
@@ -616,12 +624,13 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     for (const deal of deals) {
       const stageRussian = formatStageToRussian(deal.stage);
       const currencyRussian = formatCurrencyToRussian(deal.currency);
+      const sanitize = (s: string) => /^[=\-+\@]/.test(s) ? "'" + s : s;
       const dealRow = worksheet.addRow([
         deal.id,
-        deal.title,
-        stageRussian,
+        sanitize(deal.title || ""),
+        sanitize(stageRussian || ""),
         deal.opportunity !== null && deal.opportunity !== undefined ? deal.opportunity : "—",
-        currencyRussian,
+        sanitize(currencyRussian || ""),
       ]);
       dealRow.height = 20;
 
