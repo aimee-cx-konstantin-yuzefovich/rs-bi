@@ -35,6 +35,10 @@ vi.mock('@/components/dashboard/column-selector', () => ({ ColumnSelector: () =>
 vi.mock('@/components/dashboard/config-banner', () => ({ ConfigBanner: () => null }));
 vi.mock('@/components/dashboard/footer', () => ({ Footer: () => null }));
 vi.mock('@/components/dashboard/loading-screen', () => ({ LoadingScreen: () => null }));
+vi.mock('@/lib/dashboard-startup', () => ({
+  INITIAL_STARTUP: { step: 0, steps: [], isError: false },
+  runDashboardStartup: vi.fn(),
+}));
 
 describe('NextAuth Loading Timeout & Recovery UI', () => {
   beforeEach(() => {
