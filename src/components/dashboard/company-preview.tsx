@@ -85,12 +85,19 @@ export function CompanyPreview({
                 rawOpp !== null && rawOpp !== undefined && rawOpp !== ""
                   ? Number(rawOpp)
                   : null;
+              const rawCurrency = d.CURRENCY_ID ?? d.currencyId;
+              const currency =
+                rawCurrency !== null &&
+                rawCurrency !== undefined &&
+                String(rawCurrency).trim() !== ""
+                  ? String(rawCurrency).trim()
+                  : undefined;
               return {
                 id: String(d.ID || d.id || ""),
                 title: String(d.TITLE || d.title || "").trim() || "Без названия",
                 stage: resolveStage(d.STAGE_ID ?? d.stageId),
                 opportunity: opp !== null && !isNaN(opp) ? opp : null,
-                currency: String(d.CURRENCY_ID || d.currencyId || "RUB"),
+                currency,
               };
             })
           : [];
@@ -273,7 +280,13 @@ export function CompanyPreview({
                           rawOpp !== null && rawOpp !== undefined && rawOpp !== ""
                             ? Number(rawOpp)
                             : null;
-                        const currency = String(deal.CURRENCY_ID || deal.currencyId || "RUB");
+                        const rawCurrency = deal.CURRENCY_ID ?? deal.currencyId;
+                        const currency =
+                          rawCurrency !== null &&
+                          rawCurrency !== undefined &&
+                          String(rawCurrency).trim() !== ""
+                            ? String(rawCurrency).trim()
+                            : undefined;
                         const dealBitrixUrl =
                           typeof deal.bitrixUrl === "string"
                             ? deal.bitrixUrl
@@ -326,8 +339,8 @@ export function CompanyPreview({
                                   {opportunity.toLocaleString("ru-RU", {
                                     minimumFractionDigits: 0,
                                     maximumFractionDigits: 2,
-                                  })}{" "}
-                                  {currency}
+                                  })}
+                                  {currency ? ` ${currency}` : " — валюта не указана"}
                                 </span>
                               )}
                               {dealBitrixUrl && (

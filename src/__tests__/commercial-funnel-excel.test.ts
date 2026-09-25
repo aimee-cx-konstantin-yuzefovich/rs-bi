@@ -524,4 +524,58 @@ describe("Commercial Funnel — Excel Export", () => {
     expect(compSheet.getRow(8).getCell(14).numFmt).toContain("$");
     expect(compSheet.getRow(9).getCell(14).numFmt).toBe("#,##0");
   });
+
+  it("exports zero payment amounts with neutral numFmt without false RUB symbol", async () => {
+    // Companies with NO paid deals at all
+    const mockCompany: CommercialCompany = {
+      id: "comp-zero",
+      title: "Компания без оплат",
+      responsibleId: "u1",
+      responsibleName: "Менеджер Тестовый",
+      dateCreate: "2026-09-01",
+      direction: [],
+      directionRaw: [],
+      productType: [],
+      sampleStatus: "Не требуется",
+      sampleStatusSource: "NONE",
+      sampleAllDates: [],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const workbook = await createCommercialFunnelWorkbook({
+      companies: [mockCompany],
+      deals: [],
+      filters,
+      userNames: { u1: "Менеджер Тестовый" },
+      now: fixedNow,
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const reloadedWb = new ExcelJS.Workbook();
+    await reloadedWb.xlsx.load(buffer as any);
+
+    const summarySheet = reloadedWb.getWorksheet("Executive Summary")!;
+
+    // Find the payment amount row in Section 1
+    let paymentVal: any = undefined;
+    let paymentNumFmt: string | undefined = undefined;
+
+    summarySheet.eachRow((row) => {
+      const lbl = String(row.getCell(1).value || "");
+      if (lbl.includes("Сумма сделок с полученной оплатой")) {
+        paymentVal = row.getCell(2).value;
+        paymentNumFmt = row.getCell(2).numFmt;
+      }
+    });
+
+    expect(paymentVal).toBe(0);
+    expect(paymentNumFmt).toBe("#,##0");
+    expect(paymentNumFmt).not.toContain("₽");
+    expect(paymentNumFmt).not.toContain("$");
+    expect(paymentNumFmt).not.toContain("€");
+  });
 });

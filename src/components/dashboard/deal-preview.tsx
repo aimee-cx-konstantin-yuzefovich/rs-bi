@@ -201,7 +201,7 @@ export function DealPreview({
                         maximumFractionDigits: 2,
                       })}{" "}
                       <span className="text-muted-foreground text-xs font-normal">
-                        {String(state.deal.CURRENCY_ID || "RUB")}
+                        {state.deal.CURRENCY_ID ? String(state.deal.CURRENCY_ID) : "валюта не указана"}
                       </span>
                     </dd>
                   </div>

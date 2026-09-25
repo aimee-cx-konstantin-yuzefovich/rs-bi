@@ -86,6 +86,9 @@ export function getCurrencySymbol(currencyId?: string | null): string {
  * Formats a monetary amount with currency truthfully according to domain presentation rules.
  */
 export function formatCurrencyAmount(amount: number, currencyId?: string | null): string {
+  if (amount === 0 && (currencyId === undefined || currencyId === null)) {
+    return "0";
+  }
   const norm = normalizeCurrencyCode(currencyId);
   const formatted = Math.round(amount).toLocaleString("ru-RU");
   switch (norm) {
@@ -281,6 +284,59 @@ export function normalizeDeals(
 }
 
 /**
+ * Selects representative deal for one-row company analytical view
+ * using a deterministic non-monetary priority rule.
+ * Priority 1: active deals (stageId not WON and not LOSE) before closed deals.
+ * Priority 2: within the same active/closed class, most recent meaningful CRM activity/date:
+ *             activityLast > dateCreate > beginDate > closeDate (parsed timestamp).
+ * Priority 3: stable Deal ID tie-breaker.
+ * NEVER uses opportunity or monetary amount to decide priority across currencies.
+ */
+export function selectRepresentativeDeal(
+  linkedDeals: CommercialDeal[]
+): CommercialDeal | undefined {
+  if (!linkedDeals || linkedDeals.length === 0) return undefined;
+  if (linkedDeals.length === 1) return linkedDeals[0];
+
+  const getDealTimestamp = (d: CommercialDeal): number => {
+    const dates = [d.activityLast, d.dateCreate, d.beginDate, d.closeDate];
+    for (const raw of dates) {
+      if (raw) {
+        const ts = Date.parse(raw);
+        if (!isNaN(ts)) return ts;
+      }
+    }
+    return 0;
+  };
+
+  const isDealActive = (d: CommercialDeal): boolean => {
+    const stage = (d.stageId || "").toUpperCase();
+    return stage !== "WON" && stage !== "LOSE";
+  };
+
+  const sorted = [...linkedDeals].sort((a, b) => {
+    // Priority 1: active before closed
+    const aActive = isDealActive(a);
+    const bActive = isDealActive(b);
+    if (aActive !== bActive) {
+      return aActive ? -1 : 1;
+    }
+
+    // Priority 2: most recent timestamp
+    const tsA = getDealTimestamp(a);
+    const tsB = getDealTimestamp(b);
+    if (tsA !== tsB) {
+      return tsB - tsA; // newer first
+    }
+
+    // Priority 3: stable Deal ID tie-breaker
+    return String(b.id || "").localeCompare(String(a.id || ""), undefined, { numeric: true });
+  });
+
+  return sorted[0];
+}
+
+/**
  * Normalize raw Bitrix Company records and join them with linked deals.
  * Implements deterministic precedence: Deal sample state > Company fallback.
  * Preserves ALL statuses, partitions dates by provenance, and strictly gates bottlenecks.
@@ -425,9 +481,8 @@ export function normalizeCompanies(
 
     const sampleShipmentDate = sampleDealSentDates[0] || sampleCompanyTransferDates[0] || undefined;
 
-    // Primary deal for commercial overview
-    const sortedDeals = [...linkedDeals].sort((a, b) => b.opportunity - a.opportunity);
-    const primaryDeal = sortedDeals[0];
+    // Representative deal for commercial overview (deterministic non-monetary priority)
+    const primaryDeal = selectRepresentativeDeal(linkedDeals);
 
     // Evaluate attention / bottlenecks
     const attentionReasons: string[] = [];

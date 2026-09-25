@@ -128,19 +128,29 @@ describe("createCompanyExcelWorkbook", () => {
     const { NUMFMT } = await import("@/lib/excel-brand");
     const ExcelJS = (await import("exceljs")).default;
 
+    const {
+      COMPANY_SAMPLES_FIELD_ID,
+      COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
+      COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
+      DEAL_SAMPLE_SENT_DATE_FIELD_ID,
+    } = await import("@/lib/crm-constants");
+
     const workbook = createCompanyExcelWorkbook({
       companyTitle: "Тест Дат",
       companyId: "555",
       companyFields: [
         { id: "DATE_CREATE", label: "Дата создания", value: "15.03.2026" },
         { id: "DATE_MODIFY", label: "Дата изменения", value: null },
-        { id: "UF_CRM_1764156557536", label: "Дата образцов (мульти)", value: "" },
-        { id: "UF_CRM_1753187313314", label: "Дата образцов (сингл)", value: "—" },
+        { id: COMPANY_SAMPLES_DATE_MULTI_FIELD_ID, label: "Дата образцов (мульти)", value: "" },
+        { id: COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID, label: "Дата образцов (сингл пустая)", value: "—" },
+        { id: COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID, label: "Дата образцов (сингл заполнена)", value: "20.03.2026" },
+        { id: COMPANY_SAMPLES_FIELD_ID, label: "Образцы", value: "требуются образцы" },
+        { id: COMPANY_SAMPLES_FIELD_ID, label: "Образцы множественные", value: "требуются образцы, образцы отправлены" },
         { label: "Дата следующего контакта", value: "", type: "date" },
         { label: "Комментарий", value: null, type: "string" },
       ],
       sampleFields: [
-        { id: "UF_CRM_1774879952785", label: "Дата отправки сделки", value: undefined },
+        { id: DEAL_SAMPLE_SENT_DATE_FIELD_ID, label: "Дата отправки сделки", value: undefined },
         { label: "Дата отправки образцов", value: "2026-04-10", type: "date" },
         { label: "Дата передачи образцов", value: null, type: "date" },
         { label: "Результат испытаний", value: "", type: "string" },
@@ -156,6 +166,7 @@ describe("createCompanyExcelWorkbook", () => {
     const numFmtMap = new Map<string, any>();
 
     worksheet.eachRow((row) => {
+      if (row.getCell(1).isMerged) return;
       const label = String(row.getCell(1).value || "");
       const val = row.getCell(2).value;
       const fmt = row.getCell(2).numFmt;
@@ -172,19 +183,26 @@ describe("createCompanyExcelWorkbook", () => {
     expect(cellMap.get("Дата отправки образцов")).toBeInstanceOf(Date);
     expect(numFmtMap.get("Дата отправки образцов")).toBe(NUMFMT.DATE);
 
-    // 2. Empty dates (null or "") must be genuinely null in Excel cell
+    expect(cellMap.get("Дата образцов (сингл заполнена)")).toBeInstanceOf(Date);
+    expect(numFmtMap.get("Дата образцов (сингл заполнена)")).toBe(NUMFMT.DATE);
+
+    // 2. Sample status fields (UF_CRM_1753187313314) must NOT be null and NOT Date — full text preserved
+    expect(cellMap.get("Образцы")).toBe("требуются образцы");
+    expect(cellMap.get("Образцы множественные")).toBe("требуются образцы, образцы отправлены");
+
+    // 3. Empty dates (null or "") must be genuinely null in Excel cell
     expect(cellMap.get("Дата изменения")).toBeNull();
     expect(cellMap.get("Дата следующего контакта")).toBeNull();
     expect(cellMap.get("Дата передачи образцов")).toBeNull();
     expect(cellMap.get("Дата образцов (мульти)")).toBeNull();
-    expect(cellMap.get("Дата образцов (сингл)")).toBeNull();
+    expect(cellMap.get("Дата образцов (сингл пустая)")).toBeNull();
     expect(cellMap.get("Дата отправки сделки")).toBeNull();
 
-    // 3. Ordinary empty text fields may remain "—"
+    // 4. Ordinary empty text fields may remain "—"
     expect(cellMap.get("Комментарий")).toBe("—");
     expect(cellMap.get("Результат испытаний")).toBe("—");
 
-    // 4. Binary serialization round-trip: blank date remains blank/null, populated date remains Date
+    // 5. Binary serialization round-trip: blank date remains blank/null, populated date remains Date, status remains text
     const buffer = await workbook.xlsx.writeBuffer();
     const reloaded = new ExcelJS.Workbook();
     await reloaded.xlsx.load(buffer as any);
@@ -192,6 +210,7 @@ describe("createCompanyExcelWorkbook", () => {
 
     const reloadedMap = new Map<string, any>();
     reloadedSheet.eachRow((row) => {
+      if (row.getCell(1).isMerged) return;
       const label = String(row.getCell(1).value || "");
       const val = row.getCell(2).value;
       if (label) reloadedMap.set(label, val);
@@ -202,9 +221,131 @@ describe("createCompanyExcelWorkbook", () => {
     expect(reloadedMap.get("Дата следующего контакта")).toBeNull();
     expect(reloadedMap.get("Дата передачи образцов")).toBeNull();
     expect(reloadedMap.get("Дата образцов (мульти)")).toBeNull();
-    expect(reloadedMap.get("Дата образцов (сингл)")).toBeNull();
+    expect(reloadedMap.get("Дата образцов (сингл пустая)")).toBeNull();
+    expect(reloadedMap.get("Дата образцов (сингл заполнена)")).toBeInstanceOf(Date);
+    expect(reloadedMap.get("Образцы")).toBe("требуются образцы");
+    expect(reloadedMap.get("Образцы множественные")).toBe("требуются образцы, образцы отправлены");
     expect(reloadedMap.get("Дата отправки сделки")).toBeNull();
     expect(reloadedMap.get("Комментарий")).toBe("—");
+  });
+
+  it("exports linked deals with truthful currency and never defaults missing currency to RUB", async () => {
+    const ExcelJS = (await import("exceljs")).default;
+
+    const workbook = createCompanyExcelWorkbook({
+      companyTitle: "Компания с мультивалютными сделками",
+      companyId: "777",
+      companyFields: [],
+      sampleFields: [],
+      deals: [
+        {
+          id: "deal-no-currency",
+          title: "Сделка без валюты",
+          stage: "PREPARATION",
+          opportunity: 100000,
+          currency: undefined, // Missing currency
+        },
+        {
+          id: "deal-rub",
+          title: "Сделка в рублях",
+          stage: "WON",
+          opportunity: 200000,
+          currency: "RUB",
+        },
+        {
+          id: "deal-usd",
+          title: "Сделка в долларах",
+          stage: "EXECUTING",
+          opportunity: 5000,
+          currency: "USD",
+        },
+        {
+          id: "deal-eur",
+          title: "Сделка в евро",
+          stage: "FINAL_INVOICE",
+          opportunity: 3000,
+          currency: "EUR",
+        },
+      ],
+    });
+
+    const worksheet = workbook.getWorksheet("Отчёт по компании")!;
+    expect(worksheet).toBeDefined();
+
+    // Find deal rows in Section 3
+    const dealRows: Array<{
+      id: string;
+      title: string;
+      opportunity: any;
+      numFmt: string | undefined;
+      currency: any;
+    }> = [];
+
+    worksheet.eachRow((row) => {
+      const cell1 = String(row.getCell(1).value || "");
+      if (cell1.startsWith("deal-")) {
+        dealRows.push({
+          id: cell1,
+          title: String(row.getCell(2).value || ""),
+          opportunity: row.getCell(4).value,
+          numFmt: row.getCell(4).numFmt,
+          currency: row.getCell(5).value,
+        });
+      }
+    });
+
+    expect(dealRows).toHaveLength(4);
+
+    // 1. Missing currency deal: amount is numeric 100000, numFmt has NO ₽, $, €, currency cell is "—"
+    const noCurDeal = dealRows.find((d) => d.id === "deal-no-currency")!;
+    expect(noCurDeal.opportunity).toBe(100000);
+    expect(typeof noCurDeal.opportunity).toBe("number");
+    expect(noCurDeal.numFmt).toBe("#,##0");
+    expect(noCurDeal.numFmt).not.toContain("₽");
+    expect(noCurDeal.numFmt).not.toContain("$");
+    expect(noCurDeal.numFmt).not.toContain("€");
+    expect(noCurDeal.currency).toBe("—");
+
+    // 2. RUB deal: numFmt has ₽, currency cell has ₽
+    const rubDeal = dealRows.find((d) => d.id === "deal-rub")!;
+    expect(rubDeal.opportunity).toBe(200000);
+    expect(rubDeal.numFmt).toContain("₽");
+    expect(rubDeal.currency).toBe("₽");
+
+    // 3. USD deal: numFmt has $, currency cell has $
+    const usdDeal = dealRows.find((d) => d.id === "deal-usd")!;
+    expect(usdDeal.opportunity).toBe(5000);
+    expect(usdDeal.numFmt).toContain("$");
+    expect(usdDeal.currency).toBe("$");
+
+    // 4. EUR deal: numFmt has €, currency cell has €
+    const eurDeal = dealRows.find((d) => d.id === "deal-eur")!;
+    expect(eurDeal.opportunity).toBe(3000);
+    expect(eurDeal.numFmt).toContain("€");
+    expect(eurDeal.currency).toBe("€");
+
+    // 5. Binary round-trip verification
+    const buffer = await workbook.xlsx.writeBuffer();
+    const reloaded = new ExcelJS.Workbook();
+    await reloaded.xlsx.load(buffer as any);
+    const reloadedSheet = reloaded.getWorksheet("Отчёт по компании")!;
+
+    let reloadedNoCurOpportunity: any;
+    let reloadedNoCurFmt: any;
+    let reloadedNoCurCurrency: any;
+
+    reloadedSheet.eachRow((row) => {
+      if (String(row.getCell(1).value || "") === "deal-no-currency") {
+        reloadedNoCurOpportunity = row.getCell(4).value;
+        reloadedNoCurFmt = row.getCell(4).numFmt;
+        reloadedNoCurCurrency = row.getCell(5).value;
+      }
+    });
+
+    expect(reloadedNoCurOpportunity).toBe(100000);
+    expect(reloadedNoCurFmt).toBe("#,##0");
+    expect(reloadedNoCurFmt).not.toContain("₽");
+    expect(reloadedNoCurCurrency).toBe("—");
   });
 });
 

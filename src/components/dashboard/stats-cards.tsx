@@ -26,7 +26,8 @@ export function StatsCards() {
     const avgDeal = dealsWithValue.length > 0 ? totalOpportunity / dealsWithValue.length : 0;
 
     // Currency
-    const currency = deals[0]?.CURRENCY_ID || deals[0]?.CURRENCY || "RUB";
+    const rawCurrency = deals[0]?.CURRENCY_ID || deals[0]?.CURRENCY;
+    const currency = rawCurrency ? String(rawCurrency).trim() : "";
 
     // ─── Dynamic "New Deals" Calculation ───
     let periodTitle = "За период";
@@ -112,7 +113,7 @@ export function StatsCards() {
                       duration={1}
                       separator=" "
                       decimals={0}
-                      suffix={card.isCurrency ? ` ${stats.currency}` : ""}
+                      suffix={card.isCurrency && stats.currency ? ` ${stats.currency}` : ""}
                     />
                   )}
                 </p>

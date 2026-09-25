@@ -1565,48 +1565,115 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       const kpis = computePeriodMetrics([company], bounds);
       const paymentKpi = kpis.find((k) => k.id === "payment_amount")!;
       expect(paymentKpi.currentValue).toBe(0);
+      expect(paymentKpi.previousValue).toBe(0);
+      expect(paymentKpi.currencyId).toBeUndefined();
       expect(paymentKpi.currencyBreakdown?.current).toEqual({});
+      expect(paymentKpi.currencyBreakdown?.previous).toEqual({});
+      // Zero payment with undefined currencyId formats to neutral "0", not "0 ₽", not "0 — валюта не указана"
+      expect(formatCurrencyAmount(paymentKpi.currentValue ?? 0, paymentKpi.currencyId)).toBe("0");
     });
 
-    it("normalizes two deals on one company with different currencies without cross-pairing amount and currency", () => {
+    it("representative deal selection follows deterministic non-monetary priority (Cases A, B, C, D)", () => {
       const rawCompany = {
         ID: "100",
-        TITLE: "Компания с двумя сделками",
+        TITLE: "Компания с несколькими сделками",
         ASSIGNED_BY_ID: "1",
       };
 
-      const rawDealRub = {
-        ID: "d-rub",
-        TITLE: "Сделка Рублевая",
+      // CASE A: Deal 1 has 1,000,000 RUB (older active), Deal 2 has 50,000 USD (newer active)
+      // Expected: Deal 2 selected because it is more recent, NOT because of raw monetary magnitude
+      const rawDealRubOlder = {
+        ID: "deal-rub-older",
+        TITLE: "Сделка Рублевая старая",
         COMPANY_ID: "100",
         ASSIGNED_BY_ID: "1",
+        STAGE_ID: "PREPARATION", // Active
         OPPORTUNITY: "1000000",
+        CURRENCY_ID: "RUB",
+        DATE_CREATE: "2026-01-10T10:00:00Z",
+        LAST_ACTIVITY_TIME: "2026-01-15T12:00:00Z",
+      };
+
+      const rawDealUsdNewer = {
+        ID: "deal-usd-newer",
+        TITLE: "Сделка Долларовая новая",
+        COMPANY_ID: "100",
+        ASSIGNED_BY_ID: "1",
+        STAGE_ID: "EXECUTING", // Active
+        OPPORTUNITY: "50000",
+        CURRENCY_ID: "USD",
+        DATE_CREATE: "2026-03-01T10:00:00Z",
+        LAST_ACTIVITY_TIME: "2026-03-20T15:00:00Z",
+      };
+
+      const dealsCaseA = normalizeDeals([rawDealRubOlder, rawDealUsdNewer]);
+      const companiesCaseA = normalizeCompanies([rawCompany], dealsCaseA);
+      expect(companiesCaseA[0].primaryDealId).toBe("deal-usd-newer");
+      expect(companiesCaseA[0].primaryDealOpportunity).toBe(50_000);
+      expect(companiesCaseA[0].primaryDealCurrencyId).toBe("USD");
+
+      // CASE B: Deal 1 has very large numeric OPPORTUNITY (closed WON), Deal 2 has smaller numeric OPPORTUNITY (active)
+      // Expected: Active deal selected over closed deal regardless of monetary value
+      const rawDealWonLarge = {
+        ID: "deal-won-large",
+        TITLE: "Сделка Закрытая крупная",
+        COMPANY_ID: "100",
+        ASSIGNED_BY_ID: "1",
+        STAGE_ID: "WON", // Closed
+        OPPORTUNITY: "50000000",
+        CURRENCY_ID: "RUB",
+        DATE_CREATE: "2026-03-25T10:00:00Z",
+      };
+
+      const rawDealActiveSmall = {
+        ID: "deal-active-small",
+        TITLE: "Сделка Активная малая",
+        COMPANY_ID: "100",
+        ASSIGNED_BY_ID: "1",
+        STAGE_ID: "PREPARATION", // Active
+        OPPORTUNITY: "10000",
+        CURRENCY_ID: "USD",
+        DATE_CREATE: "2026-01-01T10:00:00Z",
+      };
+
+      const dealsCaseB = normalizeDeals([rawDealWonLarge, rawDealActiveSmall]);
+      const companiesCaseB = normalizeCompanies([rawCompany], dealsCaseB);
+      expect(companiesCaseB[0].primaryDealId).toBe("deal-active-small");
+      expect(companiesCaseB[0].primaryDealOpportunity).toBe(10_000);
+      expect(companiesCaseB[0].primaryDealCurrencyId).toBe("USD");
+
+      // CASE C: Two active deals with missing dates -> stable deterministic ID fallback
+      const rawDealNoDate1 = {
+        ID: "deal-10",
+        TITLE: "Сделка без даты 10",
+        COMPANY_ID: "100",
+        ASSIGNED_BY_ID: "1",
+        STAGE_ID: "PREPARATION",
+        OPPORTUNITY: "500000",
         CURRENCY_ID: "RUB",
       };
 
-      const rawDealUsd = {
-        ID: "d-usd",
-        TITLE: "Сделка Долларовая",
+      const rawDealNoDate2 = {
+        ID: "deal-20",
+        TITLE: "Сделка без даты 20",
         COMPANY_ID: "100",
         ASSIGNED_BY_ID: "1",
-        OPPORTUNITY: "50000",
-        CURRENCY_ID: "USD",
+        STAGE_ID: "PREPARATION",
+        OPPORTUNITY: "1000",
+        CURRENCY_ID: "EUR",
       };
 
-      // Case 1: RUB deal has higher opportunity (1,000,000 > 50,000)
-      const deals1 = normalizeDeals([rawDealRub, rawDealUsd]);
-      const companies1 = normalizeCompanies([rawCompany], deals1);
-      expect(companies1[0].primaryDealId).toBe("d-rub");
-      expect(companies1[0].primaryDealOpportunity).toBe(1_000_000);
-      expect(companies1[0].primaryDealCurrencyId).toBe("RUB");
+      const dealsCaseC = normalizeDeals([rawDealNoDate1, rawDealNoDate2]);
+      const companiesCaseC = normalizeCompanies([rawCompany], dealsCaseC);
+      // Stable tie-breaker selects deal-20 consistently
+      expect(companiesCaseC[0].primaryDealId).toBe("deal-20");
+      expect(companiesCaseC[0].primaryDealOpportunity).toBe(1000);
+      expect(companiesCaseC[0].primaryDealCurrencyId).toBe("EUR");
 
-      // Case 2: USD deal has higher opportunity (2,000,000 > 1,000,000)
-      const rawDealUsdHigh = { ...rawDealUsd, OPPORTUNITY: "2000000" };
-      const deals2 = normalizeDeals([rawDealRub, rawDealUsdHigh]);
-      const companies2 = normalizeCompanies([rawCompany], deals2);
-      expect(companies2[0].primaryDealId).toBe("d-usd");
-      expect(companies2[0].primaryDealOpportunity).toBe(2_000_000);
-      expect(companies2[0].primaryDealCurrencyId).toBe("USD");
+      // CASE D: Selected deal is USD -> primaryDealOpportunity and primaryDealCurrencyId both come from that same USD deal
+      expect(companiesCaseA[0].primaryDealOpportunity).toBe(50_000);
+      expect(companiesCaseA[0].primaryDealCurrencyId).toBe("USD");
+      expect(companiesCaseA[0].primaryDealStageId).toBe("EXECUTING");
     });
   });
 });

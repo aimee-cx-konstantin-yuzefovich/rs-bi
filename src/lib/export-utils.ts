@@ -37,6 +37,12 @@ import {
   THIN_BORDER,
   translateCrmValueToRussian,
 } from "./excel-brand";
+import {
+  COMPANY_SAMPLES_FIELD_ID,
+  COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
+  COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
+  DEAL_SAMPLE_SENT_DATE_FIELD_ID,
+} from "./crm-constants";
 
 export interface WysiwygExportOptions {
   sheetName?: string;
@@ -345,20 +351,37 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
   const typeLower = (field.type || "").toLowerCase();
 
   const isExplicitDateField =
-    typeLower === "date" ||
-    typeLower === "datetime" ||
-    idUpper.includes("DATE_CREATE") ||
-    idUpper.includes("DATE_MODIFY") ||
-    idUpper.includes("DATE") ||
-    idUpper.includes("UF_CRM_1740925760") ||
-    idUpper.includes("UF_CRM_1741517789") ||
-    idUpper.includes("UF_CRM_1764156557536") ||
-    idUpper.includes("UF_CRM_1753187313314") ||
-    idUpper.includes("UF_CRM_1774879952785") ||
-    idUpper.includes("UF_CRM_1584460062014") ||
-    idUpper.includes("UF_CRM_1584459666824") ||
-    labelLower.includes("дата") ||
-    labelLower.includes("date");
+    !idUpper.includes(COMPANY_SAMPLES_FIELD_ID) &&
+    !idUpper.includes("UF_CRM_1753187313314") &&
+    (
+      // 1. Explicit field.type from metadata
+      typeLower === "date" ||
+      typeLower === "datetime" ||
+      // 2. Authoritative standard Bitrix date field IDs
+      idUpper === "DATE_CREATE" ||
+      idUpper === "DATE_MODIFY" ||
+      idUpper === "BEGINDATE" ||
+      idUpper === "CLOSEDATE" ||
+      idUpper === "COMPANY_DATE_CREATE" ||
+      idUpper === "COMPANY_DATE_MODIFY" ||
+      idUpper === "DEAL_DATE_CREATE" ||
+      idUpper === "DEAL_DATE_MODIFY" ||
+      idUpper === "LAST_ACTIVITY_TIME" ||
+      idUpper === "COMPANY_LAST_ACTIVITY_TIME" ||
+      // 3. Authoritative imported custom CRM date constants
+      idUpper.includes(COMPANY_SAMPLES_DATE_MULTI_FIELD_ID) ||
+      idUpper.includes(COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID) ||
+      idUpper.includes(DEAL_SAMPLE_SENT_DATE_FIELD_ID) ||
+      idUpper.includes("UF_CRM_1740925760") ||
+      idUpper.includes("UF_CRM_1741517789") ||
+      idUpper.includes("UF_CRM_1584460062014") ||
+      idUpper.includes("UF_CRM_1584459666824") ||
+      // 4. Constrained Russian/English date label fallback
+      labelLower.startsWith("дата") ||
+      labelLower.includes(" дата") ||
+      labelLower.startsWith("date") ||
+      labelLower.includes(" date")
+    );
 
   const raw = field.value;
   if (raw === null || raw === undefined || raw === "" || raw === "—") {

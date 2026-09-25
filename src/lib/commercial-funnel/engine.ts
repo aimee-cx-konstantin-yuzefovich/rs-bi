@@ -220,7 +220,7 @@ export function computePeriodMetrics(
       true,
       {
         isMultiCurrency: false,
-        currencyId: "RUB",
+        currencyId: undefined,
         currencyBreakdown: { current: {}, previous: {} },
       }
     );
