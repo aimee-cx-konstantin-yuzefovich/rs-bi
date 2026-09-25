@@ -7,7 +7,7 @@ import { createCommercialFunnelWorkbook } from "@/lib/commercial-funnel/export-e
 import { generateDemoCommercialDataset } from "@/lib/commercial-funnel/demo-data";
 import { computeBottlenecks, computeManagerScorecard, computePeriodMetrics, computeWipMetrics } from "@/lib/commercial-funnel/engine";
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
-import type { CommercialCompany, CommercialFilters } from "@/lib/commercial-funnel/types";
+import type { CommercialCompany, CommercialDeal, CommercialFilters } from "@/lib/commercial-funnel/types";
 
 describe("Commercial Funnel — Excel Export", () => {
   const demoData = generateDemoCommercialDataset();
@@ -334,5 +334,64 @@ describe("Commercial Funnel — Excel Export", () => {
     expect(botRow.getCell(8).value).toBe(25_000);
     expect(botRow.getCell(8).numFmt).toContain("$");
     expect(botRow.getCell(8).numFmt).not.toContain("₽");
+  });
+
+  it("preserves neutral format #,##0 for deals without currency in Excel export (never coerces to RUB)", async () => {
+    const dealWithoutCur: CommercialDeal = {
+      id: "d-nocurr",
+      title: "Сделка без валюты",
+      companyId: "c-nocurr",
+      responsibleId: "u1",
+      stageId: "WON",
+      categoryId: "0",
+      opportunity: 50_000,
+      currencyId: "", // intentionally empty
+      paymentStatus: "113",
+      paymentDate: "2026-09-10",
+      sampleTestingStatus: [],
+      productType: [],
+      industry: [],
+      direction: [],
+    };
+
+    const companyWithoutCur: CommercialCompany = {
+      id: "c-nocurr",
+      title: "Компания Без Валюты",
+      responsibleId: "u1",
+      responsibleName: "Менеджер",
+      sampleStatus: "Не требуется",
+      sampleStatusSource: "NONE",
+      gradeGel: [],
+      gradeSol: [],
+      productType: [],
+      direction: [],
+      sampleAllDates: [],
+      deals: [dealWithoutCur],
+      primaryDealId: "d-nocurr",
+      primaryDealTitle: "Сделка без валюты",
+      primaryDealOpportunity: 50_000,
+      primaryDealCurrencyId: undefined, // intentionally undefined
+      primaryDealPaymentStatus: "Оплачен",
+      primaryDealPaymentDate: "2026-09-10",
+      hasAttention: true,
+      attentionReasons: ["Проверка"],
+    };
+
+    const workbook = await createCommercialFunnelWorkbook({
+      companies: [companyWithoutCur],
+      deals: [dealWithoutCur],
+      filters,
+      userNames: { u1: "Менеджер" },
+      now: fixedNow,
+    });
+
+    // Companies sheet: primaryDealOpportunity numFmt must NOT contain ₽ or $ or €
+    const compSheet = workbook.getWorksheet("Companies")!;
+    const compRow = compSheet.getRow(7);
+    expect(compRow.getCell(14).value).toBe(50_000);
+    expect(compRow.getCell(14).numFmt).toBe("#,##0");
+    expect(compRow.getCell(14).numFmt).not.toContain("₽");
+    expect(compRow.getCell(14).numFmt).not.toContain("$");
+    expect(compRow.getCell(14).numFmt).not.toContain("€");
   });
 });

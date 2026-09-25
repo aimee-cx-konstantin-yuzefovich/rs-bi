@@ -113,8 +113,7 @@ export function CommercialDrillDownSheet({
                               c.primaryDealCurrencyId ||
                                 (c.primaryDealId
                                   ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId
-                                  : undefined) ||
-                                "RUB"
+                                  : undefined)
                             )
                           : "—"}
                       </TableCell>

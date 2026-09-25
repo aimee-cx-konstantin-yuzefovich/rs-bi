@@ -16,7 +16,13 @@ import {
   computePeriodBoundaries,
   safeDeltaPercent,
 } from "@/lib/commercial-funnel/date-utils";
-import { normalizeCompanies, normalizeDeals } from "@/lib/commercial-funnel/normalize";
+import {
+  formatCurrencyAmount,
+  getCurrencySymbol,
+  normalizeCompanies,
+  normalizeCurrencyCode,
+  normalizeDeals,
+} from "@/lib/commercial-funnel/normalize";
 import type { CommercialCompany, CommercialDeal, CommercialFilters } from "@/lib/commercial-funnel/types";
 import { COMMERCIAL_TIMEZONE, PAYMENT_AMOUNT_LABEL } from "@/lib/commercial-funnel/constants";
 
@@ -1409,6 +1415,105 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
 
       const eurDelta = (currBreakdown.EUR || 0) - (prevBreakdown.EUR || 0);
       expect(eurDelta).toBe(-5_000);
+    });
+  });
+
+  describe("Currency Normalization & Truthful Formatting", () => {
+    it("normalizeCurrencyCode handles all standard and edge cases correctly", () => {
+      expect(normalizeCurrencyCode("RUB")).toBe("RUB");
+      expect(normalizeCurrencyCode("rub")).toBe("RUB");
+      expect(normalizeCurrencyCode("RUR")).toBe("RUB");
+      expect(normalizeCurrencyCode("rur")).toBe("RUB");
+      expect(normalizeCurrencyCode("USD")).toBe("USD");
+      expect(normalizeCurrencyCode("usd")).toBe("USD");
+      expect(normalizeCurrencyCode("EUR")).toBe("EUR");
+      expect(normalizeCurrencyCode("eur")).toBe("EUR");
+      expect(normalizeCurrencyCode("GBP")).toBe("GBP");
+      expect(normalizeCurrencyCode("CNY")).toBe("CNY");
+      expect(normalizeCurrencyCode("")).toBe("UNKNOWN");
+      expect(normalizeCurrencyCode("   ")).toBe("UNKNOWN");
+      expect(normalizeCurrencyCode(null)).toBe("UNKNOWN");
+      expect(normalizeCurrencyCode(undefined)).toBe("UNKNOWN");
+    });
+
+    it("getCurrencySymbol provides correct symbol without assuming RUB", () => {
+      expect(getCurrencySymbol("RUB")).toBe("₽");
+      expect(getCurrencySymbol("USD")).toBe("$");
+      expect(getCurrencySymbol("EUR")).toBe("€");
+      expect(getCurrencySymbol("UNKNOWN")).toBe("валюта не указана");
+      expect(getCurrencySymbol(null)).toBe("валюта не указана");
+      expect(getCurrencySymbol(undefined)).toBe("валюта не указана");
+      expect(getCurrencySymbol("GBP")).toBe("GBP");
+    });
+
+    it("formatCurrencyAmount formats truthfully and never forces RUB on missing currency", () => {
+      expect(formatCurrencyAmount(1_000_000, "RUB")).toBe("1\u00A0000\u00A0000 ₽");
+      expect(formatCurrencyAmount(25_000, "USD")).toBe("25\u00A0000 $");
+      expect(formatCurrencyAmount(5_000, "EUR")).toBe("5\u00A0000 €");
+      expect(formatCurrencyAmount(10_000, "UNKNOWN")).toBe("10\u00A0000 — валюта не указана");
+      expect(formatCurrencyAmount(10_000, null)).toBe("10\u00A0000 — валюта не указана");
+      expect(formatCurrencyAmount(10_000, undefined)).toBe("10\u00A0000 — валюта не указана");
+      expect(formatCurrencyAmount(10_000, "")).toBe("10\u00A0000 — валюта не указана");
+    });
+
+    it("computeManagerScorecard isolates currencies per manager without cross-summation", () => {
+      const bounds = computePeriodBoundaries({ periodPreset: "30days" }, new Date(2026, 8, 24));
+      const makeDeal = (id: string, amount: number, currency: string, responsibleId: string): CommercialDeal => ({
+        id,
+        title: `Сделка ${id}`,
+        companyId: `c-${id}`,
+        responsibleId,
+        stageId: "WON",
+        categoryId: "0",
+        opportunity: amount,
+        currencyId: currency,
+        paymentStatus: "113", // Paid
+        paymentDate: "2026-09-10",
+        sampleTestingStatus: [],
+        productType: [],
+        industry: [],
+        direction: [],
+      });
+
+      const makeCompany = (id: string, deals: CommercialDeal[], responsibleId: string): CommercialCompany => ({
+        id,
+        title: `Компания ${id}`,
+        responsibleId,
+        responsibleName: `Менеджер ${responsibleId}`,
+        sampleStatus: "Не требуется",
+        sampleStatusSource: "NONE",
+        gradeGel: [],
+        gradeSol: [],
+        productType: [],
+        direction: [],
+        sampleAllDates: [],
+        deals,
+        hasAttention: false,
+        attentionReasons: [],
+      });
+
+      const companies: CommercialCompany[] = [
+        makeCompany("c-1", [makeDeal("d-1", 1_000_000, "RUB", "mgr-1")], "mgr-1"),
+        makeCompany("c-2", [makeDeal("d-2", 15_000, "USD", "mgr-1")], "mgr-1"),
+        makeCompany("c-3", [makeDeal("d-3", 5_000, "EUR", "mgr-2")], "mgr-2"),
+      ];
+
+      const scorecard = computeManagerScorecard(companies, bounds);
+      const mgr1 = scorecard.find((m) => m.responsibleId === "mgr-1")!;
+      const mgr2 = scorecard.find((m) => m.responsibleId === "mgr-2")!;
+
+      expect(mgr1).toBeDefined();
+      expect(mgr1.paymentsReceived).toBe(2);
+      expect(mgr1.paymentAmountsByCurrency).toEqual({
+        RUB: 1_000_000,
+        USD: 15_000,
+      });
+
+      expect(mgr2).toBeDefined();
+      expect(mgr2.paymentsReceived).toBe(1);
+      expect(mgr2.paymentAmountsByCurrency).toEqual({
+        EUR: 5_000,
+      });
     });
   });
 });

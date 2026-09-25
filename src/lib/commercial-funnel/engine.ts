@@ -499,7 +499,7 @@ export function computeBottlenecks(
 export function computeManagerScorecard(
   companies: CommercialCompany[],
   boundaries: PeriodBoundaries,
-  bottlenecks: BottleneckItem[],
+  bottlenecks: BottleneckItem[] = [],
   userNames: Record<string, string> = {}
 ): ManagerScorecardRow[] {
   const { currentStart, currentEnd } = boundaries;
@@ -543,7 +543,7 @@ export function computeManagerScorecard(
     }
 
     // Dated: samples sent in period (strictly using authoritative date provenance)
-    const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates;
+    const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates || [];
     if (eventDates.some((d) => isDateInPeriod(d, currentStart, currentEnd))) {
       row.samplesSent++;
     }

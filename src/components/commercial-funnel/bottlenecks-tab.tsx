@@ -141,7 +141,7 @@ export function CommercialBottlenecksTab({
                     {/* Сумма */}
                     <TableCell className="text-xs text-right font-medium whitespace-nowrap">
                       {item.amount
-                        ? formatCurrencyAmount(item.amount, item.currencyId || "RUB")
+                        ? formatCurrencyAmount(item.amount, item.currencyId)
                         : "—"}
                     </TableCell>
 

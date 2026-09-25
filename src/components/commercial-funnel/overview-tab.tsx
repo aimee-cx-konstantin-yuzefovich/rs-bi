@@ -112,13 +112,13 @@ export function CommercialOverviewTab({
                           </div>
                         ))
                       ) : (
-                        <div className="text-lg font-bold tracking-tight">0 ₽</div>
+                        <div className="text-lg font-bold tracking-tight">0</div>
                       )}
                     </div>
                   ) : (
                     <div className="text-lg font-bold tracking-tight">
                       {kpi.isCurrency
-                        ? formatCurrencyAmount(kpi.currentValue ?? 0, kpi.currencyId || "RUB")
+                        ? formatCurrencyAmount(kpi.currentValue ?? 0, kpi.currencyId)
                         : (kpi.currentValue ?? 0)}
                     </div>
                   )}
@@ -167,7 +167,7 @@ export function CommercialOverviewTab({
                           <ArrowDownRight className="h-3 w-3 inline mr-0.5" />
                         )}
                         {kpi.isCurrency
-                          ? `${kpi.delta > 0 ? "+" : ""}${formatCurrencyAmount(kpi.delta, kpi.currencyId || "RUB")}`
+                          ? `${kpi.delta > 0 ? "+" : ""}${formatCurrencyAmount(kpi.delta, kpi.currencyId)}`
                           : `${kpi.delta > 0 ? "+" : ""}${kpi.delta}`}
                         {kpi.deltaPercent !== null && ` (${kpi.deltaPercent > 0 ? "+" : ""}${kpi.deltaPercent}%)`}
                       </span>

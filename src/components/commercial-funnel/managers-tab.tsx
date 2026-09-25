@@ -26,7 +26,7 @@ export function CommercialManagersTab({
   scorecard,
   onOpenDrillDown,
 }: ManagersTabProps) {
-  // Aggregate totals row
+  // Aggregate non-monetary totals row
   const totals = scorecard.reduce(
     (acc, row) => ({
       newCompanies: acc.newCompanies + row.newCompanies,
@@ -37,7 +37,6 @@ export function CommercialManagersTab({
       sampleRework: acc.sampleRework + row.sampleRework,
       dealsCreated: acc.dealsCreated + row.dealsCreated,
       paymentsReceived: acc.paymentsReceived + row.paymentsReceived,
-      paymentAmount: acc.paymentAmount + row.paymentAmount,
       bottlenecksCount: acc.bottlenecksCount + row.bottlenecksCount,
     }),
     {
@@ -49,10 +48,21 @@ export function CommercialManagersTab({
       sampleRework: 0,
       dealsCreated: 0,
       paymentsReceived: 0,
-      paymentAmount: 0,
       bottlenecksCount: 0,
     }
   );
+
+  // Compute multi-currency payment totals across all managers without cross-currency summation
+  const totalPaymentAmountsByCurrency: Record<string, number> = {};
+  for (const row of scorecard) {
+    if (row.paymentAmountsByCurrency && Object.keys(row.paymentAmountsByCurrency).length > 0) {
+      for (const [cur, amt] of Object.entries(row.paymentAmountsByCurrency)) {
+        totalPaymentAmountsByCurrency[cur] = (totalPaymentAmountsByCurrency[cur] || 0) + amt;
+      }
+    } else if (row.paymentAmount > 0) {
+      totalPaymentAmountsByCurrency["RUB"] = (totalPaymentAmountsByCurrency["RUB"] || 0) + row.paymentAmount;
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -174,7 +184,15 @@ export function CommercialManagersTab({
                   <TableCell className="text-xs text-right font-bold">{totals.dealsCreated}</TableCell>
                   <TableCell className="text-xs text-right font-bold">{totals.paymentsReceived}</TableCell>
                   <TableCell className="text-xs text-right font-bold whitespace-nowrap">
-                    {totals.paymentAmount.toLocaleString("ru-RU")} ₽
+                    {Object.keys(totalPaymentAmountsByCurrency).length > 0 ? (
+                      <div className="flex flex-col gap-0.5 items-end">
+                        {Object.entries(totalPaymentAmountsByCurrency).map(([cur, amt]) => (
+                          <span key={cur}>{formatCurrencyAmount(amt, cur)}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
                   <TableCell className="text-xs text-right font-bold">
                     {totals.bottlenecksCount > 0 ? (

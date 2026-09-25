@@ -348,7 +348,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       cell.alignment = { vertical: "middle", horizontal: "center" };
     }
   } else {
-    const singleCurrency = kpiAmount?.currencyId || cardCurrs[0] || "RUB";
+    const singleCurrency = kpiAmount?.currencyId || cardCurrs[0];
     const singleAmt = isMultiCurr && cardCurrs.length === 1
       ? kpiAmount!.currencyBreakdown!.current[cardCurrs[0]] || 0
       : (kpiAmount?.currentValue ?? 0);
@@ -474,7 +474,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       }
 
       if (k.isCurrency) {
-        const cur = k.currencyId || "RUB";
+        const cur = k.currencyId ? normalizeCurrencyCode(k.currencyId) : undefined;
         row.getCell(2).numFmt = getMoneyNumFmt(cur);
         row.getCell(3).numFmt = getMoneyNumFmt(cur);
         row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
@@ -556,7 +556,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       }
 
       if (typeof b.daysWaiting === "number") row.getCell(5).numFmt = NUMFMT.INTEGER;
-      const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : "RUB";
+      const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : undefined;
       row.getCell(6).numFmt = getMoneyNumFmt(botCur);
 
       applyStatusCell(row.getCell(3), "Внимание");
@@ -659,7 +659,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       dateCreateVal,
       c.industry || "—",
       c.region || "—",
-      c.productType.join(", ") || "—",
+      (Array.isArray(c.productType) ? c.productType.join(", ") : c.productType) || "—",
       sampleStatusDisplay,
       c.sampleStatusSource,
       sampleDateVal,
@@ -671,7 +671,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       paymentDateVal,
       c.primaryDealActivityNext || "—",
       c.hasAttention ? "Да" : "Нет",
-      c.attentionReasons.join("; ") || "—",
+      (Array.isArray(c.attentionReasons) ? c.attentionReasons.join("; ") : c.attentionReasons) || "—",
     ]);
     row.height = 20;
 
@@ -681,7 +681,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     if (paymentDateVal) row.getCell(16).numFmt = NUMFMT.DATE;
 
     // Currency format
-    const dealCur = c.primaryDealCurrencyId ? normalizeCurrencyCode(c.primaryDealCurrencyId) : "RUB";
+    const dealCur = c.primaryDealCurrencyId ? normalizeCurrencyCode(c.primaryDealCurrencyId) : undefined;
     row.getCell(14).numFmt = getMoneyNumFmt(dealCur);
 
     // Status styling
@@ -829,7 +829,9 @@ function formatPeriodPresetToRussian(preset: string): string {
     "Получено оплат (период)",
     ...(isMultiManagerCurrencies
       ? allManagerCurrencies.map((cur) => `${PAYMENT_AMOUNT_LABEL} (${cur})`)
-      : [`${PAYMENT_AMOUNT_LABEL} (${allManagerCurrencies[0] || "RUB"})`]),
+      : allManagerCurrencies.length === 1
+      ? [`${PAYMENT_AMOUNT_LABEL} (${allManagerCurrencies[0]})`]
+      : [PAYMENT_AMOUNT_LABEL]),
     "Требуют внимания",
   ];
 
@@ -891,7 +893,7 @@ function formatPeriodPresetToRussian(preset: string): string {
         row.getCell(attentionCol).value = m.bottlenecksCount;
       }
     } else {
-      const singleCur = allManagerCurrencies[0] || "RUB";
+      const singleCur = allManagerCurrencies[0];
       row.getCell(10).numFmt = getMoneyNumFmt(singleCur);
       row.getCell(11).numFmt = NUMFMT.INTEGER;
 
@@ -974,7 +976,7 @@ function formatPeriodPresetToRussian(preset: string): string {
 
     if (relevantDateVal) row.getCell(5).numFmt = NUMFMT.DATE;
     if (typeof b.daysWaiting === "number") row.getCell(6).numFmt = NUMFMT.INTEGER;
-    const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : "RUB";
+    const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : undefined;
     row.getCell(8).numFmt = getMoneyNumFmt(botCur);
 
     // Attention styling
