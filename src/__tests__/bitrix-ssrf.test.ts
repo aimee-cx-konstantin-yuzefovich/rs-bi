@@ -5,7 +5,7 @@ import {
   isSpecialUnsafeHost,
   normalizeHostname,
 } from "@/lib/network-safety";
-import { bitrixGet } from "@/lib/bitrix";
+import { bitrixGet, bitrixPost } from "@/lib/bitrix";
 
 describe("SSRF Protection & Network Safety Suite", () => {
   describe("IP Address & Hostname Classification", () => {
@@ -127,7 +127,15 @@ describe("SSRF Protection & Network Safety Suite", () => {
     it("8. rejects literal IPv4 loopback and private targets", async () => {
       await expect(assertSafeWebhookUrl("https://127.0.0.1/rest/1/abc"))
         .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://127.10.20.30/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
       await expect(assertSafeWebhookUrl("https://10.0.0.1/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://172.16.0.1/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://172.31.255.255/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://192.168.1.1/rest/1/abc"))
         .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
       await expect(assertSafeWebhookUrl("https://192.168.1.100/rest/1/abc"))
         .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
@@ -138,6 +146,8 @@ describe("SSRF Protection & Network Safety Suite", () => {
     it("9. rejects literal IPv6 loopback, ULA, and link-local targets in bracketed URL format", async () => {
       await expect(assertSafeWebhookUrl("https://[::1]/rest/1/abc"))
         .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://[::]/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
       await expect(assertSafeWebhookUrl("https://[fc00::1]/rest/1/abc"))
         .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
       await expect(assertSafeWebhookUrl("https://[fd12:3456::1]/rest/1/abc"))
@@ -145,6 +155,10 @@ describe("SSRF Protection & Network Safety Suite", () => {
       await expect(assertSafeWebhookUrl("https://[fe80::1]/rest/1/abc"))
         .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
       await expect(assertSafeWebhookUrl("https://[::ffff:127.0.0.1]/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://[::ffff:10.0.0.1]/rest/1/abc"))
+        .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
+      await expect(assertSafeWebhookUrl("https://[::ffff:169.254.169.254]/rest/1/abc"))
         .rejects.toThrow("Webhook URL cannot point to private IP ranges or localhost");
     });
 
@@ -222,8 +236,8 @@ describe("SSRF Protection & Network Safety Suite", () => {
       // None of these legitimate domain names should be rejected based on name characters
       const testDomains = [
         "https://fc-public.example.com/rest/1/abc",
-        "https://fd-service.company.ru/rest/1/abc",
-        "https://fe80-gateway.bitrix24.com/rest/1/abc",
+        "https://fd-service.example.com/rest/1/abc",
+        "https://fe80-gateway.example.com/rest/1/abc",
       ];
 
       for (const url of testDomains) {
@@ -261,6 +275,22 @@ describe("SSRF Protection & Network Safety Suite", () => {
 
       await expect(bitrixGet("disallowed.method")).rejects.toThrow(
         "Invalid request parameters."
+      );
+    });
+
+    it("21. bitrixPost fails closed and sanitizes error when webhook points to bracketed IPv6 loopback target", async () => {
+      process.env.BITRIX_WEBHOOK_URL = "https://[::1]/rest/1/key";
+
+      await expect(bitrixPost("crm.deal.list", { id: 1 })).rejects.toThrow(
+        "Failed to crm.deal.list. Please try again later."
+      );
+    });
+
+    it("22. bitrixGet fails closed when webhook points to ULA IPv6 target", async () => {
+      process.env.BITRIX_WEBHOOK_URL = "https://[fc00::1]/rest/1/key";
+
+      await expect(bitrixGet("crm.deal.list")).rejects.toThrow(
+        "Failed to crm.deal.list. Please try again later."
       );
     });
   });
