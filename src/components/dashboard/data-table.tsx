@@ -6,6 +6,7 @@ import {
   RESPONSIBLE_FIELD_TITLE,
   COMPANY_RESPONSIBLE_FIELD_ID,
   COMPANY_RESPONSIBLE_FIELD_TITLE,
+  getDealStageDisplayLabel,
 } from "@/lib/crm-constants";
 import { useTableState } from "@/hooks/use-table-state";
 import { Badge } from "@/components/ui/badge";
@@ -861,22 +862,29 @@ function CellValue({
 
   // Stage — colored badges
   if (field?.id === "STAGE_ID") {
+    const displayLabel = getDealStageDisplayLabel(resolved);
+    const label = displayLabel && displayLabel !== "—" ? displayLabel : resolved;
     const stageColors: Record<string, string> = {
+      "Новые": "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
       "Новая": "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
       "Подготовка": "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
       "Счёт выставлен": "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+      "Счёт на предоплату": "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+      "Финальный счёт": "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
       "В работе": "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
+      "Успешные": "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
       "Сделка успешна": "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+      "Успешно завершена": "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+      "Проиграны": "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400",
       "Сделка провалена": "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+      "Провалена": "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400",
     };
-    const colorClass = stageColors[resolved];
-    if (colorClass) {
-      return (
-        <Badge className={`${colorClass} text-[10px] h-5 rounded-sm border-0 font-medium`}>
-          {resolved}
-        </Badge>
-      );
-    }
+    const colorClass = stageColors[label] || stageColors[resolved] || "bg-muted text-foreground";
+    return (
+      <Badge className={`${colorClass} text-[10px] h-5 rounded-sm border-0 font-medium`}>
+        {label}
+      </Badge>
+    );
   }
 
   // Enumeration with list values — show as subtle badge for short values

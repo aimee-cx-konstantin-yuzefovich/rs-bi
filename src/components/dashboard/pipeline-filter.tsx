@@ -8,8 +8,8 @@ import { searchParams } from "@/lib/search-params";
 const PIPELINE_TABS = [
   { key: "all", label: "Все" },
   { key: "in_work", label: "В работе" },
-  { key: "WON", label: "WON" },
-  { key: "LOSE", label: "LOSE" },
+  { key: "WON", label: "Успешные" },
+  { key: "LOSE", label: "Проиграны" },
 ] as const;
 
 export function PipelineFilter() {
@@ -20,11 +20,17 @@ export function PipelineFilter() {
   const counts = useMemo(() => {
     const all = allDeals.length;
     const inWork = allDeals.filter((d) => {
-      const stage = String(d.STAGE_ID || "");
-      return !["WON", "LOSE"].includes(stage);
+      const stage = String(d.STAGE_ID || "").toUpperCase();
+      return !["WON", "LOSE"].includes(stage) && !stage.endsWith(":WON") && !stage.endsWith(":LOSE");
     }).length;
-    const won = allDeals.filter((d) => String(d.STAGE_ID) === "WON").length;
-    const lose = allDeals.filter((d) => String(d.STAGE_ID) === "LOSE").length;
+    const won = allDeals.filter((d) => {
+      const stage = String(d.STAGE_ID || "").toUpperCase();
+      return stage === "WON" || stage.endsWith(":WON");
+    }).length;
+    const lose = allDeals.filter((d) => {
+      const stage = String(d.STAGE_ID || "").toUpperCase();
+      return stage === "LOSE" || stage === "LOST" || stage.endsWith(":LOSE") || stage.endsWith(":LOST");
+    }).length;
     return { all, in_work: inWork, WON: won, LOSE: lose };
   }, [allDeals]);
 

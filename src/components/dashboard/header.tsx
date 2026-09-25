@@ -18,6 +18,8 @@ import { SectionNav } from "./section-nav";
 import { RefreshCw, Download, Columns3, BarChart3, LogOut, User } from "lucide-react";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { formatHeaderToRussian, formatStageToRussian } from "@/lib/excel-brand";
+import { getDealStageDisplayLabel } from "@/lib/crm-constants";
+import { PRODUCT_UI_DESCRIPTOR } from "@/lib/product-identity";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
 import Link from "next/link";
 import { useCallback } from "react";
@@ -104,7 +106,7 @@ export function Header() {
       filtersSummary.push(`Ответственный: ${userNames[responsibleFilter] || responsibleFilter}`);
     }
     if (pipelineFilter && pipelineFilter !== "all") {
-      filtersSummary.push(`Воронка: ${pipelineFilter}`);
+      filtersSummary.push(`Воронка: ${getDealStageDisplayLabel(pipelineFilter)}`);
     }
     if (searchQuery && searchQuery.trim()) {
       filtersSummary.push(`Поиск: "${searchQuery.trim()}"`);
@@ -164,7 +166,7 @@ export function Header() {
                 RusSilica
               </span>
               <span className="hidden md:inline text-xs font-normal text-white/40">
-                BI Terminal
+                {PRODUCT_UI_DESCRIPTOR}
               </span>
             </Link>
 

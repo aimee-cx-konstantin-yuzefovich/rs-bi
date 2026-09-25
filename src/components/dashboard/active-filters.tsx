@@ -4,6 +4,7 @@ import { useMemo, useCallback } from "react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Filter, X } from "lucide-react";
+import { getDealStageDisplayLabel } from "@/lib/crm-constants";
 
 interface ActiveFilterItem {
   key: string;
@@ -53,13 +54,13 @@ export function ActiveFilters() {
     if (pipelineFilter !== "all") {
       const pipelineLabels: Record<string, string> = {
         in_work: "В работе",
-        WON: "Успешно",
-        LOSE: "Провал",
+        WON: "Успешные",
+        LOSE: "Проиграны",
       };
       result.push({
         key: "pipelineFilter",
         label: "Воронка",
-        value: pipelineLabels[pipelineFilter] || pipelineFilter,
+        value: pipelineLabels[pipelineFilter] || getDealStageDisplayLabel(pipelineFilter),
         onRemove: () => setPipelineFilter("all"),
       });
     }

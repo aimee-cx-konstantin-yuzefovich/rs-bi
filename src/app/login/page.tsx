@@ -83,7 +83,7 @@ function LoginForm() {
     <div className="w-full max-w-[400px]">
       <header className="mb-8">
         <h1 className="mb-2 text-4xl font-bold tracking-tight text-[#1A52A3]">RusSilica</h1>
-        <p className="text-sm font-medium tracking-wide text-slate-600">Корпоративный BI Terminal</p>
+        <p className="text-sm font-medium tracking-wide text-slate-600">Корпоративный аналитический терминал</p>
       </header>
       <form noValidate onSubmit={handleSubmit} aria-label="Вход в систему" aria-busy={loading} className="space-y-6">
         {params.get("reason") === "session-expired" && <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-slate-700">Сессия завершена. Войдите снова, чтобы продолжить</p>}

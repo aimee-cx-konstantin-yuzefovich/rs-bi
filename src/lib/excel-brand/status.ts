@@ -158,14 +158,14 @@ export function formatStageToRussian(stage?: string | null): string {
   if (!stage || typeof stage !== "string") return "—";
   const trim = stage.trim();
   const upper = trim.toUpperCase();
-  if (upper === "WON") return "Успешно завершена";
-  if (upper === "LOSE" || upper === "LOST") return "Провалена";
-  if (upper === "NEW") return "Новая сделка";
-  if (upper === "EXECUTING") return "В работе";
-  if (upper === "PREPARATION") return "Подготовка";
-  if (upper === "PREPAYMENT_INVOICE") return "Счёт на предоплату";
-  if (upper === "FINAL_INVOICE") return "Финальный счёт";
-  if (upper === "INVOICE_SENT") return "Счёт выставлен";
+  if (upper === "WON" || upper.endsWith(":WON")) return "Успешно завершена";
+  if (upper === "LOSE" || upper === "LOST" || upper.endsWith(":LOSE") || upper.endsWith(":LOST")) return "Провалена";
+  if (upper === "NEW" || upper.endsWith(":NEW")) return "Новая сделка";
+  if (upper === "EXECUTING" || upper.endsWith(":EXECUTING")) return "В работе";
+  if (upper === "PREPARATION" || upper.endsWith(":PREPARATION")) return "Подготовка";
+  if (upper === "PREPAYMENT_INVOICE" || upper.endsWith(":PREPAYMENT_INVOICE")) return "Счёт на предоплату";
+  if (upper === "FINAL_INVOICE" || upper.endsWith(":FINAL_INVOICE")) return "Финальный счёт";
+  if (upper === "INVOICE_SENT" || upper.endsWith(":INVOICE_SENT")) return "Счёт выставлен";
   if (upper === "OPPORTUNITY") return "Сумма сделки";
   return trim;
 }
@@ -212,8 +212,8 @@ export function translateCrmValueToRussian(val: string): string {
   const lower = trim.toLowerCase();
 
   if (lower === "opportunity") return "Сумма сделки";
-  if (upper === "WON") return "Успешно завершена";
-  if (upper === "LOSE" || upper === "LOST") return "Провалена";
+  if (upper === "WON" || upper.endsWith(":WON")) return "Успешно завершена";
+  if (upper === "LOSE" || upper === "LOST" || upper.endsWith(":LOSE") || upper.endsWith(":LOST")) return "Провалена";
   if (upper === "NEW") return "Новая сделка";
   if (upper === "EXECUTING") return "В работе";
   if (upper === "PREPARATION") return "Подготовка";

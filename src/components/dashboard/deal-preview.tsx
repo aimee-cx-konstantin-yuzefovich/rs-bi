@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Building2, ExternalLink, FlaskConical } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
+import { getDealStageDisplayLabel } from "@/lib/crm-constants";
 
 type PreviewState =
   | { status: "loading" }
@@ -108,11 +109,19 @@ export function DealPreview({
 
   const renderFieldValue = (val: unknown): string => {
     if (val === null || val === undefined || val === "") return "—";
+    if (val === true) return "Да";
+    if (val === false) return "Нет";
     if (typeof val === "object") {
-      if (Array.isArray(val)) return val.join(", ");
+      if (Array.isArray(val)) return val.map(renderFieldValue).join(", ");
       return JSON.stringify(val);
     }
-    return String(val);
+    const str = String(val).trim();
+    if (!str || str === "null" || str === "undefined") return "—";
+    const upper = str.toUpperCase();
+    if (upper === "TRUE") return "Да";
+    if (upper === "FALSE") return "Нет";
+    if (upper === "UNKNOWN") return "Не классифицировано";
+    return str;
   };
 
   const formatDate = (isoStr: unknown): string => {
@@ -183,7 +192,7 @@ export function DealPreview({
                     <dt className="text-xs text-muted-foreground">Стадия</dt>
                     <dd className="mt-1">
                       <Badge variant="outline" className="text-xs font-normal">
-                        {String(state.deal.STAGE_ID)}
+                        {getDealStageDisplayLabel(String(state.deal.STAGE_ID))}
                       </Badge>
                     </dd>
                   </div>
@@ -201,7 +210,10 @@ export function DealPreview({
                         maximumFractionDigits: 2,
                       })}{" "}
                       <span className="text-muted-foreground text-xs font-normal">
-                        {state.deal.CURRENCY_ID ? String(state.deal.CURRENCY_ID) : "валюта не указана"}
+                        {(() => {
+                          const cur = String(state.deal.CURRENCY_ID ?? "").trim();
+                          return cur && cur.toUpperCase() !== "UNKNOWN" ? cur : "валюта не указана";
+                        })()}
                       </span>
                     </dd>
                   </div>

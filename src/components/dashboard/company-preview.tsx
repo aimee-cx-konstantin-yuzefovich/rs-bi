@@ -11,6 +11,26 @@ import { defaultCompanyFields, defaultSampleFields } from "@/lib/company-preview
 import { exportCompanyToExcel } from "@/lib/export-utils";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { SampleSummary } from "@/lib/samples/types";
+import { getDealStageDisplayLabel } from "@/lib/crm-constants";
+
+function formatPreviewValue(val: unknown): string {
+  if (val === null || val === undefined || val === "") return "—";
+  if (val === true) return "Да";
+  if (val === false) return "Нет";
+  if (typeof val === "object") {
+    if (Array.isArray(val)) return val.map(formatPreviewValue).join(", ");
+    return JSON.stringify(val);
+  }
+  const str = String(val).trim();
+  if (!str || str === "—" || str === "null" || str === "undefined") return "—";
+  const upper = str.toUpperCase();
+  if (upper === "TRUE") return "Да";
+  if (upper === "FALSE") return "Нет";
+  if (upper === "UNKNOWN") return "Не классифицировано";
+  if (upper === "WON" || upper.endsWith(":WON")) return "Успешные";
+  if (upper === "LOSE" || upper === "LOST" || upper.endsWith(":LOSE") || upper.endsWith(":LOST")) return "Проиграны";
+  return str;
+}
 
 type PreviewState =
   | { status: "loading" }
@@ -66,7 +86,7 @@ export function CompanyPreview({
   const resolveStage = (rawStage: unknown): string | null => {
     if (rawStage === undefined || rawStage === null || rawStage === "") return null;
     const str = String(rawStage);
-    return stageField?.listValues?.find((lv) => lv.ID === str)?.VALUE || str;
+    return stageField?.listValues?.find((lv) => lv.ID === str)?.VALUE || getDealStageDisplayLabel(str);
   };
 
   const handleExport = async () => {
@@ -222,7 +242,7 @@ export function CompanyPreview({
                 {activeFieldsFor(state.company).map((field) => (
                   <div key={field.id}>
                     <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                    <dd className="mt-1 whitespace-pre-wrap break-words">{field.value}</dd>
+                    <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value)}</dd>
                   </div>
                 ))}
               </dl>
@@ -236,7 +256,7 @@ export function CompanyPreview({
                   {activeSampleFieldsFor(state.company).map((field) => (
                     <div key={field.id}>
                       <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                      <dd className="mt-1 whitespace-pre-wrap break-words">{field.value || "—"}</dd>
+                      <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value)}</dd>
                     </div>
                   ))}
                 </dl>
@@ -340,7 +360,9 @@ export function CompanyPreview({
                                     minimumFractionDigits: 0,
                                     maximumFractionDigits: 2,
                                   })}
-                                  {currency ? ` ${currency}` : " — валюта не указана"}
+                                  {currency && currency.toUpperCase() !== "UNKNOWN"
+                                    ? ` ${currency}`
+                                    : " — валюта не указана"}
                                 </span>
                               )}
                               {dealBitrixUrl && (

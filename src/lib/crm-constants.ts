@@ -129,6 +129,43 @@ export const DEAL_STAGES = {
   IN_PROGRESS: "EXECUTING",
 } as const;
 
+/**
+ * Approved Russian display labels for CRM deal stages.
+ * Used exclusively for UI display and export formatting;
+ * internal Bitrix CRM stage keys remain untouched.
+ */
+export const DEAL_STAGE_DISPLAY_LABELS: Record<string, string> = {
+  WON: "Успешные",
+  LOSE: "Проиграны",
+  LOST: "Проиграны",
+  NEW: "Новые",
+  PREPARATION: "Подготовка",
+  EXECUTING: "В работе",
+  PREPAYMENT_INVOICE: "Счёт на предоплату",
+  FINAL_INVOICE: "Финальный счёт",
+  INVOICE_SENT: "Счёт выставлен",
+};
+
+/**
+ * Returns user-facing Russian display label for a deal stage,
+ * supporting category-prefixed Bitrix stages (e.g. C1:WON, C2:LOSE).
+ * Never mutates or alters the underlying raw stage ID.
+ */
+export function getDealStageDisplayLabel(stage?: string | null): string {
+  if (!stage || typeof stage !== "string") return "—";
+  const trim = stage.trim();
+  const upper = trim.toUpperCase();
+  if (upper === "WON" || upper.endsWith(":WON")) return "Успешные";
+  if (upper === "LOSE" || upper === "LOST" || upper.endsWith(":LOSE") || upper.endsWith(":LOST")) return "Проиграны";
+  if (upper === "NEW" || upper.endsWith(":NEW")) return "Новые";
+  if (upper === "EXECUTING" || upper.endsWith(":EXECUTING")) return "В работе";
+  if (upper === "PREPARATION" || upper.endsWith(":PREPARATION")) return "Подготовка";
+  if (upper === "PREPAYMENT_INVOICE" || upper.endsWith(":PREPAYMENT_INVOICE")) return "Счёт на предоплату";
+  if (upper === "FINAL_INVOICE" || upper.endsWith(":FINAL_INVOICE")) return "Финальный счёт";
+  if (upper === "INVOICE_SENT" || upper.endsWith(":INVOICE_SENT")) return "Счёт выставлен";
+  return DEAL_STAGE_DISPLAY_LABELS[upper] || trim;
+}
+
 export const PAYMENT_STATUS_FIELD_ID = "UF_CRM_1584464068013";
 
 // Payment status enumeration values — these IDs come from Bitrix24

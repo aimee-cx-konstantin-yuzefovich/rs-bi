@@ -639,8 +639,18 @@ export const useDashboardStore = create<DashboardState>()(
         // 2. Pipeline filter
         if (pipelineFilter === "in_work") {
           filtered = filtered.filter((deal) => {
-            const stage = String(deal.STAGE_ID || "");
-            return !["WON", "LOSE"].includes(stage);
+            const stage = String(deal.STAGE_ID || "").toUpperCase();
+            return !["WON", "LOSE"].includes(stage) && !stage.endsWith(":WON") && !stage.endsWith(":LOSE");
+          });
+        } else if (pipelineFilter === "WON") {
+          filtered = filtered.filter((deal) => {
+            const stage = String(deal.STAGE_ID || "").toUpperCase();
+            return stage === "WON" || stage.endsWith(":WON");
+          });
+        } else if (pipelineFilter === "LOSE") {
+          filtered = filtered.filter((deal) => {
+            const stage = String(deal.STAGE_ID || "").toUpperCase();
+            return stage === "LOSE" || stage === "LOST" || stage.endsWith(":LOSE") || stage.endsWith(":LOST");
           });
         } else if (pipelineFilter !== "all") {
           filtered = filtered.filter((deal) => String(deal.STAGE_ID) === pipelineFilter);

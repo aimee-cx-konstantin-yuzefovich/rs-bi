@@ -5,6 +5,12 @@
 
 export const PRODUCT_NAME = "RusSilica BI Terminal";
 
+export const PRODUCT_BRAND_NAME = "RusSilica";
+
+export const PRODUCT_UI_DESCRIPTOR = "Аналитический терминал";
+
+export const PRODUCT_UI_TITLE = "RusSilica · Аналитический терминал";
+
 export const PRODUCT_VERSION = "3.1";
 
 export const PRODUCT_COPYRIGHT_YEAR = "2027";

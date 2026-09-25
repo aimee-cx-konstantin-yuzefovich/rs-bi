@@ -6,6 +6,8 @@ import { useDashboardStore } from "@/store/dashboard-store";
 import type { StartupState } from "@/lib/dashboard-startup";
 import {
   PRODUCT_NAME,
+  PRODUCT_BRAND_NAME,
+  PRODUCT_UI_DESCRIPTOR,
   PRODUCT_VERSION,
   PRODUCT_LOADING_DESCRIPTION,
 } from "@/lib/product-identity";
@@ -114,8 +116,11 @@ export function LoadingScreen({ startup, onTimedOut }: { startup: StartupState; 
           <div>
             <div className="flex items-baseline gap-2.5 flex-wrap">
               <p className="text-3xl font-bold tracking-tight text-[#93C5FD]">
-                {PRODUCT_NAME}
+                {PRODUCT_BRAND_NAME}
               </p>
+              <span className="text-xl font-medium tracking-tight text-[#93C5FD]/80">
+                {PRODUCT_UI_DESCRIPTOR}
+              </span>
               <span className="text-sm font-medium text-slate-400 font-mono">
                 v{PRODUCT_VERSION}
               </span>
