@@ -16,6 +16,7 @@ import {
 } from "./constants";
 import { calculateDaysWaiting } from "./date-utils";
 import { isValidCalendarDate } from "@/lib/date-safety";
+import { parseStrictDate } from "@/lib/scalar-safety";
 import { evaluateStalledDeal } from "./bottlenecks";
 import type {
   CommercialCompany,
@@ -109,14 +110,18 @@ function parseQuantity(val: unknown): number | undefined {
 function extractIsoDates(raw: unknown): string[] {
   const strings = toStringArray(raw);
   const out: string[] = [];
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
   for (const s of strings) {
-    const match = s.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-    if (match) {
-      const y = Number(match[1]);
-      const m = Number(match[2]);
-      const d = Number(match[3]);
-      if (isValidCalendarDate(y, m, d) && !out.includes(match[0])) {
-        out.push(match[0]);
+    const parsed = parseStrictDate(s, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    if (parsed) {
+      const iso = formatter.format(parsed);
+      if (!out.includes(iso)) {
+        out.push(iso);
       }
     }
   }
