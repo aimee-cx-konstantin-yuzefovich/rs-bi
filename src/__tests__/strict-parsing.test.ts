@@ -4,9 +4,15 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from "vitest";
+import ExcelJS from "exceljs";
 import { parseStrictNumber, normalizeDeals } from "../lib/commercial-funnel/normalize";
 import { isValidCalendarDate, parseStrictDate } from "../lib/date-safety";
-import { parseCellNativeValue, isExplicitDateField, normalizeCompanyReportFieldValue } from "../lib/export-utils";
+import {
+  parseCellNativeValue,
+  isExplicitDateField,
+  normalizeCompanyReportFieldValue,
+  buildWysiwygWorkbook,
+} from "../lib/export-utils";
 
 describe("Strict Numeric Parsing", () => {
   it("TC-STRICT-NUM-01: parses valid numbers, strings with commas and spaces", () => {
@@ -240,5 +246,112 @@ describe("Excel Cell Parsing and Metadata-Aware Typing", () => {
       value: "28.02.2026",
     });
     expect(validRes.value instanceof Date).toBe(true);
+  });
+
+  it("TC-XLSX-METADATA-05: verifies exhaustive metadata-aware parsing and binary Excel round-trip", async () => {
+    // 1. TITLE containing ISO-looking date -> string
+    const valTitle = parseCellNativeValue("2026-09-01", {
+      fieldId: "TITLE",
+      fieldType: "string",
+    });
+    expect(typeof valTitle).toBe("string");
+    expect(valTitle).toBe("2026-09-01");
+
+    // 2. Custom string UF field containing date-looking value -> string
+    const valCustomStr = parseCellNativeValue("2026-09-01", {
+      fieldId: "UF_CRM_CUSTOM_MEMO",
+      fieldType: "string",
+    });
+    expect(typeof valCustomStr).toBe("string");
+    expect(valCustomStr).toBe("2026-09-01");
+
+    // 3. Real CRM date field -> native Date
+    const valDate = parseCellNativeValue("2026-09-01", {
+      fieldId: "UF_CRM_1783429999269",
+      fieldType: "date",
+    });
+    expect(valDate instanceof Date).toBe(true);
+    expect((valDate as Date).toISOString()).toBe("2026-09-01T00:00:00.000Z");
+
+    // 4. Real CRM datetime field -> native Date
+    const valDatetime = parseCellNativeValue("2026-09-01 12:30:00", {
+      fieldId: "DATE_CREATE",
+      fieldType: "datetime",
+    });
+    expect(valDatetime instanceof Date).toBe(true);
+    expect((valDatetime as Date).toISOString()).toBe("2026-09-01T12:30:00.000Z");
+
+    // 5. Invalid date in typed date field -> string, does not roll over
+    const valInvalidDate = parseCellNativeValue("2026-02-31", {
+      fieldId: "DATE_CREATE",
+      fieldType: "datetime",
+    });
+    expect(valInvalidDate instanceof Date).toBe(false);
+    expect(valInvalidDate).toBe("2026-02-31");
+
+    // 6. Null / blank typed date -> null
+    expect(parseCellNativeValue("", { fieldId: "DATE_CREATE", fieldType: "datetime" })).toBeNull();
+    expect(parseCellNativeValue("   ", { fieldId: "DATE_CREATE", fieldType: "datetime" })).toBeNull();
+    expect(parseCellNativeValue(null, { fieldId: "DATE_CREATE", fieldType: "datetime" })).toBeNull();
+
+    // 7. Unknown field with no metadata -> must NOT aggressively coerce to date
+    const valUnknown = parseCellNativeValue("2026-09-01", {});
+    expect(typeof valUnknown).toBe("string");
+    expect(valUnknown).toBe("2026-09-01");
+
+    // 8. Excel Binary Round-Trip via buildWysiwygWorkbook
+    const rawData = [
+      ["Сделка 2026-09-01", "2026-09-01", "2026-09-01", "2026-09-01 12:30:00", "2026-02-31", ""],
+    ];
+    const columns = [
+      "TITLE",
+      "UF_CRM_CUSTOM_MEMO",
+      "UF_CRM_1783429999269",
+      "DATE_CREATE",
+      "INVALID_DATE_COL",
+      "BLANK_DATE_COL",
+    ];
+    const rawColumnTypes = ["string", "string", "date", "datetime", "date", "date"];
+
+    const workbook = await buildWysiwygWorkbook(rawData, columns, {
+      rawColumnIds: columns,
+      rawColumnTypes,
+      sheetName: "Сделки",
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    expect(buffer.byteLength).toBeGreaterThan(1000);
+
+    // Reopen workbook from serialized binary buffer
+    const reopened = new ExcelJS.Workbook();
+    await reopened.xlsx.load(buffer);
+    const sheet = reopened.getWorksheet("Сделки")!;
+    expect(sheet).toBeDefined();
+
+    // Data row is row 7 (header rows 1-5 corporate, row 6 table header)
+    const dataRow = sheet.getRow(7);
+    expect(dataRow).toBeDefined();
+
+    // Col 1: TITLE text
+    expect(typeof dataRow.getCell(1).value).toBe("string");
+    expect(dataRow.getCell(1).value).toBe("Сделка 2026-09-01");
+
+    // Col 2: Custom UF string
+    expect(typeof dataRow.getCell(2).value).toBe("string");
+    expect(dataRow.getCell(2).value).toBe("2026-09-01");
+
+    // Col 3: Real CRM date -> Date
+    expect(dataRow.getCell(3).value instanceof Date).toBe(true);
+
+    // Col 4: Real CRM datetime -> Date
+    expect(dataRow.getCell(4).value instanceof Date).toBe(true);
+
+    // Col 5: Invalid date -> text, not Date
+    expect(dataRow.getCell(5).value instanceof Date).toBe(false);
+    expect(dataRow.getCell(5).value).toBe("2026-02-31");
+
+    // Col 6: Blank date -> null or empty
+    const blankVal = dataRow.getCell(6).value;
+    expect(blankVal === null || blankVal === undefined || blankVal === "").toBe(true);
   });
 });

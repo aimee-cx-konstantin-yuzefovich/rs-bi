@@ -57,6 +57,7 @@ export interface WysiwygExportOptions {
   highlightColorArgb?: string;
   logoImageId?: number | null;
   rawColumnIds?: string[];
+  rawColumnTypes?: (string | undefined)[];
   rowCurrencies?: (string | null | undefined)[];
   columnCurrencies?: Record<number, string | null | undefined>;
 }
@@ -153,10 +154,15 @@ export async function buildWysiwygWorkbook(
     }
   }
 
+  const rawColumnTypes = options?.rawColumnTypes;
+  const colIdentifiers = options?.rawColumnIds || columns;
   const startDataRow = tableHeaderRowIndex + 1;
   for (const rawRow of data) {
     const parsedRow = rawRow.map((val, idx) =>
-      parseCellNativeValue(val, { fieldId: rawColumnIds?.[idx] })
+      parseCellNativeValue(val, {
+        fieldId: colIdentifiers?.[idx],
+        fieldType: rawColumnTypes?.[idx],
+      })
     );
     worksheet.addRow(parsedRow);
   }
@@ -215,6 +221,13 @@ export function isExplicitDateField(fieldId?: string, fieldType?: string): boole
         "money",
         "boolean",
         "char",
+        "file",
+        "url",
+        "user",
+        "crm_company",
+        "crm_contact",
+        "crm_deal",
+        "crm_lead",
       ].includes(t)
     ) {
       return false;
@@ -228,21 +241,18 @@ export function isExplicitDateField(fieldId?: string, fieldType?: string): boole
       idUpper === "ID" ||
       idUpper === "COMPANY_ID" ||
       idUpper === "TITLE" ||
-      idUpper === "CODE"
+      idUpper === "CODE" ||
+      idUpper.includes("TITLE") ||
+      idUpper.includes("НАЗВАНИЕ") ||
+      idUpper.includes("КОММЕНТ") ||
+      idUpper.includes("COMMENT")
     ) {
       return false;
     }
     if (
-      idUpper === "DATE_CREATE" ||
-      idUpper === "DATE_MODIFY" ||
-      idUpper === "BEGINDATE" ||
-      idUpper === "CLOSEDATE" ||
-      idUpper === "COMPANY_DATE_CREATE" ||
-      idUpper === "COMPANY_DATE_MODIFY" ||
-      idUpper === "DEAL_DATE_CREATE" ||
-      idUpper === "DEAL_DATE_MODIFY" ||
-      idUpper === "LAST_ACTIVITY_TIME" ||
-      idUpper === "COMPANY_LAST_ACTIVITY_TIME" ||
+      idUpper.includes("ДАТА") ||
+      idUpper.includes("DATE") ||
+      idUpper.includes("TIME") ||
       idUpper.includes(COMPANY_SAMPLES_DATE_MULTI_FIELD_ID) ||
       idUpper.includes(COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID) ||
       idUpper.includes(DEAL_SAMPLE_SENT_DATE_FIELD_ID) ||
@@ -254,8 +264,8 @@ export function isExplicitDateField(fieldId?: string, fieldType?: string): boole
     return false;
   }
 
-  // Fallback pattern inference when no metadata or field identity was provided
-  return true;
+  // Fallback: When no metadata or field identity was provided, do NOT aggressively coerce text into dates!
+  return false;
 }
 
 /**
