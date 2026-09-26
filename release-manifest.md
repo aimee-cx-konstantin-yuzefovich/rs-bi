@@ -1,15 +1,15 @@
 # RusSilica BI Terminal — Release Manifest
 
-Generated: 2026-09-26T23:00:31.736Z
+Generated: 2026-09-26T23:04:14.599Z
 
 ## A. Repository State
 
 ```text
 BASE_SHA=0acf5db25e13d91b089fbaae75dafc9e8758f9a2
-FINAL_SHA=2df27fab6d382e50d92670e58f5ee5284409f8aa
+FINAL_SHA=9ecb14256cc9a2b97c91d2fa6455249f840e0fae
 BRANCH=main
-REMOTE_MAIN=2df27fab6d382e50d92670e58f5ee5284409f8aa
-WORKTREE=DIRTY
+REMOTE_MAIN=9ecb14256cc9a2b97c91d2fa6455249f840e0fae
+WORKTREE=clean
 ```
 
 ## B. Automated Gates
@@ -26,7 +26,7 @@ WORKTREE=DIRTY
 | Standalone runtime smoke | PASS (12/12) | LOCAL |
 | Browser acceptance (unauthenticated) | PASS (5/5) | LOCAL |
 | Browser acceptance (authenticated) | NOT EXECUTED — requires external test credential | NOT EXECUTED |
-| GitHub Actions exact-SHA gate | success (run 36277799513) | CI |
+| GitHub Actions exact-SHA gate | success (run 36278081840) | CI |
 
 ## C. Benchmarks
 
@@ -43,7 +43,7 @@ Benchmark evidence source is labelled LOCAL — not presented as GitHub Actions 
 ```text
 Production URL: EXTERNAL DEPLOYMENT REQUIRED
 Production build SHA: not yet verifiable
-Accepted FINAL_SHA: 2df27fab6d382e50d92670e58f5ee5284409f8aa
+Accepted FINAL_SHA: 9ecb14256cc9a2b97c91d2fa6455249f840e0fae
 Match: NO — EXTERNAL DEPLOYMENT REQUIRED
 ```
 
