@@ -570,12 +570,13 @@ function formatPeriodPresetToRussian(preset: string): string {
         botAmtVal = b.amount;
       }
 
+      const daysWaitingVal = typeof b.daysWaiting === "number" ? b.daysWaiting : "—";
       const row = summarySheet.addRow([
         b.companyTitle,
         b.responsibleName,
         b.issueLabel,
         b.currentState,
-        b.daysWaiting,
+        daysWaitingVal,
         botAmtVal,
       ]);
       row.height = 20;
@@ -1020,13 +1021,14 @@ function formatPeriodPresetToRussian(preset: string): string {
       botAmtVal = b.amount;
     }
 
+    const daysWaitingVal = typeof b.daysWaiting === "number" ? b.daysWaiting : "—";
     const row = bottlenecksSheet.addRow([
       b.companyTitle,
       b.responsibleName,
       b.issueLabel,
       b.currentState,
       relevantDateVal,
-      b.daysWaiting,
+      daysWaitingVal,
       b.dealTitle || "—",
       botAmtVal,
       b.nextAction || "—",
