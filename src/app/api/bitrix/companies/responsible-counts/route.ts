@@ -42,6 +42,9 @@ export async function GET() {
     tally(firstPage.result || []);
     const bitrixTotal = firstPage.total ?? (firstPage.result || []).length;
 
+    let failedPages = 0;
+    let scannedCompanies = (firstPage.result || []).length;
+
     if (firstPage.next && bitrixTotal > 50) {
       const limit = pLimit(5);
       const targetTotal = Math.min(bitrixTotal, MAX_COMPANIES_TO_SCAN);
@@ -63,11 +66,27 @@ export async function GET() {
       for (const res of results) {
         if (res.status === "fulfilled" && res.value.result) {
           tally(res.value.result);
+          scannedCompanies += res.value.result.length;
+        } else {
+          failedPages++;
         }
       }
     }
 
-    return NextResponse.json({ success: true, counts, total: bitrixTotal });
+    const partial = failedPages > 0;
+    const cappedByLimit = bitrixTotal > MAX_COMPANIES_TO_SCAN;
+    const truncated = bitrixTotal > scannedCompanies;
+
+    return NextResponse.json({
+      success: true,
+      counts,
+      total: bitrixTotal,
+      scannedCompanies,
+      partial,
+      failedPages,
+      cappedByLimit,
+      truncated,
+    });
   } catch (error) {
     console.error("[Companies Responsible-Counts API Error]", error);
 

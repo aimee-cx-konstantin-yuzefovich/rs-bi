@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     const promises = [];
     const limit = pLimit(5);
     
+    let failedBatches = 0;
     // Fetch remaining pages in parallel
     if (total > 50) {
       const remainingPages = Math.min(Math.ceil(total / 50) - 1, MAX_ITERATIONS - 1);
@@ -67,16 +68,32 @@ export async function GET(request: NextRequest) {
               .trim();
             userMap[user.ID] = fullName || `ID ${user.ID}`;
           }
+        } else {
+          failedBatches++;
         }
       }
     }
 
+    const fetched = Object.keys(userMap).length;
+    const partial = failedBatches > 0;
+    const cappedByLimit = total > MAX_ITERATIONS * 50;
+    const truncated = total > fetched;
+
     // SECURITY: Only log user count in development to avoid leaking
     // infrastructure details (headcount) to production log systems.
     if (process.env.NODE_ENV !== "production") {
-      console.log(`[Users API] Total users fetched: ${Object.keys(userMap).length}`);
+      console.log(`[Users API] Total users fetched: ${fetched}`);
     }
-    return NextResponse.json({ success: true, users: userMap });
+    return NextResponse.json({
+      success: true,
+      users: userMap,
+      total,
+      fetched,
+      partial,
+      failedBatches,
+      cappedByLimit,
+      truncated,
+    });
   } catch (error) {
     console.error("[Users API Error]", error);
 

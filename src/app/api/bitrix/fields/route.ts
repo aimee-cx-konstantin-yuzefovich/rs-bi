@@ -57,8 +57,9 @@ function getFieldTitle(fieldId: string, meta: BitrixField): string {
  */
 async function fetchStatusListValues(
   entityIds: Set<string>
-): Promise<Map<string, Array<{ ID: string; VALUE: string }>>> {
+): Promise<{ result: Map<string, Array<{ ID: string; VALUE: string }>>; failedEntities: string[] }> {
   const result = new Map<string, Array<{ ID: string; VALUE: string }>>();
+  const failedEntities: string[] = [];
 
   await Promise.all(
     Array.from(entityIds).map(async (entityId) => {
@@ -75,17 +76,21 @@ async function fetchStatusListValues(
         }
       } catch (error) {
         console.warn(`[Fields API] Failed to fetch crm.status.list for ${entityId}`, error);
+        failedEntities.push(entityId);
       }
     })
   );
 
-  return result;
+  return { result, failedEntities };
 }
 
 export async function GET() {
   // ─── SECURITY: Require authentication ───
   const authResult = await requireAuth();
   if (isAuthError(authResult)) return authResult;
+
+  let partial = false;
+  const missingSources: string[] = [];
 
   try {
     const data = await bitrixGet<BitrixFieldsResponse>(
@@ -171,13 +176,19 @@ export async function GET() {
       }
     } catch (error) {
       console.warn("[Fields API] Failed to fetch company fields, continuing with deal fields only", error);
+      partial = true;
+      missingSources.push("crm.company.fields");
     }
 
     // Resolve crm_status fields (e.g. company INDUSTRY/COMPANY_TYPE) to real
     // labels via crm.status.list — must happen before the sort below, while
     // `index` still refers to the current (pre-sort) array positions.
     if (pendingStatusFields.length > 0) {
-      const statusValuesByEntity = await fetchStatusListValues(statusEntityIds);
+      const { result: statusValuesByEntity, failedEntities } = await fetchStatusListValues(statusEntityIds);
+      if (failedEntities.length > 0) {
+        partial = true;
+        missingSources.push(...failedEntities.map((e) => `crm.status.list:${e}`));
+      }
       for (const { index, entityId } of pendingStatusFields) {
         const values = statusValuesByEntity.get(entityId);
         if (values && values.length > 0) {
@@ -247,6 +258,8 @@ export async function GET() {
       success: true,
       fields: cleanFields,
       total: cleanFields.length,
+      partial,
+      missingSources: missingSources.length > 0 ? missingSources : undefined,
     });
   } catch (error) {
     console.error("[Fields API Error]", error);
