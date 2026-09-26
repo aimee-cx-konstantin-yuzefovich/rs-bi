@@ -27,6 +27,10 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
     responsibleId: respId,
     responsibleName: `Manager ${respId}`,
     dateCreate: "2026-01-10",
+    direction: [],
+    productType: [],
+    gradeGel: [],
+    gradeSol: [],
     sampleStatus: "—",
     sampleStatusSource: "NONE",
     sampleStatuses: [],
@@ -41,6 +45,7 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
     deals: deals.map((d, idx) => ({
       id: d.id || `${id}-${idx + 1}`,
       companyId: id,
+      responsibleId: respId,
       title: d.title || `Deal ${idx + 1}`,
       stageId: d.stageId || "WON",
       currencyId: d.currencyId || "RUB",
@@ -49,7 +54,7 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       paymentDate: d.paymentDate ?? "2026-03-01",
       sampleTestingStatus: [],
       ...d,
-    })),
+    } as CommercialDeal)),
   });
 
   describe("Aggregate Quality Truth Table", () => {

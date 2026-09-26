@@ -25,6 +25,10 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
     responsibleId: "1",
     responsibleName: "Manager 1",
     dateCreate: companyDateCreate,
+    direction: [],
+    productType: [],
+    gradeGel: [],
+    gradeSol: [],
     sampleStatus,
     sampleStatusSource: "DEAL",
     sampleStatuses: [sampleStatus],
@@ -40,13 +44,14 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
     deals: deals.map((d, idx) => ({
       id: d.id || `${id}-D${idx + 1}`,
       companyId: id,
+      responsibleId: "1",
       title: d.title || `Deal ${idx + 1}`,
       stageId: d.stageId || "EXECUTING",
       currencyId: "RUB",
       dateCreate: d.dateCreate || "2026-01-01",
       sampleTestingStatus: [],
       ...d,
-    })),
+    } as CommercialDeal)),
   });
 
   describe("C1: Sample Success Without Commercial Progression", () => {
@@ -78,9 +83,10 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
 
   describe("C2: Stalled Deal vs Old Deal", () => {
     it("does NOT classify a 100-day-old active deal as stalled if it had activity yesterday", () => {
-      const deal: CommercialDeal = {
+      const deal = {
         id: "D100",
         companyId: "C1",
+        responsibleId: "1",
         title: "Deal with Recent Activity",
         stageId: "EXECUTING",
         currencyId: "RUB",
@@ -88,16 +94,17 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
         activityLast: "2026-03-24", // yesterday!
         activityDataKnown: true,
         sampleTestingStatus: [],
-      };
+      } as unknown as CommercialDeal;
 
       const stalledInfo = evaluateStalledDeal(deal, fixedNow);
       expect(stalledInfo).toBeNull(); // NOT stalled!
     });
 
     it("classifies active deal with activity 45 days ago as stalled with truthful label", () => {
-      const deal: CommercialDeal = {
+      const deal = {
         id: "D101",
         companyId: "C1",
+        responsibleId: "1",
         title: "Deal Inactive 45 Days",
         stageId: "EXECUTING",
         currencyId: "RUB",
@@ -106,7 +113,7 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
         activityNext: "Перезвонить клиенту",
         activityDataKnown: true,
         sampleTestingStatus: [],
-      };
+      } as unknown as CommercialDeal;
 
       const stalledInfo = evaluateStalledDeal(deal, fixedNow);
       expect(stalledInfo).not.toBeNull();
@@ -117,16 +124,17 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
     });
 
     it("labels old deal without activity data truthfully without fabricating movement claims", () => {
-      const deal: CommercialDeal = {
+      const deal = {
         id: "D102",
         companyId: "C1",
+        responsibleId: "1",
         title: "Old Deal with Unknown Activity",
         stageId: "EXECUTING",
         currencyId: "RUB",
         dateCreate: "2026-01-24", // 60 days before fixedNow
         activityDataKnown: false, // activities API could not confirm activities
         sampleTestingStatus: [],
-      };
+      } as unknown as CommercialDeal;
 
       const stalledInfo = evaluateStalledDeal(deal, fixedNow);
       expect(stalledInfo).not.toBeNull();
@@ -140,16 +148,17 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
   describe("Alignment Between normalizeCompanies and computeBottlenecks", () => {
     it("produces identical stalled deal attention reasoning across both normalization and engine", () => {
       const rawCompany = { ID: "C99", TITLE: "Test Corp", DATE_CREATE: "2026-01-01" };
-      const rawDeal: CommercialDeal = {
+      const rawDeal = {
         id: "D99",
         companyId: "C99",
+        responsibleId: "1",
         title: "Stalled Deal 99",
         stageId: "EXECUTING",
         currencyId: "RUB",
         dateCreate: "2026-01-14", // 70 days
         activityDataKnown: false,
         sampleTestingStatus: [],
-      };
+      } as unknown as CommercialDeal;
 
       const normalized = normalizeCompanies([rawCompany], [rawDeal], { now: fixedNow });
       const bottlenecks = computeBottlenecks(normalized, fixedNow);

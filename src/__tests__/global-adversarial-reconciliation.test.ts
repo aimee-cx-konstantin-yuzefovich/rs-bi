@@ -474,8 +474,6 @@ describe("RS-BI Global Adversarial Reconciliation Master Suite", () => {
     const companies = normalizeCompanies(rawCompanies, deals, {
       userNames,
       now: fixedNow,
-      activities: activitiesMap,
-      incompleteDealIds: ["D110"], // D110 is explicitly marked incomplete/unknown
     });
 
     expect(companies).toHaveLength(12);
