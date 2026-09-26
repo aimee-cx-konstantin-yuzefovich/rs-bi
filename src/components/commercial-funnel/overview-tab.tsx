@@ -127,9 +127,26 @@ export function CommercialOverviewTab({
                     </div>
                   ) : (
                     <div className="text-lg font-bold tracking-tight">
-                      {kpi.isCurrency
-                        ? formatCurrencyAmount(kpi.currentValue ?? 0, kpi.currencyId)
-                        : (kpi.currentValue ?? 0)}
+                      {kpi.isCurrency ? (
+                        kpi.currentValue !== null ? (
+                          <>
+                            {formatCurrencyAmount(kpi.currentValue, kpi.currencyId)}
+                            {kpi.amountQuality === "PARTIAL" && (
+                              <span className="ml-1.5 text-xs font-normal text-amber-600 dark:text-amber-400">
+                                (неполные данные)
+                              </span>
+                            )}
+                          </>
+                        ) : kpi.amountQuality === "INVALID_ONLY" ? (
+                          <span className="text-sm font-normal text-rose-600 dark:text-rose-400">— (ошибка данных)</span>
+                        ) : kpi.amountQuality === "UNKNOWN" ? (
+                          <span className="text-sm font-normal text-muted-foreground">— (нет данных)</span>
+                        ) : (
+                          "—"
+                        )
+                      ) : (
+                        kpi.currentValue ?? 0
+                      )}
                     </div>
                   )}
 

@@ -362,9 +362,16 @@ function formatPeriodPresetToRussian(preset: string): string {
     }
   } else {
     const singleCurrency = kpiAmount?.currencyId || cardCurrs[0];
-    const singleAmt = isMultiCurr && cardCurrs.length === 1
-      ? kpiAmount!.currencyBreakdown!.current[cardCurrs[0]] || 0
-      : (kpiAmount?.currentValue ?? 0);
+    let singleAmt: number | string = 0;
+    if (kpiAmount?.amountQuality === "INVALID_ONLY") {
+      singleAmt = "— (ошибка данных)";
+    } else if (kpiAmount?.amountQuality === "UNKNOWN") {
+      singleAmt = "— (нет данных)";
+    } else {
+      singleAmt = isMultiCurr && cardCurrs.length === 1
+        ? kpiAmount!.currencyBreakdown!.current[cardCurrs[0]] || 0
+        : (kpiAmount?.currentValue ?? 0);
+    }
 
     valRow2 = summarySheet.addRow([
       kpiPayments?.currentValue ?? 0,
@@ -378,11 +385,12 @@ function formatPeriodPresetToRussian(preset: string): string {
     summarySheet.mergeCells(valRow2.number, 1, valRow2.number, 3);
     summarySheet.mergeCells(valRow2.number, 4, valRow2.number, 6);
 
+    const amountLabelSuffix = kpiAmount?.amountQuality === "PARTIAL" ? " (неполные данные)" : "";
     lblRow2 = summarySheet.addRow([
       `[KPI] ${kpiPayments?.label ?? "Получено оплат"}`,
       null,
       null,
-      `[KPI] ${kpiAmount?.label ?? "Сумма полученных оплат"}`,
+      `[KPI] ${kpiAmount?.label ?? "Сумма полученных оплат"}${amountLabelSuffix}`,
       null,
       null,
     ]);
@@ -394,7 +402,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       const cell = valRow2.getCell(c);
       cell.fill = kpiCardFill;
       cell.border = THIN_BORDER;
-      cell.font = { name: RS_FONT_FAMILY, size: 14, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
+      cell.font = { name: RS_FONT_FAMILY, size: typeof singleAmt === "string" ? 11 : 14, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
       cell.alignment = { vertical: "middle", horizontal: "center" };
 
       const lCell = lblRow2.getCell(c);
@@ -404,7 +412,9 @@ function formatPeriodPresetToRussian(preset: string): string {
       lCell.alignment = { vertical: "middle", horizontal: "center" };
     }
     valRow2.getCell(1).numFmt = NUMFMT.INTEGER;
-    valRow2.getCell(4).numFmt = getMoneyNumFmt(singleCurrency);
+    if (typeof singleAmt === "number") {
+      valRow2.getCell(4).numFmt = getMoneyNumFmt(singleCurrency);
+    }
   }
 
   summarySheet.addRow([]); // Spacer
@@ -890,9 +900,17 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   const startManagersRow = managersHeaderRowIndex + 1;
   for (const m of managerScorecard) {
-    const payAmounts = isMultiManagerCurrencies
+    const payAmounts: (number | string)[] = isMultiManagerCurrencies
       ? allManagerCurrencies.map((cur) => m.paymentAmountsByCurrency?.[cur] || 0)
-      : [m.paymentAmount ?? 0];
+      : [
+          m.paymentAmount !== null
+            ? m.paymentAmount
+            : m.paymentAmountQuality === "INVALID_ONLY"
+            ? "— (ошибка)"
+            : m.paymentAmountQuality === "UNKNOWN"
+            ? "— (нет данных)"
+            : 0,
+        ];
 
     const row = managersSheet.addRow([
       m.name,
@@ -926,7 +944,9 @@ function formatPeriodPresetToRussian(preset: string): string {
       }
     } else {
       const singleCur = allManagerCurrencies[0];
-      row.getCell(10).numFmt = getMoneyNumFmt(singleCur);
+      if (typeof payAmounts[0] === "number") {
+        row.getCell(10).numFmt = getMoneyNumFmt(singleCur);
+      }
       row.getCell(11).numFmt = NUMFMT.INTEGER;
 
       if (m.bottlenecksCount > 0) {

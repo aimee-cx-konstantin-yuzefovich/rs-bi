@@ -23,6 +23,7 @@ import { normalizeCurrencyCode } from "./normalize";
 import { isDealActiveStage, isProgressedCommercialStage } from "./stage-utils";
 import { evaluateStalledDeal } from "./bottlenecks";
 import type {
+  AggregateAmountQuality,
   BottleneckItem,
   CommercialCompany,
   CommercialDeal,
@@ -35,51 +36,91 @@ import type {
 } from "./types";
 
 /**
+ * Evaluates aggregate financial amount and quality according to invariant rules:
+ * - 0 paid deals: 0, "COMPLETE"
+ * - All paid deals have valid opportunity (even 0): sum, "COMPLETE"
+ * - No valid amounts and at least 1 invalid: null, "INVALID_ONLY"
+ * - No valid amounts and all missing: null, "UNKNOWN"
+ * - Valid amount(s) plus at least one invalid/unknown: sum, "PARTIAL"
+ */
+export function evaluateAggregateAmountQuality(
+  validSum: number,
+  validCount: number,
+  invalidCount: number,
+  unknownCount: number
+): { amount: number | null; quality: AggregateAmountQuality } {
+  const total = validCount + invalidCount + unknownCount;
+  if (total === 0) {
+    return { amount: 0, quality: "COMPLETE" };
+  }
+  if (invalidCount === 0 && unknownCount === 0) {
+    return { amount: validSum, quality: "COMPLETE" };
+  }
+  if (validCount === 0) {
+    if (invalidCount > 0) {
+      return { amount: null, quality: "INVALID_ONLY" };
+    }
+    return { amount: null, quality: "UNKNOWN" };
+  }
+  return { amount: validSum, quality: "PARTIAL" };
+}
+
+/**
  * Filter dataset by dimensional filters (responsible, product, industry, direction, region).
- * Note: Date filtering is applied to DATED EVENTS only, never to current WIP.
+ * Enforces natural-grain filtering: retained companies have their deals pruned strictly
+ * to matching deals, preventing unselected managers' or products' metrics from polluting totals.
  */
 export function filterCompaniesByDimensions(
   companies: CommercialCompany[],
   filters: CommercialFilters
 ): CommercialCompany[] {
-  return companies.filter((company) => {
-    // 1. Responsible filter
-    if (filters.responsibleId && filters.responsibleId !== "all") {
-      const matchCompany = company.responsibleId === filters.responsibleId;
-      const matchDeal = company.deals.some((d) => d.responsibleId === filters.responsibleId);
-      if (!matchCompany && !matchDeal) return false;
-    }
+  const hasRespFilter = Boolean(filters.responsibleId && filters.responsibleId !== "all");
+  const hasProdFilter = Boolean(filters.productType && filters.productType !== "all");
+  const hasIndFilter = Boolean(filters.industry && filters.industry !== "all");
+  const hasDirFilter = Boolean(filters.direction && filters.direction !== "all");
+  const hasRegFilter = Boolean(filters.region && filters.region !== "all");
 
-    // 2. Product type filter
-    if (filters.productType && filters.productType !== "all") {
-      const matchCompany = company.productType.includes(filters.productType);
-      const matchDeal = company.deals.some((d) => d.productType.includes(filters.productType!));
-      if (!matchCompany && !matchDeal) return false;
-    }
+  const hasAnyFilter = hasRespFilter || hasProdFilter || hasIndFilter || hasDirFilter || hasRegFilter;
+  if (!hasAnyFilter) {
+    return companies;
+  }
 
-    // 3. Industry filter
-    if (filters.industry && filters.industry !== "all") {
-      const matchCompany = company.industry === filters.industry;
-      const matchDeal = company.deals.some((d) => d.industry.includes(filters.industry!));
-      if (!matchCompany && !matchDeal) return false;
-    }
+  const result: CommercialCompany[] = [];
 
-    // 4. Direction filter
-    if (filters.direction && filters.direction !== "all") {
-      const matchCompany = company.direction.includes(filters.direction);
-      const matchDeal = company.deals.some((d) => d.direction.includes(filters.direction!));
-      if (!matchCompany && !matchDeal) return false;
-    }
+  for (const company of companies) {
+    // 1. Filter child deals to only those matching all active dimension filters
+    const matchingDeals = company.deals.filter((deal) => {
+      if (hasRespFilter && deal.responsibleId !== filters.responsibleId) return false;
+      if (hasProdFilter && !deal.productType.includes(filters.productType!)) return false;
+      if (hasIndFilter && !deal.industry.includes(filters.industry!)) return false;
+      if (hasDirFilter && !deal.direction.includes(filters.direction!)) return false;
+      if (hasRegFilter && deal.region !== filters.region) return false;
+      return true;
+    });
 
-    // 5. Region filter
-    if (filters.region && filters.region !== "all") {
-      const matchCompany = company.region === filters.region;
-      const matchDeal = company.deals.some((d) => d.region === filters.region);
-      if (!matchCompany && !matchDeal) return false;
-    }
+    // 2. Check if company itself matches at company level
+    let companyMatches = true;
+    if (hasRespFilter && company.responsibleId !== filters.responsibleId) companyMatches = false;
+    if (hasProdFilter && !company.productType.includes(filters.productType!)) companyMatches = false;
+    if (hasIndFilter && company.industry !== filters.industry) companyMatches = false;
+    if (hasDirFilter && !company.direction.includes(filters.direction!)) companyMatches = false;
+    if (hasRegFilter && company.region !== filters.region) companyMatches = false;
 
-    return true;
-  });
+    // Retain company if company itself matches OR it has matching child deals
+    if (companyMatches || matchingDeals.length > 0) {
+      result.push({
+        ...company,
+        deals: matchingDeals,
+        // If company itself did not match, do not pollute company-level creation or company sample dates
+        dateCreate: companyMatches ? company.dateCreate : undefined,
+        sampleEventDatesForPeriodMetrics: companyMatches
+          ? company.sampleEventDatesForPeriodMetrics
+          : matchingDeals.flatMap((d) => (d.sampleSentDate ? [d.sampleSentDate] : [])),
+      });
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -139,7 +180,7 @@ export function computePeriodMetrics(
   }
 
   // 4. Получено оплат (Payment date in period + paid status, unique companies)
-  // Tracks OPPORTUNITY isolated by currency without cross-currency aggregation.
+  // Tracks OPPORTUNITY isolated by currency with comprehensive quality invariant evaluation.
   const currentPaidCompanyIds = new Set<string>();
   const prevPaidCompanyIds = new Set<string>();
   const currentPaymentAmountsByCurrency: Record<string, number> = {};
@@ -147,24 +188,60 @@ export function computePeriodMetrics(
   const currentPaymentSumCompanyIds = new Set<string>();
   const prevPaymentSumCompanyIds = new Set<string>();
 
+  interface CurrencyStats {
+    validSum: number;
+    validCount: number;
+    invalidCount: number;
+    unknownCount: number;
+  }
+  const currentCurrencyStats: Record<string, CurrencyStats> = {};
+  const prevCurrencyStats: Record<string, CurrencyStats> = {};
+
+  const getStats = (map: Record<string, CurrencyStats>, cur: string): CurrencyStats => {
+    if (!map[cur]) {
+      map[cur] = { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
+    }
+    return map[cur];
+  };
+
   for (const c of companies) {
     for (const d of c.deals) {
       if (d.paymentStatus && PAID_STATUS_CODES.has(d.paymentStatus) && d.paymentDate) {
         const normCurrency = normalizeCurrencyCode(d.currencyId);
+        const isValidOpp =
+          (d.opportunityQuality === "VALID" || d.opportunityQuality === undefined) &&
+          typeof d.opportunity === "number" &&
+          !isNaN(d.opportunity);
+        const isInvalidOpp = d.opportunityQuality === "INVALID";
+
         if (isDateInPeriod(d.paymentDate, currentStart, currentEnd)) {
           currentPaidCompanyIds.add(c.id);
-          if (typeof d.opportunity === "number" && !isNaN(d.opportunity)) {
+          const st = getStats(currentCurrencyStats, normCurrency);
+          if (isValidOpp) {
             currentPaymentSumCompanyIds.add(c.id);
+            st.validSum += d.opportunity!;
+            st.validCount++;
             currentPaymentAmountsByCurrency[normCurrency] =
-              (currentPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity;
+              (currentPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity!;
+          } else if (isInvalidOpp) {
+            st.invalidCount++;
+          } else {
+            st.unknownCount++;
           }
         }
         if (isDateInPeriod(d.paymentDate, previousStart, previousEnd)) {
           prevPaidCompanyIds.add(c.id);
-          if (typeof d.opportunity === "number" && !isNaN(d.opportunity)) {
+          const st = getStats(prevCurrencyStats, normCurrency);
+          if (isValidOpp) {
             prevPaymentSumCompanyIds.add(c.id);
+            st.validSum += d.opportunity!;
+            st.validCount++;
             prevPaymentAmountsByCurrency[normCurrency] =
-              (prevPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity;
+              (prevPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity!;
+          } else if (isInvalidOpp) {
+            st.invalidCount++;
+          } else {
+            st.unknownCount++;
           }
         }
       }
@@ -210,10 +287,24 @@ export function computePeriodMetrics(
 
   const distinctCurrencies = Array.from(
     new Set([
-      ...Object.keys(currentPaymentAmountsByCurrency),
-      ...Object.keys(prevPaymentAmountsByCurrency),
+      ...Object.keys(currentCurrencyStats),
+      ...Object.keys(prevCurrencyStats),
     ])
   ).sort();
+
+  const currentQualityByCurrency: Record<string, AggregateAmountQuality> = {};
+  const prevQualityByCurrency: Record<string, AggregateAmountQuality> = {};
+
+  for (const cur of distinctCurrencies) {
+    const cStat = currentCurrencyStats[cur] || { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
+    const pStat = prevCurrencyStats[cur] || { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
+    currentQualityByCurrency[cur] = evaluateAggregateAmountQuality(
+      cStat.validSum, cStat.validCount, cStat.invalidCount, cStat.unknownCount
+    ).quality;
+    prevQualityByCurrency[cur] = evaluateAggregateAmountQuality(
+      pStat.validSum, pStat.validCount, pStat.invalidCount, pStat.unknownCount
+    ).quality;
+  }
 
   let paymentKpi: DatedKpi;
   if (distinctCurrencies.length === 0) {
@@ -228,17 +319,22 @@ export function computePeriodMetrics(
         isMultiCurrency: false,
         currencyId: undefined,
         currencyBreakdown: { current: {}, previous: {} },
+        amountQuality: "COMPLETE",
+        currencyBreakdownQuality: { current: {}, previous: {} },
       }
     );
   } else if (distinctCurrencies.length === 1) {
     const cur = distinctCurrencies[0];
-    const currAmt = currentPaymentAmountsByCurrency[cur] || 0;
-    const prevAmt = prevPaymentAmountsByCurrency[cur] || 0;
+    const cStat = currentCurrencyStats[cur] || { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
+    const pStat = prevCurrencyStats[cur] || { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
+    const cRes = evaluateAggregateAmountQuality(cStat.validSum, cStat.validCount, cStat.invalidCount, cStat.unknownCount);
+    const pRes = evaluateAggregateAmountQuality(pStat.validSum, pStat.validCount, pStat.invalidCount, pStat.unknownCount);
+
     paymentKpi = buildKpi(
       "payment_amount",
       PAYMENT_AMOUNT_LABEL,
-      Math.round(currAmt),
-      Math.round(prevAmt),
+      cRes.amount !== null ? Math.round(cRes.amount) : null,
+      pRes.amount !== null ? Math.round(pRes.amount) : null,
       Array.from(currentPaymentSumCompanyIds),
       true,
       {
@@ -248,10 +344,27 @@ export function computePeriodMetrics(
           current: currentPaymentAmountsByCurrency,
           previous: prevPaymentAmountsByCurrency,
         },
+        amountQuality: cRes.quality,
+        currencyBreakdownQuality: {
+          current: currentQualityByCurrency,
+          previous: prevQualityByCurrency,
+        },
       }
     );
   } else {
     // Multiple currencies present: NEVER expose a false cross-currency total.
+    const allQualities = Object.values(currentQualityByCurrency);
+    let multiQuality: AggregateAmountQuality = "COMPLETE";
+    if (allQualities.some((q) => q === "PARTIAL")) {
+      multiQuality = "PARTIAL";
+    } else if (allQualities.every((q) => q === "UNKNOWN")) {
+      multiQuality = "UNKNOWN";
+    } else if (allQualities.every((q) => q === "INVALID_ONLY")) {
+      multiQuality = "INVALID_ONLY";
+    } else if (allQualities.some((q) => q === "INVALID_ONLY" || q === "UNKNOWN")) {
+      multiQuality = "PARTIAL";
+    }
+
     paymentKpi = buildKpi(
       "payment_amount",
       PAYMENT_AMOUNT_LABEL,
@@ -264,6 +377,11 @@ export function computePeriodMetrics(
         currencyBreakdown: {
           current: currentPaymentAmountsByCurrency,
           previous: prevPaymentAmountsByCurrency,
+        },
+        amountQuality: multiQuality,
+        currencyBreakdownQuality: {
+          current: currentQualityByCurrency,
+          previous: prevQualityByCurrency,
         },
       }
     );
@@ -506,6 +624,19 @@ export function computeManagerScorecard(
 
   // Group by responsible ID
   const managerMap = new Map<string, ManagerScorecardRow>();
+  const managerPaymentStats = new Map<
+    string,
+    { validSum: number; validCount: number; invalidCount: number; unknownCount: number }
+  >();
+
+  const getManagerStats = (respId: string) => {
+    let s = managerPaymentStats.get(respId);
+    if (!s) {
+      s = { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
+      managerPaymentStats.set(respId, s);
+    }
+    return s;
+  };
 
   const getOrCreate = (respId: string): ManagerScorecardRow => {
     let row = managerMap.get(respId);
@@ -556,7 +687,8 @@ export function computeManagerScorecard(
 
     // Deals metrics
     for (const d of c.deals) {
-      const dealManager = getOrCreate(d.responsibleId || c.responsibleId);
+      const dealRespId = d.responsibleId || c.responsibleId;
+      const dealManager = getOrCreate(dealRespId);
       if (!dealManager.companyIds.includes(c.id)) {
         dealManager.companyIds.push(c.id);
       }
@@ -566,10 +698,23 @@ export function computeManagerScorecard(
       if (d.paymentStatus && PAID_STATUS_CODES.has(d.paymentStatus) && d.paymentDate) {
         if (isDateInPeriod(d.paymentDate, currentStart, currentEnd)) {
           dealManager.paymentsReceived++;
-          if (typeof d.opportunity === "number" && !isNaN(d.opportunity)) {
-            const normCur = normalizeCurrencyCode(d.currencyId);
+          const mStats = getManagerStats(dealRespId);
+          const normCur = normalizeCurrencyCode(d.currencyId);
+          const isValidOpp =
+            (d.opportunityQuality === "VALID" || d.opportunityQuality === undefined) &&
+            typeof d.opportunity === "number" &&
+            !isNaN(d.opportunity);
+          const isInvalidOpp = d.opportunityQuality === "INVALID";
+
+          if (isValidOpp) {
             dealManager.paymentAmountsByCurrency![normCur] =
-              (dealManager.paymentAmountsByCurrency![normCur] || 0) + d.opportunity;
+              (dealManager.paymentAmountsByCurrency![normCur] || 0) + d.opportunity!;
+            mStats.validSum += d.opportunity!;
+            mStats.validCount++;
+          } else if (isInvalidOpp) {
+            mStats.invalidCount++;
+          } else {
+            mStats.unknownCount++;
           }
         }
       }
@@ -584,13 +729,18 @@ export function computeManagerScorecard(
     }
   }
 
-  // Settle paymentAmount: if exactly 1 currency, retain that amount; if multiple, do not sum across currencies
-  for (const row of managerMap.values()) {
+  // Settle paymentAmount & quality: if exactly 1 currency, retain that amount; if multiple, do not sum across currencies
+  for (const [respId, row] of managerMap.entries()) {
     const currs = Object.keys(row.paymentAmountsByCurrency || {});
+    const mStats = managerPaymentStats.get(respId) || { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
+    const qRes = evaluateAggregateAmountQuality(mStats.validSum, mStats.validCount, mStats.invalidCount, mStats.unknownCount);
+    row.paymentAmountQuality = qRes.quality;
+
     if (currs.length === 1) {
-      row.paymentAmount = row.paymentAmountsByCurrency[currs[0]];
+      row.paymentAmount = qRes.amount;
     } else if (currs.length === 0) {
       row.paymentAmount = 0;
+      row.paymentAmountQuality = "COMPLETE";
     } else {
       row.paymentAmount = null; // Mixed currencies: scalar sum forbidden
     }
