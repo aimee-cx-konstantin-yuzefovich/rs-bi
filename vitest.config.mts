@@ -9,6 +9,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
     fileParallelism: false,
+    // e2e/ holds Playwright specs (run by `npm run qa:e2e`), not vitest tests.
+    exclude: ['**/node_modules/**', 'e2e/**'],
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }
