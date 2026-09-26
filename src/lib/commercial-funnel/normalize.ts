@@ -339,26 +339,49 @@ export function selectRepresentativeDeal(
     return 0;
   };
 
-  const sorted = [...linkedDeals].sort((a, b) => {
-    // Priority 1: active before closed
-    const aActive = isDealActive(a);
-    const bActive = isDealActive(b);
-    if (aActive !== bActive) {
-      return aActive ? -1 : 1;
+  let best = linkedDeals[0];
+  let bestActive = isDealActive(best);
+  let bestTs = getDealTimestamp(best);
+
+  for (let i = 1; i < linkedDeals.length; i++) {
+    const candidate = linkedDeals[i];
+    const candActive = isDealActive(candidate);
+    if (candActive !== bestActive) {
+      if (candActive) {
+        best = candidate;
+        bestActive = candActive;
+        bestTs = getDealTimestamp(candidate);
+      }
+      continue;
     }
 
-    // Priority 2: most recent timestamp
-    const tsA = getDealTimestamp(a);
-    const tsB = getDealTimestamp(b);
-    if (tsA !== tsB) {
-      return tsB - tsA; // newer first
+    const candTs = getDealTimestamp(candidate);
+    if (candTs !== bestTs) {
+      if (candTs > bestTs) {
+        best = candidate;
+        bestActive = candActive;
+        bestTs = candTs;
+      }
+      continue;
     }
 
-    // Priority 3: stable Deal ID tie-breaker
-    return String(b.id || "").localeCompare(String(a.id || ""), undefined, { numeric: true });
-  });
+    // Stable Deal ID tie-breaker (higher ID wins)
+    const numCand = Number(candidate.id);
+    const numBest = Number(best.id);
+    let tieWinner = false;
+    if (!isNaN(numCand) && !isNaN(numBest)) {
+      tieWinner = numCand > numBest;
+    } else {
+      tieWinner = String(candidate.id || "").localeCompare(String(best.id || "")) > 0;
+    }
+    if (tieWinner) {
+      best = candidate;
+      bestActive = candActive;
+      bestTs = candTs;
+    }
+  }
 
-  return sorted[0];
+  return best;
 }
 
 /**
@@ -395,19 +418,35 @@ export function selectCurrentSampleDeal(
     return 0;
   };
 
-  const sorted = [...sampleDeals].sort((a, b) => {
-    // Priority 2: most recent timestamp
-    const tsA = getSampleDealTimestamp(a);
-    const tsB = getSampleDealTimestamp(b);
-    if (tsA !== tsB) {
-      return tsB - tsA; // newer first
+  let best = sampleDeals[0];
+  let bestTs = getSampleDealTimestamp(best);
+
+  for (let i = 1; i < sampleDeals.length; i++) {
+    const candidate = sampleDeals[i];
+    const candTs = getSampleDealTimestamp(candidate);
+    if (candTs !== bestTs) {
+      if (candTs > bestTs) {
+        best = candidate;
+        bestTs = candTs;
+      }
+      continue;
     }
 
-    // Priority 3: stable Deal ID tie-breaker
-    return String(b.id || "").localeCompare(String(a.id || ""), undefined, { numeric: true });
-  });
+    const numCand = Number(candidate.id);
+    const numBest = Number(best.id);
+    let tieWinner = false;
+    if (!isNaN(numCand) && !isNaN(numBest)) {
+      tieWinner = numCand > numBest;
+    } else {
+      tieWinner = String(candidate.id || "").localeCompare(String(best.id || "")) > 0;
+    }
+    if (tieWinner) {
+      best = candidate;
+      bestTs = candTs;
+    }
+  }
 
-  return sorted[0];
+  return best;
 }
 
 /**

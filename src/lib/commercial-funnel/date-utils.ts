@@ -9,6 +9,26 @@ import { COMMERCIAL_TIMEZONE } from "./constants";
 import { isValidCalendarDate } from "@/lib/date-safety";
 import type { CommercialFilters, PeriodBoundaries } from "./types";
 
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+export function getZonedFormatter(timeZone: string = COMMERCIAL_TIMEZONE): Intl.DateTimeFormat {
+  let f = formatterCache.get(timeZone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    formatterCache.set(timeZone, f);
+  }
+  return f;
+}
+
 /**
  * Extract zoned calendar parts (year, month, day, hour, minute, second)
  * for a Date in the authoritative business timezone.
@@ -17,16 +37,7 @@ export function getZonedCalendarParts(
   d: Date,
   timeZone: string = COMMERCIAL_TIMEZONE
 ) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+  const formatter = getZonedFormatter(timeZone);
   const parts = formatter.formatToParts(d);
   const p: Record<string, number> = {};
   for (const part of parts) {
@@ -58,17 +69,12 @@ export function createZonedDate(
   timeZone: string = COMMERCIAL_TIMEZONE
 ): Date {
   const targetUtc = Date.UTC(year, monthIndex, day, hour, minute, second, ms);
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+  // Fast-path: Europe/Moscow is permanently UTC+3 (no DST since Oct 2014)
+  if (timeZone === COMMERCIAL_TIMEZONE || timeZone === "Europe/Moscow") {
+    return new Date(targetUtc - 3 * 3600 * 1000);
+  }
 
+  const formatter = getZonedFormatter(timeZone);
   let guess = targetUtc - 3 * 3600 * 1000;
   for (let i = 0; i < 3; i++) {
     const parts = formatter.formatToParts(new Date(guess));
@@ -93,6 +99,8 @@ export function toISODate(d: Date, timeZone: string = COMMERCIAL_TIMEZONE): stri
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+const dateTimestampCache = new Map<string, number | null>();
+
 /**
  * Parse an ISO date or datetime string into a timestamp or null.
  * - Date-only "YYYY-MM-DD": parsed at 00:00:00 in business timezone.
@@ -107,33 +115,58 @@ export function parseDateTimestamp(
   const trimmed = dateStr.trim();
   if (!trimmed) return null;
 
+  const cacheKey = `${timeZone}:${trimmed}`;
+  if (dateTimestampCache.has(cacheKey)) {
+    return dateTimestampCache.get(cacheKey)!;
+  }
+
+  if (dateTimestampCache.size > 20000) {
+    dateTimestampCache.clear();
+  }
+
+  let result: number | null = null;
+
   // Date-only string "YYYY-MM-DD"
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     const [y, m, d] = trimmed.split("-").map(Number);
-    if (!isValidCalendarDate(y, m, d)) return null;
-    const date = createZonedDate(y, m - 1, d, 0, 0, 0, 0, timeZone);
-    return isNaN(date.getTime()) ? null : date.getTime();
+    if (!isValidCalendarDate(y, m, d)) {
+      result = null;
+    } else {
+      const date = createZonedDate(y, m - 1, d, 0, 0, 0, 0, timeZone);
+      result = isNaN(date.getTime()) ? null : date.getTime();
+    }
+  } else {
+    // Naive datetime without offset "YYYY-MM-DD[ T]HH:mm:ss"
+    const naiveMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/);
+    if (naiveMatch) {
+      const [_, y, m, d, h, mi, s, msStr] = naiveMatch;
+      if (!isValidCalendarDate(Number(y), Number(m), Number(d))) {
+        result = null;
+      } else {
+        const ms = msStr ? Number(msStr.slice(0, 3).padEnd(3, "0")) : 0;
+        const date = createZonedDate(Number(y), Number(m) - 1, Number(d), Number(h), Number(mi), Number(s), ms, timeZone);
+        result = isNaN(date.getTime()) ? null : date.getTime();
+      }
+    } else {
+      // Explicit offset / standard ISO
+      const datePrefixMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (datePrefixMatch) {
+        const [_, y, m, d] = datePrefixMatch;
+        if (!isValidCalendarDate(Number(y), Number(m), Number(d))) {
+          result = null;
+        } else {
+          const d = new Date(trimmed);
+          result = isNaN(d.getTime()) ? null : d.getTime();
+        }
+      } else {
+        const d = new Date(trimmed);
+        result = isNaN(d.getTime()) ? null : d.getTime();
+      }
+    }
   }
 
-  // Naive datetime without offset "YYYY-MM-DD[ T]HH:mm:ss"
-  const naiveMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/);
-  if (naiveMatch) {
-    const [_, y, m, d, h, mi, s, msStr] = naiveMatch;
-    if (!isValidCalendarDate(Number(y), Number(m), Number(d))) return null;
-    const ms = msStr ? Number(msStr.slice(0, 3).padEnd(3, "0")) : 0;
-    const date = createZonedDate(Number(y), Number(m) - 1, Number(d), Number(h), Number(mi), Number(s), ms, timeZone);
-    return isNaN(date.getTime()) ? null : date.getTime();
-  }
-
-  // Explicit offset / standard ISO
-  // If calendar date part is invalid, reject early to prevent rollover
-  const datePrefixMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (datePrefixMatch) {
-    const [_, y, m, d] = datePrefixMatch;
-    if (!isValidCalendarDate(Number(y), Number(m), Number(d))) return null;
-  }
-  const d = new Date(trimmed);
-  return isNaN(d.getTime()) ? null : d.getTime();
+  dateTimestampCache.set(cacheKey, result);
+  return result;
 }
 
 /**
