@@ -110,7 +110,8 @@ export async function verifySsoToken(token: string): Promise<SsoTokenPayload | n
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      console.warn(`[SSO-HMAC] Replay attack detected for nonce: ${signature}`);
+      const fingerprint = createHash("sha256").update(signature).digest("hex").slice(0, 12);
+      console.warn(`[SSO-HMAC] Replay attack detected for nonce fingerprint: ${fingerprint}`);
       return null;
     }
     // Fail-closed: storage/database errors MUST reject the token

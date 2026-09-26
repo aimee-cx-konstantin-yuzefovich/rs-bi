@@ -89,21 +89,30 @@ describe('SSO HMAC Security Tests', () => {
       createSpy.mockRestore();
     });
 
-    it('2. same token reused -> rejected via unique constraint', async () => {
+    it('2. same token reused -> rejected via unique constraint, logs redacted fingerprint', async () => {
       const payload = validPayload();
       const token = generateSsoToken(payload);
+      const signature = token.split('|')[4];
 
       const p2002Error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the fields: (`nonce`)', {
         code: 'P2002',
         clientVersion: '6.11.1',
       });
 
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const deleteManySpy = vi.spyOn(db.usedNonce, 'deleteMany').mockResolvedValue({ count: 0 } as any);
       const createSpy = vi.spyOn(db.usedNonce, 'create').mockRejectedValue(p2002Error);
 
       const result = await verifySsoToken(token);
       expect(result).toBeNull();
 
+      expect(warnSpy).toHaveBeenCalled();
+      const warnMsg = warnSpy.mock.calls[0][0];
+      expect(warnMsg).toContain('nonce fingerprint:');
+      // Must NOT leak the raw 64-character signature
+      expect(warnMsg).not.toContain(signature);
+
+      warnSpy.mockRestore();
       deleteManySpy.mockRestore();
       createSpy.mockRestore();
     });
