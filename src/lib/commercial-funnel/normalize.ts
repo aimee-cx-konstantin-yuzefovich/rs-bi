@@ -211,9 +211,9 @@ export function normalizeDeals(
       opportunityQuality = "UNKNOWN";
     }
     const currencyId = normalizeCurrencyCode(String(row.CURRENCY_ID || row.currencyId || ""));
-    const dateCreate = row.DATE_CREATE ? String(row.DATE_CREATE) : undefined;
-    const beginDate = row.BEGINDATE ? String(row.BEGINDATE) : undefined;
-    const closeDate = row.CLOSEDATE ? String(row.CLOSEDATE) : undefined;
+    const dateCreate = extractIsoDates(row.DATE_CREATE)[0];
+    const beginDate = extractIsoDates(row.BEGINDATE)[0];
+    const closeDate = extractIsoDates(row.CLOSEDATE)[0];
 
     const rawTransfer = row[DEAL_SAMPLE_TRANSFER_FIELD_ID] ? String(row[DEAL_SAMPLE_TRANSFER_FIELD_ID]) : undefined;
     const sampleTransferStatus = resolveDealSampleStatus(rawTransfer, dealLabels);
@@ -486,7 +486,7 @@ export function normalizeCompanies(
     const title = String(row.TITLE || row.title || "").trim() || "Компания без названия";
     const responsibleId = String(row.ASSIGNED_BY_ID || row.responsibleId || "").trim();
     const responsibleName = userNames[responsibleId] || (responsibleId ? `ID ${responsibleId}` : "Не назначен");
-    const dateCreate = row.DATE_CREATE ? String(row.DATE_CREATE) : undefined;
+    const dateCreate = extractIsoDates(row.DATE_CREATE)[0];
 
     const industryRaw = row.INDUSTRY ? String(row.INDUSTRY).trim() : undefined;
     const industry = (industryRaw && companyIndustryLabels[industryRaw]) ? companyIndustryLabels[industryRaw] : industryRaw;
