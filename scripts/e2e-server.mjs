@@ -6,8 +6,9 @@ import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(new URL("..", import.meta.url).pathname);
+const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PORT = process.env.E2E_PORT ? Number(process.env.E2E_PORT) : 3188;
 const workDir = mkdtempSync(join(tmpdir(), "rs-bi-e2e."));
 

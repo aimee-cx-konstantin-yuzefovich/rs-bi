@@ -51,7 +51,8 @@ test.describe("unauthenticated acceptance", () => {
   test("protected API without auth responds with an auth boundary, never 404", async ({ request }) => {
     for (const api of PROTECTED_APIS) {
       const res = await request.post(api, { data: {} });
-      expect(res.status(), `${api} must be an auth boundary`).toBeOneOf([401, 403]);
+      const status = res.status();
+      expect(status === 401 || status === 403, `${api} must be an auth boundary (got ${status})`).toBe(true);
     }
   });
 

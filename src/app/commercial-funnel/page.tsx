@@ -61,8 +61,7 @@ function CommercialFunnelContent() {
     if (status !== "authenticated") return;
     if (Object.keys(storeUserNames).length === 0) fetchUserNames();
     if (fields.length === 0) fetchFields();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, storeUserNames, fetchUserNames, fields, fetchFields]);
 
   const {
     companies,
