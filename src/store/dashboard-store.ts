@@ -7,6 +7,11 @@ import {
   COMPANY_RESPONSIBLE_FIELD_ID,
 } from "@/lib/crm-constants";
 import { parseStrictDate } from "@/lib/date-safety";
+import {
+  isDealActiveStage,
+  isTerminalLostStage,
+  isTerminalWonStage,
+} from "@/lib/stage-utils";
 
 // ─── Client-side fetch timeout (prevents infinite loading spinner) ───
 // Server-side bitrix helpers already have 15s/30s timeouts,
@@ -640,22 +645,21 @@ export const useDashboardStore = create<DashboardState>()(
           });
         }
 
-        // 2. Pipeline filter
+        // 2. Pipeline filter — single shared stage authority (src/lib/stage-utils).
+        // Terminal lost semantics include LOSE, LOST, APOLOGY and category-prefixed
+        // variants; in_work is the canonical !isTerminalStage.
         if (pipelineFilter === "in_work") {
-          filtered = filtered.filter((deal) => {
-            const stage = String(deal.STAGE_ID || "").toUpperCase();
-            return !["WON", "LOSE"].includes(stage) && !stage.endsWith(":WON") && !stage.endsWith(":LOSE");
-          });
+          filtered = filtered.filter((deal) =>
+            isDealActiveStage(String(deal.STAGE_ID || ""))
+          );
         } else if (pipelineFilter === "WON") {
-          filtered = filtered.filter((deal) => {
-            const stage = String(deal.STAGE_ID || "").toUpperCase();
-            return stage === "WON" || stage.endsWith(":WON");
-          });
+          filtered = filtered.filter((deal) =>
+            isTerminalWonStage(String(deal.STAGE_ID || ""))
+          );
         } else if (pipelineFilter === "LOSE") {
-          filtered = filtered.filter((deal) => {
-            const stage = String(deal.STAGE_ID || "").toUpperCase();
-            return stage === "LOSE" || stage === "LOST" || stage.endsWith(":LOSE") || stage.endsWith(":LOST");
-          });
+          filtered = filtered.filter((deal) =>
+            isTerminalLostStage(String(deal.STAGE_ID || ""))
+          );
         } else if (pipelineFilter !== "all") {
           filtered = filtered.filter((deal) => String(deal.STAGE_ID) === pipelineFilter);
         }

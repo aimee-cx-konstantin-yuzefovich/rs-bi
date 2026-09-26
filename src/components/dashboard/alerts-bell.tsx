@@ -17,6 +17,18 @@ import {
   DEAL_STAGES,
   ALERT_THRESHOLDS,
 } from "@/lib/crm-constants";
+import { parseStrictNumber, parseStrictDate } from "@/lib/scalar-safety";
+import {
+  isTerminalStage,
+  isTerminalLostStage,
+  isTerminalWonStage,
+} from "@/lib/stage-utils";
+
+/** Strict opportunity read for alert thresholds: UNKNOWN/INVALID never count as value. */
+function strictOpportunity(deal: Record<string, unknown>): number | null {
+  const raw = deal.OPPORTUNITY ?? deal.opportunity;
+  return parseStrictNumber(raw) ?? null;
+}
 
 interface AlertItem {
   id: string;
@@ -59,15 +71,16 @@ export function AlertsBell() {
     const now = new Date();
     const result: AlertItem[] = [];
 
-    // 1. Stalled Deals
+    // 1. Stalled Deals — canonical terminal-stage semantics (LOSE/LOST/APOLOGY,
+    // category-prefixed variants) via the shared stage authority.
     const thirtyDaysAgo = new Date(now.getTime() - ALERT_THRESHOLDS.STALLED_DEAL_DAYS * 24 * 60 * 60 * 1000);
     const stalledDeals = allDeals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
-      if (stage === DEAL_STAGES.WON || stage === DEAL_STAGES.LOST) return false;
+      if (isTerminalStage(stage)) return false;
       const modifyStr = String(deal.DATE_MODIFY || "");
       if (!modifyStr) return false;
-      const modifyDate = new Date(modifyStr);
-      if (isNaN(modifyDate.getTime())) return false;
+      const modifyDate = parseStrictDate(modifyStr, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      if (!modifyDate) return false;
       return modifyDate < thirtyDaysAgo;
     });
     if (stalledDeals.length > 0) {
@@ -82,16 +95,17 @@ export function AlertsBell() {
       });
     }
 
-    // 2. Unpaid Large Deals
+    // 2. Unpaid Large Deals — strict amount: unknown/invalid amounts can never
+    // qualify as "large" and never inflate the total.
     const unpaidLarge = allDeals.filter((deal) => {
       const stage = String(deal.STAGE_ID || "");
       if (stage !== DEAL_STAGES.INVOICE_SENT) return false;
-      const opportunity = parseFloat(String(deal.OPPORTUNITY || "0"));
-      return opportunity > ALERT_THRESHOLDS.LARGE_DEAL_MIN_AMOUNT;
+      const opportunity = strictOpportunity(deal);
+      return opportunity !== null && opportunity > ALERT_THRESHOLDS.LARGE_DEAL_MIN_AMOUNT;
     });
     if (unpaidLarge.length > 0) {
       const totalUnpaid = unpaidLarge.reduce(
-        (sum, d) => sum + parseFloat(String(d.OPPORTUNITY || "0")),
+        (sum, d) => sum + (strictOpportunity(d) ?? 0),
         0
       );
       result.push({
@@ -105,9 +119,9 @@ export function AlertsBell() {
       });
     }
 
-    // 3. Win Rate Drop
-    const wonDeals = allDeals.filter((d) => String(d.STAGE_ID) === DEAL_STAGES.WON);
-    const lostDeals = allDeals.filter((d) => String(d.STAGE_ID) === DEAL_STAGES.LOST);
+    // 3. Win Rate Drop — canonical terminal semantics for both sides.
+    const wonDeals = allDeals.filter((d) => isTerminalWonStage(String(d.STAGE_ID || "")));
+    const lostDeals = allDeals.filter((d) => isTerminalLostStage(String(d.STAGE_ID || "")));
     const totalClosed = wonDeals.length + lostDeals.length;
     if (totalClosed >= ALERT_THRESHOLDS.MIN_CLOSED_DEALS_FOR_WIN_RATE) {
       const winRate = (wonDeals.length / totalClosed) * 100;
@@ -124,22 +138,22 @@ export function AlertsBell() {
       }
     }
 
-    // 4. Large Deals Stuck in Negotiation
+    // 4. Large Deals Stuck in Negotiation — strict amount + strict dates.
     const fourteenDaysAgo = new Date(now.getTime() - ALERT_THRESHOLDS.STUCK_NEGOTIATION_DAYS * 24 * 60 * 60 * 1000);
     const stuckLarge = allDeals.filter((deal) => {
-      const opportunity = parseFloat(String(deal.OPPORTUNITY || "0"));
-      if (opportunity <= ALERT_THRESHOLDS.STUCK_LARGE_DEAL_MIN_AMOUNT) return false;
+      const opportunity = strictOpportunity(deal);
+      if (opportunity === null || opportunity <= ALERT_THRESHOLDS.STUCK_LARGE_DEAL_MIN_AMOUNT) return false;
       const stage = String(deal.STAGE_ID || "");
       if (stage !== DEAL_STAGES.PREPARATION && stage !== DEAL_STAGES.INVOICE_SENT) return false;
       const modifyStr = String(deal.DATE_MODIFY || "");
       if (!modifyStr) return false;
-      const modifyDate = new Date(modifyStr);
-      if (isNaN(modifyDate.getTime())) return false;
+      const modifyDate = parseStrictDate(modifyStr, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      if (!modifyDate) return false;
       return modifyDate < fourteenDaysAgo;
     });
     if (stuckLarge.length > 0) {
       const totalStuck = stuckLarge.reduce(
-        (sum, d) => sum + parseFloat(String(d.OPPORTUNITY || "0")),
+        (sum, d) => sum + (strictOpportunity(d) ?? 0),
         0
       );
       result.push({
@@ -153,18 +167,18 @@ export function AlertsBell() {
       });
     }
 
-    // 5. New Deals This Week
+    // 5. New Deals This Week — strict dates + strict amounts.
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const newThisWeek = allDeals.filter((deal) => {
       const createStr = String(deal.DATE_CREATE || "");
       if (!createStr) return false;
-      const createDate = new Date(createStr);
-      if (isNaN(createDate.getTime())) return false;
+      const createDate = parseStrictDate(createStr, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      if (!createDate) return false;
       return createDate >= sevenDaysAgo;
     });
     if (newThisWeek.length > 0) {
       const totalNew = newThisWeek.reduce(
-        (sum, d) => sum + parseFloat(String(d.OPPORTUNITY || "0")),
+        (sum, d) => sum + (strictOpportunity(d) ?? 0),
         0
       );
       result.push({
