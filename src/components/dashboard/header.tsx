@@ -22,7 +22,7 @@ import { getDealStageDisplayLabel } from "@/lib/crm-constants";
 import { PRODUCT_UI_DESCRIPTOR } from "@/lib/product-identity";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
 import Link from "next/link";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
 
@@ -37,6 +37,12 @@ export function Header() {
     responsibleFilter,
     searchQuery,
     userNames,
+    columnFilters,
+    dealsCoverage,
+    fields,
+    companiesDataLoading,
+    activitiesDataLoading,
+    userNamesLoading,
   } = useDashboardStore();
   const { sortedDeals, columns, fieldMap, resolveValue } = useTableState();
 
@@ -110,7 +116,17 @@ export function Header() {
       filtersSummary.push(`Воронка: ${getDealStageDisplayLabel(pipelineFilter)}`);
     }
     if (searchQuery && searchQuery.trim()) {
-      filtersSummary.push(`Поиск: "${searchQuery.trim()}"`);
+      // Table-only filter: search is applied over the table population and the
+      // exported rows are exactly this scope.
+      filtersSummary.push(`Поиск (только таблица): "${searchQuery.trim()}"`);
+    }
+    // Column filters are table-only filters; each must be declared so the
+    // rows inside Excel and the declared filters refer to exactly the same scope.
+    for (const cf of columnFilters || []) {
+      if (cf.value && cf.value.trim()) {
+        const label = fieldMap.get(cf.columnId)?.title || cf.columnId;
+        filtersSummary.push(`Столбец "${label}": "${cf.value.trim()}"`);
+      }
     }
 
     const periodLabel =
@@ -136,11 +152,29 @@ export function Header() {
         rawColumnIds: columns,
         rawColumnTypes: columns.map((colId: string) => fieldMap.get(colId)?.type),
         rowCurrencies: sortedDeals.map((d: any) => d.CURRENCY_ID),
+        coverage: dealsCoverage ?? undefined,
       });
     } catch (err) {
       console.error("Ошибка при экспорте сделок в Excel:", err);
     }
-  }, [sortedDeals, columns, fieldMap, resolveValue, dateFilter, pipelineFilter, responsibleFilter, searchQuery, userNames]);
+  }, [sortedDeals, columns, fieldMap, resolveValue, dateFilter, pipelineFilter, responsibleFilter, searchQuery, columnFilters, dealsCoverage, userNames]);
+
+  // Enrichment readiness: an export-selected column that depends on a source
+  // still loading must not turn "not loaded yet" into a legitimate CRM blank.
+  // Export is disabled until all required dependencies for the selected
+  // columns are complete.
+  const enrichmentPending = useMemo(() => {
+    const needsCompanies = columns.some((c) => c.startsWith("COMPANY_"));
+    const needsActivities = columns.includes("ACTIVITY_LAST") || columns.includes("ACTIVITY_NEXT");
+    const needsUsers = columns.some(
+      (c) => c === "ASSIGNED_BY_ID" || fieldMap.get(c)?.type === "user"
+    );
+    return (
+      (needsCompanies && companiesDataLoading) ||
+      (needsActivities && activitiesDataLoading) ||
+      (needsUsers && userNamesLoading)
+    );
+  }, [columns, fieldMap, companiesDataLoading, activitiesDataLoading, userNamesLoading]);
 
   const handleLogout = () => {
     // Очистить персистентное состояние перед выходом
@@ -230,7 +264,12 @@ export function Header() {
                 variant="ghost"
                 size="sm"
                 onClick={handleExport}
-                disabled={sortedDeals.length === 0}
+                disabled={sortedDeals.length === 0 || enrichmentPending}
+                title={
+                  enrichmentPending
+                    ? "Экспорт недоступен: данные для выбранных столбцов ещё загружаются"
+                    : undefined
+                }
                 className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/30"
               >
                 <Download className="h-3.5 w-3.5" />
