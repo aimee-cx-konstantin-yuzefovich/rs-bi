@@ -21,18 +21,25 @@ describe('Release QA Gate & Deployment Contract', () => {
     expect(packageIndex).toBeGreaterThan(qaIndex);
   });
 
-  it('2. .github/workflows/ci.yml structurally gates deploy on verify job', () => {
+  it('2. .github/workflows/ci.yml structurally gates eligibility on verify job', () => {
     const workflowPath = path.join(rootDir, '.github/workflows/ci.yml');
     expect(fs.existsSync(workflowPath)).toBe(true);
 
     const workflowContent = fs.readFileSync(workflowPath, 'utf8');
     expect(workflowContent).toContain('verify:');
-    expect(workflowContent).toContain('deploy:');
+    // Truthful naming: the second job is an eligibility gate, NOT a deployment.
+    // Deployment is external (DEPLOYMENT.md) — a green gate must never be
+    // reported as "Deployed".
+    expect(workflowContent).toContain('Standalone Release Eligibility Gate');
+    expect(workflowContent).toContain('eligibility:');
     expect(workflowContent).toContain('needs: verify');
+    expect(workflowContent).toContain('EXTERNAL DEPLOYMENT REQUIRED');
     expect(workflowContent).toContain('npx vitest run');
     expect(workflowContent).toContain('npm run lint');
     expect(workflowContent).toContain('npm run build');
     expect(workflowContent).toContain('sh scripts/qa-deployment.sh');
+    // Exact-SHA provenance: CI must inject the commit SHA for /api/health.
+    expect(workflowContent).toContain('BUILD_SHA');
   });
 
   it('3. failure injection: failing command aborts pipeline script under set -e', () => {

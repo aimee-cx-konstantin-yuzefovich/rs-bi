@@ -8,9 +8,17 @@ import CountUp from "react-countup";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   getCurrencySymbol,
-  normalizeCurrencyCode,
   sortCurrencyCodes,
 } from "@/lib/currency";
+import {
+  aggregateAmountsByCurrency,
+  describeAggregateQuality,
+  type AggregateAmountQuality,
+} from "@/lib/financial-quality";
+import {
+  countInclusiveCalendarDays,
+  parseStrictDate,
+} from "@/lib/scalar-safety";
 
 const isTestEnv =
   typeof process !== "undefined" && process.env?.NODE_ENV === "test";
@@ -23,25 +31,23 @@ export function StatsCards() {
 
     const totalDeals = deals.length;
 
-    // Bucket opportunity strictly by currency without cross-currency scalar summation
-    const opportunityByCurrency: Record<string, number> = {};
-
-    for (const deal of deals) {
-      const rawOpp = (deal as any).OPPORTUNITY ?? (deal as any).opportunity;
-      const val = parseFloat(String(rawOpp || "0"));
-      if (!isNaN(val) && val > 0) {
-        const rawCurrency =
+    // Strict per-currency aggregation with aggregate quality states.
+    // Never converts currency, never drops quality-only currencies,
+    // never turns UNKNOWN/INVALID into numeric zero.
+    const { amountByCurrency, qualityByCurrency } = aggregateAmountsByCurrency(
+      deals.map((deal) => ({
+        rawAmount: (deal as any).OPPORTUNITY ?? (deal as any).opportunity,
+        rawCurrency:
           (deal as any).CURRENCY_ID ??
           (deal as any).CURRENCY ??
-          (deal as any).currencyId;
-        const cur = normalizeCurrencyCode(rawCurrency ? String(rawCurrency) : null);
-        opportunityByCurrency[cur] = Math.round(((opportunityByCurrency[cur] || 0) + val) * 100) / 100;
-      }
-    }
+          (deal as any).currencyId,
+      }))
+    );
 
-    const currencies = Object.keys(opportunityByCurrency).sort(sortCurrencyCodes);
+    const currencies = Object.keys(amountByCurrency).sort(sortCurrencyCodes);
 
     // ─── Dynamic "New Deals" Calculation ───
+    // Inclusive business-calendar semantics: 2026-09-01 → 2026-09-30 = 30 дней.
     let periodTitle = "За период";
 
     if (dateFilter.preset === "all") {
@@ -50,10 +56,12 @@ export function StatsCards() {
       let days = 7;
 
       if (dateFilter.preset === "custom" && dateFilter.customFrom && dateFilter.customTo) {
-        const currentStart = new Date(dateFilter.customFrom);
-        const currentEnd = new Date(dateFilter.customTo);
-        days = Math.round((currentEnd.getTime() - currentStart.getTime()) / (1000 * 60 * 60 * 24));
-        if (days === 0) days = 1; // Prevent division by zero if same day selected
+        const from = parseStrictDate(dateFilter.customFrom, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+        const to = parseStrictDate(dateFilter.customTo, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+        if (from && to) {
+          const inclusive = countInclusiveCalendarDays(from, to);
+          if (inclusive > 0) days = inclusive;
+        }
       } else {
         if (dateFilter.preset === "14days") days = 14;
         else if (dateFilter.preset === "30days") days = 30;
@@ -65,7 +73,8 @@ export function StatsCards() {
 
     return {
       totalDeals,
-      opportunityByCurrency,
+      amountByCurrency,
+      qualityByCurrency,
       currencies,
       periodTitle,
     };
@@ -75,7 +84,7 @@ export function StatsCards() {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3 px-4 sm:px-6 py-4 animate-fade-in">
-      {/* Card 1: Deal Opportunity Total (Truthful currency isolation) */}
+      {/* Card 1: Deal Opportunity Total (Truthful currency isolation + quality) */}
       <Card className="rounded-md border-border shadow-sm hover:shadow-md transition-all duration-200 stat-accent-bar stat-accent-bar-green group">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
@@ -89,43 +98,31 @@ export function StatsCards() {
               {dealsLoading ? (
                 <Skeleton className="h-6 w-24 rounded" />
               ) : stats.currencies.length === 0 ? (
-                /* CASE A: No deals with monetary value -> 0 without currency suffix */
+                /* CASE A: No deals in scope at all → genuine zero, COMPLETE */
                 <p className="text-xl font-bold truncate tabular-nums leading-none">
                   0
                 </p>
               ) : stats.currencies.length === 1 ? (
-                /* CASE B / CASE D: Exactly one currency */
+                /* CASE B / D: Exactly one currency */
                 (() => {
                   const cur = stats.currencies[0];
-                  const amount = stats.opportunityByCurrency[cur];
-                  if (cur === "UNKNOWN") {
-                    return (
-                      <p className="text-xl font-bold truncate tabular-nums leading-none flex items-baseline gap-1.5">
-                        <span>{Math.round(amount).toLocaleString("ru-RU")}</span>
-                        <span className="text-xs font-normal text-muted-foreground">
-                          — валюта не указана
-                        </span>
-                      </p>
-                    );
-                  }
+                  const amount = stats.amountByCurrency[cur];
+                  const quality = stats.qualityByCurrency[cur];
                   return (
-                    <p className="text-xl font-bold truncate tabular-nums leading-none">
-                      <CountUp
-                        end={amount}
-                        duration={isTestEnv ? 0 : 1}
-                        separator=" "
-                        decimals={0}
-                        suffix={` ${getCurrencySymbol(cur)}`}
-                      />
-                    </p>
+                    <SingleCurrencyAmount
+                      cur={cur}
+                      amount={amount}
+                      quality={quality}
+                    />
                   );
                 })()
               ) : (
-                /* CASE C: Multiple currencies -> Compact per-currency breakdown without cross-currency sum */
+                /* CASE C: Multiple currencies → Compact per-currency breakdown
+                   without cross-currency sum, preserving per-currency quality */
                 <div className="flex flex-col gap-1 min-w-0" data-testid="mixed-currency-breakdown">
                   {stats.currencies.map((cur) => {
-                    const amount = stats.opportunityByCurrency[cur];
-                    const formatted = Math.round(amount).toLocaleString("ru-RU");
+                    const amount = stats.amountByCurrency[cur];
+                    const quality = stats.qualityByCurrency[cur];
                     const isUnknown = cur === "UNKNOWN";
                     const symbol = getCurrencySymbol(cur);
                     return (
@@ -133,8 +130,9 @@ export function StatsCards() {
                         key={cur}
                         className="flex items-baseline gap-1.5 text-base sm:text-lg font-bold tabular-nums text-foreground leading-tight truncate"
                         data-currency={cur}
+                        data-quality={quality}
                       >
-                        <span>{formatted}</span>
+                        <AmountValue amount={amount} quality={quality} />
                         {isUnknown ? (
                           <span className="text-xs font-normal text-muted-foreground">
                             — валюта не указана
@@ -188,6 +186,106 @@ export function StatsCards() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function AmountValue({
+  amount,
+  quality,
+}: {
+  amount: number | null;
+  quality: AggregateAmountQuality;
+}) {
+  if (quality === "INVALID_ONLY") {
+    return (
+      <span
+        className="text-amber-600 dark:text-amber-400"
+        data-testid="amount-invalid"
+      >
+        ошибка данных
+      </span>
+    );
+  }
+  if (quality === "UNKNOWN") {
+    return (
+      <span
+        className="text-muted-foreground"
+        data-testid="amount-unknown"
+      >
+        нет данных
+      </span>
+    );
+  }
+  // COMPLETE and PARTIAL both carry a numeric amount — including VALID zero.
+  return (
+    <span>
+      {Math.round(amount ?? 0).toLocaleString("ru-RU")}
+    </span>
+  );
+}
+
+function SingleCurrencyAmount({
+  cur,
+  amount,
+  quality,
+}: {
+  cur: string;
+  amount: number | null;
+  quality: AggregateAmountQuality;
+}) {
+  const isUnknown = cur === "UNKNOWN";
+
+  if (quality === "INVALID_ONLY" || quality === "UNKNOWN") {
+    return (
+      <p className="text-xl font-bold truncate tabular-nums leading-none flex items-baseline gap-1.5">
+        <span
+          className={
+            quality === "INVALID_ONLY"
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-muted-foreground"
+          }
+          data-testid={quality === "INVALID_ONLY" ? "amount-invalid" : "amount-unknown"}
+        >
+          {quality === "INVALID_ONLY" ? "ошибка данных" : "нет данных"}
+        </span>
+        {isUnknown && (
+          <span className="text-xs font-normal text-muted-foreground">
+            — валюта не указана
+          </span>
+        )}
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-xl font-bold truncate tabular-nums leading-none flex items-baseline gap-1.5">
+      {isUnknown ? (
+        <>
+          <CountUp
+            end={Math.round(amount ?? 0)}
+            duration={isTestEnv ? 0 : 1}
+            separator=" "
+            decimals={0}
+          />
+          <span className="text-xs font-normal text-muted-foreground">
+            — валюта не указана
+          </span>
+        </>
+      ) : (
+        <CountUp
+          end={Math.round(amount ?? 0)}
+          duration={isTestEnv ? 0 : 1}
+          separator=" "
+          decimals={0}
+          suffix={` ${getCurrencySymbol(cur)}`}
+        />
+      )}
+      {quality === "PARTIAL" && (
+        <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400 whitespace-nowrap">
+          неполные данные
+        </span>
+      )}
+    </p>
   );
 }
 

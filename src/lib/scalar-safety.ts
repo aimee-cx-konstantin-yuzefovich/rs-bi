@@ -216,3 +216,20 @@ export function parseStrictNumber(value: unknown): number | undefined {
   const num = Number(normalized);
   return Number.isFinite(num) ? num : undefined;
 }
+
+/**
+ * Inclusive business-calendar day count between two instants.
+ * 2026-09-01 → 2026-09-30 = 30 (not 29). Uses UTC calendar dates so the
+ * count is independent of the host timezone; both inputs are first reduced
+ * to their calendar date in UTC (matching how parseStrictDate stores pure
+ * dates at 00:00:00 UTC). Returns 0 when either input is invalid or the
+ * range is inverted.
+ */
+export function countInclusiveCalendarDays(from: Date, to: Date): number {
+  if (isNaN(from.getTime()) || isNaN(to.getTime())) return 0;
+  const dayOf = (d: Date) =>
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const diffDays = Math.round((dayOf(to) - dayOf(from)) / (24 * 60 * 60 * 1000));
+  // Same calendar day counts as 1 day (inclusive); inverted range → 0.
+  return diffDays < 0 ? 0 : diffDays + 1;
+}

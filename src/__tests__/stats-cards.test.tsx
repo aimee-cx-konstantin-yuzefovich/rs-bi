@@ -102,12 +102,11 @@ describe("StatsCards — Truthful Multi-Currency Dashboard Presentation", () => 
     expect(screen.queryByText(/₽/)).not.toBeInTheDocument();
   });
 
-  it("CASE 5: Zero monetary value renders 0 without any currency symbol", () => {
+  it("CASE 5: VALID zero RUB displays numeric 0 with its currency (VALID ZERO == ZERO)", () => {
     act(() => {
       useDashboardStore.setState({
         deals: [
           { ID: "301", TITLE: "Deal Zero 1", OPPORTUNITY: "0", CURRENCY_ID: "RUB" } as any,
-          { ID: "302", TITLE: "Deal Zero 2", OPPORTUNITY: null, CURRENCY_ID: "USD" } as any,
         ],
         dealsLoading: false,
       });
@@ -115,10 +114,77 @@ describe("StatsCards — Truthful Multi-Currency Dashboard Presentation", () => 
 
     render(<StatsCards />);
 
-    expect(screen.getByText("0")).toBeInTheDocument();
-    expect(screen.queryByText(/₽/)).not.toBeInTheDocument();
+    expect(screen.getByText(/0 ₽/)).toBeInTheDocument();
+  });
+
+  it("CASE 5b: missing amount (UNKNOWN) renders truthful 'нет данных', never numeric 0", () => {
+    act(() => {
+      useDashboardStore.setState({
+        deals: [
+          { ID: "302", TITLE: "Deal Missing", OPPORTUNITY: null, CURRENCY_ID: "USD" } as any,
+        ],
+        dealsLoading: false,
+      });
+    });
+
+    render(<StatsCards />);
+
+    expect(screen.getByTestId("amount-unknown")).toHaveTextContent("нет данных");
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/валюта не указана/)).not.toBeInTheDocument();
+  });
+
+  it("CASE 5c: malformed amount (INVALID_ONLY) renders truthful error state, never 0", () => {
+    act(() => {
+      useDashboardStore.setState({
+        deals: [
+          { ID: "303", TITLE: "Deal Bad", OPPORTUNITY: "12abc", CURRENCY_ID: "RUB" } as any,
+        ],
+        dealsLoading: false,
+      });
+    });
+
+    render(<StatsCards />);
+
+    expect(screen.getByTestId("amount-invalid")).toHaveTextContent("ошибка данных");
+    expect(screen.queryByText("₽")).not.toBeInTheDocument();
+  });
+
+  it("CASE 5d: valid subtotal plus invalid shows amount with 'неполные данные'", () => {
+    act(() => {
+      useDashboardStore.setState({
+        deals: [
+          { ID: "304", TITLE: "Deal Good", OPPORTUNITY: "100000", CURRENCY_ID: "RUB" } as any,
+          { ID: "305", TITLE: "Deal Bad", OPPORTUNITY: "12abc", CURRENCY_ID: "RUB" } as any,
+        ],
+        dealsLoading: false,
+      });
+    });
+
+    render(<StatsCards />);
+
+    expect(screen.getByText(/100\s?000\s?₽/)).toBeInTheDocument();
+    expect(screen.getByText(/неполные данные/)).toBeInTheDocument();
+  });
+
+  it("CASE 5e: mixed RUB zero + UNKNOWN currency keeps states separated", () => {
+    act(() => {
+      useDashboardStore.setState({
+        deals: [
+          { ID: "301", TITLE: "Deal Zero 1", OPPORTUNITY: "0", CURRENCY_ID: "RUB" } as any,
+          { ID: "302", TITLE: "Deal Missing", OPPORTUNITY: null, CURRENCY_ID: "USD" } as any,
+        ],
+        dealsLoading: false,
+      });
+    });
+
+    render(<StatsCards />);
+
+    // RUB zero: numeric zero with its own currency
+    expect(screen.getByText("₽")).toBeInTheDocument();
+    // USD amount missing: UNKNOWN state; the currency itself is known ($ symbol
+    // is truthful — no RUB conversion, no fabricated amount)
+    expect(screen.getByTestId("amount-unknown")).toHaveTextContent("нет данных");
+    expect(screen.getByText("$")).toBeInTheDocument();
   });
 
   it("CASE 6: RUR currency code is normalized to RUB and displayed with ₽", () => {
