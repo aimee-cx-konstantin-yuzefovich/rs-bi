@@ -460,7 +460,7 @@ export function CompanyBrowser() {
         // Mirror the on-screen "Образцы" highlight in the exported file.
         highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
         rawColumnIds: columns,
-        rawColumnTypes: columns.map((colId: string) => fieldMap[colId]?.type),
+        rawColumnTypes: columns.map((colId: string) => fieldMap.get(colId)?.type),
       });
     } catch (err) {
       console.error("Ошибка при экспорте компаний в Excel:", err);

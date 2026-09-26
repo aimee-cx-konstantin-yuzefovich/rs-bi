@@ -133,7 +133,7 @@ export function Header() {
         period: periodLabel,
         filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
         rawColumnIds: columns,
-        rawColumnTypes: columns.map((colId: string) => fieldMap[colId]?.type),
+        rawColumnTypes: columns.map((colId: string) => fieldMap.get(colId)?.type),
         rowCurrencies: sortedDeals.map((d: any) => d.CURRENCY_ID),
       });
     } catch (err) {
