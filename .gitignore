@@ -47,3 +47,5 @@ prisma/db/
 agent-ctx/
 skills/
 .env*
+test-results/
+playwright-report/
