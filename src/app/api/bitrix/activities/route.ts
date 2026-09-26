@@ -79,8 +79,9 @@ export async function POST(request: NextRequest) {
     const activitiesMap: Record<string, { last?: ActivityData; next?: ActivityData; all: ActivityData[] }> = {};
     const fetchedDealIds: string[] = [];
     const failedDealIds: string[] = [];
+    const incompleteDealIds: string[] = [];
     let failedBatches = 0;
-    let anyPaginationCapped = false;
+    let incompleteBatches = 0;
 
     const batchSize = 50;
     const limit = pLimit(5);
@@ -97,11 +98,12 @@ export async function POST(request: NextRequest) {
           const seenStarts = new Set<number>();
           const batchActivities: ActivityData[] = [];
           let batchFailed = false;
+          let batchIncomplete = false;
 
           while (true) {
             if (seenStarts.has(start)) {
               console.warn(`[Activities API] Repeated pagination cursor start=${start}`);
-              anyPaginationCapped = true;
+              batchIncomplete = true;
               break;
             }
             seenStarts.add(start);
@@ -131,7 +133,7 @@ export async function POST(request: NextRequest) {
                   nextOffset = Number(rawNext.trim());
                 } else {
                   console.warn(`[Activities API] Invalid pagination cursor next=${JSON.stringify(rawNext)}`);
-                  anyPaginationCapped = true;
+                  batchIncomplete = true;
                   break;
                 }
               }
@@ -139,12 +141,12 @@ export async function POST(request: NextRequest) {
               if (nextOffset !== null) {
                 if (nextOffset <= start) {
                   console.warn(`[Activities API] Non-advancing pagination cursor next=${nextOffset} <= start=${start}`);
-                  anyPaginationCapped = true;
+                  batchIncomplete = true;
                   break;
                 }
                 if (pageCount >= MAX_PAGES_PER_BATCH) {
                   console.warn(`[Activities API] Batch reached safety limit of ${MAX_PAGES_PER_BATCH} pages`);
-                  anyPaginationCapped = true;
+                  batchIncomplete = true;
                   break;
                 }
                 start = nextOffset;
@@ -165,7 +167,14 @@ export async function POST(request: NextRequest) {
             return;
           }
 
-          // Batch succeeded: initialize only these deals and populate their activities
+          if (batchIncomplete) {
+            incompleteBatches++;
+            incompleteDealIds.push(...batchIds);
+            // CRITICAL: Incomplete batch deals are left UNKNOWN (not in activitiesMap, not in fetchedDealIds)
+            return;
+          }
+
+          // Batch succeeded completely: initialize only these deals and populate their activities
           for (const id of batchIds) {
             activitiesMap[id] = { all: [] };
             fetchedDealIds.push(id);
@@ -219,7 +228,7 @@ export async function POST(request: NextRequest) {
 
     const totalBatches = Math.ceil(validIds.length / batchSize);
     const isTotalFailure = failedBatches > 0 && failedBatches === totalBatches;
-    const isPartial = failedBatches > 0 || anyPaginationCapped;
+    const isPartial = failedBatches > 0 || incompleteBatches > 0;
 
     if (isTotalFailure) {
       return NextResponse.json(
@@ -227,7 +236,9 @@ export async function POST(request: NextRequest) {
           success: false,
           partial: true,
           failedBatches,
+          incompleteBatches,
           failedDealIds,
+          incompleteDealIds,
           fetchedDealIds: [],
           error: "Failed to fetch activities from CRM.",
           activities: {},
@@ -236,14 +247,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const unreachedCount = failedDealIds.length + incompleteDealIds.length;
+
     return NextResponse.json({
       success: true,
       partial: isPartial,
       failedBatches,
+      incompleteBatches,
       failedDealIds,
+      incompleteDealIds,
       fetchedDealIds,
       warning: isPartial
-        ? `Не удалось загрузить данные по активностям для части сделок (${failedDealIds.length} из ${validIds.length}).`
+        ? `Не удалось полностью загрузить данные по активностям для части сделок (${unreachedCount} из ${validIds.length}).`
         : undefined,
       activities: activitiesMap,
     });
