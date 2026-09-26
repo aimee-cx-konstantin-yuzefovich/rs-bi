@@ -80,7 +80,7 @@ export function CompanyPreview({
 
   const { userNames, fields } = useDashboardStore();
 
-  const activeFieldsFor = fieldsFor || ((c: Record<string, unknown>) => defaultCompanyFields(c, userNames || {}));
+  const activeFieldsFor = fieldsFor || ((c: Record<string, unknown>) => defaultCompanyFields(c, userNames || {}, fields || []));
   const activeSampleFieldsFor = sampleFieldsFor || ((c: Record<string, unknown>) => defaultSampleFields(c, fields || []));
 
   const stageField = fields?.find((f) => f.id === "STAGE_ID");

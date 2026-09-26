@@ -291,6 +291,12 @@ export function isExplicitDateField(fieldId?: string, fieldType?: string): boole
 /**
  * Parses raw cell value preserving native Excel dates, numbers, and nulls.
  * Uses strict calendar validation and metadata-aware type constraints.
+ *
+ * Precedence invariant: EXPLICIT TYPE WINS.
+ * If authoritative field metadata declares a non-numeric type (string, text,
+ * enumeration, …), content-based money heuristics must NOT override it —
+ * "50000 RUB" in a string field stays text. Content inference is used only
+ * when metadata is genuinely absent, and unknown metadata prefers text.
  */
 export function parseCellNativeValue(
   val: unknown,
@@ -312,14 +318,9 @@ export function parseCellNativeValue(
   const str = String(val).trim();
   if (!str) return null;
 
-  const shouldTryDate = isExplicitDateField(options?.fieldId, options?.fieldType);
-  if (shouldTryDate) {
-    const dt = parseStrictDate(str);
-    if (dt) return dt;
-  }
-
-  // Strict numeric/money parsing when metadata specifies numeric column
   const fType = options?.fieldType?.toLowerCase();
+
+  // ── 1. Explicit numeric metadata: strict parse, no content guessing ──
   if (fType === "double" || fType === "integer" || fType === "money") {
     const moneyMatch = str.match(/^([+-]?[\d\s\u00A0]+(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|RUB|\$|EUR|€)?$/i);
     if (moneyMatch) {
@@ -328,9 +329,41 @@ export function parseCellNativeValue(
     }
     const parsed = parseStrictNumber(str);
     if (parsed !== undefined) return parsed;
+    // Unparseable content in a numeric field: keep text (never invent 0).
+    let outStrNumeric = translateCrmValueToRussian(str);
+    if (/^[=\-+\@]/.test(outStrNumeric)) outStrNumeric = "'" + outStrNumeric;
+    return outStrNumeric;
   }
 
-  // Check formatted money string with currency symbol (e.g. "120 000 ₽" or "50000 руб")
+  // ── 2. Explicit non-numeric metadata: text wins over content heuristics ──
+  const EXPLICIT_NON_NUMERIC_TYPES = new Set([
+    "string", "text", "enumeration", "crm_status", "boolean", "char",
+    "file", "url", "user", "crm_company", "crm_contact", "crm_deal",
+    "crm_lead", "address", "phone", "email",
+  ]);
+  if (fType && EXPLICIT_NON_NUMERIC_TYPES.has(fType)) {
+    // Date-typed metadata still applies (date/datetime are not in the set);
+    // a string field must never be numeric-coerced.
+    const shouldTryDate = isExplicitDateField(options?.fieldId, options?.fieldType);
+    if (shouldTryDate) {
+      const dt = parseStrictDate(str);
+      if (dt) return dt;
+    }
+    let outStr = translateCrmValueToRussian(str);
+    if (/^[=\-+\@]/.test(outStr)) outStr = "'" + outStr;
+    return outStr;
+  }
+
+  // ── 3. Date-typed metadata (explicit date/datetime) ──
+  const shouldTryDate = isExplicitDateField(options?.fieldId, options?.fieldType);
+  if (shouldTryDate) {
+    const dt = parseStrictDate(str);
+    if (dt) return dt;
+  }
+
+  // ── 4. Metadata genuinely absent: conservative content inference only ──
+  // A formatted money string with a currency symbol is the one pattern where
+  // numeric semantics are unambiguous ("120 000 ₽", "50000 руб").
   const moneyMatch = str.match(/^([+-]?[\d\s\u00A0]+(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|RUB|\$|EUR|€)$/i);
   if (moneyMatch) {
     const parsed = parseStrictNumber(moneyMatch[1]);
@@ -445,7 +478,19 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
   const labelLower = (field.label || "").toLowerCase();
   const typeLower = (field.type || "").toLowerCase();
 
+  // ── EXPLICIT TYPE WINS ──
+  // If CRM metadata declares a non-date type (e.g. type = string), label
+  // heuristics ("Дата договора текстом") must NEVER coerce the value into a
+  // date. Label heuristics apply only when metadata is genuinely absent.
+  const EXPLICIT_NON_DATE_TYPES = new Set([
+    "string", "text", "enumeration", "crm_status", "boolean", "char",
+    "integer", "double", "money", "file", "url", "user", "crm_company",
+    "crm_contact", "crm_deal", "crm_lead",
+  ]);
+  const explicitTypeSaysNotDate = typeLower !== "" && EXPLICIT_NON_DATE_TYPES.has(typeLower);
+
   const isExplicitDateField =
+    !explicitTypeSaysNotDate &&
     !idUpper.includes(COMPANY_SAMPLES_FIELD_ID) &&
     !idUpper.includes("UF_CRM_1753187313314") &&
     (
@@ -471,7 +516,8 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
       idUpper.includes("UF_CRM_1741517789") ||
       idUpper.includes("UF_CRM_1584460062014") ||
       idUpper.includes("UF_CRM_1584459666824") ||
-      // 4. Constrained Russian/English date label fallback
+      // 4. Constrained Russian/English date label fallback (only when no
+      //    explicit type metadata contradicts it)
       labelLower.startsWith("дата") ||
       labelLower.includes(" дата") ||
       labelLower.startsWith("date") ||

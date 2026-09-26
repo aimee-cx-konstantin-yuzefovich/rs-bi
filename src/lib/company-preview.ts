@@ -1,4 +1,6 @@
 /** Company-only normalization for the universal CRM response. */
+import { parseStrictDate } from "./scalar-safety";
+
 export function normalizeCompanyPreview(item: Record<string, unknown>) {
   const company: Record<string, unknown> = {};
   const standardFields: Record<string, string> = {
@@ -41,10 +43,18 @@ export const COMPANY_SAMPLE_FIELDS = [
   { id: "COMMENTS", label: "Комментарий" },
 ] as const;
 
+export interface PreviewField {
+  id: string;
+  label: string;
+  value: string;
+  /** CRM field type metadata — preserved through export so explicit type wins. */
+  type?: string;
+}
+
 export function defaultSampleFields(
   company: Record<string, unknown>,
-  fields: Array<{ id: string; title: string; listValues?: Array<{ ID: string; VALUE: string }> }> = []
-): Array<{ id: string; label: string; value: string }> {
+  fields: Array<{ id: string; title: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }> = []
+): PreviewField[] {
   const fieldMap = new Map(fields.map(f => [f.id, f]));
   return COMPANY_SAMPLE_FIELDS.map(({ id, label }) => {
     let raw = company[id] ?? company[`COMPANY_${id}`];
@@ -52,77 +62,94 @@ export function defaultSampleFields(
       raw = company.COMMENTS ?? company.comments ?? company.COMPANY_COMMENTS;
     }
 
-    if (id === "UF_CRM_1764156557536" || label.toLowerCase().includes("дата")) {
+    const meta = fieldMap.get(id) || fieldMap.get(`COMPANY_${id}`);
+    // Explicit metadata wins: a string-typed field with a date-looking label
+    // or value must stay text.
+    const metaType = meta?.type?.toLowerCase();
+    const explicitTypeIsNotDate =
+      metaType !== undefined &&
+      ["string", "text", "enumeration", "crm_status", "boolean", "char", "integer", "double", "money", "user", "file", "url"].includes(metaType);
+
+    if ((id === "UF_CRM_1764156557536" || label.toLowerCase().includes("дата")) && !explicitTypeIsNotDate) {
       if (raw) {
-        const d = new Date(String(raw));
-        if (!isNaN(d.getTime())) {
+        const d = parseStrictDate(String(raw));
+        if (d) {
           return {
             id,
             label,
             value: d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }),
+            type: metaType,
           };
         }
       }
     }
 
-    const meta = fieldMap.get(id) || fieldMap.get(`COMPANY_${id}`);
     if (meta?.listValues && meta.listValues.length > 0 && raw !== undefined && raw !== null && raw !== "") {
       if (Array.isArray(raw)) {
         return {
           id,
           label,
           value: raw.map(v => meta.listValues?.find(lv => lv.ID === String(v))?.VALUE || String(v)).join(", "),
+          type: metaType,
         };
       }
       const found = meta.listValues.find(lv => lv.ID === String(raw));
       if (found) {
-        return { id, label, value: found.VALUE };
+        return { id, label, value: found.VALUE, type: metaType };
       }
     }
 
     const value = raw !== undefined && raw !== null && String(raw).trim() !== "" ? String(raw).trim() : "—";
-    return { id, label, value };
+    return { id, label, value, type: metaType };
   });
 }
 
 export function defaultCompanyFields(
   company: Record<string, unknown>,
-  userNames: Record<string, string> = {}
-): Array<{ id: string; label: string; value: string }> {
-  const fields: Array<{ id: string; label: string; value: string }> = [];
+  userNames: Record<string, string> = {},
+  fields: Array<{ id: string; title: string; type?: string }> = []
+): PreviewField[] {
+  const fieldMap = new Map(fields.map(f => [f.id, f]));
+  const typeOf = (id: string): string | undefined =>
+    fieldMap.get(id)?.type || fieldMap.get(`COMPANY_${id}`)?.type;
+
+  const out: PreviewField[] = [];
 
   if (company.ASSIGNED_BY_ID) {
     const id = String(company.ASSIGNED_BY_ID);
-    fields.push({
+    out.push({
       id: "ASSIGNED_BY_ID",
       label: "Ответственный компании",
       value: userNames[id] || "Неизвестный сотрудник",
+      type: "user",
     });
   }
 
   if (company.PHONE && String(company.PHONE).trim()) {
-    fields.push({ id: "PHONE", label: "Телефон", value: String(company.PHONE) });
+    out.push({ id: "PHONE", label: "Телефон", value: String(company.PHONE), type: "phone" });
   }
 
   if (company.EMAIL && String(company.EMAIL).trim()) {
-    fields.push({ id: "EMAIL", label: "Email", value: String(company.EMAIL) });
+    out.push({ id: "EMAIL", label: "Email", value: String(company.EMAIL), type: "email" });
   }
 
   if (company.DATE_CREATE && String(company.DATE_CREATE).trim()) {
-    const d = new Date(String(company.DATE_CREATE));
-    fields.push({
+    const d = parseStrictDate(String(company.DATE_CREATE));
+    out.push({
       id: "DATE_CREATE",
       label: "Дата создания",
-      value: isNaN(d.getTime()) ? String(company.DATE_CREATE) : d.toLocaleDateString("ru-RU"),
+      value: d ? d.toLocaleDateString("ru-RU") : String(company.DATE_CREATE),
+      type: "datetime",
     });
   }
 
   if (company.DATE_MODIFY && String(company.DATE_MODIFY).trim()) {
-    const d = new Date(String(company.DATE_MODIFY));
-    fields.push({
+    const d = parseStrictDate(String(company.DATE_MODIFY));
+    out.push({
       id: "DATE_MODIFY",
       label: "Дата изменения",
-      value: isNaN(d.getTime()) ? String(company.DATE_MODIFY) : d.toLocaleDateString("ru-RU"),
+      value: d ? d.toLocaleDateString("ru-RU") : String(company.DATE_MODIFY),
+      type: "datetime",
     });
   }
 
@@ -134,13 +161,14 @@ export function defaultCompanyFields(
 
   for (const [key, val] of Object.entries(company)) {
     if (key.startsWith("UF_CRM_") && !sampleFieldIds.has(key) && val !== null && val !== "" && val !== undefined) {
-      fields.push({
+      out.push({
         id: key,
         label: key,
         value: typeof val === "object" ? JSON.stringify(val) : String(val),
+        type: typeOf(key),
       });
     }
   }
 
-  return fields;
+  return out;
 }
