@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
 import { bitrixPost } from "@/lib/bitrix";
 import { fetchAllPages, fetchFieldLabelMaps } from "@/lib/samples/bitrix-fetch";
+import { fetchDealsActivities } from "@/lib/bitrix-activities";
 import { normalizeCompanies, normalizeDeals } from "@/lib/commercial-funnel/normalize";
 import { generateDemoCommercialDataset } from "@/lib/commercial-funnel/demo-data";
 import {
@@ -81,8 +82,6 @@ const COMMERCIAL_DEAL_SELECT = [
   "UF_CRM_6915D8C2C31D0", // Отрасль
   DEAL_DIRECTION_FIELD_ID,
   "UF_CRM_69259C45EC14B", // Регион
-  "ACTIVITY_LAST",
-  "ACTIVITY_NEXT",
 ];
 
 async function fetchUserDirectory(): Promise<Record<string, string>> {
@@ -141,13 +140,29 @@ export async function POST() {
       fetchAllPages("crm.deal.list", { SELECT: COMMERCIAL_DEAL_SELECT, ORDER: { ID: "ASC" } }, "ID"),
     ]);
 
-    // Pure server-side normalization
-    const deals = normalizeDeals(rawDeals, { userNames, statusLabels: labels });
+    // Extract deal IDs and fetch activities via shared authoritative pipeline
+    const dealIds = rawDeals
+      .map((d) => String(d.ID || d.id || "").trim())
+      .filter((id) => /^\d+$/.test(id));
+
+    const activitiesResult = await fetchDealsActivities(dealIds);
+
+    // Pure server-side normalization with authoritative activities
+    const deals = normalizeDeals(rawDeals, {
+      userNames,
+      statusLabels: labels,
+      activities: activitiesResult.byDealId,
+    });
     const companies = normalizeCompanies(rawCompanies, deals, { userNames, statusLabels: labels });
 
     return respond({
       success: true,
       isDemoMode: false,
+      partial: activitiesResult.partial,
+      activityPartial: activitiesResult.partial,
+      activityWarning: activitiesResult.warning,
+      failedActivityDealIds: activitiesResult.failedDealIds,
+      incompleteActivityDealIds: activitiesResult.incompleteDealIds,
       companies,
       deals,
       userNames,

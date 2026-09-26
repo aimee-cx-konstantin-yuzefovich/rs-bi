@@ -333,11 +333,11 @@ describe('Activities API & Pagination Test Suite', () => {
     const res = await POST(makeRequest({ dealIds: ['43'] }));
     const data = await res.json();
 
-    expect(res.status).toBe(200);
+    expect(data.status ?? res.status).toBe(200);
     expect(data.success).toBe(true);
     expect(data.activities['43']).toBeDefined();
-    // Deterministic selection without throwing NaN or crashing
-    expect(['bad1', 'bad2']).toContain(data.activities['43'].next.ID);
+    // Invariant (Section 13 / ACT-5): invalid-only candidate deadlines must NOT become authoritative next
+    expect(data.activities['43'].next).toBeUndefined();
   });
 });
 

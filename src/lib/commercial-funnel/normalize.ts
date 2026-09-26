@@ -49,10 +49,12 @@ import {
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
   PAYMENT_STATUS_FIELD_ID,
 } from "@/lib/crm-constants";
+import type { DealActivityEntry } from "@/lib/bitrix-activities";
 
 export interface NormalizeOptions {
   userNames?: Record<string, string>;
   statusLabels?: Record<string, Record<string, string>>;
+  activities?: Record<string, DealActivityEntry>;
   now?: Date;
 }
 
@@ -310,24 +312,59 @@ export function normalizeDeals(
     const direction = directionRaw.map((v) => dealDirectionLabels[v] || v);
 
     const region = row["UF_CRM_69259C45EC14B"] ? String(row["UF_CRM_69259C45EC14B"]).trim() : undefined;
-    const activityLast = row["ACTIVITY_LAST"] ? String(row["ACTIVITY_LAST"]).trim() : undefined;
-    const activityNext = row["ACTIVITY_NEXT"] ? String(row["ACTIVITY_NEXT"]).trim() : undefined;
-    const hasActivityKeys =
-      "ACTIVITY_LAST" in row ||
-      "ACTIVITY_NEXT" in row ||
-      "activityLast" in row ||
-      "activityNext" in row ||
-      "activityDataKnown" in row;
-    const activityDataKnown =
-      typeof row.activityDataKnown === "boolean"
-        ? row.activityDataKnown
-        : Boolean(
-            hasActivityKeys &&
-              (row["ACTIVITY_LAST"] !== undefined ||
-                row["ACTIVITY_NEXT"] !== undefined ||
-                row.activityLast !== undefined ||
-                row.activityNext !== undefined)
-          );
+    let activityLast: string | undefined;
+    let activityNext: string | undefined;
+    let activityNextDate: string | undefined;
+    let activityDataKnown: boolean;
+
+    if (options.activities) {
+      const act = id ? options.activities[id] : undefined;
+      if (act && act.dataKnown) {
+        activityDataKnown = true;
+        if (act.last?.CREATED) {
+          activityLast = act.last.CREATED;
+        }
+        if (act.next) {
+          activityNext =
+            act.next.SUBJECT?.trim() ||
+            (act.next.DEADLINE ? `Запланировано на ${act.next.DEADLINE}` : "Запланированная активность");
+          if (act.next.DEADLINE) {
+            activityNextDate = act.next.DEADLINE;
+          }
+        }
+      } else {
+        // Failed or incomplete batch or not in activities map -> UNKNOWN
+        activityDataKnown = false;
+      }
+    } else {
+      activityLast = row["ACTIVITY_LAST"]
+        ? String(row["ACTIVITY_LAST"]).trim()
+        : row.activityLast
+        ? String(row.activityLast).trim()
+        : undefined;
+      activityNext = row["ACTIVITY_NEXT"]
+        ? String(row["ACTIVITY_NEXT"]).trim()
+        : row.activityNext
+        ? String(row.activityNext).trim()
+        : undefined;
+      activityNextDate = row.activityNextDate ? String(row.activityNextDate).trim() : undefined;
+      const hasActivityKeys =
+        "ACTIVITY_LAST" in row ||
+        "ACTIVITY_NEXT" in row ||
+        "activityLast" in row ||
+        "activityNext" in row ||
+        "activityDataKnown" in row;
+      activityDataKnown =
+        typeof row.activityDataKnown === "boolean"
+          ? row.activityDataKnown
+          : Boolean(
+              hasActivityKeys &&
+                (row["ACTIVITY_LAST"] !== undefined ||
+                  row["ACTIVITY_NEXT"] !== undefined ||
+                  row.activityLast !== undefined ||
+                  row.activityNext !== undefined)
+            );
+    }
 
     return {
       id,
@@ -363,6 +400,7 @@ export function normalizeDeals(
       region,
       activityLast,
       activityNext,
+      activityNextDate,
       activityDataKnown,
     };
   });

@@ -63,6 +63,7 @@ export interface CommercialDeal {
   region?: string;
   activityLast?: string;
   activityNext?: string;
+  activityNextDate?: string;
   activityDataKnown?: boolean;
 }
 

@@ -15,6 +15,9 @@ export interface CommercialFunnelDataState {
   loading: boolean;
   error: string | null;
   isDemoMode: boolean;
+  partial?: boolean;
+  activityPartial?: boolean;
+  activityWarning?: string;
   reload: () => void;
 }
 
@@ -29,6 +32,9 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [partial, setPartial] = useState<boolean | undefined>(undefined);
+  const [activityPartial, setActivityPartial] = useState<boolean | undefined>(undefined);
+  const [activityWarning, setActivityWarning] = useState<string | undefined>(undefined);
   const [attempt, setAttempt] = useState(0);
   const seq = useRef(0);
 
@@ -80,6 +86,9 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
         setUserNames(data.userNames || {});
         setStatusLabels(data.statusLabels || {});
         setIsDemoMode(Boolean(data.isDemoMode));
+        setPartial(Boolean(data.partial));
+        setActivityPartial(Boolean(data.activityPartial));
+        setActivityWarning(data.activityWarning);
         setLoading(false);
       } catch (err) {
         if (controller.signal.aborted || current !== seq.current) return;
@@ -109,6 +118,9 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
     loading,
     error,
     isDemoMode,
+    partial,
+    activityPartial,
+    activityWarning,
     reload,
   };
 }
