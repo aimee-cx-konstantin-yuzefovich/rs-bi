@@ -58,21 +58,42 @@ export function parseStrictDate(dateStr: unknown): Date | null {
     return new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
   }
 
-  // 3. ISO Datetime: YYYY-MM-DD[T ]HH:mm(:ss)?(.sss)?(Z|[+-]HH:mm)?
+  // 3. ISO Datetime: YYYY-MM-DD[T ]HH:mm(:ss)?(.sss)?(Z|[+-]HH:?mm)?
   const isoDtMatch = str.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3})\d*)?(Z|[+-]\d{2}:?\d{2})?$/
   );
   if (isoDtMatch) {
     const y = Number(isoDtMatch[1]);
     const m = Number(isoDtMatch[2]);
     const d = Number(isoDtMatch[3]);
+    const hh = Number(isoDtMatch[4]);
+    const mm = Number(isoDtMatch[5]);
+    const ss = Number(isoDtMatch[6] || 0);
+    const ms = isoDtMatch[7] ? Number(isoDtMatch[7].padEnd(3, "0")) : 0;
+    const tz = isoDtMatch[8];
+
     if (!isValidCalendarDate(y, m, d)) return null;
-    const dt = new Date(str.includes("T") || str.includes("Z") ? str : str.replace(" ", "T") + "Z");
-    return isNaN(dt.getTime()) ? null : dt;
+    if (hh > 23 || mm > 59 || ss > 59) return null;
+
+    if (!tz || tz === "Z") {
+      return new Date(Date.UTC(y, m - 1, d, hh, mm, ss, ms));
+    }
+
+    const sign = tz[0] === "-" ? -1 : 1;
+    const tzRaw = tz.slice(1).replace(":", "");
+    const tzH = Number(tzRaw.slice(0, 2));
+    const tzM = Number(tzRaw.slice(2, 4));
+    if (tzH > 23 || tzM > 59) return null;
+
+    const offsetMinutes = sign * (tzH * 60 + tzM);
+    const utcEpoch = Date.UTC(y, m - 1, d, hh, mm, ss, ms) - offsetMinutes * 60 * 1000;
+    return new Date(utcEpoch);
   }
 
-  // 4. Russian Datetime: DD.MM.YYYY[T ]HH:mm(:ss)?
-  const ruDtMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  // 4. Russian Datetime: DD.MM.YYYY[T ]HH:mm(:ss)?(.sss)?(Z|[+-]HH:?mm)?
+  const ruDtMatch = str.match(
+    /^(\d{2})\.(\d{2})\.(\d{4})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3})\d*)?(Z|[+-]\d{2}:?\d{2})?$/
+  );
   if (ruDtMatch) {
     const d = Number(ruDtMatch[1]);
     const m = Number(ruDtMatch[2]);
@@ -80,10 +101,25 @@ export function parseStrictDate(dateStr: unknown): Date | null {
     const hh = Number(ruDtMatch[4]);
     const mm = Number(ruDtMatch[5]);
     const ss = Number(ruDtMatch[6] || 0);
+    const ms = ruDtMatch[7] ? Number(ruDtMatch[7].padEnd(3, "0")) : 0;
+    const tz = ruDtMatch[8];
+
     if (!isValidCalendarDate(y, m, d)) return null;
     if (hh > 23 || mm > 59 || ss > 59) return null;
-    const dt = new Date(Date.UTC(y, m - 1, d, hh, mm, ss));
-    return isNaN(dt.getTime()) ? null : dt;
+
+    if (!tz || tz === "Z") {
+      return new Date(Date.UTC(y, m - 1, d, hh, mm, ss, ms));
+    }
+
+    const sign = tz[0] === "-" ? -1 : 1;
+    const tzRaw = tz.slice(1).replace(":", "");
+    const tzH = Number(tzRaw.slice(0, 2));
+    const tzM = Number(tzRaw.slice(2, 4));
+    if (tzH > 23 || tzM > 59) return null;
+
+    const offsetMinutes = sign * (tzH * 60 + tzM);
+    const utcEpoch = Date.UTC(y, m - 1, d, hh, mm, ss, ms) - offsetMinutes * 60 * 1000;
+    return new Date(utcEpoch);
   }
 
   return null;

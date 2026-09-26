@@ -148,6 +148,45 @@ describe("Strict Calendar Date Validation", () => {
     expect(parseStrictDate("31.04.2026")).toBeNull();
     expect(parseStrictDate("2026-04-31T12:00:00Z")).toBeNull();
   });
+
+  it("TC-CALENDAR-DATE-04: enforces deterministic timezone semantics and rejects invalid time components", () => {
+    // 1. Date-only ISO & RU: pure date semantics in UTC
+    expect(parseStrictDate("2026-09-01")?.toISOString()).toBe("2026-09-01T00:00:00.000Z");
+    expect(parseStrictDate("01.09.2026")?.toISOString()).toBe("2026-09-01T00:00:00.000Z");
+
+    // 2. UTC ISO Datetime with explicit Z
+    expect(parseStrictDate("2026-09-01T12:30:00Z")?.toISOString()).toBe("2026-09-01T12:30:00.000Z");
+
+    // 3. Offset with colon (+03:00)
+    expect(parseStrictDate("2026-09-01T12:30:00+03:00")?.toISOString()).toBe("2026-09-01T09:30:00.000Z");
+
+    // 4. Offset without colon (+0300)
+    expect(parseStrictDate("2026-09-01T12:30:00+0300")?.toISOString()).toBe("2026-09-01T09:30:00.000Z");
+
+    // 5. Timezone-less with space: deterministic UTC, server timezone independent
+    expect(parseStrictDate("2026-09-01 12:30:00")?.toISOString()).toBe("2026-09-01T12:30:00.000Z");
+
+    // 6. Timezone-less with T: deterministic UTC, server timezone independent
+    expect(parseStrictDate("2026-09-01T12:30:00")?.toISOString()).toBe("2026-09-01T12:30:00.000Z");
+
+    // 7. Invalid hour (25:00)
+    expect(parseStrictDate("2026-09-01T25:00:00")).toBeNull();
+    expect(parseStrictDate("2026-09-01 25:00:00")).toBeNull();
+    expect(parseStrictDate("2026-09-01T25:00:00Z")).toBeNull();
+
+    // 8. Invalid minute (12:99)
+    expect(parseStrictDate("2026-09-01T12:99:00")).toBeNull();
+    expect(parseStrictDate("2026-09-01 12:99:00")).toBeNull();
+    expect(parseStrictDate("2026-09-01T12:99:00Z")).toBeNull();
+
+    // 9. Impossible calendar date with timezone
+    expect(parseStrictDate("2026-02-29T12:30:00+03:00")).toBeNull();
+    expect(parseStrictDate("2026-04-31T10:00:00+03:00")).toBeNull();
+
+    // 10. Leap year valid vs invalid
+    expect(parseStrictDate("2024-02-29T12:30:00+03:00")?.toISOString()).toBe("2024-02-29T09:30:00.000Z");
+    expect(parseStrictDate("2026-02-29T12:30:00Z")).toBeNull();
+  });
 });
 
 describe("Excel Cell Parsing and Metadata-Aware Typing", () => {
