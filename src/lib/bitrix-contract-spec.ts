@@ -138,7 +138,9 @@ export const EXPECTED_DEAL_FIELDS: ExpectedBitrixField[] = [
     name: "Тестирование образцов",
     required: true,
     allowedTypes: ["enumeration"],
-    expectedMultiple: false,
+    // NOTE (Option 1): Multiplicity is intentionally unconstrained without live Bitrix metadata:
+    // crm-constants notes "enum, possibly multiple", while upstream environments may configure
+    // this field as either single or multiple enum. Business logic normalizes both via toStringArray.
     businessMeaning: "Sample testing status classification in Commercial Funnel",
   },
   {
