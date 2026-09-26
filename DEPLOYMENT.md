@@ -180,6 +180,12 @@ AUTH_MODE=wordpress
 
 or omit `AUTH_MODE`, because default must be `wordpress`.
 
+Set `BUILD_SHA` in the build/deployment environment to the exact commit being
+deployed (`git rev-parse HEAD` at build time). `GET /api/health` reports it as
+`buildSha` so release verification can require `production.buildSha == FINAL_SHA`.
+When unset, `/api/health` truthfully reports `"unknown"` — it never fabricates
+a commit.
+
 Existing environment variables remain unchanged:
 - `NEXTAUTH_SECRET`
 - `PROXY_SECRET`

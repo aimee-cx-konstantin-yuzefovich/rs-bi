@@ -20,6 +20,8 @@ jobs:
       DATABASE_URL: "file:./build-test.db"
       BITRIX_WEBHOOK_URL: ""
       NEXT_TELEMETRY_DISABLED: 1
+      # Exact-SHA release provenance: /api/health must report this commit.
+      BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -54,11 +56,27 @@ jobs:
       - name: Run deployment QA suite
         run: sh scripts/qa-deployment.sh
 
-  deploy:
-    name: Standalone Package & Deploy Gate
+  # This job does NOT deploy production. It only confirms that release
+  # verification succeeded and the standalone artifact is eligible for the
+  # EXTERNAL deployment process documented in DEPLOYMENT.md.
+  # A successful eligibility gate MUST NOT be called a production deployment.
+  eligibility:
+    name: Standalone Release Eligibility Gate
     needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Verify pipeline gate passed
-        run: echo "Verification gate passed. Proceeding with release deployment pipeline."
+      - name: Record release eligibility
+        run: |
+          echo "Release verification passed for exact SHA: ${{ github.sha }}."
+          echo "Artifact is ELIGIBLE for external production deployment."
+          echo "EXTERNAL DEPLOYMENT REQUIRED (see DEPLOYMENT.md)."
+          echo ""
+          echo "After external deployment, the release authority MUST verify:"
+          echo "  1. GET /api/health returns buildSha == ${{ github.sha }}"
+          echo "  2. Routes / /companies /samples /commercial-funnel exist (never 404;"
+          echo "     protected pages may redirect to /login)"
+          echo "  3. /api/bitrix/deals, /api/bitrix/companies/list, /api/bitrix/samples,"
+          echo "     /api/bitrix/commercial-funnel respond with auth boundaries (401/403),"
+          echo "     never 404, when unauthenticated"
+          echo "  4. Login flow works (WordPress SSO)"

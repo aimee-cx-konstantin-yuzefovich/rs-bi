@@ -37,6 +37,10 @@ export PROXY_SECRET=build-only-not-a-runtime-secret
 export DATABASE_URL="file:$work_dir/build-only.db"
 export BITRIX_WEBHOOK_URL=
 export NEXT_TELEMETRY_DISABLED=1
+# Exact-SHA release provenance: the artifact must report the commit it was
+# built from via /api/health (buildSha). Never hard-coded in source.
+export BUILD_SHA="$(git -C "$repo_dir" rev-parse HEAD)"
+export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # NEXT_PUBLIC_WP_LOGIN_URL comes from the invoking environment, not a local .env.
 NODE_ENV=development npm ci
 npm run db:generate
