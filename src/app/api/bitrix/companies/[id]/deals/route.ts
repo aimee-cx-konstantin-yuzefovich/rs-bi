@@ -4,6 +4,7 @@ import { bitrixPost, BitrixItemError } from "@/lib/bitrix";
 import { BITRIX_PORTAL_URL } from "@/lib/config.server";
 import { isCompanyId } from "@/lib/company-preview";
 import { getBitrixEntityUrl } from "@/lib/deal-preview";
+import { normalizeCurrencyCode } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
 
@@ -116,7 +117,8 @@ export async function GET(
         ? Number(rawOpp)
         : null;
 
-      const currencyId = String(item.currencyId ?? item.CURRENCY_ID ?? "RUB");
+      const rawCurrency = item.currencyId != null ? String(item.currencyId) : item.CURRENCY_ID != null ? String(item.CURRENCY_ID) : undefined;
+      const currencyId = normalizeCurrencyCode(rawCurrency);
       const itemCompanyId = String(item.companyId ?? item.COMPANY_ID ?? id);
 
       deals.push({

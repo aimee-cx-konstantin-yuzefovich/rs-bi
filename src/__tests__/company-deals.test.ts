@@ -385,4 +385,98 @@ describe("company deals authoritative endpoint (crm.item.list)", () => {
     expect(body.deals).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  describe("currency normalization regression suite", () => {
+    it("TC-CURRENCY-01: currencyId 'RUB' -> CURRENCY_ID === 'RUB'", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: {
+              items: [{ id: 10, title: "Deal RUB", currencyId: "RUB" }],
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const response = await request("42");
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.deals[0].CURRENCY_ID).toBe("RUB");
+    });
+
+    it("TC-CURRENCY-02: currencyId 'RUR' -> CURRENCY_ID === 'RUB'", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: {
+              items: [{ id: 11, title: "Deal RUR", currencyId: "RUR" }],
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const response = await request("42");
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.deals[0].CURRENCY_ID).toBe("RUB");
+    });
+
+    it("TC-CURRENCY-03: missing currencyId and CURRENCY_ID -> CURRENCY_ID === 'UNKNOWN' (never RUB)", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: {
+              items: [{ id: 12, title: "Deal Missing Currency" }],
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const response = await request("42");
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.deals[0].CURRENCY_ID).toBe("UNKNOWN");
+      expect(body.deals[0].CURRENCY_ID).not.toBe("RUB");
+    });
+
+    it("TC-CURRENCY-04: currencyId '' -> CURRENCY_ID === 'UNKNOWN'", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: {
+              items: [{ id: 13, title: "Deal Empty Currency", currencyId: "" }],
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const response = await request("42");
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.deals[0].CURRENCY_ID).toBe("UNKNOWN");
+      expect(body.deals[0].CURRENCY_ID).not.toBe("RUB");
+    });
+
+    it("TC-CURRENCY-05: currencyId 'USD' -> CURRENCY_ID === 'USD'", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            result: {
+              items: [{ id: 14, title: "Deal USD", currencyId: "USD" }],
+            },
+          }),
+          { status: 200 }
+        )
+      );
+
+      const response = await request("42");
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.deals[0].CURRENCY_ID).toBe("USD");
+    });
+  });
 });
