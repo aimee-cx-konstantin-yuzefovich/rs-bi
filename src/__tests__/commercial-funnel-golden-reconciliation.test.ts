@@ -268,7 +268,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     // Stalled Deal 101 (unknown activity) must NOT fabricate '(нет след. шага)'
     const b101 = bottlenecks.find((b) => b.dealId === "101")!;
     expect(b101).toBeDefined();
-    expect(b101.issueLabel).toBe("Сделка без движения (83 дн.)");
+    expect(b101.issueLabel).toBe("Старая активная сделка (83 дн., данные активности недоступны)");
     expect(b101.nextAction).toBeUndefined();
 
     // Stalled Deal 102 (known empty activity) truthfully states '(нет след. шага)'

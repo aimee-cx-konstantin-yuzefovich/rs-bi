@@ -66,13 +66,18 @@ describe("Fix E & Fix F: Canonical Date & Scalar Safety Authorities", () => {
       expect(d?.toISOString()).toBe("2026-09-01T09:30:00.000Z");
     });
 
-    it("parses naive ISO datetime in Europe/Moscow timezone (2026-09-01T12:30:00 -> 09:30:00 UTC)", () => {
+    it("parses naive ISO datetime as deterministic UTC by default (2026-09-01T12:30:00 -> 12:30:00 UTC)", () => {
       const d = parseStrictDate("2026-09-01T12:30:00");
+      expect(d?.toISOString()).toBe("2026-09-01T12:30:00.000Z");
+    });
+
+    it("parses naive ISO datetime in Europe/Moscow timezone when specified (2026-09-01T12:30:00 -> 09:30:00 UTC)", () => {
+      const d = parseStrictDate("2026-09-01T12:30:00", "DATETIME_BUSINESS_TIMEZONE");
       expect(d?.toISOString()).toBe("2026-09-01T09:30:00.000Z");
     });
 
-    it("parses naive space-separated datetime in Europe/Moscow timezone (2026-09-01 12:30:00 -> 09:30:00 UTC)", () => {
-      const d = parseStrictDate("2026-09-01 12:30:00");
+    it("parses naive space-separated datetime in Europe/Moscow timezone when specified (2026-09-01 12:30:00 -> 09:30:00 UTC)", () => {
+      const d = parseStrictDate("2026-09-01 12:30:00", "DATETIME_BUSINESS_TIMEZONE");
       expect(d?.toISOString()).toBe("2026-09-01T09:30:00.000Z");
     });
   });

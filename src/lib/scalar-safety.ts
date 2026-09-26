@@ -62,7 +62,7 @@ export interface StrictDateOptions {
  */
 export function parseStrictDate(
   dateStr: unknown,
-  options?: StrictDateOptions
+  options?: StrictDateOptions | ParseDateMode
 ): Date | null {
   if (dateStr === null || dateStr === undefined) return null;
   if (dateStr instanceof Date) {
@@ -73,8 +73,8 @@ export function parseStrictDate(
   const str = dateStr.trim();
   if (!str || str === "—") return null;
 
-  const mode = options?.mode || "AUTO";
-  const timeZone = options?.timeZone || BUSINESS_TIMEZONE;
+  const mode = typeof options === "string" ? options : options?.mode || "AUTO";
+  const timeZone = typeof options === "object" ? options?.timeZone || BUSINESS_TIMEZONE : BUSINESS_TIMEZONE;
 
   // 1. Pure ISO Date: YYYY-MM-DD
   const isoDateMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -141,11 +141,14 @@ export function parseStrictDate(
       return new Date(utcEpoch);
     }
 
-    // Timezone-less datetime: interpret in business timezone (Europe/Moscow, UTC+3)
-    // Wall-clock 12:30 in Moscow is 09:30 UTC
-    const businessOffsetMinutes = 180; // UTC+3 permanently
-    const utcEpoch = Date.UTC(y, m - 1, d, hh, mm, ss, ms) - businessOffsetMinutes * 60 * 1000;
-    return new Date(utcEpoch);
+    // Timezone-less datetime: interpret in business timezone if explicitly requested;
+    // otherwise deterministic UTC, server timezone independent.
+    if (mode === "DATETIME_BUSINESS_TIMEZONE") {
+      const businessOffsetMinutes = 180; // UTC+3 permanently
+      const utcEpoch = Date.UTC(y, m - 1, d, hh, mm, ss, ms) - businessOffsetMinutes * 60 * 1000;
+      return new Date(utcEpoch);
+    }
+    return new Date(Date.UTC(y, m - 1, d, hh, mm, ss, ms));
   }
 
   // 4. Russian Datetime: DD.MM.YYYY[T ]HH:mm(:ss)?(.sss)?(Z|[+-]HH:?mm)?
@@ -180,9 +183,12 @@ export function parseStrictDate(
       return new Date(utcEpoch);
     }
 
-    const businessOffsetMinutes = 180;
-    const utcEpoch = Date.UTC(y, m - 1, d, hh, mm, ss, ms) - businessOffsetMinutes * 60 * 1000;
-    return new Date(utcEpoch);
+    if (mode === "DATETIME_BUSINESS_TIMEZONE") {
+      const businessOffsetMinutes = 180;
+      const utcEpoch = Date.UTC(y, m - 1, d, hh, mm, ss, ms) - businessOffsetMinutes * 60 * 1000;
+      return new Date(utcEpoch);
+    }
+    return new Date(Date.UTC(y, m - 1, d, hh, mm, ss, ms));
   }
 
   return null;

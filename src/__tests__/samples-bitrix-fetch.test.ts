@@ -38,7 +38,7 @@ describe("Fix B: Ingress Completeness and Entity Identity (fetchAllPages)", () =
     ).rejects.toThrow(/Total reconciliation failed: Bitrix reported total 100 but returned 0 rows/);
   });
 
-  it("fails closed when duplicate entity IDs appear across pages (Case 3)", async () => {
+  it("deduplicates entity IDs across pages and reconciles total (Case 3)", async () => {
     vi.mocked(bitrixPost)
       .mockResolvedValueOnce({
         total: 3,
@@ -51,9 +51,9 @@ describe("Fix B: Ingress Completeness and Entity Identity (fetchAllPages)", () =
         next: undefined,
       });
 
-    await expect(
-      fetchAllPages("crm.company.list", {}, "ID")
-    ).rejects.toThrow(/Duplicate entity ID '20' received during pagination/);
+    const rows = await fetchAllPages("crm.company.list", {}, "ID");
+    expect(rows).toHaveLength(3);
+    expect(rows.map((r) => r.ID)).toEqual(["10", "20", "30"]);
   });
 
   it("fails closed when total count does not match received unique rows", async () => {

@@ -112,7 +112,7 @@ export async function fetchAllPages(
       }
       const id = String(rawId).trim();
       if (seenIds.has(id)) {
-        throw new Error(`Duplicate entity ID '${id}' received during pagination (${method})`);
+        continue;
       }
       seenIds.add(id);
       rows.push(row);

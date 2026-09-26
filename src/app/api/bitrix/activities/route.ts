@@ -258,7 +258,7 @@ export async function POST(request: NextRequest) {
       incompleteDealIds,
       fetchedDealIds,
       warning: isPartial
-        ? `Не удалось полностью загрузить данные по активностям для части сделок (${unreachedCount} из ${validIds.length}).`
+        ? `Не удалось загрузить данные по активностям полностью для части сделок (${unreachedCount} из ${validIds.length}).`
         : undefined,
       activities: activitiesMap,
     });
