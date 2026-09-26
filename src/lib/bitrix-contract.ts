@@ -12,6 +12,7 @@ import {
   normalizeBitrixBoolean,
   OFFLINE_CONTRACT_SNAPSHOT,
 } from "./bitrix-contract-spec";
+import { assertSafeWebhookUrl } from "./network-safety";
 
 export { OFFLINE_CONTRACT_SNAPSHOT };
 
@@ -522,11 +523,12 @@ export async function verifyLiveBitrixContract(
     };
   }
 
-  const cleanUrl = webhookUrl.trim().replace(/\/+$/, "");
-  const fetchFn = options?.fetchFn || fetch;
-  const timeoutMs = options?.timeoutMs || 10000;
-
   try {
+    const safeUrl = await assertSafeWebhookUrl(webhookUrl.trim());
+    const cleanUrl = safeUrl.toString().replace(/\/+$/, "");
+    const fetchFn = options?.fetchFn || fetch;
+    const timeoutMs = options?.timeoutMs || 10000;
+
     const fetchWithTimeout = async (path: string, postBody?: Record<string, unknown>) => {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeoutMs);

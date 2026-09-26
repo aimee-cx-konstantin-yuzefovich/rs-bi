@@ -26,6 +26,11 @@ import {
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
   DEAL_DIRECTION_FIELD_ID,
+  DEAL_PAYMENT_DATE_FIELD_ID,
+  DEAL_SHIPMENT_DATE_FIELD_ID,
+  DEAL_PRODUCT_TYPE_FIELD_ID,
+  DEAL_INDUSTRY_FIELD_ID,
+  DEAL_REGION_FIELD_ID,
 } from "./crm-constants";
 
 export interface ExpectedBitrixField {
@@ -133,6 +138,7 @@ export const EXPECTED_DEAL_FIELDS: ExpectedBitrixField[] = [
     name: "Тестирование образцов",
     required: true,
     allowedTypes: ["enumeration"],
+    expectedMultiple: false,
     businessMeaning: "Sample testing status classification in Commercial Funnel",
   },
   {
@@ -142,6 +148,51 @@ export const EXPECTED_DEAL_FIELDS: ExpectedBitrixField[] = [
     required: true,
     allowedTypes: ["date", "datetime"],
     businessMeaning: "Sample shipment date establishing sample cycle duration and provenance",
+  },
+  {
+    entity: "deal",
+    id: DEAL_PAYMENT_DATE_FIELD_ID,
+    name: "Дата оплаты",
+    required: false,
+    allowedTypes: ["date", "datetime"],
+    expectedMultiple: false,
+    businessMeaning: "Deal payment date driving cash-in and revenue period metrics",
+  },
+  {
+    entity: "deal",
+    id: DEAL_SHIPMENT_DATE_FIELD_ID,
+    name: "Дата отгрузки",
+    required: false,
+    allowedTypes: ["date", "datetime"],
+    expectedMultiple: false,
+    businessMeaning: "Deal shipment date establishing shipment period metrics",
+  },
+  {
+    entity: "deal",
+    id: DEAL_PRODUCT_TYPE_FIELD_ID,
+    name: "Тип продукта",
+    required: false,
+    allowedTypes: ["enumeration"],
+    expectedMultiple: true,
+    businessMeaning: "Deal product type classification for dimensional filtering",
+  },
+  {
+    entity: "deal",
+    id: DEAL_INDUSTRY_FIELD_ID,
+    name: "Отрасль",
+    required: false,
+    allowedTypes: ["enumeration"],
+    expectedMultiple: true,
+    businessMeaning: "Deal industry classification for dimensional filtering",
+  },
+  {
+    entity: "deal",
+    id: DEAL_REGION_FIELD_ID,
+    name: "Регион",
+    required: false,
+    allowedTypes: ["string", "enumeration"],
+    expectedMultiple: false,
+    businessMeaning: "Deal geographical region classification for dimensional filtering",
   },
 
   // ─── OPTIONAL / Warning fields (Supplementary display) ───────────────
@@ -373,6 +424,19 @@ export const OFFLINE_CONTRACT_SNAPSHOT = {
         isMultiple: true,
         items: [{ ID: "1007", VALUE: "Агрохимия" }],
       },
+      [DEAL_PAYMENT_DATE_FIELD_ID]: { type: "date", isMultiple: false },
+      [DEAL_SHIPMENT_DATE_FIELD_ID]: { type: "date", isMultiple: false },
+      [DEAL_PRODUCT_TYPE_FIELD_ID]: {
+        type: "enumeration",
+        isMultiple: true,
+        items: [{ ID: "101", VALUE: "Гель" }],
+      },
+      [DEAL_INDUSTRY_FIELD_ID]: {
+        type: "enumeration",
+        isMultiple: true,
+        items: [{ ID: "201", VALUE: "Химия" }],
+      },
+      [DEAL_REGION_FIELD_ID]: { type: "string", isMultiple: false },
       [PAYMENT_STATUS_FIELD_ID]: {
         type: "enumeration",
         isMultiple: false,

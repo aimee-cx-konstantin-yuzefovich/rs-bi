@@ -61,6 +61,17 @@ export const DEAL_SAMPLE_MARK_VOLUME_FIELD_ID = "UF_CRM_1779384164284";
 // Deal "Направление" (multiple enum)
 export const DEAL_DIRECTION_FIELD_ID = "UF_CRM_6915D8C328208";
 
+// Deal "Дата оплаты" (date)
+export const DEAL_PAYMENT_DATE_FIELD_ID = "UF_CRM_1584460062014";
+// Deal "Дата отгрузки" (date)
+export const DEAL_SHIPMENT_DATE_FIELD_ID = "UF_CRM_1584459666824";
+// Deal "Тип продукта" (multiple enum)
+export const DEAL_PRODUCT_TYPE_FIELD_ID = "UF_CRM_69257BBACD471";
+// Deal "Отрасль" (multiple enum)
+export const DEAL_INDUSTRY_FIELD_ID = "UF_CRM_6915D8C2C31D0";
+// Deal "Регион" (string)
+export const DEAL_REGION_FIELD_ID = "UF_CRM_69259C45EC14B";
+
 export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "COMPANY_TITLE",
   // NEW — guaranteed defaults for the Companies browser (required fields:
