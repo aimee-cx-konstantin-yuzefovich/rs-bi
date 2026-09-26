@@ -6,6 +6,7 @@ import {
   RESPONSIBLE_FIELD_ID,
   COMPANY_RESPONSIBLE_FIELD_ID,
 } from "@/lib/crm-constants";
+import { parseStrictDate } from "@/lib/date-safety";
 
 // ─── Client-side fetch timeout (prevents infinite loading spinner) ───
 // Server-side bitrix helpers already have 15s/30s timeouts,
@@ -606,11 +607,14 @@ export const useDashboardStore = create<DashboardState>()(
           let toDate: Date | null = null;
 
           if (dateFilter.preset === "custom") {
-            if (dateFilter.customFrom) fromDate = new Date(dateFilter.customFrom);
+            if (dateFilter.customFrom) {
+              fromDate = parseStrictDate(dateFilter.customFrom, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+            }
             if (dateFilter.customTo) {
-              toDate = new Date(dateFilter.customTo);
-              // ✅ Push JS Date object to 23:59:59 so afternoon deals aren't filtered out
-              toDate.setHours(23, 59, 59, 999);
+              const parsedTo = parseStrictDate(dateFilter.customTo, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+              if (parsedTo) {
+                toDate = new Date(parsedTo.getTime() + 24 * 60 * 60 * 1000 - 1);
+              }
             }
           } else {
             const daysMap: Record<string, number> = {
@@ -628,8 +632,8 @@ export const useDashboardStore = create<DashboardState>()(
           filtered = filtered.filter((deal) => {
             const dateStr = deal.DATE_CREATE as string;
             if (!dateStr) return false;
-            const d = new Date(dateStr);
-            if (isNaN(d.getTime())) return false;
+            const d = parseStrictDate(dateStr, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+            if (!d) return false;
             if (fromDate && d < fromDate) return false;
             if (toDate && d > toDate) return false;
             return true;

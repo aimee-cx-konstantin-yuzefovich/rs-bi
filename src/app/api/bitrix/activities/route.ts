@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixPost } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
+import { parseStrictDate } from "@/lib/date-safety";
 import pLimit from "p-limit";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,8 @@ export interface ActivityData {
 
 function parseTimestamp(dateStr?: string | null): number | null {
   if (!dateStr || typeof dateStr !== "string") return null;
-  const ts = new Date(dateStr).getTime();
-  return isNaN(ts) ? null : ts;
+  const d = parseStrictDate(dateStr, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+  return d ? d.getTime() : null;
 }
 
 /**

@@ -159,16 +159,17 @@ function getCompanySortValue(
   field?: CompanyFieldMeta
 ): string | number {
   if (field?.type === "money" && typeof company[colId] === "string") {
-    const num = parseFloat(String(company[colId]).split("|")[0]);
-    return isNaN(num) ? 0 : num;
+    const rawVal = String(company[colId]).split("|")[0];
+    const num = parseStrictNumber(rawVal);
+    return num !== undefined ? num : Number.NEGATIVE_INFINITY;
   }
   if (field?.type === "double" || field?.type === "integer") {
-    const num = parseFloat(String(company[colId]));
-    return isNaN(num) ? 0 : num;
+    const num = parseStrictNumber(company[colId]);
+    return num !== undefined ? num : Number.NEGATIVE_INFINITY;
   }
   if (field?.type === "date" || field?.type === "datetime") {
-    const d = new Date(String(company[colId]));
-    return isNaN(d.getTime()) ? 0 : d.getTime();
+    const d = parseStrictDate(company[colId], { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    return d !== null ? d.getTime() : Number.NEGATIVE_INFINITY;
   }
   return resolveCompanyValue(company, colId, userNames, field).toLowerCase();
 }
@@ -195,17 +196,21 @@ function matchesCompanyDateFilter(company: Record<string, any>, filter: DateFilt
 
   const dateStr = company.DATE_CREATE as string | undefined;
   if (!dateStr) return false;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return false;
+  const d = parseStrictDate(dateStr, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+  if (!d) return false;
 
   let fromDate: Date | null = null;
   let toDate: Date | null = null;
 
   if (filter.preset === "custom") {
-    if (filter.customFrom) fromDate = new Date(filter.customFrom);
+    if (filter.customFrom) {
+      fromDate = parseStrictDate(filter.customFrom, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    }
     if (filter.customTo) {
-      toDate = new Date(filter.customTo);
-      toDate.setHours(23, 59, 59, 999);
+      const parsedTo = parseStrictDate(filter.customTo, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      if (parsedTo) {
+        toDate = new Date(parsedTo.getTime() + 24 * 60 * 60 * 1000 - 1);
+      }
     }
   } else {
     const daysMap: Record<string, number> = { "7days": 7, "14days": 14, "30days": 30, "90days": 90 };
