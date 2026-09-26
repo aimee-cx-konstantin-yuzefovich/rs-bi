@@ -12,6 +12,7 @@ import {
   isTerminalLostStage,
   isTerminalWonStage,
 } from "@/lib/stage-utils";
+import type { DatasetCoverage } from "@/lib/dataset-coverage";
 
 // ─── Client-side fetch timeout (prevents infinite loading spinner) ───
 // Server-side bitrix helpers already have 15s/30s timeouts,
@@ -106,6 +107,12 @@ interface DashboardState {
   dealsTotal: number;
   dealsTruncated: boolean;
   dealsFetched: number;
+  // Canonical coverage (COMPLETE/CAPPED/PARTIAL) — never collapsed to one
+  // boolean. Kept in store state only: the underlying datasets are not
+  // persisted to localStorage, so persisting coverage alone would fabricate a
+  // stale completeness claim after reload.
+  dealsCoverage: DatasetCoverage | null;
+  dealsFailedPages: number[];
 
   // Date filter
   dateFilter: DateFilter;
@@ -168,12 +175,20 @@ interface DashboardState {
   companyBrowserPartial: boolean;
   companyBrowserWarning: string | null;
   companyBrowserResponsibleId: string;
+  companyBrowserCoverage: DatasetCoverage | null;
 
   // Real "who is a company's responsible person" source of truth — scanned
   // directly from crm.company.list (ID + ASSIGNED_BY_ID only), independent of
   // deal ownership. Drives the Companies browser's responsible-person picker.
   companyResponsibleCounts: Record<string, number>;
   companyResponsibleCountsLoading: boolean;
+  companyResponsibleCountsCoverage: DatasetCoverage | null;
+
+  // Enrichment-source coverage (partial stays partial, never collapses into
+  // "Неизвестный" without provenance):
+  usersCoverage: DatasetCoverage | null;
+  fieldsCoverage: DatasetCoverage | null;
+  activitiesCoverage: DatasetCoverage | null;
 
   // ─── Actions ───
   checkConfig: () => Promise<void>;
@@ -307,6 +322,8 @@ export const useDashboardStore = create<DashboardState>()(
       dealsTotal: 0,
       dealsTruncated: false,
       dealsFetched: 0,
+      dealsCoverage: null,
+      dealsFailedPages: [],
 
       // Date filter
       dateFilter: { preset: "all" },
@@ -355,8 +372,13 @@ export const useDashboardStore = create<DashboardState>()(
       companyBrowserPartial: false,
       companyBrowserWarning: null,
       companyBrowserResponsibleId: "all",
+      companyBrowserCoverage: null,
       companyResponsibleCounts: {},
       companyResponsibleCountsLoading: false,
+      companyResponsibleCountsCoverage: null,
+      usersCoverage: null,
+      fieldsCoverage: null,
+      activitiesCoverage: null,
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -445,8 +467,19 @@ export const useDashboardStore = create<DashboardState>()(
         const isCurrentRequest = () => requestSeq === dealsRequestSeq;
         set({ dealsLoading: true, dealsError: null });
         try {
-          const { dateFilter, selectedColumns } = get();
+          const { dateFilter, selectedColumns, responsibleFilter } = get();
           const filter = getDateFilterRange(dateFilter);
+
+          // ─── Safe filters pushed upstream BEFORE the cap ───
+          // The responsible filter is a native Bitrix field (ASSIGNED_BY_ID):
+          // pushing it upstream prevents the classic false-filtered-window
+          // problem where the only matching deal lies outside the first
+          // capped window. Pipeline semantic groups (in_work/WON/LOSE) are
+          // NOT safely translatable upstream as one filter — they stay local
+          // and the result remains coverage-truthful (CAPPED stays CAPPED).
+          if (responsibleFilter !== "all") {
+            filter["ASSIGNED_BY_ID"] = responsibleFilter;
+          }
 
           const select = selectedColumns.length > 0
             ? [...selectedColumns]
@@ -494,6 +527,8 @@ export const useDashboardStore = create<DashboardState>()(
             dealsTotal: data.total,
             dealsTruncated: data.truncated || false,
             dealsFetched: data.fetched || data.deals.length,
+            dealsCoverage: data.coverage ?? null,
+            dealsFailedPages: Array.isArray(data.failedOffsets) ? data.failedOffsets : [],
             dealsLoading: false,
             isDemoMode: false,
             connectionStatus: "connected",
@@ -1145,6 +1180,7 @@ export const useDashboardStore = create<DashboardState>()(
             companyBrowserTruncated: data.truncated || false,
             companyBrowserPartial: data.partial || false,
             companyBrowserWarning: data.warning || null,
+            companyBrowserCoverage: data.coverage ?? null,
             companyBrowserLoading: false,
           });
         } catch (error) {
@@ -1161,6 +1197,7 @@ export const useDashboardStore = create<DashboardState>()(
             companyBrowserTruncated: false,
             companyBrowserPartial: false,
             companyBrowserWarning: null,
+            companyBrowserCoverage: null,
           });
         }
       },
@@ -1186,7 +1223,11 @@ export const useDashboardStore = create<DashboardState>()(
           if (!data.success) {
             throw new Error(data.error || "Failed to fetch responsible counts");
           }
-          set({ companyResponsibleCounts: data.counts || {}, companyResponsibleCountsLoading: false });
+          set({
+            companyResponsibleCounts: data.counts || {},
+            companyResponsibleCountsCoverage: data.coverage ?? null,
+            companyResponsibleCountsLoading: false,
+          });
         } catch (error) {
           console.warn("[Dashboard] Failed to fetch company responsible counts:", error);
           set({ companyResponsibleCountsLoading: false });
