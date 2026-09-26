@@ -76,6 +76,7 @@ describe("company deals authoritative endpoint (crm.item.list)", () => {
       TITLE: "Сделка №1",
       STAGE_ID: "NEW",
       OPPORTUNITY: 350000,
+      OPPORTUNITY_QUALITY: "VALID",
       CURRENCY_ID: "RUB",
       COMPANY_ID: "42",
       bitrixUrl: "https://portal.bitrix24.ru/crm/deal/details/101/",

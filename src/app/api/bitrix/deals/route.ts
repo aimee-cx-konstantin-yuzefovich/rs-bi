@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixPost, type BitrixDealsResponse } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
-import pLimit from "p-limit";
+import { fetchCappedPages } from "@/lib/bitrix-pagination";
+import { resolveDatasetCoverage } from "@/lib/dataset-coverage";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ const MAX_FILTER_VALUE_LENGTH = 1000; // Prevent oversized filter values
 const ALLOWED_ORDER_DIRECTIONS = new Set(["ASC", "DESC"]);
 const SAFE_FIELD_NAME_PATTERN = /^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)?$/;
 const DEFAULT_SELECT_FIELDS = ["*", "UF_*"];
+const MAX_DEALS_TO_FETCH = 1000;
 
 /**
  * Validate and sanitize the request body for deals endpoint.
@@ -161,71 +163,76 @@ export async function POST(request: NextRequest) {
       select: validated.select,
       filter: validated.filter,
       order: validated.order,
-      start: validated.start,
     };
 
-    const data = await bitrixPost<BitrixDealsResponse>(
-      "crm.deal.list",
-      apiBody
-    );
-
-    // Fetch all pages if there are more results
-    let allDeals = data.result || [];
-    const bitrixTotal = data.total ?? allDeals.length;
-    let failedPages = 0;
-    const failedOffsets: number[] = [];
-    const MAX_DEALS_TO_FETCH = 1000;
-    const startOffset = validated.start ?? 0;
-    const availableFromStart = Math.max(0, bitrixTotal - startOffset);
-    const cappedByLimit = availableFromStart > MAX_DEALS_TO_FETCH;
-
-    if (data.next && availableFromStart > 50) {
-      const limit = pLimit(5); // Max 5 concurrent requests to respect Bitrix limits
-      const targetOffsetEnd = Math.min(bitrixTotal, startOffset + MAX_DEALS_TO_FETCH);
-      const pagePromises = [];
-      
-      // Generate promises for remaining pages with offset tracking
-      for (let offset = startOffset + 50; offset < targetOffsetEnd; offset += 50) {
-        pagePromises.push(
-          limit(async () => {
-            try {
-              const res = await bitrixPost<BitrixDealsResponse>("crm.deal.list", {
-                ...apiBody,
-                start: offset,
-              });
-              return { offset, result: res.result || [], ok: true };
-            } catch (err) {
-              console.error(`[Deals API] Failed fetching page at offset ${offset}:`, err);
-              return { offset, result: [] as any[], ok: false };
-            }
-          })
-        );
+    // ─── Cap-aware pagination via the ONE shared primitive ───
+    // Identity: every deal must carry a valid ID; missing IDs are corruption
+    // (counted, never silently dropped). Duplicates never inflate counts.
+    // Failed pages → PARTIAL. Reconciliation: unique fetched must equal the
+    // capped window when all pages succeeded. Cursor progression validated.
+    // First-page failure fails the whole request closed (500) — an empty
+    // answer must never look like a valid "zero deals" result.
+    let pages;
+    try {
+      pages = await fetchCappedPages<Record<string, unknown>>({
+        method: "crm.deal.list",
+        baseParams: apiBody,
+        idOf: (row) => {
+          const rawId = row.ID ?? row.id;
+          if (rawId === undefined || rawId === null) return null;
+          const s = String(rawId).trim();
+          return s === "" ? null : s;
+        },
+        cap: MAX_DEALS_TO_FETCH,
+        pageSize: 50,
+        concurrency: 5,
+        start: validated.start ?? 0,
+        fetchPage: (params) =>
+          bitrixPost<BitrixDealsResponse>("crm.deal.list", {
+            ...params,
+            start: params.start,
+          }),
+        logPrefix: "[Deals API]",
+      });
+    } catch (pageError) {
+      if (pageError instanceof Error && pageError.message.includes("crm.deal.list:")) {
+        throw pageError;
       }
-
-      const results = await Promise.all(pagePromises);
-      results.sort((a, b) => a.offset - b.offset);
-      
-      for (const res of results) {
-        if (res.ok) {
-          allDeals = [...allDeals, ...res.result];
-        } else {
-          failedPages++;
-          failedOffsets.push(res.offset);
-        }
-      }
+      throw pageError;
+    }
+    if (pages.failedOffsets.includes(validated.start ?? 0) && pages.rows.length === 0) {
+      throw new Error("Failed to fetch deals");
     }
 
+    const allDeals = pages.rows;
+    const bitrixTotal = pages.total ?? allDeals.length;
     const fetched = allDeals.length;
-    const partial = failedPages > 0;
+    const partial = pages.partial;
     const truncated = bitrixTotal > fetched;
 
     // Truthful warning: distinguish upstream failure from intentional application cap
     let warning: string | undefined;
-    if (partial) {
+    if (pages.missingIdCount > 0 || pages.totalInconsistent) {
+      warning = `Обнаружены некорректные данные в ответе CRM. Загружено ${fetched} из ${bitrixTotal} сделок.`;
+    } else if (partial) {
       warning = `Некоторые данные не удалось загрузить. Показано ${fetched} из ${bitrixTotal} сделок.`;
-    } else if (cappedByLimit) {
+    } else if (pages.cappedByLimit) {
       warning = `Данные усечены. Показаны последние ${MAX_DEALS_TO_FETCH} сделок.`;
     }
+
+    const coverage = resolveDatasetCoverage(
+      {
+        fetched,
+        total: bitrixTotal,
+        partial,
+        failedPages: pages.failedPages,
+        failedOffsets: pages.failedOffsets,
+        cappedByLimit: pages.cappedByLimit,
+        truncated,
+        warning,
+      },
+      MAX_DEALS_TO_FETCH
+    );
 
     return NextResponse.json({
       success: true,
@@ -233,11 +240,15 @@ export async function POST(request: NextRequest) {
       total: bitrixTotal,
       fetched,
       partial,
-      failedPages,
-      failedOffsets,
-      cappedByLimit,
+      failedPages: pages.failedPages,
+      failedOffsets: pages.failedOffsets,
+      cappedByLimit: pages.cappedByLimit,
       truncated,
       warning,
+      coverage,
+      // Corruption accounting for QA/acceptance fixtures:
+      duplicateCount: pages.duplicateCount,
+      missingIdCount: pages.missingIdCount,
     });
   } catch (error) {
     console.error("[Deals API Error] Full error details:", error);

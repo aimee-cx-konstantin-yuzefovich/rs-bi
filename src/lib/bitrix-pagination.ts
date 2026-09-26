@@ -244,10 +244,10 @@ export async function fetchCappedPages<T extends CappedPageRow>(
 
   const uniqueCount = rows.length;
   const allPagesRetrieved = failedPages === 0 && missingIdCount === 0 && !totalInconsistent;
+  // cappedByLimit is a fact about total vs the window, independent of page
+  // failures (PARTIAL precedence is handled by resolveDatasetCoverage).
   const cappedByLimit =
-    authoritativeTotal !== undefined &&
-    authoritativeTotal > start + cap &&
-    allPagesRetrieved;
+    authoritativeTotal !== undefined && authoritativeTotal > start + cap;
   const partial = failedPages > 0 || missingIdCount > 0 || totalInconsistent;
 
   // Reconciliation: with all pages retrieved and a known total, the unique

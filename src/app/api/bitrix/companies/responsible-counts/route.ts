@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { bitrixPost } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
 import pLimit from "p-limit";
+import { resolveDatasetCoverage } from "@/lib/dataset-coverage";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +78,14 @@ export async function GET() {
     const cappedByLimit = bitrixTotal > MAX_COMPANIES_TO_SCAN;
     const truncated = bitrixTotal > scannedCompanies;
 
+    // Coverage is propagated truthfully to the client: a manager count from a
+    // partial/capped source must never visually appear fully authoritative.
+    const warning = partial
+      ? `Не удалось загрузить часть данных (${failedPages} запрос(ов) не выполнено). Просканировано ${scannedCompanies} из ${bitrixTotal} компаний.`
+      : cappedByLimit
+      ? `Данные усечены лимитом загрузки. Просканировано ${scannedCompanies} из ${bitrixTotal} компаний.`
+      : undefined;
+
     return NextResponse.json({
       success: true,
       counts,
@@ -86,6 +95,19 @@ export async function GET() {
       failedPages,
       cappedByLimit,
       truncated,
+      warning,
+      coverage: resolveDatasetCoverage(
+        {
+          fetched: scannedCompanies,
+          total: bitrixTotal,
+          partial,
+          failedPages,
+          cappedByLimit,
+          truncated,
+          warning,
+        },
+        MAX_COMPANIES_TO_SCAN
+      ),
     });
   } catch (error) {
     console.error("[Companies Responsible-Counts API Error]", error);

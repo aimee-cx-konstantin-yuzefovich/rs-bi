@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bitrixPost } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
-import pLimit from "p-limit";
+import { fetchCappedPages } from "@/lib/bitrix-pagination";
+import { resolveDatasetCoverage } from "@/lib/dataset-coverage";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,8 @@ function validateCompanyListRequest(body: unknown): CompanyListRequestBody {
 /**
  * POST /api/bitrix/companies/list
  * Direct company query, independent of the deals dataset.
+ * Uses the shared cap-aware pagination primitive: IDs validated, duplicates
+ * never inflate counts, failed pages → PARTIAL, total consistency checked.
  */
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth();
@@ -91,66 +94,81 @@ export async function POST(request: NextRequest) {
     }
     const FILTER: Record<string, string> = responsibleId ? { ASSIGNED_BY_ID: responsibleId } : {};
 
-    const firstPage = await bitrixPost<{ result?: CompanyRecord[]; total?: number; next?: number }>(
-      "crm.company.list",
-      { FILTER, SELECT, ORDER: { TITLE: "ASC" }, start: 0 }
-    );
-
-    let companies = firstPage.result || [];
-    const bitrixTotal = firstPage.total ?? companies.length;
-    let failedPages = 0;
-
-    if (firstPage.next && bitrixTotal > 50) {
-      const limit = pLimit(5);
-      const targetTotal = Math.min(bitrixTotal, MAX_COMPANIES_TO_FETCH);
-      const promises = [];
-
-      for (let offset = 50; offset < targetTotal; offset += 50) {
-        promises.push(
-          limit(() =>
-            bitrixPost<{ result?: CompanyRecord[] }>("crm.company.list", {
-              FILTER,
-              SELECT,
-              ORDER: { TITLE: "ASC" },
-              start: offset,
-            })
-          )
-        );
-      }
-
-      const results = await Promise.allSettled(promises);
-      for (const res of results) {
-        if (res.status === "fulfilled" && res.value.result) {
-          companies = [...companies, ...res.value.result];
-        } else if (res.status === "rejected") {
-          failedPages++;
-          console.error("[Companies List API] Page fetch failed:", res.reason);
-        }
-      }
+    // First-page failure fails closed (500) — never a fake "zero companies".
+    let pages;
+    try {
+      pages = await fetchCappedPages<CompanyRecord>({
+        method: "crm.company.list",
+        baseParams: { FILTER, SELECT, ORDER: { TITLE: "ASC" } },
+        idOf: (row) => {
+          const rawId = row.ID ?? row.id;
+          if (rawId === undefined || rawId === null) return null;
+          const s = String(rawId).trim();
+          return s === "" ? null : s;
+        },
+        cap: MAX_COMPANIES_TO_FETCH,
+        pageSize: 50,
+        concurrency: 5,
+        start: 0,
+        fetchPage: (params) =>
+          bitrixPost<{ result?: CompanyRecord[]; total?: number; next?: unknown }>(
+            "crm.company.list",
+            params
+          ),
+        logPrefix: "[Companies List API]",
+      });
+    } catch (pageError) {
+      throw pageError instanceof Error ? pageError : new Error("Failed to fetch companies");
+    }
+    if (pages.rows.length === 0 && pages.failedPages > 0) {
+      throw new Error("Failed to fetch companies");
     }
 
-    companies = companies.map((company) => {
+    const companies = pages.rows.map((company) => {
       const title = typeof company.TITLE === "string" ? company.TITLE.trim() : "";
       return { ...company, TITLE: title || "Без названия" };
     });
 
+    const bitrixTotal = pages.total ?? companies.length;
+    const fetched = companies.length;
     const cappedByLimit = bitrixTotal > MAX_COMPANIES_TO_FETCH;
-    const truncated = bitrixTotal > companies.length;
-    const warning = failedPages > 0
-      ? `Не удалось загрузить часть данных (${failedPages} запрос(ов) не выполнено). Показано ${companies.length} из ${bitrixTotal} компаний — повторите синхронизацию.`
+    const truncated = bitrixTotal > fetched;
+    const partial = pages.partial;
+
+    const warning = pages.missingIdCount > 0 || pages.totalInconsistent
+      ? `Обнаружены некорректные данные в ответе CRM. Загружено ${fetched} из ${bitrixTotal} компаний.`
+      : partial
+      ? `Не удалось загрузить часть данных (${pages.failedPages} запрос(ов) не выполнено). Показано ${fetched} из ${bitrixTotal} компаний — повторите синхронизацию.`
       : truncated
-        ? `Показаны первые ${companies.length} из ${bitrixTotal} компаний.`
-        : undefined;
+      ? `Показаны первые ${fetched} из ${bitrixTotal} компаний.`
+      : undefined;
+
+    const coverage = resolveDatasetCoverage(
+      {
+        fetched,
+        total: bitrixTotal,
+        partial,
+        failedPages: pages.failedPages,
+        failedOffsets: pages.failedOffsets,
+        cappedByLimit,
+        truncated,
+        warning,
+      },
+      MAX_COMPANIES_TO_FETCH
+    );
 
     return NextResponse.json({
       success: true,
       companies,
       total: bitrixTotal,
-      fetched: companies.length,
+      fetched,
       truncated,
-      partial: failedPages > 0,
+      partial,
       cappedByLimit,
       warning,
+      coverage,
+      duplicateCount: pages.duplicateCount,
+      missingIdCount: pages.missingIdCount,
     });
   } catch (error) {
     console.error("[Companies List API Error]", error);
