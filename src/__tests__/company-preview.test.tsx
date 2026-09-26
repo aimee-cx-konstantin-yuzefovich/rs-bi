@@ -24,7 +24,7 @@ const detail = (id = "42", title = "Свежая компания") => ({ succes
   bitrixUrl: `https://portal.example/crm/company/details/${id}/` });
 const ok = (body: unknown = detail()) => ({ ok: true, json: async () => body });
 beforeEach(() => { vi.stubGlobal("fetch", fetchMock); fetchMock.mockResolvedValue(ok()); });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); fetchMock.mockReset(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); fetchMock.mockReset(); vi.clearAllMocks(); });
 
 it("opens a data row, uses real Bitrix company names and preserves the table on close/reopen", async () => {
   render(<CompanyBrowser />);
@@ -171,8 +171,11 @@ it("displays Образцы section with 7 rows, excludes Последняя а�
 
 it("renders secondary outlined export button and triggers export with company title and sample fields", async () => {
   const { exportCompanyToExcel } = await import("@/lib/export-utils");
-  fetchMock.mockResolvedValue(
-    ok({
+  fetchMock.mockImplementation(async (url: string) => {
+    if (String(url).endsWith("/deals")) {
+      return { ok: true, json: async () => ({ success: true, deals: [] }) };
+    }
+    return ok({
       success: true,
       company: {
         ID: "42",
@@ -184,14 +187,19 @@ it("renders secondary outlined export button and triggers export with company ti
         UF_CRM_1764155817232: "Гель-100",
       },
       bitrixUrl: "https://portal.example/crm/company/details/42/",
-    })
-  );
+    });
+  });
 
   render(<CompanyBrowser />);
   fireEvent.click(screen.getByRole("button", { name: "Компания из таблицы" }));
   await screen.findByRole("heading", { name: "Экспортная компания" });
+  // Full report export requires related deals to have succeeded first.
+  await waitFor(() => {
+    const btn = screen.getByRole("button", { name: "Экспорт отчёта" });
+    expect(btn).not.toBeDisabled();
+  });
 
-  const exportBtn = screen.getByRole("button", { name: /Экспорт/i });
+  const exportBtn = screen.getByRole("button", { name: "Экспорт отчёта" });
   expect(exportBtn).toBeInTheDocument();
   expect(exportBtn).not.toBeDisabled();
   expect(exportBtn.className).toContain("border-brand-blue");
@@ -208,6 +216,50 @@ it("renders secondary outlined export button and triggers export with company ti
       })
     );
   });
+});
+
+it("full report export stays disabled while related deals are loading, and offers the labelled card-only export", async () => {
+  const { exportCompanyToExcel } = await import("@/lib/export-utils");
+  let resolveDeals!: (value: unknown) => void;
+  fetchMock.mockImplementation(async (url: string) => {
+    if (String(url).endsWith("/deals")) {
+      return new Promise((done) => { resolveDeals = done; });
+    }
+    return ok(detail("42", "Компания с ожидающими сделками"));
+  });
+
+  render(<CompanyBrowser />);
+  fireEvent.click(screen.getByRole("button", { name: "Компания из таблицы" }));
+  await screen.findByRole("heading", { name: "Компания с ожидающими сделками" });
+
+  const fullBtn = screen.getByRole("button", { name: "Экспорт отчёта" });
+  expect(fullBtn).toBeDisabled();
+
+  // Distinct explicitly-labelled card-only action is available.
+  const cardBtn = screen.getByRole("button", { name: "Экспортировать только карточку компании" });
+  expect(cardBtn).not.toBeDisabled();
+  fireEvent.click(cardBtn);
+  await waitFor(() => {
+    expect(exportCompanyToExcel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "42",
+        deals: [],
+      })
+    );
+  });
+  const cardCall = exportCompanyToExcel.mock.calls[0][0];
+  expect(cardCall.companyTitle).toContain("только карточка компании");
+
+  // Once deals succeed, the full report becomes available.
+  exportCompanyToExcel.mockClear();
+  resolveDeals({
+    ok: true,
+    json: async () => ({ success: true, deals: [{ ID: "1", TITLE: "Сделка 1", OPPORTUNITY: "100", CURRENCY_ID: "RUB" }] }),
+  });
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Экспорт отчёта" })).not.toBeDisabled();
+  });
+  expect(screen.queryByRole("button", { name: "Экспортировать только карточку компании" })).not.toBeInTheDocument();
 });
 
 it("renders specific error message when related deals API returns 403 or 404", async () => {

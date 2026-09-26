@@ -9,6 +9,7 @@ import { Download, ExternalLink, Loader2, FlaskConical, ArrowRight } from "lucid
 import { useDashboardStore } from "@/store/dashboard-store";
 import { defaultCompanyFields, defaultSampleFields } from "@/lib/company-preview";
 import { exportCompanyToExcel } from "@/lib/export-utils";
+import { parseStrictNumber } from "@/lib/scalar-safety";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { SampleSummary } from "@/lib/samples/types";
 import { getDealStageDisplayLabel } from "@/lib/crm-constants";
@@ -91,36 +92,35 @@ export function CompanyPreview({
 
   const handleExport = async () => {
     if (state.status !== "success") return;
+    // Full report requires BOTH the company card and the related deals to have
+    // succeeded — a deals loading/error state must never silently map to
+    // "deals = []" and produce a full-looking report.
+    if (dealsState.status !== "success") return;
     try {
       setIsExporting(true);
       const company = state.company;
       const companyTitle = String(company.TITLE || "").trim() || "Без названия";
       const companyFields = activeFieldsFor(company);
       const sampleFields = activeSampleFieldsFor(company);
-      const deals =
-        dealsState.status === "success"
-          ? dealsState.deals.map((d) => {
-              const rawOpp = d.OPPORTUNITY ?? d.opportunity;
-              const opp =
-                rawOpp !== null && rawOpp !== undefined && rawOpp !== ""
-                  ? Number(rawOpp)
-                  : null;
-              const rawCurrency = d.CURRENCY_ID ?? d.currencyId;
-              const currency =
-                rawCurrency !== null &&
-                rawCurrency !== undefined &&
-                String(rawCurrency).trim() !== ""
-                  ? String(rawCurrency).trim()
-                  : undefined;
-              return {
-                id: String(d.ID || d.id || ""),
-                title: String(d.TITLE || d.title || "").trim() || "Без названия",
-                stage: resolveStage(d.STAGE_ID ?? d.stageId),
-                opportunity: opp !== null && !isNaN(opp) ? opp : null,
-                currency,
-              };
-            })
-          : [];
+      const deals = dealsState.deals.map((d) => {
+        const rawOpp = d.OPPORTUNITY ?? d.opportunity;
+        // Canonical strict parsing: "12abc"/"0x10" never become numbers.
+        const opp = parseStrictNumber(rawOpp);
+        const rawCurrency = d.CURRENCY_ID ?? d.currencyId;
+        const currency =
+          rawCurrency !== null &&
+          rawCurrency !== undefined &&
+          String(rawCurrency).trim() !== ""
+            ? String(rawCurrency).trim()
+            : undefined;
+        return {
+          id: String(d.ID || d.id || ""),
+          title: String(d.TITLE || d.title || "").trim() || "Без названия",
+          stage: resolveStage(d.STAGE_ID ?? d.stageId),
+          opportunity: opp !== undefined ? opp : null,
+          currency,
+        };
+      });
 
       const exportOptions = {
         companyTitle,
@@ -136,6 +136,31 @@ export function CompanyPreview({
       await exportCompanyToExcel(exportOptions);
     } catch (err) {
       console.error("Failed to export company to Excel", err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Distinct, explicitly labelled company-card-only export: valid when the
+  // company card succeeded even if related deals failed. The workbook is
+  // visibly labelled so its scope can never be mistaken for the full report.
+  const handleCardOnlyExport = async () => {
+    if (state.status !== "success") return;
+    try {
+      setIsExporting(true);
+      const company = state.company;
+      const companyTitle = String(company.TITLE || "").trim() || "Без названия";
+      const exportOptions = {
+        companyTitle: `${companyTitle} — только карточка компании (без сделок)`,
+        companyId: id,
+        companyFields: activeFieldsFor(company),
+        sampleFields: activeSampleFieldsFor(company),
+        deals: [],
+        fileName: `РусСилика_Компания_${id}_только_карточка.xlsx`,
+      };
+      await exportCompanyToExcel(exportOptions);
+    } catch (err) {
+      console.error("Failed to export company card to Excel", err);
     } finally {
       setIsExporting(false);
     }
@@ -296,10 +321,8 @@ export function CompanyPreview({
                         const dealTitle = String(deal.TITLE || deal.title || "").trim() || "Без названия";
                         const stage = resolveStage(deal.STAGE_ID ?? deal.stageId);
                         const rawOpp = deal.OPPORTUNITY ?? deal.opportunity;
-                        const opportunity =
-                          rawOpp !== null && rawOpp !== undefined && rawOpp !== ""
-                            ? Number(rawOpp)
-                            : null;
+                        // Strict parsing: malformed amounts never display as numbers.
+                        const opportunity = parseStrictNumber(rawOpp);
                         const rawCurrency = deal.CURRENCY_ID ?? deal.currencyId;
                         const currency =
                           rawCurrency !== null &&
@@ -354,7 +377,7 @@ export function CompanyPreview({
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0">
-                              {opportunity !== null && !isNaN(opportunity) && (
+                              {(opportunity !== undefined && !isNaN(opportunity)) && (
                                 <span className="font-mono tabular-nums text-muted-foreground whitespace-nowrap">
                                   {opportunity.toLocaleString("ru-RU", {
                                     minimumFractionDigits: 0,
@@ -392,7 +415,12 @@ export function CompanyPreview({
             type="button"
             variant="outline"
             onClick={handleExport}
-            disabled={state.status !== "success" || isExporting}
+            disabled={state.status !== "success" || dealsState.status !== "success" || isExporting}
+            title={
+              dealsState.status !== "success"
+                ? "Полный отчёт недоступен: связанные сделки ещё загружаются или не удалось загрузить"
+                : undefined
+            }
             className="border-brand-blue text-brand-blue hover:bg-brand-blue-light/50 hover:text-brand-blue dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950/40 gap-1.5 w-full sm:w-auto"
           >
             {isExporting ? (
@@ -400,8 +428,25 @@ export function CompanyPreview({
             ) : (
               <Download className="h-4 w-4" />
             )}
-            {isExporting ? "Экспорт…" : "Экспорт"}
+            {isExporting ? "Экспорт…" : "Экспорт отчёта"}
           </Button>
+
+          {state.status === "success" && dealsState.status !== "success" && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleCardOnlyExport}
+              disabled={isExporting}
+              className="gap-1.5 w-full sm:w-auto text-xs"
+            >
+              {isExporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Экспортировать только карточку компании
+            </Button>
+          )}
 
           {state.status === "success" && state.bitrixUrl ? (
             <Button asChild className="w-full sm:w-auto">
