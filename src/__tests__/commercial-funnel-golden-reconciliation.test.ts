@@ -159,7 +159,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
   };
 
   it("TC-GOLDEN-01: normalizes deals with strict parsing and truthful currencies", () => {
-    const deals = normalizeDeals(goldenRawDeals, userNames);
+    const deals = normalizeDeals(goldenRawDeals, { userNames });
 
     // Deal 101: parsed number from string with comma and space
     const d101 = deals.find((d) => d.id === "101")!;
@@ -187,7 +187,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
   });
 
   it("TC-GOLDEN-02: normalizes companies and selects authoritative current sample cycle", () => {
-    const deals = normalizeDeals(goldenRawDeals, userNames);
+    const deals = normalizeDeals(goldenRawDeals, { userNames });
     const companies = normalizeCompanies(goldenRawCompanies, deals, {
       userNames,
       now: fixedNow,
@@ -202,7 +202,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
   });
 
   it("TC-GOLDEN-03: computes truthful bottlenecks without next action fabrication", () => {
-    const deals = normalizeDeals(goldenRawDeals, userNames);
+    const deals = normalizeDeals(goldenRawDeals, { userNames });
     const companies = normalizeCompanies(goldenRawCompanies, deals, {
       userNames,
       now: fixedNow,
@@ -228,7 +228,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
   });
 
   it("TC-GOLDEN-04: computes KPIs and manager scorecards consistently", () => {
-    const deals = normalizeDeals(goldenRawDeals, userNames);
+    const deals = normalizeDeals(goldenRawDeals, { userNames });
     const companies = normalizeCompanies(goldenRawCompanies, deals, {
       userNames,
       now: fixedNow,
@@ -252,7 +252,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
   });
 
   it("TC-GOLDEN-05: generates 5-sheet RusSilica Management Excel workbook cleanly", async () => {
-    const deals = normalizeDeals(goldenRawDeals, userNames);
+    const deals = normalizeDeals(goldenRawDeals, { userNames });
     const companies = normalizeCompanies(goldenRawCompanies, deals, {
       userNames,
       now: fixedNow,

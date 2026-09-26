@@ -175,16 +175,17 @@ export async function POST(request: NextRequest) {
     let failedPages = 0;
     const failedOffsets: number[] = [];
     const MAX_DEALS_TO_FETCH = 1000;
-    const availableFromStart = Math.max(0, bitrixTotal - validated.start);
+    const startOffset = validated.start ?? 0;
+    const availableFromStart = Math.max(0, bitrixTotal - startOffset);
     const cappedByLimit = availableFromStart > MAX_DEALS_TO_FETCH;
 
     if (data.next && availableFromStart > 50) {
       const limit = pLimit(5); // Max 5 concurrent requests to respect Bitrix limits
-      const targetOffsetEnd = Math.min(bitrixTotal, validated.start + MAX_DEALS_TO_FETCH);
+      const targetOffsetEnd = Math.min(bitrixTotal, startOffset + MAX_DEALS_TO_FETCH);
       const pagePromises = [];
       
       // Generate promises for remaining pages with offset tracking
-      for (let offset = validated.start + 50; offset < targetOffsetEnd; offset += 50) {
+      for (let offset = startOffset + 50; offset < targetOffsetEnd; offset += 50) {
         pagePromises.push(
           limit(async () => {
             try {

@@ -92,7 +92,7 @@ describe("Commercial Funnel Scale Benchmark", () => {
 
     // 2. Normalize Deals
     const tDealsStart = performance.now();
-    const deals = normalizeDeals(rawDeals, userNames);
+    const deals = normalizeDeals(rawDeals, { userNames });
     const tDealsMs = performance.now() - tDealsStart;
 
     // 3. Normalize Companies
