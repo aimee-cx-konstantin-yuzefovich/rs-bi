@@ -23,10 +23,14 @@ import { IS_PRODUCTION } from "@/lib/config";
  */
 
 // ─── Rate Limiter ───
-// NOTE: This in-memory rate limiter works correctly because the application
-// is deployed as a long-running Node.js process (Next.js standalone output)
-// via node server.js. It is NOT deployed to a serverless environment (like Vercel),
-// where in-memory state would be lost between requests.
+// DEPLOYMENT TOPOLOGY:
+// Production runs as a single, long-running Node.js process (Next.js standalone output
+// via `node server.js` under PM2 or Docker container) behind a Caddy reverse proxy.
+// In this single-instance architecture, this in-memory Map provides robust, fast,
+// zero-dependency rate limiting across all client requests without external store overhead.
+// Note: Vercel is used exclusively for ephemeral developer preview testing (with AUTH_MODE=bypass
+// and IP allowlist). If production is horizontally scaled to multiple Node.js instances in the
+// future, this rate limiter must be backed by an external distributed store (e.g. Redis).
 
 interface RateLimitEntry {
   count: number;
