@@ -59,6 +59,7 @@ export async function fetchAllPages(
   const seenIds = new Set<string>();
   const seenStarts = new Set<number>([0]);
   let start = 0;
+  let authoritativeTotal: number | null = null;
 
   // Guard against pathological loops; a legitimate dataset of N rows needs
   // ceil(N/50)+1 pages — 4096 pages ≈ 200k rows, far beyond CRM scale. If the
@@ -90,13 +91,43 @@ export async function fetchAllPages(
       throw new Error(`Invalid ${method} result envelope from Bitrix`);
     }
 
+    if (data.total !== undefined && data.total !== null && String(data.total).trim() !== "") {
+      const parsedTotal = Number(data.total);
+      if (Number.isFinite(parsedTotal) && parsedTotal >= 0) {
+        if (authoritativeTotal === null) {
+          authoritativeTotal = parsedTotal;
+        } else if (authoritativeTotal !== parsedTotal) {
+          authoritativeTotal = parsedTotal;
+        }
+      }
+    }
+
     for (const row of items) {
+      if (!row || typeof row !== "object") {
+        throw new Error(`Invalid row format in ${method} response from Bitrix`);
+      }
       const rawId = row[idField] ?? row[idField.toUpperCase()];
-      if (rawId === undefined || rawId === null || rawId === "") continue;
+      if (rawId === undefined || rawId === null || String(rawId).trim() === "") {
+        throw new Error(`Authoritative entity row missing required '${idField}' from Bitrix (${method})`);
+      }
       const id = String(rawId).trim();
-      if (!id || seenIds.has(id)) continue;
+      if (seenIds.has(id)) {
+        throw new Error(`Duplicate entity ID '${id}' received during pagination (${method})`);
+      }
       seenIds.add(id);
       rows.push(row);
+    }
+
+    // Adversarial Case 2: total > 0 but items empty and next absent
+    if (
+      authoritativeTotal !== null &&
+      authoritativeTotal > 0 &&
+      rows.length === 0 &&
+      (data.next === undefined || data.next === null)
+    ) {
+      throw new Error(
+        `Total reconciliation failed: Bitrix reported total ${authoritativeTotal} but returned 0 rows without continuation (${method})`
+      );
     }
 
     // Bitrix omits `next` when there are no more pages.
@@ -126,6 +157,15 @@ export async function fetchAllPages(
 
   if (!completed) {
     throw new Error("Pagination did not converge for Bitrix list request");
+  }
+
+  // Total reconciliation when total was reported
+  if (authoritativeTotal !== null) {
+    if (rows.length !== authoritativeTotal) {
+      throw new Error(
+        `Pagination count mismatch: expected ${authoritativeTotal} total rows, received ${rows.length} (${method})`
+      );
+    }
   }
 
   return rows;
