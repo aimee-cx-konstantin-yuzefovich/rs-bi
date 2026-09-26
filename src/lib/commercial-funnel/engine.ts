@@ -628,6 +628,10 @@ export function computeManagerScorecard(
     string,
     { validSum: number; validCount: number; invalidCount: number; unknownCount: number }
   >();
+  const managerCurrencyStats = new Map<
+    string,
+    Map<string, { validSum: number; validCount: number; invalidCount: number; unknownCount: number }>
+  >();
 
   const getManagerStats = (respId: string) => {
     let s = managerPaymentStats.get(respId);
@@ -706,15 +710,30 @@ export function computeManagerScorecard(
             !isNaN(d.opportunity);
           const isInvalidOpp = d.opportunityQuality === "INVALID";
 
+          let curMap = managerCurrencyStats.get(dealRespId);
+          if (!curMap) {
+            curMap = new Map();
+            managerCurrencyStats.set(dealRespId, curMap);
+          }
+          let cStat = curMap.get(normCur);
+          if (!cStat) {
+            cStat = { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
+            curMap.set(normCur, cStat);
+          }
+
           if (isValidOpp) {
             dealManager.paymentAmountsByCurrency![normCur] =
               (dealManager.paymentAmountsByCurrency![normCur] || 0) + d.opportunity!;
             mStats.validSum += d.opportunity!;
             mStats.validCount++;
+            cStat.validSum += d.opportunity!;
+            cStat.validCount++;
           } else if (isInvalidOpp) {
             mStats.invalidCount++;
+            cStat.invalidCount++;
           } else {
             mStats.unknownCount++;
+            cStat.unknownCount++;
           }
         }
       }
@@ -729,20 +748,28 @@ export function computeManagerScorecard(
     }
   }
 
-  // Settle paymentAmount & quality: if exactly 1 currency, retain that amount; if multiple, do not sum across currencies
+  // Settle paymentAmount & quality:
+  // Preserves AggregateAmountQuality truthfully (never collapses missing/invalid paid amounts to 0 COMPLETE)
   for (const [respId, row] of managerMap.entries()) {
     const currs = Object.keys(row.paymentAmountsByCurrency || {});
     const mStats = managerPaymentStats.get(respId) || { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
     const qRes = evaluateAggregateAmountQuality(mStats.validSum, mStats.validCount, mStats.invalidCount, mStats.unknownCount);
     row.paymentAmountQuality = qRes.quality;
 
-    if (currs.length === 1) {
+    if (currs.length <= 1) {
       row.paymentAmount = qRes.amount;
-    } else if (currs.length === 0) {
-      row.paymentAmount = 0;
-      row.paymentAmountQuality = "COMPLETE";
     } else {
       row.paymentAmount = null; // Mixed currencies: scalar sum forbidden
+    }
+
+    // Populate per-currency qualities
+    const curMap = managerCurrencyStats.get(respId);
+    if (curMap && curMap.size > 0) {
+      row.paymentAmountsQualityByCurrency = {};
+      for (const [cur, cStat] of curMap.entries()) {
+        const curQ = evaluateAggregateAmountQuality(cStat.validSum, cStat.validCount, cStat.invalidCount, cStat.unknownCount);
+        row.paymentAmountsQualityByCurrency[cur] = curQ.quality;
+      }
     }
   }
 

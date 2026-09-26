@@ -143,12 +143,34 @@ export function CommercialManagersTab({
                     <TableCell className="text-xs text-right font-semibold whitespace-nowrap">
                       {row.paymentAmountsByCurrency && Object.keys(row.paymentAmountsByCurrency).length > 0 ? (
                         <div className="flex flex-col gap-0.5 items-end">
-                          {Object.entries(row.paymentAmountsByCurrency).map(([cur, amt]) => (
-                            <span key={cur}>{formatCurrencyAmount(amt, cur)}</span>
-                          ))}
+                          {Object.entries(row.paymentAmountsByCurrency).map(([cur, amt]) => {
+                            const curQ = row.paymentAmountsQualityByCurrency?.[cur];
+                            const isPartial = curQ === "PARTIAL";
+                            return (
+                              <span key={cur}>
+                                {formatCurrencyAmount(amt, cur)}
+                                {isPartial && (
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1 font-normal">
+                                    (неполные)
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })}
                         </div>
                       ) : row.paymentAmount !== null && row.paymentAmount > 0 ? (
-                        formatCurrencyAmount(row.paymentAmount, "UNKNOWN")
+                        <span>
+                          {formatCurrencyAmount(row.paymentAmount, "UNKNOWN")}
+                          {row.paymentAmountQuality === "PARTIAL" && (
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1 font-normal">
+                              (неполные)
+                            </span>
+                          )}
+                        </span>
+                      ) : row.paymentAmountQuality === "INVALID_ONLY" ? (
+                        <span className="text-destructive text-[11px] font-normal">— (ошибка)</span>
+                      ) : row.paymentAmountQuality === "UNKNOWN" && row.paymentsReceived > 0 ? (
+                        <span className="text-muted-foreground text-[11px] font-normal">— (нет данных)</span>
                       ) : (
                         "—"
                       )}
