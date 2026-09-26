@@ -49,8 +49,60 @@ describe("Strict Numeric Parsing", () => {
         CURRENCY_ID: "RUB",
       },
     ]);
-    expect(deals[0].opportunity).toBe(0);
+    expect(deals[0].opportunity).toBeNull();
+    expect(deals[0].opportunityQuality).toBe("INVALID");
     expect(deals[1].opportunity).toBe(2500.5);
+    expect(deals[1].opportunityQuality).toBe("VALID");
+  });
+
+  it("TC-STRICT-NUM-04: distinguishes VALID zero, UNKNOWN missing, and INVALID malformed opportunities (UNKNOWN != INVALID != ZERO)", () => {
+    const rawDeals = [
+      { ID: "1", OPPORTUNITY: "0" },
+      { ID: "2", OPPORTUNITY: 0 },
+      { ID: "3", OPPORTUNITY: "" },
+      { ID: "4", OPPORTUNITY: null },
+      { ID: "5", OPPORTUNITY: "12abc" },
+      { ID: "6", OPPORTUNITY: "RUB 100" },
+      { ID: "7", OPPORTUNITY: "1 000 000" },
+      { ID: "8", OPPORTUNITY: "1 200,50" },
+      { ID: "9", OPPORTUNITY: "1.2.3" },
+      { ID: "10", OPPORTUNITY: NaN },
+      { ID: "11", OPPORTUNITY: Infinity },
+    ];
+
+    const deals = normalizeDeals(rawDeals);
+
+    // Valid zero
+    expect(deals[0].opportunity).toBe(0);
+    expect(deals[0].opportunityQuality).toBe("VALID");
+    expect(deals[1].opportunity).toBe(0);
+    expect(deals[1].opportunityQuality).toBe("VALID");
+
+    // Empty / missing -> UNKNOWN (null, never 0)
+    expect(deals[2].opportunity).toBeNull();
+    expect(deals[2].opportunityQuality).toBe("UNKNOWN");
+    expect(deals[3].opportunity).toBeNull();
+    expect(deals[3].opportunityQuality).toBe("UNKNOWN");
+
+    // Malformed non-empty -> INVALID (null, never 0)
+    expect(deals[4].opportunity).toBeNull();
+    expect(deals[4].opportunityQuality).toBe("INVALID");
+    expect(deals[5].opportunity).toBeNull();
+    expect(deals[5].opportunityQuality).toBe("INVALID");
+
+    // Formatted numbers -> VALID
+    expect(deals[6].opportunity).toBe(1000000);
+    expect(deals[6].opportunityQuality).toBe("VALID");
+    expect(deals[7].opportunity).toBe(1200.5);
+    expect(deals[7].opportunityQuality).toBe("VALID");
+
+    // Multiple dots, NaN, Infinity -> INVALID
+    expect(deals[8].opportunity).toBeNull();
+    expect(deals[8].opportunityQuality).toBe("INVALID");
+    expect(deals[9].opportunity).toBeNull();
+    expect(deals[9].opportunityQuality).toBe("INVALID");
+    expect(deals[10].opportunity).toBeNull();
+    expect(deals[10].opportunityQuality).toBe("INVALID");
   });
 });
 

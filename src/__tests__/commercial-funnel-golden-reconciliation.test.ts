@@ -180,9 +180,10 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     const d106 = deals.find((d) => d.id === "106")!;
     expect(d106.currencyId).toBe("UNKNOWN");
 
-    // Deal 107: Junk opportunity defaults to 0
+    // Deal 107: Junk opportunity must remain null/INVALID (never coerced to 0)
     const d107 = deals.find((d) => d.id === "107")!;
-    expect(d107.opportunity).toBe(0);
+    expect(d107.opportunity).toBeNull();
+    expect(d107.opportunityQuality).toBe("INVALID");
     expect(d107.currencyId).toBe("USD");
   });
 

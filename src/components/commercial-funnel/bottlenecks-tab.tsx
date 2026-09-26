@@ -139,9 +139,15 @@ export function CommercialBottlenecksTab({
 
                     {/* Сумма */}
                     <TableCell className="text-xs text-right font-medium whitespace-nowrap">
-                      {item.amount
-                        ? formatCurrencyAmount(item.amount, item.currencyId)
-                        : "—"}
+                      {item.amountQuality === "INVALID" ? (
+                        <span className="text-destructive font-mono text-[11px]" title="Некорректная сумма в Bitrix24">
+                          Неверная сумма
+                        </span>
+                      ) : typeof item.amount === "number" ? (
+                        formatCurrencyAmount(item.amount, item.currencyId)
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
 
                     {/* Следующий шаг */}

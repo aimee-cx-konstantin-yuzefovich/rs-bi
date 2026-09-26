@@ -37,7 +37,8 @@ export interface CommercialDeal {
   stageId: string;
   stageName?: string;
   categoryId: string;
-  opportunity: number;
+  opportunity: number | null;
+  opportunityQuality?: "VALID" | "UNKNOWN" | "INVALID";
   currencyId: string;
   dateCreate?: string;
   beginDate?: string;
@@ -111,7 +112,8 @@ export interface CommercialCompany {
   primaryDealTitle?: string;
   primaryDealStageId?: string;
   primaryDealStageName?: string;
-  primaryDealOpportunity?: number;
+  primaryDealOpportunity?: number | null;
+  primaryDealOpportunityQuality?: "VALID" | "UNKNOWN" | "INVALID";
   primaryDealCurrencyId?: string;
   primaryDealPaymentStatus?: string;
   primaryDealPaymentDate?: string;
@@ -165,7 +167,8 @@ export interface BottleneckItem {
   daysWaiting: number;
   dealId?: string;
   dealTitle?: string;
-  amount?: number;
+  amount?: number | null;
+  amountQuality?: "VALID" | "UNKNOWN" | "INVALID";
   currencyId?: string;
   nextAction?: string;
 }

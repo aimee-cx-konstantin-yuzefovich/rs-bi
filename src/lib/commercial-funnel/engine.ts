@@ -152,15 +152,19 @@ export function computePeriodMetrics(
         const normCurrency = normalizeCurrencyCode(d.currencyId);
         if (isDateInPeriod(d.paymentDate, currentStart, currentEnd)) {
           currentPaidCompanyIds.add(c.id);
-          currentPaymentSumCompanyIds.add(c.id);
-          currentPaymentAmountsByCurrency[normCurrency] =
-            (currentPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity;
+          if (typeof d.opportunity === "number" && !isNaN(d.opportunity)) {
+            currentPaymentSumCompanyIds.add(c.id);
+            currentPaymentAmountsByCurrency[normCurrency] =
+              (currentPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity;
+          }
         }
         if (isDateInPeriod(d.paymentDate, previousStart, previousEnd)) {
           prevPaidCompanyIds.add(c.id);
-          prevPaymentSumCompanyIds.add(c.id);
-          prevPaymentAmountsByCurrency[normCurrency] =
-            (prevPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity;
+          if (typeof d.opportunity === "number" && !isNaN(d.opportunity)) {
+            prevPaymentSumCompanyIds.add(c.id);
+            prevPaymentAmountsByCurrency[normCurrency] =
+              (prevPaymentAmountsByCurrency[normCurrency] || 0) + d.opportunity;
+          }
         }
       }
     }
@@ -419,6 +423,7 @@ export function computeBottlenecks(
           dealId: c.primaryDealId,
           dealTitle: c.primaryDealTitle,
           amount: c.primaryDealOpportunity,
+          amountQuality: c.primaryDealOpportunityQuality,
           currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
           nextAction: c.primaryDealActivityNext || "Уточнить результаты испытаний у технолога клиента",
         });
@@ -445,6 +450,7 @@ export function computeBottlenecks(
           dealId: c.primaryDealId,
           dealTitle: c.primaryDealTitle,
           amount: c.primaryDealOpportunity,
+          amountQuality: c.primaryDealOpportunityQuality,
           currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
           nextAction: "Выставить коммерческое предложение / подготовить договор",
         });
@@ -487,6 +493,7 @@ export function computeBottlenecks(
             dealId: d.id,
             dealTitle: d.title,
             amount: d.opportunity,
+            amountQuality: d.opportunityQuality,
             currencyId: d.currencyId,
             nextAction,
           });
@@ -572,9 +579,11 @@ export function computeManagerScorecard(
       if (d.paymentStatus && PAID_STATUS_CODES.has(d.paymentStatus) && d.paymentDate) {
         if (isDateInPeriod(d.paymentDate, currentStart, currentEnd)) {
           dealManager.paymentsReceived++;
-          const normCur = normalizeCurrencyCode(d.currencyId);
-          dealManager.paymentAmountsByCurrency![normCur] =
-            (dealManager.paymentAmountsByCurrency![normCur] || 0) + d.opportunity;
+          if (typeof d.opportunity === "number" && !isNaN(d.opportunity)) {
+            const normCur = normalizeCurrencyCode(d.currencyId);
+            dealManager.paymentAmountsByCurrency![normCur] =
+              (dealManager.paymentAmountsByCurrency![normCur] || 0) + d.opportunity;
+          }
         }
       }
     }

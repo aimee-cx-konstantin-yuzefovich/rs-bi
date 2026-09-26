@@ -553,13 +553,20 @@ function formatPeriodPresetToRussian(preset: string): string {
     const topBottlenecks = bottlenecks.slice(0, 5);
 
     for (const b of topBottlenecks) {
+      let botAmtVal: number | string = "—";
+      if (b.amountQuality === "INVALID") {
+        botAmtVal = "Неверная сумма";
+      } else if (typeof b.amount === "number") {
+        botAmtVal = b.amount;
+      }
+
       const row = summarySheet.addRow([
         b.companyTitle,
         b.responsibleName,
         b.issueLabel,
         b.currentState,
         b.daysWaiting,
-        b.amount || 0,
+        botAmtVal,
       ]);
       row.height = 20;
 
@@ -570,8 +577,10 @@ function formatPeriodPresetToRussian(preset: string): string {
       }
 
       if (typeof b.daysWaiting === "number") row.getCell(5).numFmt = NUMFMT.INTEGER;
-      const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : undefined;
-      row.getCell(6).numFmt = getMoneyNumFmt(botCur);
+      if (typeof botAmtVal === "number") {
+        const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : undefined;
+        row.getCell(6).numFmt = getMoneyNumFmt(botCur);
+      }
 
       applyStatusCell(row.getCell(3), "Внимание");
       row.getCell(3).value = b.issueLabel;
@@ -666,6 +675,13 @@ function formatPeriodPresetToRussian(preset: string): string {
         ? c.sampleStatuses.join(", ")
         : c.sampleStatus;
 
+    let oppVal: number | string = "—";
+    if (c.primaryDealOpportunityQuality === "INVALID") {
+      oppVal = "Неверная сумма";
+    } else if (typeof c.primaryDealOpportunity === "number") {
+      oppVal = c.primaryDealOpportunity;
+    }
+
     const row = companiesSheet.addRow([
       c.id,
       c.title,
@@ -680,7 +696,7 @@ function formatPeriodPresetToRussian(preset: string): string {
       c.sampleTestResult || "—",
       c.primaryDealTitle || "—",
       c.primaryDealStageName || formatStageToRussian(c.primaryDealStageId),
-      c.primaryDealOpportunity || 0,
+      oppVal,
       formatPaymentStatusToRussian(c.primaryDealPaymentStatus),
       paymentDateVal,
       c.primaryDealActivityNext || "—",
@@ -695,8 +711,10 @@ function formatPeriodPresetToRussian(preset: string): string {
     if (paymentDateVal) row.getCell(16).numFmt = NUMFMT.DATE;
 
     // Currency format
-    const dealCur = c.primaryDealCurrencyId ? normalizeCurrencyCode(c.primaryDealCurrencyId) : undefined;
-    row.getCell(14).numFmt = getMoneyNumFmt(dealCur);
+    if (typeof oppVal === "number") {
+      const dealCur = c.primaryDealCurrencyId ? normalizeCurrencyCode(c.primaryDealCurrencyId) : undefined;
+      row.getCell(14).numFmt = getMoneyNumFmt(dealCur);
+    }
 
     // Status styling
     if (sampleStatusDisplay && sampleStatusDisplay !== "—") {
@@ -975,6 +993,13 @@ function formatPeriodPresetToRussian(preset: string): string {
   const startBotRow = botHeaderRowIndex + 1;
   for (const b of bottlenecks) {
     const relevantDateVal = toExcelDate(b.relevantDate);
+    let botAmtVal: number | string = "—";
+    if (b.amountQuality === "INVALID") {
+      botAmtVal = "Неверная сумма";
+    } else if (typeof b.amount === "number") {
+      botAmtVal = b.amount;
+    }
+
     const row = bottlenecksSheet.addRow([
       b.companyTitle,
       b.responsibleName,
@@ -983,15 +1008,17 @@ function formatPeriodPresetToRussian(preset: string): string {
       relevantDateVal,
       b.daysWaiting,
       b.dealTitle || "—",
-      b.amount || 0,
+      botAmtVal,
       b.nextAction || "—",
     ]);
     row.height = 20;
 
     if (relevantDateVal) row.getCell(5).numFmt = NUMFMT.DATE;
     if (typeof b.daysWaiting === "number") row.getCell(6).numFmt = NUMFMT.INTEGER;
-    const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : undefined;
-    row.getCell(8).numFmt = getMoneyNumFmt(botCur);
+    if (typeof botAmtVal === "number") {
+      const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : undefined;
+      row.getCell(8).numFmt = getMoneyNumFmt(botCur);
+    }
 
     // Attention styling
     applyStatusCell(row.getCell(3), "Внимание");

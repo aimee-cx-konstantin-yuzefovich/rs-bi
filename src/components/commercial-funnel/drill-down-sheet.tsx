@@ -107,15 +107,21 @@ export function CommercialDrillDownSheet({
                         {c.primaryDealStageName || c.primaryDealStageId || "—"}
                       </TableCell>
                       <TableCell className="text-xs text-right font-medium">
-                        {c.primaryDealOpportunity
-                          ? formatCurrencyAmount(
-                              c.primaryDealOpportunity,
-                              c.primaryDealCurrencyId ||
-                                (c.primaryDealId
-                                  ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId
-                                  : undefined)
-                            )
-                          : "—"}
+                        {c.primaryDealOpportunityQuality === "INVALID" ? (
+                          <span className="text-destructive font-mono text-[11px]" title="Некорректная сумма в Bitrix24">
+                            Неверная сумма
+                          </span>
+                        ) : typeof c.primaryDealOpportunity === "number" ? (
+                          formatCurrencyAmount(
+                            c.primaryDealOpportunity,
+                            c.primaryDealCurrencyId ||
+                              (c.primaryDealId
+                                ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId
+                                : undefined)
+                          )
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
                       <TableCell className="text-xs">
                         <Button

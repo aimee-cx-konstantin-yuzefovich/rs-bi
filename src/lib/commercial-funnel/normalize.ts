@@ -194,10 +194,20 @@ export function normalizeDeals(
     const stageId = String(row.STAGE_ID || row.stageId || "").trim();
     const categoryId = String(row.CATEGORY_ID || row.categoryId || "0").trim();
     const rawOpp = row.OPPORTUNITY ?? row.opportunity;
-    let opportunity = 0;
+    let opportunity: number | null = null;
+    let opportunityQuality: "VALID" | "UNKNOWN" | "INVALID" = "UNKNOWN";
     if (rawOpp !== undefined && rawOpp !== null && String(rawOpp).trim() !== "") {
       const parsedOpp = parseStrictNumber(rawOpp);
-      opportunity = parsedOpp !== undefined ? parsedOpp : 0;
+      if (parsedOpp !== undefined) {
+        opportunity = parsedOpp;
+        opportunityQuality = "VALID";
+      } else {
+        opportunity = null;
+        opportunityQuality = "INVALID";
+      }
+    } else {
+      opportunity = null;
+      opportunityQuality = "UNKNOWN";
     }
     const currencyId = normalizeCurrencyCode(String(row.CURRENCY_ID || row.currencyId || ""));
     const dateCreate = row.DATE_CREATE ? String(row.DATE_CREATE) : undefined;
@@ -266,6 +276,7 @@ export function normalizeDeals(
       stageId,
       categoryId,
       opportunity,
+      opportunityQuality,
       currencyId,
       dateCreate,
       beginDate,
@@ -636,6 +647,7 @@ export function normalizeCompanies(
       primaryDealStageId: primaryDeal?.stageId,
       primaryDealStageName: primaryDeal?.stageName,
       primaryDealOpportunity: primaryDeal?.opportunity,
+      primaryDealOpportunityQuality: primaryDeal?.opportunityQuality,
       primaryDealCurrencyId: primaryDeal?.currencyId,
       primaryDealPaymentStatus: primaryDeal?.paymentStatusLabel,
       primaryDealPaymentDate: primaryDeal?.paymentDate,
