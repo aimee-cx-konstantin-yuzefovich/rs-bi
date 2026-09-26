@@ -71,6 +71,8 @@ export interface SampleStatusEntry {
   label: string;
   source: SampleStatusSource;
   fieldId: string;
+  dealId?: string;
+  eventDate?: string;
 }
 
 export interface CommercialCompany {

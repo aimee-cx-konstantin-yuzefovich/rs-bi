@@ -300,6 +300,55 @@ export function selectRepresentativeDeal(
 }
 
 /**
+ * Selects the authoritative representative sample deal for the current sample cycle
+ * using deterministic non-array-order priority:
+ * Priority 1: Deal must carry sample evidence (sampleTransferStatus, sampleTestingStatus, or sampleSentDate).
+ * Priority 2: Most recent authoritative sample-related date:
+ *             sampleSentDate > activityLast > dateCreate > beginDate > closeDate.
+ * Priority 3: Stable numeric-aware Deal ID tie-breaker.
+ */
+export function selectCurrentSampleDeal(
+  linkedDeals: CommercialDeal[]
+): CommercialDeal | undefined {
+  if (!linkedDeals || linkedDeals.length === 0) return undefined;
+
+  const sampleDeals = linkedDeals.filter(
+    (d) =>
+      Boolean(d.sampleTransferStatus) ||
+      (Array.isArray(d.sampleTestingStatus) && d.sampleTestingStatus.length > 0) ||
+      Boolean(d.sampleSentDate)
+  );
+
+  if (sampleDeals.length === 0) return undefined;
+  if (sampleDeals.length === 1) return sampleDeals[0];
+
+  const getSampleDealTimestamp = (d: CommercialDeal): number => {
+    const dates = [d.sampleSentDate, d.activityLast, d.dateCreate, d.beginDate, d.closeDate];
+    for (const raw of dates) {
+      if (raw) {
+        const ts = Date.parse(raw);
+        if (!isNaN(ts)) return ts;
+      }
+    }
+    return 0;
+  };
+
+  const sorted = [...sampleDeals].sort((a, b) => {
+    // Priority 2: most recent timestamp
+    const tsA = getSampleDealTimestamp(a);
+    const tsB = getSampleDealTimestamp(b);
+    if (tsA !== tsB) {
+      return tsB - tsA; // newer first
+    }
+
+    // Priority 3: stable Deal ID tie-breaker
+    return String(b.id || "").localeCompare(String(a.id || ""), undefined, { numeric: true });
+  });
+
+  return sorted[0];
+}
+
+/**
  * Normalize raw Bitrix Company records and join them with linked deals.
  * Implements deterministic precedence: Deal sample state > Company fallback.
  * Preserves ALL statuses, partitions dates by provenance, and strictly gates bottlenecks.
@@ -368,12 +417,15 @@ export function normalizeCompanies(
 
     // 1. Deal-level sample statuses
     for (const d of linkedDeals) {
+      const eventDate = d.sampleSentDate || d.activityLast || d.dateCreate;
       if (d.sampleTransferStatus) {
         sampleStatusEntries.push({
           rawValue: d.sampleTransferStatusRaw || d.sampleTransferStatus,
           label: d.sampleTransferStatus,
           source: "DEAL",
           fieldId: DEAL_SAMPLE_TRANSFER_FIELD_ID,
+          dealId: d.id,
+          eventDate,
         });
       }
       for (let i = 0; i < d.sampleTestingStatus.length; i++) {
@@ -384,6 +436,8 @@ export function normalizeCompanies(
           label,
           source: "DEAL",
           fieldId: DEAL_SAMPLE_TESTING_FIELD_ID,
+          dealId: d.id,
+          eventDate,
         });
       }
     }
@@ -408,16 +462,23 @@ export function normalizeCompanies(
     }
 
     // Backward-compatible single sampleStatus for primary UI display:
-    // Deal precedence over Company fallback
+    // Authoritative current sample deal precedence over Company fallback
     let sampleStatus = "—";
     let sampleStatusRaw: string | undefined = undefined;
     let sampleStatusSource: SampleStatusSource = "NONE";
+    let sampleShipmentDate: string | undefined = undefined;
 
-    const dealWithStatus = linkedDeals.find((d) => Boolean(d.sampleTransferStatus));
-    if (dealWithStatus && dealWithStatus.sampleTransferStatus) {
-      sampleStatus = dealWithStatus.sampleTransferStatus;
-      sampleStatusRaw = dealWithStatus.sampleTransferStatusRaw;
+    const currentSampleDeal = selectCurrentSampleDeal(linkedDeals);
+    if (currentSampleDeal) {
       sampleStatusSource = "DEAL";
+      sampleShipmentDate = currentSampleDeal.sampleSentDate;
+      if (currentSampleDeal.sampleTestingStatus && currentSampleDeal.sampleTestingStatus.length > 0) {
+        sampleStatus = currentSampleDeal.sampleTestingStatus[0];
+        sampleStatusRaw = currentSampleDeal.sampleTestingStatusRaw?.[0] || sampleStatus;
+      } else if (currentSampleDeal.sampleTransferStatus) {
+        sampleStatus = currentSampleDeal.sampleTransferStatus;
+        sampleStatusRaw = currentSampleDeal.sampleTransferStatusRaw;
+      }
     } else if (companyStatusEntries.length > 0) {
       sampleStatus = companyStatusEntries[0].label;
       sampleStatusRaw = companyStatusEntries[0].rawValue;
@@ -442,7 +503,9 @@ export function normalizeCompanies(
       ? sampleDealSentDates
       : sampleCompanyTransferDates;
 
-    const sampleShipmentDate = sampleDealSentDates[0] || sampleCompanyTransferDates[0] || undefined;
+    if (!sampleShipmentDate) {
+      sampleShipmentDate = sampleDealSentDates[0] || sampleCompanyTransferDates[0] || undefined;
+    }
 
     // Representative deal for commercial overview (deterministic non-monetary priority)
     const primaryDeal = selectRepresentativeDeal(linkedDeals);
