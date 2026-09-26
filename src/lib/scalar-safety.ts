@@ -62,7 +62,7 @@ export interface StrictDateOptions {
  */
 export function parseStrictDate(
   dateStr: unknown,
-  options?: StrictDateOptions | ParseDateMode
+  options?: StrictDateOptions | DateParseMode
 ): Date | null {
   if (dateStr === null || dateStr === undefined) return null;
   if (dateStr instanceof Date) {
