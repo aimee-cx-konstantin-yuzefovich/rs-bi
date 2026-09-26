@@ -57,11 +57,20 @@ export interface OperationalHeaderOptions {
   recordCount?: number;
   filtersText?: string;
   colCount: number;
+  /**
+   * Detached-artifact truthfulness lines (dataset coverage, extra domain
+   * warnings). Rendered as a prominent report-level block; the data table
+   * header shifts down accordingly.
+   */
+  disclosureLines?: string[];
 }
 
 /**
- * Builds the compact 5-row operational corporate header for Deals and Companies.
- * Returns the 1-based row index for the data table header (row 6).
+ * Builds the compact corporate header for Deals and Companies.
+ * Base layout is 5 rows (title, metadata, filters, spacer, divider) — when
+ * disclosure lines are present they are inserted after the filters row and
+ * the divider/table header shift down. Returns the 1-based row index for the
+ * data table header.
  */
 export function addOperationalHeader(
   worksheet: ExcelJS.Worksheet,
@@ -122,15 +131,39 @@ export function addOperationalHeader(
   filtersCell.font = { name: RS_FONT_FAMILY, size: 9, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
   filtersCell.alignment = { vertical: "middle", horizontal: "left" };
 
-  // Row 4: Spacer row
-  const row4 = worksheet.getRow(4);
+  // Rows 4+: prominent disclosure block (coverage / domain warnings).
+  // Non-empty only when the dataset is not a verified complete set or a
+  // domain-specific warning exists — a complete dataset renders no noise.
+  const disclosureLines = options.disclosureLines || [];
+  let nextRow = 4;
+  if (disclosureLines.length > 0) {
+    const isSevere = disclosureLines.some((l) => l.includes("ЧАСТИЧНЫЕ") || l.includes("НЕПОЛНЫЙ"));
+    const warnColor = isSevere ? "FFB91C1C" : "FF92400E";
+    for (const line of disclosureLines) {
+      const row = worksheet.getRow(nextRow);
+      row.height = 16;
+      if (metaMergeEnd > 2) {
+        worksheet.mergeCells(nextRow, 2, nextRow, metaMergeEnd);
+      }
+      const cell = row.getCell(2);
+      cell.value = line;
+      cell.font = { name: RS_FONT_FAMILY, size: 10, bold: true, color: { argb: warnColor } };
+      cell.alignment = { vertical: "middle", horizontal: "left" };
+      nextRow++;
+    }
+  }
+
+  // Spacer row
+  const row4 = worksheet.getRow(nextRow);
   row4.height = 6;
+  nextRow++;
 
-  // Row 5: Corporate separator strip
-  addCorporateDivider(worksheet, 5, colCount);
+  // Corporate separator strip
+  addCorporateDivider(worksheet, nextRow, colCount);
+  nextRow++;
 
-  // Data table header will be row 6
-  return 6;
+  // Data table header row
+  return nextRow;
 }
 
 export interface AccountHeaderOptions {

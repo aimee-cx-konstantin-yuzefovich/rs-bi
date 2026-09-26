@@ -44,6 +44,10 @@ import {
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
 } from "./crm-constants";
 import { isValidCalendarDate, parseStrictDate, parseStrictNumber } from "./scalar-safety";
+import {
+  coverageExcelLines,
+  type DatasetCoverage,
+} from "./dataset-coverage";
 
 export interface WysiwygExportOptions {
   sheetName?: string;
@@ -60,6 +64,13 @@ export interface WysiwygExportOptions {
   rawColumnTypes?: (string | undefined)[];
   rowCurrencies?: (string | null | undefined)[];
   columnCurrencies?: Record<number, string | null | undefined>;
+  // Detached-artifact truthfulness: the workbook must carry its own dataset
+  // coverage (COMPLETE/CAPPED/PARTIAL) — a user can email the .xlsx without
+  // the web UI beside it, so a website banner alone is not enough.
+  coverage?: DatasetCoverage;
+  // Domain-specific extra warnings (e.g. activity partial) rendered in the
+  // same prominent report-level block.
+  extraWarnings?: string[];
 }
 
 /**
@@ -100,7 +111,15 @@ export async function buildWysiwygWorkbook(
   );
   const finalColumns = disambiguateHeaders(cleanColumns, rawColumnIds);
 
-  // 1. Operational Corporate Header (Rows 1-5)
+  // 1. Operational Corporate Header (+ prominent coverage/warning block)
+  const disclosureLines: string[] = [];
+  if (options?.coverage) {
+    disclosureLines.push(...coverageExcelLines(options.coverage));
+  }
+  if (options?.extraWarnings) {
+    disclosureLines.push(...options.extraWarnings);
+  }
+
   const tableHeaderRowIndex = addOperationalHeader(worksheet, imageId, {
     title: options?.title || defaultTitle,
     period: options?.period || "Все",
@@ -108,6 +127,7 @@ export async function buildWysiwygWorkbook(
     recordCount: data.length,
     filtersText: options?.filtersText || "Все",
     colCount: finalColumns.length,
+    disclosureLines,
   });
 
   // 2. Table Header (Row 6)
