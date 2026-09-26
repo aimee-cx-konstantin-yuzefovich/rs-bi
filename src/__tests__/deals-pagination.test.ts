@@ -103,7 +103,7 @@ describe('Deals Pagination & Partial Failure Semantics', () => {
     expect(data.truncated).toBe(true);
     expect(data.fetched).toBe(1000);
     expect(data.total).toBe(1500);
-    expect(data.warning).toBe('Данные усечены. Показаны последние 1000 сделок.');
+    expect(data.warning).toBe('Данные усечены. Загружено 1000 из 1500 сделок (лимит загрузки 1000).');
   });
 
   it('4. one middle page fails -> partial: true, failedPages: 1, truthful warning', async () => {
@@ -139,7 +139,7 @@ describe('Deals Pagination & Partial Failure Semantics', () => {
     expect(data.truncated).toBe(true);
     expect(data.cappedByLimit).toBe(false);
     // Anti-test-theater: Must NOT say "Showing the latest 1000 deals"
-    expect(data.warning).toBe('Некоторые данные не удалось загрузить. Показано 100 из 150 сделок.');
+    expect(data.warning).toBe('Некоторые данные не удалось загрузить. Загружено 100 из 150 сделок.');
   });
 
   it('5. multiple pages fail -> partial: true, failedPages: count of failures', async () => {
@@ -169,7 +169,7 @@ describe('Deals Pagination & Partial Failure Semantics', () => {
     expect(data.failedPages).toBe(2);
     expect(data.failedOffsets).toEqual([50, 100]);
     expect(data.fetched).toBe(100);
-    expect(data.warning).toBe('Некоторые данные не удалось загрузить. Показано 100 из 200 сделок.');
+    expect(data.warning).toBe('Некоторые данные не удалось загрузить. Загружено 100 из 200 сделок.');
   });
 
   it('6. partial failure plus cap -> partial takes precedence in warning', async () => {
