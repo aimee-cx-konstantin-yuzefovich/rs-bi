@@ -14,7 +14,9 @@
     "qa:bitrix-contract": "node scripts/verify-bitrix-contract.mjs --mode=offline",
     "qa:bitrix-contract:offline": "node scripts/verify-bitrix-contract.mjs --mode=offline",
     "qa:bitrix-contract:live": "node scripts/verify-bitrix-contract.mjs --mode=live",
-    "qa:benchmark": "node scripts/benchmark-commercial-funnel.mjs"
+    "qa:benchmark": "node scripts/benchmark-commercial-funnel.mjs",
+    "qa:standalone-smoke": "node scripts/qa-standalone-smoke.mjs",
+    "qa:e2e": "playwright test"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
