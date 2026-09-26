@@ -25,6 +25,7 @@ import {
   safeDeltaPercent,
 } from "./date-utils";
 import { normalizeCurrencyCode } from "./normalize";
+import { getCurrencyUniverse } from "./currency";
 import { parseStrictDate } from "@/lib/date-safety";
 import type {
   CommercialCompany,
@@ -298,12 +299,12 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   const isMultiCurr = Boolean(kpiAmount?.isMultiCurrency && kpiAmount?.currencyBreakdown);
   const cardCurrs = isMultiCurr
-    ? Array.from(
-        new Set([
-          ...Object.keys(kpiAmount!.currencyBreakdown!.current || {}),
-          ...Object.keys(kpiAmount!.currencyBreakdown!.previous || {}),
-        ])
-      ).sort()
+    ? getCurrencyUniverse(
+        kpiAmount?.currencyBreakdown?.current,
+        kpiAmount?.currencyBreakdown?.previous,
+        kpiAmount?.currencyBreakdownQuality?.current,
+        kpiAmount?.currencyBreakdownQuality?.previous
+      )
     : [];
 
   let valRow2: ExcelJS.Row;
@@ -313,14 +314,29 @@ function formatPeriodPresetToRussian(preset: string): string {
     const cardRows: ExcelJS.Row[] = [];
     for (let i = 0; i < cardCurrs.length; i++) {
       const cur = cardCurrs[i];
-      const amt = kpiAmount!.currencyBreakdown!.current[cur] || 0;
+      const curQuality = kpiAmount?.currencyBreakdownQuality?.current?.[cur];
+      const hasAmt =
+        kpiAmount?.currencyBreakdown?.current && cur in kpiAmount.currencyBreakdown.current;
+      const rawAmt = kpiAmount?.currencyBreakdown?.current?.[cur];
+
+      let cellValue: number | string;
+      if (curQuality === "INVALID_ONLY") {
+        cellValue = "Ошибка данных";
+      } else if (curQuality === "UNKNOWN") {
+        cellValue = "Нет данных";
+      } else if (hasAmt && typeof rawAmt === "number") {
+        cellValue = rawAmt;
+      } else {
+        cellValue = 0;
+      }
+
       const curDisplay = cur === "UNKNOWN" ? "валюта не указана" : cur;
       const r = summarySheet.addRow([
         i === 0 ? (kpiPayments?.currentValue ?? 0) : null,
         null,
         null,
         curDisplay,
-        amt,
+        cellValue,
         null,
       ]);
       r.height = 24;
@@ -329,11 +345,21 @@ function formatPeriodPresetToRussian(preset: string): string {
         const cell = r.getCell(c);
         cell.fill = kpiCardFill;
         cell.border = THIN_BORDER;
-        cell.font = { name: RS_FONT_FAMILY, size: 12, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
+        cell.font = {
+          name: RS_FONT_FAMILY,
+          size: typeof cellValue === "string" ? 10 : 12,
+          bold: true,
+          color: { argb: `FF${RS_BLUE_PRIMARY}` },
+        };
         cell.alignment = { vertical: "middle", horizontal: "center" };
       }
       r.getCell(4).font = { name: RS_FONT_FAMILY, size: 10, bold: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
-      r.getCell(5).numFmt = getMoneyNumFmt(cur);
+      if (typeof cellValue === "number") {
+        r.getCell(5).numFmt = getMoneyNumFmt(cur);
+      }
+      if (curQuality === "PARTIAL") {
+        r.getCell(5).note = "Неполные данные: присутствуют сделки с некорректной суммой";
+      }
       cardRows.push(r);
     }
     const firstNum = cardRows[0].number;
@@ -364,13 +390,14 @@ function formatPeriodPresetToRussian(preset: string): string {
     const singleCurrency = kpiAmount?.currencyId || cardCurrs[0];
     let singleAmt: number | string = 0;
     if (kpiAmount?.amountQuality === "INVALID_ONLY") {
-      singleAmt = "— (ошибка данных)";
+      singleAmt = "Ошибка данных";
     } else if (kpiAmount?.amountQuality === "UNKNOWN") {
-      singleAmt = "— (нет данных)";
+      singleAmt = "Нет данных";
     } else {
-      singleAmt = isMultiCurr && cardCurrs.length === 1
-        ? kpiAmount!.currencyBreakdown!.current[cardCurrs[0]] || 0
-        : (kpiAmount?.currentValue ?? 0);
+      singleAmt =
+        isMultiCurr && cardCurrs.length === 1
+          ? (kpiAmount?.currencyBreakdown?.current?.[cardCurrs[0]] ?? 0)
+          : (kpiAmount?.currentValue ?? 0);
     }
 
     valRow2 = summarySheet.addRow([
@@ -435,18 +462,50 @@ function formatPeriodPresetToRussian(preset: string): string {
   const startKpiRow = summarySheet.rowCount + 1;
   for (const k of datedKpis) {
     if (k.id === "payment_amount" && k.isMultiCurrency && k.currencyBreakdown) {
-      const allCurrs = Array.from(
-        new Set([
-          ...Object.keys(k.currencyBreakdown.current),
-          ...Object.keys(k.currencyBreakdown.previous),
-        ])
-      ).sort();
+      const allCurrs = getCurrencyUniverse(
+        k.currencyBreakdown.current,
+        k.currencyBreakdown.previous,
+        k.currencyBreakdownQuality?.current,
+        k.currencyBreakdownQuality?.previous
+      );
 
       for (const cur of allCurrs) {
-        const currAmt = k.currencyBreakdown.current[cur] || 0;
-        const prevAmt = k.currencyBreakdown.previous[cur] || 0;
-        const deltaAmt = currAmt - prevAmt;
-        const pct = safeDeltaPercent(currAmt, prevAmt);
+        const curQuality = k.currencyBreakdownQuality?.current?.[cur];
+        const prevQuality = k.currencyBreakdownQuality?.previous?.[cur];
+        const rawCurr = k.currencyBreakdown.current?.[cur];
+        const rawPrev = k.currencyBreakdown.previous?.[cur];
+
+        let currAmt: number | string;
+        if (curQuality === "INVALID_ONLY") {
+          currAmt = "Ошибка данных";
+        } else if (curQuality === "UNKNOWN") {
+          currAmt = "Нет данных";
+        } else if (typeof rawCurr === "number") {
+          currAmt = rawCurr;
+        } else {
+          currAmt = 0;
+        }
+
+        let prevAmt: number | string;
+        if (prevQuality === "INVALID_ONLY") {
+          prevAmt = "Ошибка данных";
+        } else if (prevQuality === "UNKNOWN") {
+          prevAmt = "Нет данных";
+        } else if (typeof rawPrev === "number") {
+          prevAmt = rawPrev;
+        } else {
+          prevAmt = 0;
+        }
+
+        const deltaAmt: number | string =
+          typeof currAmt === "number" && typeof prevAmt === "number"
+            ? currAmt - prevAmt
+            : "—";
+
+        const pct =
+          typeof currAmt === "number" && typeof prevAmt === "number"
+            ? safeDeltaPercent(currAmt, prevAmt)
+            : null;
         const pctStr = pct !== null ? `${pct > 0 ? "+" : ""}${pct}%` : "—";
         const compCount = filteredCompanies.filter((c) =>
           c.deals.some(
@@ -460,12 +519,13 @@ function formatPeriodPresetToRussian(preset: string): string {
         ).length;
 
         const curLabel = cur === "UNKNOWN" ? "валюта не указана" : cur;
-        const curQuality = k.currencyBreakdownQuality?.current?.[cur];
         const qualitySuffix =
           curQuality === "PARTIAL"
             ? " (неполные данные)"
             : curQuality === "INVALID_ONLY"
             ? " (ошибка данных)"
+            : curQuality === "UNKNOWN"
+            ? " (нет данных)"
             : "";
         const row = summarySheet.addRow([
           `${k.label} — ${curLabel}${qualitySuffix}`,
@@ -483,9 +543,21 @@ function formatPeriodPresetToRussian(preset: string): string {
           cell.font = FONT_DATA;
         }
 
-        row.getCell(2).numFmt = getMoneyNumFmt(cur);
-        row.getCell(3).numFmt = getMoneyNumFmt(cur);
-        row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
+        if (typeof currAmt === "number") {
+          row.getCell(2).numFmt = getMoneyNumFmt(cur);
+        }
+        if (typeof prevAmt === "number") {
+          row.getCell(3).numFmt = getMoneyNumFmt(cur);
+        }
+        if (typeof deltaAmt === "number") {
+          row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
+        }
+        if (curQuality === "PARTIAL") {
+          row.getCell(2).note = "Неполные данные: присутствуют сделки с некорректной суммой";
+        }
+        if (prevQuality === "PARTIAL") {
+          row.getCell(3).note = "Неполные данные: присутствуют сделки с некорректной суммой";
+        }
       }
     } else {
       const qualitySuffix =
@@ -493,13 +565,44 @@ function formatPeriodPresetToRussian(preset: string): string {
           ? " (неполные данные)"
           : k.isCurrency && k.amountQuality === "INVALID_ONLY"
           ? " (ошибка данных)"
+          : k.isCurrency && k.amountQuality === "UNKNOWN"
+          ? " (нет данных)"
           : "";
+
+      let currVal: number | string;
+      if (k.isCurrency && k.amountQuality === "INVALID_ONLY") {
+        currVal = "Ошибка данных";
+      } else if (k.isCurrency && k.amountQuality === "UNKNOWN") {
+        currVal = "Нет данных";
+      } else {
+        currVal = k.currentValue ?? 0;
+      }
+
+      let prevVal: number | string;
+      if (k.isCurrency && k.amountQuality === "INVALID_ONLY") {
+        prevVal = "Ошибка данных";
+      } else if (k.isCurrency && k.amountQuality === "UNKNOWN") {
+        prevVal = "Нет данных";
+      } else {
+        prevVal = k.previousValue ?? 0;
+      }
+
+      const deltaVal: number | string =
+        typeof currVal === "number" && typeof prevVal === "number"
+          ? currVal - prevVal
+          : (k.delta ?? 0);
+
+      const pctStr =
+        typeof currVal === "number" && typeof prevVal === "number" && k.deltaPercent !== null
+          ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%`
+          : "—";
+
       const row = summarySheet.addRow([
         `${k.label}${qualitySuffix}`,
-        k.currentValue ?? (k.amountQuality === "INVALID_ONLY" ? "Неверная сумма" : 0),
-        k.previousValue ?? 0,
-        k.delta ?? 0,
-        k.deltaPercent !== null ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%` : "—",
+        currVal,
+        prevVal,
+        deltaVal,
+        pctStr,
         k.companyIds.length,
       ]);
       row.height = 20;
@@ -512,9 +615,18 @@ function formatPeriodPresetToRussian(preset: string): string {
 
       if (k.isCurrency) {
         const cur = k.currencyId ? normalizeCurrencyCode(k.currencyId) : undefined;
-        row.getCell(2).numFmt = getMoneyNumFmt(cur);
-        row.getCell(3).numFmt = getMoneyNumFmt(cur);
-        row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
+        if (typeof currVal === "number") {
+          row.getCell(2).numFmt = getMoneyNumFmt(cur);
+        }
+        if (typeof prevVal === "number") {
+          row.getCell(3).numFmt = getMoneyNumFmt(cur);
+        }
+        if (typeof deltaVal === "number") {
+          row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
+        }
+        if (k.amountQuality === "PARTIAL") {
+          row.getCell(2).note = "Неполные данные: присутствуют сделки с некорректной суммой";
+        }
       } else {
         row.getCell(2).numFmt = NUMFMT.INTEGER;
         row.getCell(3).numFmt = NUMFMT.INTEGER;
@@ -865,11 +977,10 @@ function formatPeriodPresetToRussian(preset: string): string {
     views: [{ showGridLines: true }],
   });
 
-  const allManagerCurrencies = Array.from(
-    new Set(
-      managerScorecard.flatMap((m) => Object.keys(m.paymentAmountsByCurrency || {}))
-    )
-  ).sort();
+  const allManagerCurrencies = getCurrencyUniverse(
+    ...managerScorecard.map((m) => m.paymentAmountsByCurrency),
+    ...managerScorecard.map((m) => m.paymentAmountsQualityByCurrency)
+  );
 
   const isMultiManagerCurrencies = allManagerCurrencies.length > 1;
 
@@ -918,20 +1029,18 @@ function formatPeriodPresetToRussian(preset: string): string {
       ? allManagerCurrencies.map((cur) => {
           const amt = m.paymentAmountsByCurrency?.[cur];
           const curQual = m.paymentAmountsQualityByCurrency?.[cur];
-          if (typeof amt === "number") {
-            return amt;
-          }
-          if (curQual === "INVALID_ONLY") return "— (ошибка)";
-          if (curQual === "UNKNOWN") return "— (нет данных)";
+          if (curQual === "INVALID_ONLY") return "Ошибка данных";
+          if (curQual === "UNKNOWN") return "Нет данных";
+          if (typeof amt === "number") return amt;
           return 0;
         })
       : [
-          m.paymentAmount !== null
-            ? m.paymentAmount
-            : m.paymentAmountQuality === "INVALID_ONLY"
-            ? "— (ошибка)"
+          m.paymentAmountQuality === "INVALID_ONLY"
+            ? "Ошибка данных"
             : m.paymentAmountQuality === "UNKNOWN"
-            ? "— (нет данных)"
+            ? "Нет данных"
+            : m.paymentAmount !== null
+            ? m.paymentAmount
             : 0,
         ];
 
@@ -978,7 +1087,10 @@ function formatPeriodPresetToRussian(preset: string): string {
       if (typeof payAmounts[0] === "number") {
         cell.numFmt = getMoneyNumFmt(singleCur);
       }
-      if (m.paymentAmountQuality === "PARTIAL") {
+      if (
+        m.paymentAmountQuality === "PARTIAL" ||
+        (singleCur && m.paymentAmountsQualityByCurrency?.[singleCur] === "PARTIAL")
+      ) {
         cell.note = "Неполные данные: присутствуют сделки с некорректной суммой";
       }
       row.getCell(11).numFmt = NUMFMT.INTEGER;
