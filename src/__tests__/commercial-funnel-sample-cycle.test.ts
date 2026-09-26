@@ -198,4 +198,100 @@ describe("Commercial Funnel Sample Cycle Selection (TC-SAMPLE-CYCLE-01 to TC-SAM
     expect(dealBEntry?.label).toBe("Подошли");
     expect(dealBEntry?.eventDate).toBe("2026-09-10");
   });
+
+  it("TC-SAMPLE-CYCLE-08: older Deal with shipment date does NOT fabricate date for newer Deal without date", () => {
+    // Deal A: older cycle with shipment date, closed won
+    const dealA = createMockDeal({
+      id: "10",
+      stageId: "WON",
+      dateCreate: "2025-01-01",
+      sampleSentDate: "2025-01-01",
+      sampleTransferStatus: "Образцы отправлены",
+    });
+
+    // Deal B: newer cycle with testing status, but no shipment date (young active deal)
+    const dealB = createMockDeal({
+      id: "20",
+      stageId: "EXECUTING",
+      dateCreate: "2026-03-20",
+      sampleTestingStatus: ["На испытании"],
+    });
+
+    const rawCompany = { ID: "comp-1", TITLE: "Company 1" };
+    const fixedNow = new Date("2026-03-25T12:00:00Z");
+
+    const companies = normalizeCompanies([rawCompany], [dealA, dealB], { now: fixedNow });
+    const comp = companies[0];
+
+    // Current sample cycle must reflect Deal B
+    expect(comp.sampleStatus).toBe("На испытании");
+    expect(comp.sampleStatusSource).toBe("DEAL");
+    // Date provenance MUST NOT be fabricated from Deal A
+    expect(comp.sampleShipmentDate).toBeUndefined();
+
+    // Bottleneck age logic MUST NOT trigger using Deal A's historical date
+    expect(comp.attentionReasons).toEqual([]);
+    expect(comp.hasAttention).toBe(false);
+
+    // Historical date from Deal A must still be preserved in array
+    expect(comp.sampleDealSentDates).toEqual(["2025-01-01"]);
+  });
+
+  it("TC-SAMPLE-CYCLE-09: reverse input order preserves strict date provenance", () => {
+    const fixedNow = new Date("2026-03-25T12:00:00Z");
+    const dealA = createMockDeal({
+      id: "10",
+      stageId: "WON",
+      dateCreate: "2025-01-01",
+      sampleSentDate: "2025-01-01",
+      sampleTransferStatus: "Образцы отправлены",
+    });
+
+    const dealB = createMockDeal({
+      id: "20",
+      stageId: "EXECUTING",
+      dateCreate: "2026-03-20",
+      sampleTestingStatus: ["На испытании"],
+    });
+
+    const rawCompany = { ID: "comp-1", TITLE: "Company 1" };
+    // Pass in reverse order [dealB, dealA]
+    const companies = normalizeCompanies([rawCompany], [dealB, dealA], { now: fixedNow });
+    const comp = companies[0];
+
+    expect(comp.sampleStatus).toBe("На испытании");
+    expect(comp.sampleShipmentDate).toBeUndefined();
+    expect(comp.attentionReasons).toEqual([]);
+  });
+
+  it("TC-SAMPLE-CYCLE-10: current Deal with its own shipment date populates shipment date and evaluates bottleneck", () => {
+    const fixedNow = new Date("2026-03-25T12:00:00Z"); // 23 days later > 14 days threshold
+    const dealA = createMockDeal({
+      id: "10",
+      stageId: "WON",
+      dateCreate: "2025-01-01",
+      sampleSentDate: "2025-01-01",
+      sampleTransferStatus: "Образцы отправлены",
+    });
+
+    const dealB = createMockDeal({
+      id: "20",
+      stageId: "EXECUTING",
+      dateCreate: "2026-03-20", // Young deal (< 30 days) so only sample bottleneck triggers
+      sampleSentDate: "2026-03-02",
+      sampleTestingStatus: ["На испытании"],
+    });
+
+    const rawCompany = { ID: "comp-1", TITLE: "Company 1" };
+
+    const companies = normalizeCompanies([rawCompany], [dealA, dealB], { now: fixedNow });
+    const comp = companies[0];
+
+    expect(comp.sampleStatus).toBe("На испытании");
+    expect(comp.sampleShipmentDate).toBe("2026-03-02");
+    expect(comp.attentionReasons).toEqual([
+      "Образцы на испытании 23 дн. (порог 14 дн.)",
+    ]);
+    expect(comp.hasAttention).toBe(true);
+  });
 });

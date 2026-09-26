@@ -519,23 +519,6 @@ export function normalizeCompanies(
     let sampleStatusSource: SampleStatusSource = "NONE";
     let sampleShipmentDate: string | undefined = undefined;
 
-    const currentSampleDeal = selectCurrentSampleDeal(linkedDeals);
-    if (currentSampleDeal) {
-      sampleStatusSource = "DEAL";
-      sampleShipmentDate = currentSampleDeal.sampleSentDate;
-      if (currentSampleDeal.sampleTestingStatus && currentSampleDeal.sampleTestingStatus.length > 0) {
-        sampleStatus = currentSampleDeal.sampleTestingStatus[0];
-        sampleStatusRaw = currentSampleDeal.sampleTestingStatusRaw?.[0] || sampleStatus;
-      } else if (currentSampleDeal.sampleTransferStatus) {
-        sampleStatus = currentSampleDeal.sampleTransferStatus;
-        sampleStatusRaw = currentSampleDeal.sampleTransferStatusRaw;
-      }
-    } else if (companyStatusEntries.length > 0) {
-      sampleStatus = companyStatusEntries[0].label;
-      sampleStatusRaw = companyStatusEntries[0].rawValue;
-      sampleStatusSource = "COMPANY";
-    }
-
     // Dates reconciliation with explicit provenance:
     const sampleDealSentDates = Array.from(
       new Set(linkedDeals.map((d) => d.sampleSentDate).filter(Boolean) as string[])
@@ -554,8 +537,22 @@ export function normalizeCompanies(
       ? sampleDealSentDates
       : sampleCompanyTransferDates;
 
-    if (!sampleShipmentDate) {
-      sampleShipmentDate = sampleDealSentDates[0] || sampleCompanyTransferDates[0] || undefined;
+    const currentSampleDeal = selectCurrentSampleDeal(linkedDeals);
+    if (currentSampleDeal) {
+      sampleStatusSource = "DEAL";
+      sampleShipmentDate = currentSampleDeal.sampleSentDate || undefined;
+      if (currentSampleDeal.sampleTestingStatus && currentSampleDeal.sampleTestingStatus.length > 0) {
+        sampleStatus = currentSampleDeal.sampleTestingStatus[0];
+        sampleStatusRaw = currentSampleDeal.sampleTestingStatusRaw?.[0] || sampleStatus;
+      } else if (currentSampleDeal.sampleTransferStatus) {
+        sampleStatus = currentSampleDeal.sampleTransferStatus;
+        sampleStatusRaw = currentSampleDeal.sampleTransferStatusRaw;
+      }
+    } else if (companyStatusEntries.length > 0) {
+      sampleStatus = companyStatusEntries[0].label;
+      sampleStatusRaw = companyStatusEntries[0].rawValue;
+      sampleStatusSource = "COMPANY";
+      sampleShipmentDate = sampleCompanyTransferDates[0] || undefined;
     }
 
     // Representative deal for commercial overview (deterministic non-monetary priority)
