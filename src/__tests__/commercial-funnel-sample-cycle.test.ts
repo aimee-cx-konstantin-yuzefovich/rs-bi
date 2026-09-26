@@ -1,6 +1,6 @@
-// src/__tests__/commercial-funnel-sample-cycle.test.ts
 import { describe, it, expect } from "vitest";
 import { normalizeCompanies, selectCurrentSampleDeal } from "@/lib/commercial-funnel/normalize";
+import { buildSampleRegister } from "@/lib/commercial-funnel/engine";
 import type { CommercialCompany, CommercialDeal } from "@/lib/commercial-funnel/types";
 
 function createMockDeal(overrides: Partial<CommercialDeal>): CommercialDeal {
@@ -293,5 +293,55 @@ describe("Commercial Funnel Sample Cycle Selection (TC-SAMPLE-CYCLE-01 to TC-SAM
       "Образцы на испытании 23 дн. (порог 14 дн.)",
     ]);
     expect(comp.hasAttention).toBe(true);
+  });
+
+  it("TC-SAMPLE-CYCLE-11: buildSampleRegister enforces strict deal provenance without borrowing another deal's date or next action", () => {
+    const fixedNow = new Date("2026-09-20T12:00:00Z");
+    const dealA = createMockDeal({
+      id: "101",
+      title: "Deal A",
+      sampleTransferStatus: "Образцы отправлены",
+      sampleSentDate: undefined,
+      activityNext: undefined,
+    });
+
+    const dealB = createMockDeal({
+      id: "102",
+      title: "Deal B",
+      sampleTransferStatus: "Образцы отправлены",
+      sampleSentDate: "2026-09-10",
+      activityNext: "Call customer",
+    });
+
+    const rawCompany = { ID: "comp-1", TITLE: "Company 1" };
+
+    // 1. Order [dealA, dealB]
+    const companiesForward = normalizeCompanies([rawCompany], [dealA, dealB], { now: fixedNow });
+    const registerForward = buildSampleRegister(companiesForward, fixedNow);
+
+    expect(registerForward).toHaveLength(2);
+    const rowAForward = registerForward.find((r: any) => r.dealId === "101")!;
+    const rowBForward = registerForward.find((r: any) => r.dealId === "102")!;
+
+    expect(rowAForward.shipmentDate).toBeUndefined();
+    expect(rowAForward.nextAction).toBeUndefined();
+    expect(rowBForward.shipmentDate).toBe("2026-09-10");
+    expect(rowBForward.nextAction).toBe("Call customer");
+
+    // 2. Reverse order [dealB, dealA]
+    const companiesReverse = normalizeCompanies([rawCompany], [dealB, dealA], { now: fixedNow });
+    const registerReverse = buildSampleRegister(companiesReverse, fixedNow);
+
+    expect(registerReverse).toHaveLength(2);
+    const rowAReverse = registerReverse.find((r: any) => r.dealId === "101")!;
+    const rowBReverse = registerReverse.find((r: any) => r.dealId === "102")!;
+
+    expect(rowAReverse.shipmentDate).toBeUndefined();
+    expect(rowAReverse.nextAction).toBeUndefined();
+    expect(rowBReverse.shipmentDate).toBe("2026-09-10");
+    expect(rowBReverse.nextAction).toBe("Call customer");
+
+    // Exact equality of generated registers regardless of input order
+    expect(registerForward).toEqual(registerReverse);
   });
 });

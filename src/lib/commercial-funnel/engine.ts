@@ -630,12 +630,16 @@ export function buildSampleRegister(
     );
 
     if (sampleDeals.length > 0) {
-      for (const d of sampleDeals) {
-        const shipmentDate = d.sampleSentDate || c.sampleShipmentDate;
+      // Deterministic sort by deal ID so input order does not alter output
+      const sortedSampleDeals = [...sampleDeals].sort((a, b) => a.id.localeCompare(b.id));
+
+      for (const d of sortedSampleDeals) {
+        // Strict Deal-scoped provenance: never borrow company or other deal's shipment date or activity
+        const shipmentDate = d.sampleSentDate || undefined;
         const days = calculateDaysWaiting(shipmentDate, now);
         const dealStatuses = [d.sampleTransferStatus, ...d.sampleTestingStatus].filter(Boolean) as string[];
         const dealStatusRaw = [d.sampleTransferStatusRaw, ...(d.sampleTestingStatusRaw || [])].filter(Boolean) as string[];
-        const statusDisplay = dealStatuses.join(", ") || d.sampleTransferStatus || c.sampleStatus;
+        const statusDisplay = dealStatuses.join(", ") || d.sampleTransferStatus || "—";
 
         rows.push({
           id: `sample-deal-${d.id}`,
@@ -657,7 +661,7 @@ export function buildSampleRegister(
           gradeSol: c.gradeSol.join(", ") || undefined,
           qtyGel: c.qtyGel !== undefined ? `${c.qtyGel} кг` : undefined,
           qtySol: c.qtySol !== undefined ? `${c.qtySol} л` : undefined,
-          nextAction: d.activityNext || c.primaryDealActivityNext,
+          nextAction: d.activityNext || undefined,
         });
       }
     } else if (c.sampleStatus !== "—" || c.sampleShipmentDate || c.sampleTestResult) {
