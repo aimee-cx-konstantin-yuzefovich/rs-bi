@@ -2,256 +2,36 @@
 // scripts/verify-bitrix-contract.mjs
 // ─────────────────────────────────────────────────────────────────────
 // RusSilica BI Terminal - Upstream Bitrix24 Contract & Schema Verifier.
-// Validates field types, required fields, and list structures.
+// Validates field types, required fields, multiplicity, enum IDs, and stage invariants.
+// Invokes the authoritative validation engine from src/lib/bitrix-contract.ts via jiti.
 //
 // Usage:
 //   node scripts/verify-bitrix-contract.mjs --mode=offline
 //   node scripts/verify-bitrix-contract.mjs --mode=live
 // ─────────────────────────────────────────────────────────────────────
 
-import { URL } from "node:url";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createJiti } from "jiti";
 
-const DEAL_SAMPLE_TRANSFER_FIELD_ID = "UF_CRM_1779386185";
-const DEAL_SAMPLE_TESTING_FIELD_ID = "UF_CRM_1779394379";
-const DEAL_SAMPLE_SENT_DATE_FIELD_ID = "UF_CRM_1774879952785";
-const PAYMENT_STATUS_FIELD_ID = "UF_CRM_1584464068013";
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const jiti = createJiti(import.meta.url);
 
-const COMPANY_SAMPLES_FIELD_ID = "UF_CRM_1753187313314";
-const COMPANY_SAMPLES_DATE_MULTI_FIELD_ID = "UF_CRM_1764156557536";
-
-const CRITICAL_DEAL_FIELDS = [
-  "ID",
-  "STAGE_ID",
-  "OPPORTUNITY",
-  "CURRENCY_ID",
-  "ASSIGNED_BY_ID",
-  "COMPANY_ID",
-];
-
-const CRITICAL_COMPANY_FIELDS = [
-  "ID",
-  "TITLE",
-  "ASSIGNED_BY_ID",
-];
+const {
+  validateAllBitrixContracts,
+  verifyLiveBitrixContract,
+  OFFLINE_CONTRACT_SNAPSHOT,
+} = await jiti.import(resolve(root, "src/lib/bitrix-contract.ts"));
 
 export function validateContract({ dealFields, companyFields, dealList, companyList, statusList }) {
-  const issues = [];
-
-  // 1. Validate deal fields
-  if (dealFields) {
-    const raw = dealFields.result || dealFields;
-    const fields = typeof raw === "object" && raw !== null ? raw : {};
-    for (const f of CRITICAL_DEAL_FIELDS) {
-      if (!fields[f]) {
-        issues.push({
-          severity: "error",
-          entity: "crm.deal.fields",
-          field: f,
-          message: `Missing critical deal field '${f}'`,
-        });
-      }
-    }
-    if (!fields[DEAL_SAMPLE_TRANSFER_FIELD_ID]) {
-      issues.push({
-        severity: "warning",
-        entity: "crm.deal.fields",
-        field: DEAL_SAMPLE_TRANSFER_FIELD_ID,
-        message: `Missing custom sample transfer field '${DEAL_SAMPLE_TRANSFER_FIELD_ID}'`,
-      });
-    }
-    if (!fields[DEAL_SAMPLE_TESTING_FIELD_ID]) {
-      issues.push({
-        severity: "warning",
-        entity: "crm.deal.fields",
-        field: DEAL_SAMPLE_TESTING_FIELD_ID,
-        message: `Missing custom sample testing field '${DEAL_SAMPLE_TESTING_FIELD_ID}'`,
-      });
-    }
-    for (const [id, meta] of Object.entries(fields)) {
-      if (!meta || typeof meta !== "object") {
-        issues.push({
-          severity: "error",
-          entity: "crm.deal.fields",
-          field: id,
-          message: "Field metadata must be an object",
-        });
-      } else if (typeof meta.type !== "string") {
-        issues.push({
-          severity: "error",
-          entity: "crm.deal.fields",
-          field: id,
-          message: "Field must have a string 'type'",
-        });
-      } else {
-        const typeStr = meta.type.toLowerCase();
-        if (id === "OPPORTUNITY" && !["double", "float", "number"].includes(typeStr)) {
-          issues.push({
-            severity: "error",
-            entity: "crm.deal.fields",
-            field: "OPPORTUNITY",
-            message: `Field 'OPPORTUNITY' expected numeric type (double), found '${meta.type}'`,
-          });
-        }
-        if (
-          (id === DEAL_SAMPLE_TRANSFER_FIELD_ID || id === DEAL_SAMPLE_TESTING_FIELD_ID) &&
-          typeStr !== "enumeration"
-        ) {
-          issues.push({
-            severity: "error",
-            entity: "crm.deal.fields",
-            field: id,
-            message: `Field '${id}' expected enumeration type, found '${meta.type}'`,
-          });
-        }
-        if (meta.items !== undefined && !Array.isArray(meta.items)) {
-          issues.push({
-            severity: "error",
-            entity: "crm.deal.fields",
-            field: id,
-            message: `Field '${id}' property 'items' must be an array when present`,
-          });
-        }
-      }
-    }
-  }
-
-  // 2. Validate company fields
-  if (companyFields) {
-    const raw = companyFields.result || companyFields;
-    const fields = typeof raw === "object" && raw !== null ? raw : {};
-    for (const f of CRITICAL_COMPANY_FIELDS) {
-      if (!fields[f]) {
-        issues.push({
-          severity: "error",
-          entity: "crm.company.fields",
-          field: f,
-          message: `Missing critical company field '${f}'`,
-        });
-      }
-    }
-    if (!fields[COMPANY_SAMPLES_FIELD_ID]) {
-      issues.push({
-        severity: "warning",
-        entity: "crm.company.fields",
-        field: COMPANY_SAMPLES_FIELD_ID,
-        message: `Missing custom company samples field '${COMPANY_SAMPLES_FIELD_ID}'`,
-      });
-    }
-    for (const [id, meta] of Object.entries(fields)) {
-      if (!meta || typeof meta !== "object") {
-        issues.push({
-          severity: "error",
-          entity: "crm.company.fields",
-          field: id,
-          message: "Field metadata must be an object",
-        });
-      } else if (typeof meta.type !== "string") {
-        issues.push({
-          severity: "error",
-          entity: "crm.company.fields",
-          field: id,
-          message: "Field must have a string 'type'",
-        });
-      } else if (id === "TITLE" && meta.type.toLowerCase() !== "string") {
-        issues.push({
-          severity: "error",
-          entity: "crm.company.fields",
-          field: "TITLE",
-          message: `Field 'TITLE' expected string type, found '${meta.type}'`,
-        });
-      }
-    }
-  }
-
-  // 3. Validate deal list
-  if (dealList) {
-    const list = dealList.result || (Array.isArray(dealList) ? dealList : null);
-    if (!Array.isArray(list)) {
-      issues.push({
-        severity: "error",
-        entity: "crm.deal.list",
-        message: "Deals payload must contain an array 'result'",
-      });
-    }
-  }
-
-  // 4. Validate company list
-  if (companyList) {
-    const list = companyList.result || (Array.isArray(companyList) ? companyList : null);
-    if (!Array.isArray(list)) {
-      issues.push({
-        severity: "error",
-        entity: "crm.company.list",
-        message: "Companies payload must contain an array 'result'",
-      });
-    }
-  }
-
-  // 5. Validate status list
-  if (statusList) {
-    const list = statusList.result || (Array.isArray(statusList) ? statusList : null);
-    if (!Array.isArray(list)) {
-      issues.push({
-        severity: "error",
-        entity: "crm.status.list",
-        message: "Status payload must contain an array 'result'",
-      });
-    }
-  }
-
-  const errors = issues.filter((i) => i.severity === "error");
-  const warnings = issues.filter((i) => i.severity === "warning");
-
-  return { ok: errors.length === 0, errors, warnings, issues };
+  const result = validateAllBitrixContracts({ dealFields, companyFields, dealList, companyList, statusList });
+  return {
+    ok: result.ok,
+    errors: result.errors,
+    warnings: result.warnings,
+    issues: result.allIssues,
+  };
 }
-
-// Authoritative schema snapshots for offline testing
-const OFFLINE_SNAPSHOT = {
-  dealFields: {
-    result: {
-      ID: { type: "integer" },
-      STAGE_ID: { type: "crm_status" },
-      OPPORTUNITY: { type: "double" },
-      CURRENCY_ID: { type: "crm_currency" },
-      ASSIGNED_BY_ID: { type: "user" },
-      COMPANY_ID: { type: "crm_company" },
-      DATE_CREATE: { type: "datetime" },
-      BEGINDATE: { type: "date" },
-      CLOSEDATE: { type: "date" },
-      [DEAL_SAMPLE_TRANSFER_FIELD_ID]: {
-        type: "enumeration",
-        items: [{ ID: "1", VALUE: "Передано" }],
-      },
-      [DEAL_SAMPLE_TESTING_FIELD_ID]: {
-        type: "enumeration",
-        items: [{ ID: "2", VALUE: "В работе" }],
-      },
-      [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: { type: "date" },
-      [PAYMENT_STATUS_FIELD_ID]: {
-        type: "enumeration",
-        items: [{ ID: "113", VALUE: "Оплачен" }],
-      },
-    },
-  },
-  companyFields: {
-    result: {
-      ID: { type: "integer" },
-      TITLE: { type: "string" },
-      ASSIGNED_BY_ID: { type: "user" },
-      DATE_CREATE: { type: "datetime" },
-      [COMPANY_SAMPLES_FIELD_ID]: { type: "date" },
-      [COMPANY_SAMPLES_DATE_MULTI_FIELD_ID]: { type: "date" },
-    },
-  },
-  dealList: { result: [{ ID: "1", STAGE_ID: "WON", OPPORTUNITY: 1000 }] },
-  companyList: { result: [{ ID: "10", TITLE: "Company A" }] },
-  statusList: {
-    result: [
-      { STATUS_ID: "WON", NAME: "Сделка успешна" },
-      { STATUS_ID: "LOSE", NAME: "Сделка проиграна" },
-    ],
-  },
-};
 
 async function run() {
   const args = process.argv.slice(2);
@@ -277,57 +57,23 @@ async function run() {
     }
 
     try {
-      const parsedUrl = new URL(webhookUrl.trim());
-      if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
-        throw new Error(`Unsupported webhook protocol: ${parsedUrl.protocol}`);
-      }
-      console.log(`Live Mode: Querying Bitrix webhook at ${parsedUrl.origin}...`);
-
-      const cleanUrl = webhookUrl.trim().replace(/\/+$/, "");
-      const fetchWithTimeout = async (endpoint, postBody) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 12000);
-        try {
-          const res = await fetch(`${cleanUrl}/${endpoint}`, {
-            method: postBody ? "POST" : "GET",
-            headers: { "Content-Type": "application/json" },
-            body: postBody ? JSON.stringify(postBody) : undefined,
-            signal: controller.signal,
-          });
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status} ${res.statusText} from ${endpoint}`);
-          }
-          return await res.json();
-        } finally {
-          clearTimeout(timer);
-        }
-      };
-
-      const [dealFields, companyFields, dealList, companyList, statusList] = await Promise.all([
-        fetchWithTimeout("crm.deal.fields.json"),
-        fetchWithTimeout("crm.company.fields.json"),
-        fetchWithTimeout("crm.deal.list.json", { start: 0 }),
-        fetchWithTimeout("crm.company.list.json", { start: 0 }),
-        fetchWithTimeout("crm.status.list.json", { filter: { ENTITY_ID: "DEAL_STAGE" } }).catch(() => ({ result: [] })),
-      ]);
-
-      const result = validateContract({ dealFields, companyFields, dealList, companyList, statusList });
+      const liveResult = await verifyLiveBitrixContract(webhookUrl);
 
       console.log("--------------------------------------------------------");
-      console.log(`Validation Status: ${result.ok ? "PASS" : "FAIL"}`);
-      console.log(`Errors:   ${result.errors.length}`);
-      console.log(`Warnings: ${result.warnings.length}`);
+      console.log(`Validation Status: ${liveResult.status}`);
+      console.log(`Errors:   ${liveResult.errors.length}`);
+      console.log(`Warnings: ${liveResult.warnings.length}`);
       console.log("--------------------------------------------------------");
 
-      if (result.issues.length > 0) {
-        for (const issue of result.issues) {
+      if (liveResult.allIssues.length > 0) {
+        for (const issue of liveResult.allIssues) {
           const tag = issue.severity === "error" ? "[ERROR]" : "[WARN]";
           console.log(`${tag} ${issue.entity} ${issue.field ? `(${issue.field})` : ""}: ${issue.message}`);
         }
         console.log("--------------------------------------------------------");
       }
 
-      if (!result.ok) {
+      if (liveResult.status !== "PASS") {
         console.error("Live Bitrix contract validation failed with critical schema errors.");
         process.exit(1);
       } else {
@@ -344,7 +90,7 @@ async function run() {
     console.log("Validating against authoritative committed schema snapshot and invariants...");
 
     // Test 1: Snapshot validation
-    const snapshotResult = validateContract(OFFLINE_SNAPSHOT);
+    const snapshotResult = validateContract(OFFLINE_CONTRACT_SNAPSHOT);
     if (!snapshotResult.ok || snapshotResult.errors.length > 0) {
       console.error("Authoritative snapshot validation failed:", snapshotResult.errors);
       process.exit(1);
@@ -352,10 +98,10 @@ async function run() {
 
     // Test 2: Invariant check - missing required field must be caught
     const brokenSnapshot = {
-      ...OFFLINE_SNAPSHOT,
+      ...OFFLINE_CONTRACT_SNAPSHOT,
       dealFields: {
         result: {
-          ...OFFLINE_SNAPSHOT.dealFields.result,
+          ...OFFLINE_CONTRACT_SNAPSHOT.dealFields.result,
         },
       },
     };
@@ -368,10 +114,10 @@ async function run() {
 
     // Test 3: Type mismatch check - invalid OPPORTUNITY type must be caught
     const typeMismatchSnapshot = {
-      ...OFFLINE_SNAPSHOT,
+      ...OFFLINE_CONTRACT_SNAPSHOT,
       dealFields: {
         result: {
-          ...OFFLINE_SNAPSHOT.dealFields.result,
+          ...OFFLINE_CONTRACT_SNAPSHOT.dealFields.result,
           OPPORTUNITY: { type: "string" },
         },
       },

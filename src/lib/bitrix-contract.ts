@@ -1,14 +1,19 @@
 // src/lib/bitrix-contract.ts
 // ─────────────────────────────────────────────────────────────────────
 // Upstream schema and contract validator for Bitrix24 REST API payloads.
-// Validates field shapes, required critical CRM properties, and list structures.
+// Implements the single canonical validation engine for RusSilica BI.
 // ─────────────────────────────────────────────────────────────────────
 
 import {
-  COMPANY_SAMPLES_FIELD_ID,
-  DEAL_SAMPLE_TRANSFER_FIELD_ID,
-  DEAL_SAMPLE_TESTING_FIELD_ID,
-} from "./crm-constants";
+  ExpectedBitrixField,
+  EXPECTED_DEAL_FIELDS,
+  EXPECTED_COMPANY_FIELDS,
+  REQUIRED_BASE_STAGES,
+  normalizeBitrixBoolean,
+  OFFLINE_CONTRACT_SNAPSHOT,
+} from "./bitrix-contract-spec";
+
+export { OFFLINE_CONTRACT_SNAPSHOT };
 
 export type IssueSeverity = "error" | "warning";
 
@@ -31,20 +36,112 @@ export interface ContractValidationResult {
   allIssues: ContractIssue[];
 }
 
-const CRITICAL_DEAL_FIELDS = [
-  "ID",
-  "STAGE_ID",
-  "OPPORTUNITY",
-  "CURRENCY_ID",
-  "ASSIGNED_BY_ID",
-  "COMPANY_ID",
-];
+function validateFieldMetadata(
+  fieldSpec: ExpectedBitrixField,
+  meta: unknown,
+  entity: "crm.deal.fields" | "crm.company.fields"
+): ContractIssue[] {
+  const issues: ContractIssue[] = [];
 
-const CRITICAL_COMPANY_FIELDS = [
-  "ID",
-  "TITLE",
-  "ASSIGNED_BY_ID",
-];
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+    issues.push({
+      severity: "error",
+      entity,
+      field: fieldSpec.id,
+      message: `Field '${fieldSpec.id}' metadata must be a non-array object`,
+    });
+    return issues;
+  }
+
+  const fieldMeta = meta as Record<string, unknown>;
+
+  // 1. Type validation
+  if (typeof fieldMeta.type !== "string") {
+    issues.push({
+      severity: "error",
+      entity,
+      field: fieldSpec.id,
+      message: `Field '${fieldSpec.id}' must have a string 'type' property`,
+    });
+  } else {
+    const actualType = fieldMeta.type.toLowerCase().trim();
+    const allowed = fieldSpec.allowedTypes.map((t) => t.toLowerCase().trim());
+    if (!allowed.includes(actualType)) {
+      issues.push({
+        severity: "error",
+        entity,
+        field: fieldSpec.id,
+        message: `Field '${fieldSpec.id}' expected type [${fieldSpec.allowedTypes.join(", ")}], found '${fieldMeta.type}'`,
+      });
+    }
+  }
+
+  // 2. Multiplicity validation
+  if (fieldSpec.expectedMultiple !== undefined) {
+    const actualMultiple = normalizeBitrixBoolean(fieldMeta.isMultiple);
+    if (actualMultiple !== fieldSpec.expectedMultiple) {
+      issues.push({
+        severity: "error",
+        entity,
+        field: fieldSpec.id,
+        message: `Field '${fieldSpec.id}' expected multiplicity ${fieldSpec.expectedMultiple ? "MULTIPLE" : "SINGLE"}, found ${actualMultiple ? "MULTIPLE" : "SINGLE"}`,
+      });
+    }
+  }
+
+  // 3. Enum IDs and Items structure validation
+  if (fieldMeta.items !== undefined && !Array.isArray(fieldMeta.items)) {
+    issues.push({
+      severity: "error",
+      entity,
+      field: fieldSpec.id,
+      message: `Field '${fieldSpec.id}' property 'items' must be an array when present`,
+    });
+  } else if (Array.isArray(fieldMeta.items)) {
+    for (let idx = 0; idx < fieldMeta.items.length; idx++) {
+      const item = fieldMeta.items[idx];
+      if (!item || typeof item !== "object" || !("ID" in item) || !("VALUE" in item)) {
+        issues.push({
+          severity: "error",
+          entity,
+          field: fieldSpec.id,
+          message: `Field '${fieldSpec.id}' items[${idx}] must contain 'ID' and 'VALUE'`,
+        });
+        break;
+      }
+    }
+
+    if (fieldSpec.enumIds && fieldSpec.enumIds.length > 0) {
+      const presentEnumIds = new Set(
+        fieldMeta.items
+          .filter((it): it is Record<string, unknown> => it && typeof it === "object" && "ID" in it)
+          .map((it) => String(it.ID))
+      );
+
+      for (const requiredEnumId of fieldSpec.enumIds) {
+        if (!presentEnumIds.has(requiredEnumId)) {
+          const semantics = fieldSpec.enumSemantics?.[requiredEnumId];
+          const semanticLabel = semantics ? ` (${semantics})` : "";
+          issues.push({
+            severity: "error",
+            entity,
+            field: fieldSpec.id,
+            message: `Field '${fieldSpec.id}' is missing required enum ID '${requiredEnumId}'${semanticLabel}`,
+          });
+        }
+      }
+    }
+  } else if (fieldSpec.enumIds && fieldSpec.enumIds.length > 0 && fieldMeta.items === undefined) {
+    issues.push({
+      severity: "error",
+      entity,
+      field: fieldSpec.id,
+      message: `Field '${fieldSpec.id}' requires enum values [${fieldSpec.enumIds.join(", ")}], but no 'items' array was provided`,
+    });
+  }
+
+  return issues;
+}
 
 export function validateDealFieldsContract(payload: unknown): ContractIssue[] {
   const issues: ContractIssue[] = [];
@@ -69,110 +166,40 @@ export function validateDealFieldsContract(payload: unknown): ContractIssue[] {
     return issues;
   }
 
-  for (const fieldId of CRITICAL_DEAL_FIELDS) {
-    if (!fields[fieldId]) {
+  // Check all expected fields against canonical spec
+  for (const fieldSpec of EXPECTED_DEAL_FIELDS) {
+    const presentMeta = fields[fieldSpec.id];
+    if (!presentMeta) {
       issues.push({
-        severity: "error",
+        severity: fieldSpec.required ? "error" : "warning",
         entity: "crm.deal.fields",
-        field: fieldId,
-        message: `Missing critical deal field '${fieldId}' in schema definition`,
+        field: fieldSpec.id,
+        message: fieldSpec.required
+          ? `Missing critical deal field '${fieldSpec.id}' in schema definition`
+          : `Missing optional deal field '${fieldSpec.id}' in schema definition`,
       });
+    } else {
+      issues.push(...validateFieldMetadata(fieldSpec, presentMeta, "crm.deal.fields"));
     }
   }
 
-  // Check custom sample fields
-  if (!fields[DEAL_SAMPLE_TRANSFER_FIELD_ID]) {
-    issues.push({
-      severity: "warning",
-      entity: "crm.deal.fields",
-      field: DEAL_SAMPLE_TRANSFER_FIELD_ID,
-      message: `Custom sample transfer field '${DEAL_SAMPLE_TRANSFER_FIELD_ID}' is missing in deal fields`,
-    });
-  }
-
-  if (!fields[DEAL_SAMPLE_TESTING_FIELD_ID]) {
-    issues.push({
-      severity: "warning",
-      entity: "crm.deal.fields",
-      field: DEAL_SAMPLE_TESTING_FIELD_ID,
-      message: `Custom sample testing field '${DEAL_SAMPLE_TESTING_FIELD_ID}' is missing in deal fields`,
-    });
-  }
-
-  // Validate structure of present fields
+  // Check any additional fields for generic metadata validity
   for (const [fieldId, meta] of Object.entries(fields)) {
+    if (EXPECTED_DEAL_FIELDS.some((f) => f.id === fieldId)) continue;
     if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
       issues.push({
         severity: "error",
         entity: "crm.deal.fields",
         field: fieldId,
-        message: `Field '${fieldId}' metadata must be an object`,
+        message: `Field '${fieldId}' metadata must be a non-array object`,
       });
-      continue;
-    }
-
-    const fieldMeta = meta as Record<string, unknown>;
-    if (typeof fieldMeta.type !== "string") {
+    } else if (typeof (meta as Record<string, unknown>).type !== "string") {
       issues.push({
         severity: "error",
         entity: "crm.deal.fields",
         field: fieldId,
         message: `Field '${fieldId}' must have a string 'type' property`,
       });
-    } else {
-      const typeStr = fieldMeta.type.toLowerCase();
-      if (fieldId === "OPPORTUNITY" && !["double", "float", "number"].includes(typeStr)) {
-        issues.push({
-          severity: "error",
-          entity: "crm.deal.fields",
-          field: "OPPORTUNITY",
-          message: `Field 'OPPORTUNITY' expected numeric type (double), found '${fieldMeta.type}'`,
-        });
-      }
-      if (
-        (fieldId === "DATE_CREATE" || fieldId === "BEGINDATE" || fieldId === "CLOSEDATE") &&
-        !["date", "datetime"].includes(typeStr)
-      ) {
-        issues.push({
-          severity: "error",
-          entity: "crm.deal.fields",
-          field: fieldId,
-          message: `Field '${fieldId}' expected date/datetime type, found '${fieldMeta.type}'`,
-        });
-      }
-      if (
-        (fieldId === DEAL_SAMPLE_TRANSFER_FIELD_ID || fieldId === DEAL_SAMPLE_TESTING_FIELD_ID) &&
-        typeStr !== "enumeration"
-      ) {
-        issues.push({
-          severity: "error",
-          entity: "crm.deal.fields",
-          field: fieldId,
-          message: `Field '${fieldId}' expected enumeration type, found '${fieldMeta.type}'`,
-        });
-      }
-    }
-
-    if (fieldMeta.items !== undefined && !Array.isArray(fieldMeta.items)) {
-      issues.push({
-        severity: "error",
-        entity: "crm.deal.fields",
-        field: fieldId,
-        message: `Field '${fieldId}' property 'items' must be an array when present`,
-      });
-    } else if (Array.isArray(fieldMeta.items)) {
-      for (let idx = 0; idx < fieldMeta.items.length; idx++) {
-        const item = fieldMeta.items[idx];
-        if (!item || typeof item !== "object" || !("ID" in item) || !("VALUE" in item)) {
-          issues.push({
-            severity: "error",
-            entity: "crm.deal.fields",
-            field: fieldId,
-            message: `Field '${fieldId}' items[${idx}] must contain 'ID' and 'VALUE'`,
-          });
-          break;
-        }
-      }
     }
   }
 
@@ -202,62 +229,40 @@ export function validateCompanyFieldsContract(payload: unknown): ContractIssue[]
     return issues;
   }
 
-  for (const fieldId of CRITICAL_COMPANY_FIELDS) {
-    if (!fields[fieldId]) {
+  // Check all expected fields against canonical spec
+  for (const fieldSpec of EXPECTED_COMPANY_FIELDS) {
+    const presentMeta = fields[fieldSpec.id];
+    if (!presentMeta) {
       issues.push({
-        severity: "error",
+        severity: fieldSpec.required ? "error" : "warning",
         entity: "crm.company.fields",
-        field: fieldId,
-        message: `Missing critical company field '${fieldId}' in schema definition`,
+        field: fieldSpec.id,
+        message: fieldSpec.required
+          ? `Missing critical company field '${fieldSpec.id}' in schema definition`
+          : `Missing optional company field '${fieldSpec.id}' in schema definition`,
       });
+    } else {
+      issues.push(...validateFieldMetadata(fieldSpec, presentMeta, "crm.company.fields"));
     }
   }
 
-  if (!fields[COMPANY_SAMPLES_FIELD_ID]) {
-    issues.push({
-      severity: "warning",
-      entity: "crm.company.fields",
-      field: COMPANY_SAMPLES_FIELD_ID,
-      message: `Custom company samples field '${COMPANY_SAMPLES_FIELD_ID}' is missing in company fields`,
-    });
-  }
-
+  // Check any additional fields for generic metadata validity
   for (const [fieldId, meta] of Object.entries(fields)) {
+    if (EXPECTED_COMPANY_FIELDS.some((f) => f.id === fieldId)) continue;
     if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
       issues.push({
         severity: "error",
         entity: "crm.company.fields",
         field: fieldId,
-        message: `Field '${fieldId}' metadata must be an object`,
+        message: `Field '${fieldId}' metadata must be a non-array object`,
       });
-      continue;
-    }
-    const fieldMeta = meta as Record<string, unknown>;
-    if (typeof fieldMeta.type !== "string") {
+    } else if (typeof (meta as Record<string, unknown>).type !== "string") {
       issues.push({
         severity: "error",
         entity: "crm.company.fields",
         field: fieldId,
         message: `Field '${fieldId}' must have a string 'type' property`,
       });
-    } else {
-      const typeStr = fieldMeta.type.toLowerCase();
-      if (fieldId === "TITLE" && typeStr !== "string") {
-        issues.push({
-          severity: "error",
-          entity: "crm.company.fields",
-          field: "TITLE",
-          message: `Field 'TITLE' expected string type, found '${fieldMeta.type}'`,
-        });
-      }
-      if (fieldId === "DATE_CREATE" && !["date", "datetime"].includes(typeStr)) {
-        issues.push({
-          severity: "error",
-          entity: "crm.company.fields",
-          field: "DATE_CREATE",
-          message: `Field 'DATE_CREATE' expected date/datetime type, found '${fieldMeta.type}'`,
-        });
-      }
     }
   }
 
@@ -399,6 +404,8 @@ export function validateStatusListContract(payload: unknown): ContractIssue[] {
     return issues;
   }
 
+  const foundStatusIds = new Set<string>();
+
   for (let i = 0; i < list.length; i++) {
     const item = list[i];
     if (!item || typeof item !== "object") {
@@ -410,20 +417,40 @@ export function validateStatusListContract(payload: unknown): ContractIssue[] {
       continue;
     }
     const s = item as Record<string, unknown>;
-    if (!s.STATUS_ID && !s.statusId) {
+    const statusId = s.STATUS_ID || s.statusId;
+    if (!statusId) {
       issues.push({
         severity: "error",
         entity: "crm.status.list",
         field: "STATUS_ID",
         message: `Status item ${i} is missing required 'STATUS_ID'`,
       });
+    } else {
+      const idUpper = String(statusId).trim().toUpperCase();
+      const colonIdx = idUpper.lastIndexOf(":");
+      const baseKey = colonIdx !== -1 ? idUpper.slice(colonIdx + 1) : idUpper;
+      foundStatusIds.add(idUpper);
+      foundStatusIds.add(baseKey);
     }
+
     if (!s.NAME && !s.name) {
       issues.push({
         severity: "warning",
         entity: "crm.status.list",
         field: "NAME",
         message: `Status item ${i} is missing 'NAME'`,
+      });
+    }
+  }
+
+  // Validate presence of required base stages
+  for (const baseStage of REQUIRED_BASE_STAGES) {
+    if (!foundStatusIds.has(baseStage)) {
+      issues.push({
+        severity: "error",
+        entity: "crm.status.list",
+        field: baseStage,
+        message: `Missing required base stage '${baseStage}' in status list`,
       });
     }
   }
@@ -560,4 +587,3 @@ export async function verifyLiveBitrixContract(
     };
   }
 }
-

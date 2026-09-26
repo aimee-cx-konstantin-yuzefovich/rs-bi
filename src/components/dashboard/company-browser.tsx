@@ -9,6 +9,7 @@ import {
 } from "@/lib/crm-constants";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { formatHeaderToRussian } from "@/lib/excel-brand";
+import { parseStrictDate } from "@/lib/date-safety";
 import { CompanyPreview } from "./company-preview";
 import { DealPreview } from "./deal-preview";
 import { isCompanyId, defaultSampleFields } from "@/lib/company-preview";
@@ -126,11 +127,11 @@ function resolveCompanyValue(
   }
 
   if ((field?.type === "date" || field?.type === "datetime") && typeof raw === "string") {
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const d = parseStrictDate(raw);
+    if (d && !isNaN(d.getTime())) {
+      const dateStr = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
       return field.type === "datetime"
-        ? `${dateStr} ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
+        ? `${dateStr} ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })}`
         : dateStr;
     }
   }
@@ -215,6 +216,99 @@ function matchesCompanyDateFilter(company: Record<string, any>, filter: DateFilt
   if (fromDate && d < fromDate) return false;
   if (toDate && d > toDate) return false;
   return true;
+}
+
+export function getCompanyColumnType(
+  colId: string,
+  fieldMap: Map<string, { type?: string }>
+): string | undefined {
+  if (colId === "TITLE") return "string";
+  if (colId === "ASSIGNED_BY_ID" || colId === "COMPANY_ASSIGNED_BY_ID" || colId === "LAST_ACTIVITY_BY") return "user";
+  const meta = fieldMap.get(`COMPANY_${colId}`) || fieldMap.get(colId);
+  return meta?.type;
+}
+
+export function buildCompanyExportPayload({
+  sortedItems,
+  columns,
+  fieldMap,
+  userNames,
+  columnTitle,
+  activeName,
+  columnFilters = [],
+  highlightSamples = false,
+  periodLabel = "Все",
+}: {
+  sortedItems: Record<string, any>[];
+  columns: string[];
+  fieldMap: Map<string, any>;
+  userNames: Record<string, string>;
+  columnTitle: (colId: string) => string;
+  activeName?: string;
+  columnFilters?: Array<{ columnId: string; value: string }>;
+  highlightSamples?: boolean;
+  periodLabel?: string;
+}) {
+  const getField = (colId: string) =>
+    colId === "TITLE" || colId === "ASSIGNED_BY_ID"
+      ? undefined
+      : fieldMap.get(`COMPANY_${colId}`) || fieldMap.get(colId);
+
+  const exportColumns = columns.map((colId) => formatHeaderToRussian(columnTitle(colId)));
+  const rawColumnTypes = columns.map((colId) => getCompanyColumnType(colId, fieldMap));
+
+  const exportData = sortedItems.map((company) =>
+    columns.map((colId) => {
+      const field = getField(colId);
+      const colType = getCompanyColumnType(colId, fieldMap);
+      const raw = company[colId];
+
+      if (raw === null || raw === undefined || raw === "" || raw === "—") {
+        return null;
+      }
+
+      if (colType === "date" || colType === "datetime") {
+        if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
+        if (typeof raw === "string") {
+          const dt = parseStrictDate(raw);
+          if (dt) return dt;
+          return raw;
+        }
+      }
+
+      return resolveCompanyValue(company, colId, userNames, field);
+    })
+  );
+
+  const filtersSummary: string[] = [];
+  if (activeName && activeName !== "Все ответственные") {
+    filtersSummary.push(`Ответственный: ${activeName}`);
+  }
+  if (columnFilters.length > 0) {
+    columnFilters.forEach((f) => {
+      if (f.value.trim()) {
+        filtersSummary.push(`${formatHeaderToRussian(columnTitle(f.columnId))}: "${f.value.trim()}"`);
+      }
+    });
+  }
+  if (highlightSamples) {
+    filtersSummary.push("Режим: Выделение компаний с образцами");
+  }
+
+  return {
+    exportData,
+    exportColumns,
+    options: {
+      title: "Отчёт по компаниям",
+      sheetName: "Компании",
+      fileNamePrefix: "РусСилика_Компании",
+      period: periodLabel,
+      filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
+      highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
+      rawColumnIds: columns,
+      rawColumnTypes,
+    },
+  };
 }
 
 export function CompanyBrowser() {
@@ -414,29 +508,6 @@ export function CompanyBrowser() {
   const handleExport = useCallback(() => {
     if (sortedItems.length === 0 || columns.length === 0) return;
 
-    const exportColumns = columns.map((colId) => formatHeaderToRussian(columnTitle(colId)));
-    const exportData = sortedItems.map((company) =>
-      columns.map((colId) => {
-        const field = getField(colId);
-        return resolveCompanyValue(company, colId, userNames, field);
-      })
-    );
-
-    const filtersSummary: string[] = [];
-    if (activeName && activeName !== "Все ответственные") {
-      filtersSummary.push(`Ответственный: ${activeName}`);
-    }
-    if (columnFilters.length > 0) {
-      columnFilters.forEach((f) => {
-        if (f.value.trim()) {
-          filtersSummary.push(`${formatHeaderToRussian(columnTitle(f.columnId))}: "${f.value.trim()}"`);
-        }
-      });
-    }
-    if (highlightSamples) {
-      filtersSummary.push("Режим: Выделение компаний с образцами");
-    }
-
     const periodLabel =
       companyDateFilter.preset === "custom" && companyDateFilter.customFrom && companyDateFilter.customTo
         ? `${companyDateFilter.customFrom} — ${companyDateFilter.customTo}`
@@ -451,17 +522,19 @@ export function CompanyBrowser() {
         : "Все";
 
     try {
-      exportToExcelWysiwyg(exportData, exportColumns, {
-        title: "Отчёт по компаниям",
-        sheetName: "Компании",
-        fileNamePrefix: "РусСилика_Компании",
-        period: periodLabel,
-        filtersText: filtersSummary.length > 0 ? filtersSummary.join(" | ") : "Все",
-        // Mirror the on-screen "Образцы" highlight in the exported file.
-        highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
-        rawColumnIds: columns,
-        rawColumnTypes: columns.map((colId: string) => fieldMap.get(colId)?.type),
+      const payload = buildCompanyExportPayload({
+        sortedItems,
+        columns,
+        fieldMap,
+        userNames,
+        columnTitle,
+        activeName,
+        columnFilters,
+        highlightSamples,
+        periodLabel,
       });
+
+      exportToExcelWysiwyg(payload.exportData, payload.exportColumns, payload.options);
     } catch (err) {
       console.error("Ошибка при экспорте компаний в Excel:", err);
     }

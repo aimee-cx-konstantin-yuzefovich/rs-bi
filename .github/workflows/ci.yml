@@ -42,6 +42,9 @@ jobs:
       - name: Run test suite (Vitest)
         run: npx vitest run
 
+      - name: Verify Bitrix contract (Offline)
+        run: npm run qa:bitrix-contract:offline
+
       - name: Run linter (ESLint)
         run: npm run lint
 
