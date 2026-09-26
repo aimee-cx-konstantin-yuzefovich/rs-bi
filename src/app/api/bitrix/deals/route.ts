@@ -215,9 +215,9 @@ export async function POST(request: NextRequest) {
     if (pages.missingIdCount > 0 || pages.totalInconsistent) {
       warning = `Обнаружены некорректные данные в ответе CRM. Загружено ${fetched} из ${bitrixTotal} сделок.`;
     } else if (partial) {
-      warning = `Некоторые данные не удалось загрузить. Показано ${fetched} из ${bitrixTotal} сделок.`;
+      warning = `Некоторые данные не удалось загрузить. Загружено ${fetched} из ${bitrixTotal} сделок.`;
     } else if (pages.cappedByLimit) {
-      warning = `Данные усечены. Показаны последние ${MAX_DEALS_TO_FETCH} сделок.`;
+      warning = `Данные усечены. Загружено ${fetched} из ${bitrixTotal} сделок (лимит загрузки ${MAX_DEALS_TO_FETCH}).`;
     }
 
     const coverage = resolveDatasetCoverage(

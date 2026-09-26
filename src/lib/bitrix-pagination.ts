@@ -251,13 +251,14 @@ export async function fetchCappedPages<T extends CappedPageRow>(
   const partial = failedPages > 0 || missingIdCount > 0 || totalInconsistent;
 
   // Reconciliation: with all pages retrieved and a known total, the unique
-  // count must equal the capped window size (fetched == min(total-start, cap)).
-  // If fewer unique rows arrived without any recorded failure, treat it as
-  // partial (something vanished silently).
+  // count must equal the capped window size minus known duplicates
+  // (duplicates are counted, not errors). If fewer unique rows arrived
+  // without any recorded failure or duplicates, treat it as partial
+  // (something vanished silently).
   let reconciled = true;
   if (allPagesRetrieved && authoritativeTotal !== undefined) {
     const expectedWindow = Math.max(0, Math.min(authoritativeTotal - start, cap));
-    if (uniqueCount !== expectedWindow && sawNext) {
+    if (uniqueCount !== expectedWindow && sawNext && duplicateCount === 0) {
       reconciled = false;
     }
   }
