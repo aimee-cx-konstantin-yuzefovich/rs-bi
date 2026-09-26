@@ -293,18 +293,65 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     const filters: CommercialFilters = { periodPreset: "90days" };
     const boundaries = computePeriodBoundaries(filters, fixedNow);
 
+    // 1. Exact Period KPI ledger
     const datedKpis = computePeriodMetrics(companies, boundaries);
-    expect(datedKpis.length).toBeGreaterThan(0);
+    expect(datedKpis).toHaveLength(6);
 
+    const newCompKpi = datedKpis.find((k) => k.id === "new_companies")!;
+    expect(newCompKpi.currentValue).toBe(8);
+    expect(newCompKpi.companyIds.sort()).toEqual(["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"]);
+
+    const samplesKpi = datedKpis.find((k) => k.id === "samples_sent")!;
+    expect(samplesKpi.currentValue).toBe(1);
+    expect(samplesKpi.companyIds).toEqual(["C5"]);
+
+    const dealsCreatedKpi = datedKpis.find((k) => k.id === "deals_created")!;
+    // C4 deal 107 had invalid date 2026-02-31, so C4 is excluded from deals_created in period
+    expect(dealsCreatedKpi.currentValue).toBe(7);
+    expect(dealsCreatedKpi.companyIds.sort()).toEqual(["C1", "C2", "C3", "C5", "C6", "C7", "C8"]);
+
+    const paymentsReceivedKpi = datedKpis.find((k) => k.id === "payments_received")!;
+    expect(paymentsReceivedKpi.currentValue).toBe(0);
+    expect(paymentsReceivedKpi.companyIds).toEqual([]);
+
+    const paymentAmountKpi = datedKpis.find((k) => k.id === "payment_amount")!;
+    expect(paymentAmountKpi.currentValue).toBe(0);
+    expect(paymentAmountKpi.amountQuality).toBe("COMPLETE");
+    expect(paymentAmountKpi.currencyBreakdown?.current).toEqual({});
+
+    // 2. Exact WIP ledger
     const wipKpis = computeWipMetrics(companies);
-    expect(wipKpis.length).toBeGreaterThan(0);
+    const unclassWip = wipKpis.find((w) => w.id === "Не классифицировано")!;
+    expect(unclassWip.companyCount).toBe(1);
+    expect(unclassWip.companyIds).toEqual(["C5"]);
 
-    const bottlenecks = computeBottlenecks(companies, fixedNow);
-    const scorecard = computeManagerScorecard(companies, boundaries, bottlenecks, userNames);
-    expect(scorecard.length).toBeGreaterThan(0);
-
+    // 3. Exact Sample Register ledger
     const sampleRegister = buildSampleRegister(companies, fixedNow);
-    expect(sampleRegister.length).toBeGreaterThan(0);
+    expect(sampleRegister).toHaveLength(2);
+    // Deterministically sorted by deal ID: 108, then 109
+    expect(sampleRegister[0].dealId).toBe("108");
+    expect(sampleRegister[0].shipmentDate).toBe("2026-02-22");
+    expect(sampleRegister[0].status).toBe("Тестирование успешно");
+    expect(sampleRegister[0].nextAction).toBeUndefined();
+
+    expect(sampleRegister[1].dealId).toBe("109");
+    expect(sampleRegister[1].shipmentDate).toBe("2026-01-12");
+    expect(sampleRegister[1].status).toBe("Передано на склад");
+    expect(sampleRegister[1].nextAction).toBeUndefined();
+
+    // 4. Exact Bottlenecks ledger
+    const bottlenecks = computeBottlenecks(companies, fixedNow);
+    expect(bottlenecks).toHaveLength(4);
+    const b101 = bottlenecks.find((b) => b.dealId === "101")!;
+    expect(b101.daysWaiting).toBe(83);
+    expect(b101.nextAction).toBeUndefined();
+
+    const b102 = bottlenecks.find((b) => b.dealId === "102")!;
+    expect(b102.daysWaiting).toBe(83);
+    expect(b102.nextAction).toBe("Запланировать звонок / встречу с клиентом");
+
+    const scorecard = computeManagerScorecard(companies, boundaries, bottlenecks, userNames);
+    expect(scorecard).toHaveLength(3);
   });
 
   it("TC-GOLDEN-05: generates 5-sheet RusSilica Management Excel workbook cleanly", async () => {
