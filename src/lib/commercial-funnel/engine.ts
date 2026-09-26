@@ -20,6 +20,9 @@ import {
   safeDeltaPercent,
 } from "./date-utils";
 import { normalizeCurrencyCode } from "./normalize";
+import { getCurrencyUniverse } from "./currency";
+
+export { getCurrencyUniverse } from "./currency";
 import { isDealActiveStage, isProgressedCommercialStage } from "./stage-utils";
 import { evaluateStalledDeal } from "./bottlenecks";
 import type {
@@ -285,12 +288,10 @@ export function computePeriodMetrics(
     ...extra,
   });
 
-  const distinctCurrencies = Array.from(
-    new Set([
-      ...Object.keys(currentCurrencyStats),
-      ...Object.keys(prevCurrencyStats),
-    ])
-  ).sort();
+  const distinctCurrencies = getCurrencyUniverse(
+    currentCurrencyStats,
+    prevCurrencyStats
+  );
 
   const currentQualityByCurrency: Record<string, AggregateAmountQuality> = {};
   const prevQualityByCurrency: Record<string, AggregateAmountQuality> = {};
@@ -751,7 +752,17 @@ export function computeManagerScorecard(
   // Settle paymentAmount & quality:
   // Preserves AggregateAmountQuality truthfully (never collapses missing/invalid paid amounts to 0 COMPLETE)
   for (const [respId, row] of managerMap.entries()) {
-    const currs = Object.keys(row.paymentAmountsByCurrency || {});
+    // Populate per-currency qualities first so quality-only currencies are known
+    const curMap = managerCurrencyStats.get(respId);
+    if (curMap && curMap.size > 0) {
+      row.paymentAmountsQualityByCurrency = {};
+      for (const [cur, cStat] of curMap.entries()) {
+        const curQ = evaluateAggregateAmountQuality(cStat.validSum, cStat.validCount, cStat.invalidCount, cStat.unknownCount);
+        row.paymentAmountsQualityByCurrency[cur] = curQ.quality;
+      }
+    }
+
+    const currs = getCurrencyUniverse(row.paymentAmountsByCurrency, row.paymentAmountsQualityByCurrency);
     const mStats = managerPaymentStats.get(respId) || { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
     const qRes = evaluateAggregateAmountQuality(mStats.validSum, mStats.validCount, mStats.invalidCount, mStats.unknownCount);
     row.paymentAmountQuality = qRes.quality;
@@ -760,16 +771,6 @@ export function computeManagerScorecard(
       row.paymentAmount = qRes.amount;
     } else {
       row.paymentAmount = null; // Mixed currencies: scalar sum forbidden
-    }
-
-    // Populate per-currency qualities
-    const curMap = managerCurrencyStats.get(respId);
-    if (curMap && curMap.size > 0) {
-      row.paymentAmountsQualityByCurrency = {};
-      for (const [cur, cStat] of curMap.entries()) {
-        const curQ = evaluateAggregateAmountQuality(cStat.validSum, cStat.validCount, cStat.invalidCount, cStat.unknownCount);
-        row.paymentAmountsQualityByCurrency[cur] = curQ.quality;
-      }
     }
   }
 
