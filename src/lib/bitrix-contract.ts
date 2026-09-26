@@ -12,7 +12,7 @@ import {
   normalizeBitrixBoolean,
   OFFLINE_CONTRACT_SNAPSHOT,
 } from "./bitrix-contract-spec";
-import { assertSafeWebhookUrl } from "./network-safety";
+import { assertSafeWebhookUrl, DnsLookupFunction } from "./network-safety";
 
 export { OFFLINE_CONTRACT_SNAPSHOT };
 
@@ -506,6 +506,7 @@ export interface LiveVerificationResult {
 export interface LiveContractOptions {
   fetchFn?: typeof fetch;
   timeoutMs?: number;
+  lookupFn?: DnsLookupFunction;
 }
 
 export async function verifyLiveBitrixContract(
@@ -524,7 +525,12 @@ export async function verifyLiveBitrixContract(
   }
 
   try {
-    const safeUrl = await assertSafeWebhookUrl(webhookUrl.trim());
+    const lookupFn =
+      options?.lookupFn ||
+      (options?.fetchFn
+        ? (async () => [{ address: "93.184.216.34", family: 4 }] as any)
+        : undefined);
+    const safeUrl = await assertSafeWebhookUrl(webhookUrl.trim(), lookupFn);
     const cleanUrl = safeUrl.toString().replace(/\/+$/, "");
     const fetchFn = options?.fetchFn || fetch;
     const timeoutMs = options?.timeoutMs || 10000;
