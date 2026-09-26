@@ -460,8 +460,15 @@ function formatPeriodPresetToRussian(preset: string): string {
         ).length;
 
         const curLabel = cur === "UNKNOWN" ? "валюта не указана" : cur;
+        const curQuality = k.currencyBreakdownQuality?.current?.[cur];
+        const qualitySuffix =
+          curQuality === "PARTIAL"
+            ? " (неполные данные)"
+            : curQuality === "INVALID_ONLY"
+            ? " (ошибка данных)"
+            : "";
         const row = summarySheet.addRow([
-          `${k.label} — ${curLabel}`,
+          `${k.label} — ${curLabel}${qualitySuffix}`,
           currAmt,
           prevAmt,
           deltaAmt,
@@ -481,9 +488,15 @@ function formatPeriodPresetToRussian(preset: string): string {
         row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
       }
     } else {
+      const qualitySuffix =
+        k.isCurrency && k.amountQuality === "PARTIAL"
+          ? " (неполные данные)"
+          : k.isCurrency && k.amountQuality === "INVALID_ONLY"
+          ? " (ошибка данных)"
+          : "";
       const row = summarySheet.addRow([
-        k.label,
-        k.currentValue ?? 0,
+        `${k.label}${qualitySuffix}`,
+        k.currentValue ?? (k.amountQuality === "INVALID_ONLY" ? "Неверная сумма" : 0),
         k.previousValue ?? 0,
         k.delta ?? 0,
         k.deltaPercent !== null ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%` : "—",
@@ -902,7 +915,16 @@ function formatPeriodPresetToRussian(preset: string): string {
   const startManagersRow = managersHeaderRowIndex + 1;
   for (const m of managerScorecard) {
     const payAmounts: (number | string)[] = isMultiManagerCurrencies
-      ? allManagerCurrencies.map((cur) => m.paymentAmountsByCurrency?.[cur] || 0)
+      ? allManagerCurrencies.map((cur) => {
+          const amt = m.paymentAmountsByCurrency?.[cur];
+          const curQual = m.paymentAmountsQualityByCurrency?.[cur];
+          if (typeof amt === "number") {
+            return amt;
+          }
+          if (curQual === "INVALID_ONLY") return "— (ошибка)";
+          if (curQual === "UNKNOWN") return "— (нет данных)";
+          return 0;
+        })
       : [
           m.paymentAmount !== null
             ? m.paymentAmount
@@ -934,7 +956,14 @@ function formatPeriodPresetToRussian(preset: string): string {
 
     if (isMultiManagerCurrencies) {
       for (let i = 0; i < allManagerCurrencies.length; i++) {
-        row.getCell(10 + i).numFmt = getMoneyNumFmt(allManagerCurrencies[i]);
+        const cur = allManagerCurrencies[i];
+        const cell = row.getCell(10 + i);
+        if (typeof payAmounts[i] === "number") {
+          cell.numFmt = getMoneyNumFmt(cur);
+        }
+        if (m.paymentAmountsQualityByCurrency?.[cur] === "PARTIAL") {
+          cell.note = "Неполные данные: присутствуют сделки с некорректной суммой";
+        }
       }
       const attentionCol = 10 + allManagerCurrencies.length;
       row.getCell(attentionCol).numFmt = NUMFMT.INTEGER;
@@ -945,8 +974,12 @@ function formatPeriodPresetToRussian(preset: string): string {
       }
     } else {
       const singleCur = allManagerCurrencies[0];
+      const cell = row.getCell(10);
       if (typeof payAmounts[0] === "number") {
-        row.getCell(10).numFmt = getMoneyNumFmt(singleCur);
+        cell.numFmt = getMoneyNumFmt(singleCur);
+      }
+      if (m.paymentAmountQuality === "PARTIAL") {
+        cell.note = "Неполные данные: присутствуют сделки с некорректной суммой";
       }
       row.getCell(11).numFmt = NUMFMT.INTEGER;
 

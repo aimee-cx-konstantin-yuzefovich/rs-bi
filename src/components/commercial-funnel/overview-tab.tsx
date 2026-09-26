@@ -117,9 +117,20 @@ export function CommercialOverviewTab({
                         }
                         return allCurrs.map((cur) => {
                           const amt = kpi.currencyBreakdown!.current[cur] || 0;
+                          const curQuality =
+                            kpi.currencyBreakdownQuality?.current?.[cur] ||
+                            (Object.keys(kpi.currencyBreakdown!.current).length === 1
+                              ? kpi.amountQuality
+                              : undefined);
+                          const isPartial = curQuality === "PARTIAL";
                           return (
                             <div key={cur} className="text-base font-bold tracking-tight">
                               {formatCurrencyAmount(amt, cur)}
+                              {isPartial && (
+                                <span className="ml-1.5 text-xs font-normal text-amber-600 dark:text-amber-400">
+                                  (неполные)
+                                </span>
+                              )}
                             </div>
                           );
                         });
