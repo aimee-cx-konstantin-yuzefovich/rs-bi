@@ -97,7 +97,9 @@ export async function fetchAllPages(
         if (authoritativeTotal === null) {
           authoritativeTotal = parsedTotal;
         } else if (authoritativeTotal !== parsedTotal) {
-          authoritativeTotal = parsedTotal;
+          throw new Error(
+            `Inconsistent total reported during pagination: initial ${authoritativeTotal} vs new ${parsedTotal} (${method})`
+          );
         }
       }
     }
