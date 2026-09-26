@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { COMMERCIAL_TIMEZONE } from "./constants";
-import { isValidCalendarDate } from "@/lib/date-safety";
+import { isValidCalendarDate, parseStrictDate } from "@/lib/date-safety";
 import type { CommercialFilters, PeriodBoundaries } from "./types";
 
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
@@ -113,7 +113,7 @@ export function parseDateTimestamp(
 ): number | null {
   if (!dateStr || typeof dateStr !== "string") return null;
   const trimmed = dateStr.trim();
-  if (!trimmed) return null;
+  if (!trimmed || trimmed === "—") return null;
 
   const cacheKey = `${timeZone}:${trimmed}`;
   if (dateTimestampCache.has(cacheKey)) {
@@ -124,46 +124,10 @@ export function parseDateTimestamp(
     dateTimestampCache.clear();
   }
 
-  let result: number | null = null;
-
-  // Date-only string "YYYY-MM-DD"
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    const [y, m, d] = trimmed.split("-").map(Number);
-    if (!isValidCalendarDate(y, m, d)) {
-      result = null;
-    } else {
-      const date = createZonedDate(y, m - 1, d, 0, 0, 0, 0, timeZone);
-      result = isNaN(date.getTime()) ? null : date.getTime();
-    }
-  } else {
-    // Naive datetime without offset "YYYY-MM-DD[ T]HH:mm:ss"
-    const naiveMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/);
-    if (naiveMatch) {
-      const [_, y, m, d, h, mi, s, msStr] = naiveMatch;
-      if (!isValidCalendarDate(Number(y), Number(m), Number(d))) {
-        result = null;
-      } else {
-        const ms = msStr ? Number(msStr.slice(0, 3).padEnd(3, "0")) : 0;
-        const date = createZonedDate(Number(y), Number(m) - 1, Number(d), Number(h), Number(mi), Number(s), ms, timeZone);
-        result = isNaN(date.getTime()) ? null : date.getTime();
-      }
-    } else {
-      // Explicit offset / standard ISO
-      const datePrefixMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (datePrefixMatch) {
-        const [_, y, m, d] = datePrefixMatch;
-        if (!isValidCalendarDate(Number(y), Number(m), Number(d))) {
-          result = null;
-        } else {
-          const d = new Date(trimmed);
-          result = isNaN(d.getTime()) ? null : d.getTime();
-        }
-      } else {
-        const d = new Date(trimmed);
-        result = isNaN(d.getTime()) ? null : d.getTime();
-      }
-    }
-  }
+  // Canonical strict date & datetime parsing:
+  // Rejects invalid calendar dates, invalid times, clock overflows, and interprets naive datetimes in business timezone.
+  const parsed = parseStrictDate(trimmed, { mode: "DATETIME_BUSINESS_TIMEZONE", timeZone });
+  const result = parsed && !isNaN(parsed.getTime()) ? parsed.getTime() : null;
 
   dateTimestampCache.set(cacheKey, result);
   return result;
@@ -195,25 +159,43 @@ export function computePeriodBoundaries(
   );
 
   if (periodPreset === "custom" && customFrom && customTo) {
-    // Normalize calendar strings FIRST so inverted ranges cleanly span both full boundary days
-    let startStr = customFrom.trim();
-    let endStr = customTo.trim();
-    if (startStr > endStr) {
-      const tmp = startStr;
-      startStr = endStr;
-      endStr = tmp;
-    }
-    const [fy, fm, fd] = startStr.split("-").map(Number);
-    const [ty, tm, td] = endStr.split("-").map(Number);
+    // Validate boundaries strictly against calendar rules
+    const parsedFrom = parseStrictDate(customFrom, { mode: "DATE_ONLY" });
+    const parsedTo = parseStrictDate(customTo, { mode: "DATE_ONLY" });
 
-    if (!isValidCalendarDate(fy, fm, fd) || !isValidCalendarDate(ty, tm, td)) {
+    if (!parsedFrom || !parsedTo) {
       throw new Error(
-        `Invalid custom period boundaries: '${startStr}' to '${endStr}' contains an impossible calendar date`
+        `Invalid custom period boundaries: '${customFrom}' to '${customTo}' contains an impossible calendar date`
       );
     }
 
-    currentStart = createZonedDate(fy, fm - 1, fd, 0, 0, 0, 0, timeZone);
-    currentEnd = createZonedDate(ty, tm - 1, td, 23, 59, 59, 999, timeZone);
+    let earlier = parsedFrom;
+    let later = parsedTo;
+    if (earlier.getTime() > later.getTime()) {
+      earlier = parsedTo;
+      later = parsedFrom;
+    }
+
+    currentStart = createZonedDate(
+      earlier.getUTCFullYear(),
+      earlier.getUTCMonth(),
+      earlier.getUTCDate(),
+      0,
+      0,
+      0,
+      0,
+      timeZone
+    );
+    currentEnd = createZonedDate(
+      later.getUTCFullYear(),
+      later.getUTCMonth(),
+      later.getUTCDate(),
+      23,
+      59,
+      59,
+      999,
+      timeZone
+    );
   } else if (periodPreset === "quarter") {
     const quarterIndex = Math.floor(nowParts.monthIndex / 3); // 0, 1, 2, 3
     const qStartMonth = quarterIndex * 3;
