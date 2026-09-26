@@ -43,6 +43,7 @@ import {
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
 } from "./crm-constants";
+import { isValidCalendarDate, parseStrictDate } from "./date-safety";
 
 export interface WysiwygExportOptions {
   sheetName?: string;
@@ -154,7 +155,9 @@ export async function buildWysiwygWorkbook(
 
   const startDataRow = tableHeaderRowIndex + 1;
   for (const rawRow of data) {
-    const parsedRow = rawRow.map((val) => parseCellNativeValue(val));
+    const parsedRow = rawRow.map((val, idx) =>
+      parseCellNativeValue(val, { fieldId: rawColumnIds?.[idx] })
+    );
     worksheet.addRow(parsedRow);
   }
   const endDataRow = startDataRow + data.length - 1;
@@ -188,10 +191,81 @@ export async function buildWysiwygWorkbook(
   return workbook;
 }
 
+export interface CellParseOptions {
+  fieldId?: string;
+  fieldType?: string;
+}
+
+/**
+ * Determines whether a column is an explicit date field according to metadata
+ * and authoritative CRM field IDs.
+ */
+export function isExplicitDateField(fieldId?: string, fieldType?: string): boolean {
+  if (fieldType) {
+    const t = fieldType.toLowerCase();
+    if (t === "date" || t === "datetime") return true;
+    if (
+      [
+        "string",
+        "text",
+        "enumeration",
+        "crm_status",
+        "integer",
+        "double",
+        "money",
+        "boolean",
+        "char",
+      ].includes(t)
+    ) {
+      return false;
+    }
+  }
+
+  if (fieldId) {
+    const idUpper = fieldId.toUpperCase();
+    if (
+      idUpper.includes(COMPANY_SAMPLES_FIELD_ID) ||
+      idUpper === "ID" ||
+      idUpper === "COMPANY_ID" ||
+      idUpper === "TITLE" ||
+      idUpper === "CODE"
+    ) {
+      return false;
+    }
+    if (
+      idUpper === "DATE_CREATE" ||
+      idUpper === "DATE_MODIFY" ||
+      idUpper === "BEGINDATE" ||
+      idUpper === "CLOSEDATE" ||
+      idUpper === "COMPANY_DATE_CREATE" ||
+      idUpper === "COMPANY_DATE_MODIFY" ||
+      idUpper === "DEAL_DATE_CREATE" ||
+      idUpper === "DEAL_DATE_MODIFY" ||
+      idUpper === "LAST_ACTIVITY_TIME" ||
+      idUpper === "COMPANY_LAST_ACTIVITY_TIME" ||
+      idUpper.includes(COMPANY_SAMPLES_DATE_MULTI_FIELD_ID) ||
+      idUpper.includes(COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID) ||
+      idUpper.includes(DEAL_SAMPLE_SENT_DATE_FIELD_ID) ||
+      idUpper.includes("UF_CRM_1584460062014") ||
+      idUpper.includes("UF_CRM_1584459666824")
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // Fallback pattern inference when no metadata or field identity was provided
+  return true;
+}
+
 /**
  * Parses raw cell value preserving native Excel dates, numbers, and nulls.
+ * Uses strict calendar validation and metadata-aware type constraints.
  */
-function parseCellNativeValue(val: unknown): string | number | Date | null {
+export function parseCellNativeValue(
+  val: unknown,
+  options?: CellParseOptions
+): string | number | Date | null {
   if (val === null || val === undefined || val === "" || val === "—") {
     return null;
   }
@@ -208,38 +282,13 @@ function parseCellNativeValue(val: unknown): string | number | Date | null {
   const str = String(val).trim();
   if (!str) return null;
 
-  // 1. Check ISO Datetime: YYYY-MM-DD[T ]HH:mm(:ss)?(.sss)?(Z|[+-]HH:mm)?
-  const isoDateTimeMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/);
-  if (isoDateTimeMatch) {
-    const dt = new Date(str.includes("T") || str.includes("Z") ? str : str.replace(" ", "T") + "Z");
-    if (!isNaN(dt.getTime())) return dt;
+  const shouldTryDate = isExplicitDateField(options?.fieldId, options?.fieldType);
+  if (shouldTryDate) {
+    const dt = parseStrictDate(str);
+    if (dt) return dt;
   }
 
-  // 2. Check Russian Datetime: DD.MM.YYYY[T ]HH:mm(:ss)?
-  const ruDateTimeMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (ruDateTimeMatch) {
-    const [_, d, m, y, hh, mm, ss] = ruDateTimeMatch;
-    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss || 0)));
-    if (!isNaN(dt.getTime())) return dt;
-  }
-
-  // 3. Check pure ISO date: YYYY-MM-DD
-  const isoDateMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoDateMatch) {
-    const [_, y, m, d] = isoDateMatch;
-    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 0, 0, 0));
-    if (!isNaN(dt.getTime())) return dt;
-  }
-
-  // 4. Check pure Russian date: DD.MM.YYYY
-  const ruDateMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-  if (ruDateMatch) {
-    const [_, d, m, y] = ruDateMatch;
-    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 0, 0, 0));
-    if (!isNaN(dt.getTime())) return dt;
-  }
-
-  // 5. Check formatted money string with currency symbol (e.g. "120 000 ₽" or "50000 руб")
+  // Check formatted money string with currency symbol (e.g. "120 000 ₽" or "50000 руб")
   const moneyMatch = str.match(/^([+-]?[\d\s]+(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|RUB)$/i);
   if (moneyMatch) {
     const cleanNum = moneyMatch[1].replace(/\s+/g, "").replace(",", ".");
@@ -413,17 +462,24 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
     const dmyMatch = str.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
     if (dmyMatch) {
       const [_, day, month, year, h, m, s] = dmyMatch;
-      const hasTime = h !== undefined && m !== undefined;
-      const hours = hasTime ? Number(h) : 12;
-      const minutes = hasTime ? Number(m) : 0;
-      const seconds = s ? Number(s) : 0;
-      const d = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), hours, minutes, seconds));
-      if (!isNaN(d.getTime())) {
-        return {
-          value: d,
-          numFmt: hasTime ? NUMFMT.DATETIME : NUMFMT.DATE,
-          isDateField: true,
-        };
+      const y = Number(year);
+      const mo = Number(month);
+      const d = Number(day);
+      if (isValidCalendarDate(y, mo, d)) {
+        const hasTime = h !== undefined && m !== undefined;
+        const hours = hasTime ? Number(h) : 12;
+        const minutes = hasTime ? Number(m) : 0;
+        const seconds = s ? Number(s) : 0;
+        if (hours <= 23 && minutes <= 59 && seconds <= 59) {
+          const dateObj = new Date(Date.UTC(y, mo - 1, d, hours, minutes, seconds));
+          if (!isNaN(dateObj.getTime())) {
+            return {
+              value: dateObj,
+              numFmt: hasTime ? NUMFMT.DATETIME : NUMFMT.DATE,
+              isDateField: true,
+            };
+          }
+        }
       }
     }
 
@@ -431,20 +487,25 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
     const ymdMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (ymdMatch) {
       const [_, year, month, day] = ymdMatch;
-      const d = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12, 0, 0));
-      if (!isNaN(d.getTime())) {
-        return { value: d, numFmt: NUMFMT.DATE, isDateField: true };
+      const y = Number(year);
+      const mo = Number(month);
+      const d = Number(day);
+      if (isValidCalendarDate(y, mo, d)) {
+        const dateObj = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0));
+        if (!isNaN(dateObj.getTime())) {
+          return { value: dateObj, numFmt: NUMFMT.DATE, isDateField: true };
+        }
       }
     }
 
     // 3. ISO datetime: YYYY-MM-DDTHH:mm:ss
     const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
     if (isoMatch) {
-      const d = new Date(str);
-      if (!isNaN(d.getTime())) {
-        const hasTime = d.getUTCHours() !== 0 || d.getUTCMinutes() !== 0;
+      const parsedDt = parseStrictDate(str);
+      if (parsedDt) {
+        const hasTime = parsedDt.getUTCHours() !== 0 || parsedDt.getUTCMinutes() !== 0;
         return {
-          value: d,
+          value: parsedDt,
           numFmt: hasTime ? NUMFMT.DATETIME : NUMFMT.DATE,
           isDateField: true,
         };

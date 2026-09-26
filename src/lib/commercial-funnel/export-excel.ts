@@ -25,6 +25,7 @@ import {
   safeDeltaPercent,
 } from "./date-utils";
 import { normalizeCurrencyCode } from "./normalize";
+import { parseStrictDate } from "@/lib/date-safety";
 import type {
   CommercialCompany,
   CommercialDeal,
@@ -69,26 +70,7 @@ import {
  * Returns null if missing or invalid, ensuring empty cells stay blank.
  */
 function toExcelDate(dateStr?: string | null): Date | null {
-  if (!dateStr || typeof dateStr !== "string") return null;
-  const trimmed = dateStr.trim();
-  if (!trimmed || trimmed === "—") return null;
-
-  // Date-only: YYYY-MM-DD (construct at UTC noon to avoid timezone shift)
-  const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnlyMatch) {
-    const [_, y, m, d] = dateOnlyMatch;
-    const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12, 0, 0));
-    return isNaN(dt.getTime()) ? null : dt;
-  }
-
-  // Datetime with time component
-  const dtMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
-  if (dtMatch) {
-    const dt = new Date(trimmed);
-    return isNaN(dt.getTime()) ? null : dt;
-  }
-
-  return null;
+  return parseStrictDate(dateStr);
 }
 function sanitizeExcelValue(val: any): any {
   if (typeof val === "string" && /^[=\-+\@]/.test(val)) {

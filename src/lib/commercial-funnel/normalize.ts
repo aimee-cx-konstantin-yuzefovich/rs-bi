@@ -15,6 +15,7 @@ import {
   UNCLASSIFIED_LABEL,
 } from "./constants";
 import { calculateDaysWaiting } from "./date-utils";
+import { isValidCalendarDate } from "@/lib/date-safety";
 import type {
   CommercialCompany,
   CommercialDeal,
@@ -75,19 +76,47 @@ function toStringArray(value: unknown): string[] {
   return s ? [s] : [];
 }
 
+/**
+ * Strict numeric parser for domain metrics and quantities.
+ * Accepts numbers, numeric strings with dot/comma, and space-separated thousands.
+ * Strictly rejects malformed numeric strings (e.g. "12abc", "1.2.3", "---", "RUB 100").
+ */
+export function parseStrictNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const normalized = trimmed.replace(/[\s\u00A0]+/g, "").replace(",", ".");
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) {
+    return undefined;
+  }
+
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : undefined;
+}
+
 function parseQuantity(val: unknown): number | undefined {
   if (val === null || val === undefined || val === "") return undefined;
-  const num = typeof val === "number" ? val : parseFloat(String(val).replace(",", "."));
-  return Number.isFinite(num) && num > 0 ? num : undefined;
+  const num = parseStrictNumber(val);
+  return num !== undefined && num > 0 ? num : undefined;
 }
 
 function extractIsoDates(raw: unknown): string[] {
   const strings = toStringArray(raw);
   const out: string[] = [];
   for (const s of strings) {
-    const match = s.match(/\d{4}-\d{2}-\d{2}/);
-    if (match && !out.includes(match[0])) {
-      out.push(match[0]);
+    const match = s.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+    if (match) {
+      const y = Number(match[1]);
+      const m = Number(match[2]);
+      const d = Number(match[3]);
+      if (isValidCalendarDate(y, m, d) && !out.includes(match[0])) {
+        out.push(match[0]);
+      }
     }
   }
   return out;
@@ -164,7 +193,12 @@ export function normalizeDeals(
     const responsibleName = userNames[responsibleId] || (responsibleId ? `ID ${responsibleId}` : "Не назначен");
     const stageId = String(row.STAGE_ID || row.stageId || "").trim();
     const categoryId = String(row.CATEGORY_ID || row.categoryId || "0").trim();
-    const opportunity = parseFloat(String(row.OPPORTUNITY || row.opportunity || "0")) || 0;
+    const rawOpp = row.OPPORTUNITY ?? row.opportunity;
+    let opportunity = 0;
+    if (rawOpp !== undefined && rawOpp !== null && String(rawOpp).trim() !== "") {
+      const parsedOpp = parseStrictNumber(rawOpp);
+      opportunity = parsedOpp !== undefined ? parsedOpp : 0;
+    }
     const currencyId = normalizeCurrencyCode(String(row.CURRENCY_ID || row.currencyId || ""));
     const dateCreate = row.DATE_CREATE ? String(row.DATE_CREATE) : undefined;
     const beginDate = row.BEGINDATE ? String(row.BEGINDATE) : undefined;
