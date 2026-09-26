@@ -6,6 +6,7 @@ import {
   COMPANY_RESPONSIBLE_FIELD_ID,
   getDealStageDisplayLabel,
 } from "@/lib/crm-constants";
+import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
 
 export function useTableState() {
   const {
@@ -216,13 +217,15 @@ export function useTableState() {
         field?.type === "integer" ||
         field?.type === "money"
       ) {
-        const num = parseFloat(String(raw));
-        return isNaN(num) ? 0 : num;
+        // Canonical strict parsing: unavailable is unavailable, never 0.
+        const num = parseStrictNumber(raw);
+        return num !== undefined ? num : "";
       }
 
       if (field?.type === "date" || field?.type === "datetime") {
-        const d = new Date(String(raw));
-        return isNaN(d.getTime()) ? 0 : d.getTime();
+        // Strict date parsing: invalid/missing never sort as epoch (0).
+        const d = parseStrictDate(String(raw), { mode: "DATETIME_BUSINESS_TIMEZONE" });
+        return d ? d.getTime() : "";
       }
 
       if (field?.listValues && raw) {
@@ -296,6 +299,14 @@ export function useTableState() {
     return [...filteredDeals].sort((a, b) => {
       const aVal = getSortValue(a, colId);
       const bVal = getSortValue(b, colId);
+
+      const aUnavailable = aVal === "";
+      const bUnavailable = bVal === "";
+      // Unavailable sort values are NOT zero or epoch — they sort
+      // deterministically after valid values regardless of direction.
+      if (aUnavailable && bUnavailable) return 0;
+      if (aUnavailable) return 1;
+      if (bUnavailable) return -1;
 
       if (typeof aVal === "number" && typeof bVal === "number") {
         return (aVal - bVal) * dir;

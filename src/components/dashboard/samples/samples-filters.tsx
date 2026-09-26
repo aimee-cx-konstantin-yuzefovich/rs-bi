@@ -17,6 +17,7 @@ import {
 import { X } from "lucide-react";
 import type { NormalizedResult, SampleSummary } from "@/lib/samples/types";
 import { NORMALIZED_RESULT_LABELS, SOURCE_QUALITY_LABELS } from "@/lib/samples/constants";
+import { parseStrictDate, BUSINESS_TIMEZONE } from "@/lib/scalar-safety";
 
 export type SamplesPeriodPreset =
   | "all"
@@ -63,31 +64,69 @@ const PERIOD_OPTIONS: Array<{ value: SamplesPeriodPreset; label: string }> = [
   { value: "custom", label: "Период…" },
 ];
 
+/**
+ * Computes the inclusive business-calendar window for a period preset.
+ * Pure function: `now` is injectable for deterministic tests. Semantics are
+ * fixed calendar days in the business timezone:
+ *   30days  = current Europe/Moscow calendar day + previous 29 calendar days
+ *   90days  = current day + previous 89
+ *   365days = current day + previous 364
+ * Never compares calendar dates to an arbitrary rolling clock timestamp.
+ */
+export function samplesPeriodWindow(
+  filters: Pick<SamplesFilters, "period" | "customFrom" | "customTo">,
+  now: Date = new Date()
+): { from: Date | null; to: Date | null } {
+  if (filters.period === "all") return { from: null, to: null };
+
+  if (filters.period === "custom") {
+    let from: Date | null = null;
+    let to: Date | null = null;
+    if (filters.customFrom) {
+      from = parseStrictDate(`${filters.customFrom}T00:00:00`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    }
+    if (filters.customTo) {
+      to = parseStrictDate(`${filters.customTo}T23:59:59`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    }
+    return { from, to };
+  }
+
+  const daysBack = { "30days": 29, "90days": 89, "365days": 364 }[
+    filters.period as "30days" | "90days" | "365days"
+  ];
+  if (daysBack === undefined) return { from: null, to: null };
+
+  // Current Moscow calendar day, expressed at 00:00 Moscow = 21:00 UTC prev day.
+  const moscowNow = parseStrictDate(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: BUSINESS_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now) + "T00:00:00",
+    { mode: "DATETIME_BUSINESS_TIMEZONE" }
+  );
+  if (!moscowNow) return { from: null, to: null };
+
+  const from = new Date(moscowNow.getTime() - daysBack * 24 * 60 * 60 * 1000);
+  return { from, to: moscowNow };
+}
+
 /** Returns true when the company matches the period by ≥1 sent date. */
 export function matchesPeriod(
   summary: SampleSummary,
-  filters: SamplesFilters
+  filters: SamplesFilters,
+  now: Date = new Date()
 ): boolean {
   if (filters.period === "all") return true;
   if (summary.sentDates.length === 0) return false;
 
-  let from: Date | null = null;
-  let to: Date | null = null;
-
-  if (filters.period === "custom") {
-    if (filters.customFrom) from = new Date(`${filters.customFrom}T00:00:00`);
-    if (filters.customTo) to = new Date(`${filters.customTo}T23:59:59`);
-  } else {
-    const days = { "30days": 30, "90days": 90, "365days": 365 }[
-      filters.period as "30days" | "90days" | "365days"
-    ];
-    if (!days) return true;
-    from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  }
+  const { from, to } = samplesPeriodWindow(filters, now);
 
   return summary.sentDates.some((dateStr) => {
-    const d = new Date(`${dateStr}T00:00:00`);
-    if (Number.isNaN(d.getTime())) return false;
+    // Strict parsing: "2026-02-31" never rolls to another valid date.
+    const d = parseStrictDate(`${dateStr}T00:00:00`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    if (!d) return false;
     if (from && d < from) return false;
     if (to && d > to) return false;
     return true;
