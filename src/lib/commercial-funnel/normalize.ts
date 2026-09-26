@@ -22,6 +22,11 @@ import type {
   SampleStatusSource,
 } from "./types";
 import {
+  isDealActiveStage,
+  isProgressedCommercialStage,
+  isTerminalStage,
+} from "./stage-utils";
+import {
   COMPANY_APPLICATION_NEW_FIELD_ID,
   COMPANY_APPLICATION_OLD_FIELD_ID,
   COMPANY_DIRECTION_FIELD_ID,
@@ -243,13 +248,7 @@ export function normalizeDeals(
  * Checks whether a deal is active (not terminal WON/LOSE or category-prefixed :WON/:LOSE).
  */
 export function isDealActive(d: CommercialDeal): boolean {
-  const stage = (d.stageId || "").toUpperCase();
-  return (
-    stage !== "WON" &&
-    stage !== "LOSE" &&
-    !stage.endsWith(":WON") &&
-    !stage.endsWith(":LOSE")
-  );
+  return isDealActiveStage(d.stageId);
 }
 
 /**
@@ -461,7 +460,7 @@ export function normalizeCompanies(
 
     // Bottleneck 2: Sample succeeded but no commercial deal progress
     if (sampleStatus === "Подошли") {
-      const hasProgressedDeal = linkedDeals.some((d) => !["NEW", "PREPARATION", "LOSE"].includes(d.stageId));
+      const hasProgressedDeal = linkedDeals.some((d) => isProgressedCommercialStage(d.stageId));
       if (!hasProgressedDeal) {
         attentionReasons.push("Образец подошел, но нет прогресса по коммерческой сделке");
       }
@@ -477,7 +476,7 @@ export function normalizeCompanies(
 
     // Bottleneck 4: Stalled deal (active deal older than STALLED_DEAL_DAYS threshold)
     for (const d of linkedDeals) {
-      if (!["WON", "LOSE"].includes(d.stageId)) {
+      if (isDealActiveStage(d.stageId)) {
         const refDate = d.beginDate || d.dateCreate;
         const days = calculateDaysWaiting(refDate, now) || 0;
         if (days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS) {

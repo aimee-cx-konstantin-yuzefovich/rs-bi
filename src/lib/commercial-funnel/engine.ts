@@ -20,6 +20,7 @@ import {
   safeDeltaPercent,
 } from "./date-utils";
 import { normalizeCurrencyCode } from "./normalize";
+import { isDealActiveStage, isProgressedCommercialStage } from "./stage-utils";
 import type {
   BottleneckItem,
   CommercialCompany,
@@ -426,7 +427,7 @@ export function computeBottlenecks(
 
     // 2. Sample succeeded but no commercial progression
     if (c.sampleStatus === "Подошли") {
-      const hasProgressed = c.deals.some((d) => !["NEW", "PREPARATION", "LOSE"].includes(d.stageId));
+      const hasProgressed = c.deals.some((d) => isProgressedCommercialStage(d.stageId));
       if (!hasProgressed) {
         const refDate = c.sampleShipmentDate || c.dateCreate;
         const days = calculateDaysWaiting(refDate, now) || 0;
@@ -457,7 +458,7 @@ export function computeBottlenecks(
     // 4. Stalled active deal (exceeds STALLED_DEAL_DAYS threshold of 30 days)
     // Young deals (age <= 30 days) must NOT be classified as stalled deal bottlenecks.
     for (const d of c.deals) {
-      if (!["WON", "LOSE"].includes(d.stageId)) {
+      if (isDealActiveStage(d.stageId)) {
         const refDate = d.beginDate || d.dateCreate;
         const days = calculateDaysWaiting(refDate, now) || 0;
         const isStalledByAge = days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS;
