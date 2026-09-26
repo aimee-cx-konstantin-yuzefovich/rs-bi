@@ -234,6 +234,7 @@ export const EXPECTED_DEAL_FIELDS: ExpectedBitrixField[] = [
     name: "Направление",
     required: false,
     allowedTypes: ["enumeration"],
+    expectedMultiple: true,
     businessMeaning: "Supplementary deal business direction categorization",
   },
 ];
@@ -277,7 +278,8 @@ export const EXPECTED_COMPANY_FIELDS: ExpectedBitrixField[] = [
     id: COMPANY_SAMPLES_FIELD_ID,
     name: "Образцы",
     required: true,
-    allowedTypes: ["boolean", "char", "enumeration", "string"],
+    allowedTypes: ["enumeration"],
+    expectedMultiple: true,
     businessMeaning: "Authoritative samples flag driving 'highlight rows with samples' in browser",
   },
   {
@@ -346,6 +348,7 @@ export const EXPECTED_COMPANY_FIELDS: ExpectedBitrixField[] = [
     name: "Тип продукта",
     required: false,
     allowedTypes: ["enumeration"],
+    expectedMultiple: true,
     businessMeaning: "Supplementary product category classification",
   },
   {
@@ -370,6 +373,7 @@ export const EXPECTED_COMPANY_FIELDS: ExpectedBitrixField[] = [
     name: "Направление",
     required: false,
     allowedTypes: ["enumeration"],
+    expectedMultiple: true,
     businessMeaning: "Company sales direction classification",
   },
 ];
@@ -459,8 +463,15 @@ export const OFFLINE_CONTRACT_SNAPSHOT = {
       ASSIGNED_BY_ID: { type: "user", isMultiple: false },
       DATE_CREATE: { type: "datetime", isMultiple: false },
       [COMPANY_SAMPLES_FIELD_ID]: {
-        type: "boolean",
-        isMultiple: false,
+        type: "enumeration",
+        isMultiple: true,
+        items: [
+          { ID: "263", VALUE: "Требуются образцы" },
+          { ID: "261", VALUE: "Образцы отправлены" },
+          { ID: "2695", VALUE: "Подошли" },
+          { ID: "269", VALUE: "Не подошли" },
+          { ID: "271", VALUE: "Требуется доработка" },
+        ],
       },
       [COMPANY_SAMPLES_DATE_MULTI_FIELD_ID]: {
         type: "date",

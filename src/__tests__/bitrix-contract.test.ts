@@ -22,10 +22,13 @@ import {
   COMPANY_SAMPLES_FIELD_ID,
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
+  COMPANY_PRODUCT_TYPE_FIELD_ID,
+  COMPANY_DIRECTION_FIELD_ID,
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TESTING_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
+  DEAL_DIRECTION_FIELD_ID,
 } from "../lib/crm-constants";
 import { validateContract as cliValidateContract } from "../../scripts/verify-bitrix-contract.mjs";
 
@@ -139,6 +142,16 @@ describe("Bitrix Contract Validator — Canonical Engine", () => {
       expect(err).toBeDefined();
       expect(err?.message).toContain("expected type [enumeration], found 'date'");
     });
+
+    it("TC-CONTRACT-03d: company samples field changed from enumeration to boolean/string -> FAIL", () => {
+      const broken = JSON.parse(JSON.stringify(OFFLINE_CONTRACT_SNAPSHOT.companyFields.result));
+      broken[COMPANY_SAMPLES_FIELD_ID].type = "boolean";
+
+      const issues = validateCompanyFieldsContract(broken);
+      const err = issues.find((i) => i.field === COMPANY_SAMPLES_FIELD_ID && i.severity === "error");
+      expect(err).toBeDefined();
+      expect(err?.message).toContain("expected type [enumeration], found 'boolean'");
+    });
   });
 
   describe("Field Multiplicity Contract", () => {
@@ -178,6 +191,32 @@ describe("Bitrix Contract Validator — Canonical Engine", () => {
         (i) => (i.field === COMPANY_SAMPLES_DATE_MULTI_FIELD_ID || i.field === COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID) && i.severity === "error"
       );
       expect(multErr).toBeUndefined();
+    });
+
+    it("TC-CONTRACT-04d: company samples / directions / product type multiple changed to single -> FAIL", () => {
+      // 1. COMPANY_SAMPLES_FIELD_ID
+      const brokenComp = JSON.parse(JSON.stringify(OFFLINE_CONTRACT_SNAPSHOT.companyFields.result));
+      brokenComp[COMPANY_SAMPLES_FIELD_ID].isMultiple = false;
+      const compIssues1 = validateCompanyFieldsContract(brokenComp);
+      expect(compIssues1.some((i) => i.field === COMPANY_SAMPLES_FIELD_ID && i.message.includes("MULTIPLE"))).toBe(true);
+
+      // 2. COMPANY_PRODUCT_TYPE_FIELD_ID
+      const brokenComp2 = JSON.parse(JSON.stringify(OFFLINE_CONTRACT_SNAPSHOT.companyFields.result));
+      brokenComp2[COMPANY_PRODUCT_TYPE_FIELD_ID].isMultiple = false;
+      const compIssues2 = validateCompanyFieldsContract(brokenComp2);
+      expect(compIssues2.some((i) => i.field === COMPANY_PRODUCT_TYPE_FIELD_ID && i.message.includes("MULTIPLE"))).toBe(true);
+
+      // 3. COMPANY_DIRECTION_FIELD_ID
+      const brokenComp3 = JSON.parse(JSON.stringify(OFFLINE_CONTRACT_SNAPSHOT.companyFields.result));
+      brokenComp3[COMPANY_DIRECTION_FIELD_ID].isMultiple = false;
+      const compIssues3 = validateCompanyFieldsContract(brokenComp3);
+      expect(compIssues3.some((i) => i.field === COMPANY_DIRECTION_FIELD_ID && i.message.includes("MULTIPLE"))).toBe(true);
+
+      // 4. DEAL_DIRECTION_FIELD_ID
+      const brokenDeal = JSON.parse(JSON.stringify(OFFLINE_CONTRACT_SNAPSHOT.dealFields.result));
+      brokenDeal[DEAL_DIRECTION_FIELD_ID].isMultiple = false;
+      const dealIssues = validateDealFieldsContract(brokenDeal);
+      expect(dealIssues.some((i) => i.field === DEAL_DIRECTION_FIELD_ID && i.message.includes("MULTIPLE"))).toBe(true);
     });
   });
 
