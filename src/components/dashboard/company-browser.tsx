@@ -10,6 +10,7 @@ import {
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { formatHeaderToRussian } from "@/lib/excel-brand";
 import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
+import type { DatasetCoverage } from "@/lib/dataset-coverage";
 import { CompanyPreview } from "./company-preview";
 import { DealPreview } from "./deal-preview";
 import { isCompanyId, defaultSampleFields } from "@/lib/company-preview";
@@ -243,6 +244,7 @@ export function buildCompanyExportPayload({
   columnFilters = [],
   highlightSamples = false,
   periodLabel = "Все",
+  coverage,
 }: {
   sortedItems: Record<string, any>[];
   columns: string[];
@@ -253,6 +255,7 @@ export function buildCompanyExportPayload({
   columnFilters?: Array<{ columnId: string; value: string }>;
   highlightSamples?: boolean;
   periodLabel?: string;
+  coverage?: DatasetCoverage;
 }) {
   const getField = (colId: string) =>
     colId === "TITLE" || colId === "ASSIGNED_BY_ID"
@@ -312,6 +315,7 @@ export function buildCompanyExportPayload({
       highlightRows: highlightSamples ? sortedItems.map((company) => hasSamplesInfo(company)) : undefined,
       rawColumnIds: columns,
       rawColumnTypes,
+      coverage,
     },
   };
 }
@@ -332,6 +336,7 @@ export function CompanyBrowser() {
     companyBrowserTruncated,
     companyBrowserPartial,
     companyBrowserWarning,
+    companyBrowserCoverage,
     companyBrowserResponsibleId,
     setCompanyBrowserResponsibleId,
     fetchCompanyBrowser,
@@ -537,6 +542,7 @@ export function CompanyBrowser() {
         columnFilters,
         highlightSamples,
         periodLabel,
+        coverage: companyBrowserCoverage ?? undefined,
       });
 
       exportToExcelWysiwyg(payload.exportData, payload.exportColumns, payload.options);
