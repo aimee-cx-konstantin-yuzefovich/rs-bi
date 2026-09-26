@@ -125,4 +125,113 @@ describe("Bitrix Contract Validator", () => {
     const statusListIssues = validateStatusListContract({ result: [{ no_status_id: true }] });
     expect(statusListIssues.some((i) => i.severity === "error" && i.field === "STATUS_ID")).toBe(true);
   });
+
+  it("TC-CONTRACT-06: offline validator detects field type mismatches", () => {
+    const dealFieldsBadType = {
+      ...validDealFields,
+      OPPORTUNITY: { type: "string", title: "Сумма" }, // Invalid! Should be double
+      DATE_CREATE: { type: "integer", title: "Дата создания" }, // Invalid! Should be datetime
+    };
+
+    const issues = validateDealFieldsContract(dealFieldsBadType);
+    expect(issues.some((i) => i.field === "OPPORTUNITY" && i.message.includes("expected numeric type"))).toBe(true);
+    expect(issues.some((i) => i.field === "DATE_CREATE" && i.message.includes("expected date/datetime type"))).toBe(true);
+
+    const companyFieldsBadType = {
+      ...validCompanyFields,
+      TITLE: { type: "integer", title: "Название компании" }, // Invalid! Should be string
+    };
+    const compIssues = validateCompanyFieldsContract(companyFieldsBadType);
+    expect(compIssues.some((i) => i.field === "TITLE" && i.message.includes("expected string type"))).toBe(true);
+  });
+
+  it("TC-CONTRACT-07: live contract gate reports SKIPPED when env var is unset", async () => {
+    const { verifyLiveBitrixContract } = await import("../lib/bitrix-contract");
+
+    // Test with undefined and empty string
+    const resUndefined = await verifyLiveBitrixContract(undefined);
+    expect(resUndefined.status).toBe("SKIPPED");
+    expect(resUndefined.message).toContain("SKIPPED — LIVE BITRIX NOT CONFIGURED");
+    expect(resUndefined.message).not.toContain("PASS");
+    expect(resUndefined.errors).toHaveLength(0);
+
+    const resEmpty = await verifyLiveBitrixContract("   ");
+    expect(resEmpty.status).toBe("SKIPPED");
+    expect(resEmpty.message).toContain("SKIPPED — LIVE BITRIX NOT CONFIGURED");
+    expect(resEmpty.message).not.toContain("PASS");
+    expect(resEmpty.errors).toHaveLength(0);
+  });
+
+  it("TC-CONTRACT-08: live contract gate validates against mock server returning valid payloads", async () => {
+    const { verifyLiveBitrixContract } = await import("../lib/bitrix-contract");
+
+    const mockFetch = async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (urlStr.includes("crm.deal.fields")) {
+        return { ok: true, json: async () => ({ result: validDealFields }) } as Response;
+      }
+      if (urlStr.includes("crm.company.fields")) {
+        return { ok: true, json: async () => ({ result: validCompanyFields }) } as Response;
+      }
+      if (urlStr.includes("crm.deal.list")) {
+        return { ok: true, json: async () => ({ result: [{ ID: "101", STAGE_ID: "WON" }] }) } as Response;
+      }
+      if (urlStr.includes("crm.company.list")) {
+        return { ok: true, json: async () => ({ result: [{ ID: "201", TITLE: "Company X" }] }) } as Response;
+      }
+      if (urlStr.includes("crm.status.list")) {
+        return {
+          ok: true,
+          json: async () => ({
+            result: [
+              { STATUS_ID: "WON", NAME: "Сделка успешна" },
+              { STATUS_ID: "LOSE", NAME: "Сделка проиграна" },
+            ],
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 404, statusText: "Not Found" } as Response;
+    };
+
+    const res = await verifyLiveBitrixContract("https://mock-b24.test/rest/1/token", {
+      fetchFn: mockFetch as any,
+    });
+
+    expect(res.status).toBe("PASS");
+    expect(res.message).toContain("passed successfully");
+    expect(res.errors).toHaveLength(0);
+  });
+
+  it("TC-CONTRACT-09: live contract gate reports FAIL when mock server returns invalid contract or network error", async () => {
+    const { verifyLiveBitrixContract } = await import("../lib/bitrix-contract");
+
+    // Network error scenario
+    const mockFailingFetch = async () => {
+      throw new Error("Connection refused");
+    };
+
+    const resFail = await verifyLiveBitrixContract("https://mock-b24.test/rest/1/token", {
+      fetchFn: mockFailingFetch as any,
+    });
+
+    expect(resFail.status).toBe("FAIL");
+    expect(resFail.message).toContain("Connection refused");
+    expect(resFail.errors.length).toBeGreaterThanOrEqual(1);
+
+    // Schema invalidity scenario
+    const mockBrokenFetch = async (url: string | URL | Request) => {
+      const urlStr = String(url);
+      if (urlStr.includes("crm.deal.fields")) {
+        return { ok: true, json: async () => ({ result: { ID: { type: "integer" } } }) } as Response; // missing OPPORTUNITY, STAGE_ID, etc.
+      }
+      return { ok: true, json: async () => ({ result: [] }) } as Response;
+    };
+
+    const resSchemaBroken = await verifyLiveBitrixContract("https://mock-b24.test/rest/1/token", {
+      fetchFn: mockBrokenFetch as any,
+    });
+
+    expect(resSchemaBroken.status).toBe("FAIL");
+    expect(resSchemaBroken.errors.some((e) => e.field === "OPPORTUNITY")).toBe(true);
+  });
 });

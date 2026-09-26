@@ -119,6 +119,38 @@ export function validateDealFieldsContract(payload: unknown): ContractIssue[] {
         field: fieldId,
         message: `Field '${fieldId}' must have a string 'type' property`,
       });
+    } else {
+      const typeStr = fieldMeta.type.toLowerCase();
+      if (fieldId === "OPPORTUNITY" && !["double", "float", "number"].includes(typeStr)) {
+        issues.push({
+          severity: "error",
+          entity: "crm.deal.fields",
+          field: "OPPORTUNITY",
+          message: `Field 'OPPORTUNITY' expected numeric type (double), found '${fieldMeta.type}'`,
+        });
+      }
+      if (
+        (fieldId === "DATE_CREATE" || fieldId === "BEGINDATE" || fieldId === "CLOSEDATE") &&
+        !["date", "datetime"].includes(typeStr)
+      ) {
+        issues.push({
+          severity: "error",
+          entity: "crm.deal.fields",
+          field: fieldId,
+          message: `Field '${fieldId}' expected date/datetime type, found '${fieldMeta.type}'`,
+        });
+      }
+      if (
+        (fieldId === DEAL_SAMPLE_TRANSFER_FIELD_ID || fieldId === DEAL_SAMPLE_TESTING_FIELD_ID) &&
+        typeStr !== "enumeration"
+      ) {
+        issues.push({
+          severity: "error",
+          entity: "crm.deal.fields",
+          field: fieldId,
+          message: `Field '${fieldId}' expected enumeration type, found '${fieldMeta.type}'`,
+        });
+      }
     }
 
     if (fieldMeta.items !== undefined && !Array.isArray(fieldMeta.items)) {
@@ -208,6 +240,24 @@ export function validateCompanyFieldsContract(payload: unknown): ContractIssue[]
         field: fieldId,
         message: `Field '${fieldId}' must have a string 'type' property`,
       });
+    } else {
+      const typeStr = fieldMeta.type.toLowerCase();
+      if (fieldId === "TITLE" && typeStr !== "string") {
+        issues.push({
+          severity: "error",
+          entity: "crm.company.fields",
+          field: "TITLE",
+          message: `Field 'TITLE' expected string type, found '${fieldMeta.type}'`,
+        });
+      }
+      if (fieldId === "DATE_CREATE" && !["date", "datetime"].includes(typeStr)) {
+        issues.push({
+          severity: "error",
+          entity: "crm.company.fields",
+          field: "DATE_CREATE",
+          message: `Field 'DATE_CREATE' expected date/datetime type, found '${fieldMeta.type}'`,
+        });
+      }
     }
   }
 
@@ -416,3 +466,98 @@ export function validateAllBitrixContracts(payloads: {
     allIssues: issues,
   };
 }
+
+export interface LiveVerificationResult {
+  status: "SKIPPED" | "PASS" | "FAIL";
+  message: string;
+  errors: ContractIssue[];
+  warnings: ContractIssue[];
+  allIssues: ContractIssue[];
+}
+
+export interface LiveContractOptions {
+  fetchFn?: typeof fetch;
+  timeoutMs?: number;
+}
+
+export async function verifyLiveBitrixContract(
+  webhookUrl?: string,
+  options?: LiveContractOptions
+): Promise<LiveVerificationResult> {
+  if (!webhookUrl || !webhookUrl.trim()) {
+    return {
+      status: "SKIPPED",
+      message:
+        "SKIPPED — LIVE BITRIX NOT CONFIGURED\n(BITRIX_WEBHOOK_URL is unset; live contract verification cannot run)",
+      errors: [],
+      warnings: [],
+      allIssues: [],
+    };
+  }
+
+  const cleanUrl = webhookUrl.trim().replace(/\/+$/, "");
+  const fetchFn = options?.fetchFn || fetch;
+  const timeoutMs = options?.timeoutMs || 10000;
+
+  try {
+    const fetchWithTimeout = async (path: string, postBody?: Record<string, unknown>) => {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const url = `${cleanUrl}/${path}`;
+        const res = await fetchFn(url, {
+          method: postBody ? "POST" : "GET",
+          headers: { "Content-Type": "application/json" },
+          body: postBody ? JSON.stringify(postBody) : undefined,
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} ${res.statusText} from ${path}`);
+        }
+        return await res.json();
+      } finally {
+        clearTimeout(id);
+      }
+    };
+
+    const [dealFields, companyFields, dealList, companyList, statusList] = await Promise.all([
+      fetchWithTimeout("crm.deal.fields.json"),
+      fetchWithTimeout("crm.company.fields.json"),
+      fetchWithTimeout("crm.deal.list.json", { start: 0 }),
+      fetchWithTimeout("crm.company.list.json", { start: 0 }),
+      fetchWithTimeout("crm.status.list.json", { filter: { ENTITY_ID: "DEAL_STAGE" } }).catch(() => ({ result: [] })),
+    ]);
+
+    const result = validateAllBitrixContracts({
+      dealFields,
+      companyFields,
+      dealList,
+      companyList,
+      statusList,
+    });
+
+    return {
+      status: result.ok ? "PASS" : "FAIL",
+      message: result.ok
+        ? "Live Bitrix contract validation passed successfully."
+        : `Live Bitrix contract validation failed with ${result.errors.length} error(s).`,
+      errors: result.errors,
+      warnings: result.warnings,
+      allIssues: result.allIssues,
+    };
+  } catch (err: any) {
+    const errorIssue: ContractIssue = {
+      severity: "error",
+      entity: "crm.deal.fields",
+      message: `Failed to communicate with live Bitrix webhook: ${err?.message || String(err)}`,
+    };
+    return {
+      status: "FAIL",
+      message: `Live Bitrix contract validation failed: ${err?.message || String(err)}`,
+      errors: [errorIssue],
+      warnings: [],
+      allIssues: [errorIssue],
+    };
+  }
+}
+

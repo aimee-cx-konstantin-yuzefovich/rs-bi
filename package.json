@@ -11,7 +11,9 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "qa:bitrix-contract": "node scripts/verify-bitrix-contract.mjs",
+    "qa:bitrix-contract": "node scripts/verify-bitrix-contract.mjs --mode=offline",
+    "qa:bitrix-contract:offline": "node scripts/verify-bitrix-contract.mjs --mode=offline",
+    "qa:bitrix-contract:live": "node scripts/verify-bitrix-contract.mjs --mode=live",
     "qa:benchmark": "node scripts/benchmark-commercial-funnel.mjs"
   },
   "dependencies": {
