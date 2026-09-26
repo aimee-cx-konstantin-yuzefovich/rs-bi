@@ -70,7 +70,7 @@ WORKTREE=${treeStatus}
 
 | Gate | Result | Ran on |
 |---|---|---|
-| Tests (vitest) | ${testSummary.failures === "0" ? "PASS" : "CHECK"} (${testSummary.tests} tests, ${testSummary.files} files, ${testSummary.failures} failures) | LOCAL |
+| Tests (vitest) | ${testSummary.failures === "0" ? "PASS" : "FAIL"} (${testSummary.tests} tests, ${testSummary.files} files, ${testSummary.failures} failures) | LOCAL |
 | Lint | PASS | LOCAL |
 | Build (type-check + standalone) | PASS | LOCAL |
 | Offline Bitrix contract | PASS | LOCAL |

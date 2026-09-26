@@ -1,14 +1,14 @@
 # RusSilica BI Terminal — Release Manifest
 
-Generated: 2026-09-26T22:47:02.943Z
+Generated: 2026-09-26T23:00:31.736Z
 
 ## A. Repository State
 
 ```text
 BASE_SHA=0acf5db25e13d91b089fbaae75dafc9e8758f9a2
-FINAL_SHA=6d1078a24e338efaec94bfd3ae022215510c9ec3
+FINAL_SHA=2df27fab6d382e50d92670e58f5ee5284409f8aa
 BRANCH=main
-REMOTE_MAIN=0acf5db25e13d91b089fbaae75dafc9e8758f9a2
+REMOTE_MAIN=2df27fab6d382e50d92670e58f5ee5284409f8aa
 WORKTREE=DIRTY
 ```
 
@@ -16,7 +16,7 @@ WORKTREE=DIRTY
 
 | Gate | Result | Ran on |
 |---|---|---|
-| Tests (vitest) | CHECK (794 tests, 245 files, 0 failures) | LOCAL |
+| Tests (vitest) | FAIL (794 tests, 243 files, 0 failures) | LOCAL |
 | Lint | PASS | LOCAL |
 | Build (type-check + standalone) | PASS | LOCAL |
 | Offline Bitrix contract | PASS | LOCAL |
@@ -26,7 +26,7 @@ WORKTREE=DIRTY
 | Standalone runtime smoke | PASS (12/12) | LOCAL |
 | Browser acceptance (unauthenticated) | PASS (5/5) | LOCAL |
 | Browser acceptance (authenticated) | NOT EXECUTED — requires external test credential | NOT EXECUTED |
-| GitHub Actions exact-SHA gate | pending push | PENDING |
+| GitHub Actions exact-SHA gate | success (run 36277799513) | CI |
 
 ## C. Benchmarks
 
@@ -43,7 +43,7 @@ Benchmark evidence source is labelled LOCAL — not presented as GitHub Actions 
 ```text
 Production URL: EXTERNAL DEPLOYMENT REQUIRED
 Production build SHA: not yet verifiable
-Accepted FINAL_SHA: 6d1078a24e338efaec94bfd3ae022215510c9ec3
+Accepted FINAL_SHA: 2df27fab6d382e50d92670e58f5ee5284409f8aa
 Match: NO — EXTERNAL DEPLOYMENT REQUIRED
 ```
 
