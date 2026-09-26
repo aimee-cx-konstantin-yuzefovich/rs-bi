@@ -21,7 +21,14 @@ export function isTerminalWonStage(stageId?: string | null): boolean {
 export function isTerminalLostStage(stageId?: string | null): boolean {
   if (!stageId || typeof stageId !== "string") return false;
   const s = stageId.trim().toUpperCase();
-  return s === "LOSE" || s === "LOST" || s.endsWith(":LOSE") || s.endsWith(":LOST");
+  return (
+    s === "LOSE" ||
+    s === "LOST" ||
+    s === "APOLOGY" ||
+    s.endsWith(":LOSE") ||
+    s.endsWith(":LOST") ||
+    s.endsWith(":APOLOGY")
+  );
 }
 
 /**
