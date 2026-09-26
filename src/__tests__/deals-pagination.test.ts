@@ -240,4 +240,65 @@ describe('Deals Pagination & Partial Failure Semantics', () => {
     expect(data.partial).toBe(data.failedPages > 0);
     expect(data.failedOffsets.length).toBe(data.failedPages);
   });
+
+  it('9. caller provides non-zero start (start: 100, total: 220) -> fetches 150 and 200, never fetches 50', async () => {
+    const requestedOffsets: number[] = [];
+    vi.spyOn(bitrix, 'bitrixPost').mockImplementation(async (method, params: any) => {
+      const start = params?.start || 0;
+      requestedOffsets.push(start);
+      if (start === 100) {
+        return {
+          result: Array.from({ length: 50 }, (_, i) => ({ ID: String(100 + i + 1) })),
+          total: 220,
+          next: 150,
+        } as any;
+      } else if (start === 150) {
+        return {
+          result: Array.from({ length: 50 }, (_, i) => ({ ID: String(150 + i + 1) })),
+          total: 220,
+          next: 200,
+        } as any;
+      } else if (start === 200) {
+        return {
+          result: Array.from({ length: 20 }, (_, i) => ({ ID: String(200 + i + 1) })),
+          total: 220,
+        } as any;
+      }
+      return { result: [] } as any;
+    });
+
+    const res = await POST(makeRequest({ start: 100 }));
+    const data = await res.json();
+
+    expect(data.success).toBe(true);
+    expect(requestedOffsets).toEqual([100, 150, 200]);
+    expect(requestedOffsets).not.toContain(50);
+    expect(data.fetched).toBe(120);
+    expect(data.deals.length).toBe(120);
+    expect(data.deals[0].ID).toBe("101");
+    expect(data.deals[119].ID).toBe("220");
+    expect(data.partial).toBe(false);
+  });
+
+  it('10. caller provides non-zero start with fewer than 50 remaining deals -> single page', async () => {
+    const requestedOffsets: number[] = [];
+    vi.spyOn(bitrix, 'bitrixPost').mockImplementation(async (method, params: any) => {
+      const start = params?.start || 0;
+      requestedOffsets.push(start);
+      return {
+        result: Array.from({ length: 25 }, (_, i) => ({ ID: String(100 + i + 1) })),
+        total: 125,
+      } as any;
+    });
+
+    const res = await POST(makeRequest({ start: 100 }));
+    const data = await res.json();
+
+    expect(data.success).toBe(true);
+    expect(requestedOffsets).toEqual([100]);
+    expect(data.fetched).toBe(25);
+    expect(data.deals.length).toBe(25);
+    expect(data.partial).toBe(false);
+  });
 });
+
