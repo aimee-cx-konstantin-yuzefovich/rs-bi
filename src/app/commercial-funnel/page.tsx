@@ -5,10 +5,11 @@
 // 5 views: Обзор | Образцы | Менеджеры | Компании | Требуют внимания.
 // Single source of truth analytics, exact drill-down, 5-sheet Excel report.
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useLoginRedirect } from "@/hooks/use-login-redirect";
+import { useDashboardStore } from "@/store/dashboard-store";
 import {
   AlertTriangle,
   BarChart3,
@@ -50,6 +51,18 @@ type ActiveTab = "overview" | "samples" | "managers" | "companies" | "bottleneck
 function CommercialFunnelContent() {
   const { data: session, status } = useSession();
   useLoginRedirect(status, session?.error);
+
+  // ─── Route-independent lookup bootstrap (§29) ───
+  // Direct navigation to /commercial-funnel must provide the same responsible
+  // names and field labels as opening a preview after visiting /. Previews
+  // must never depend on accidentally warm Zustand state.
+  const { userNames: storeUserNames, fetchUserNames, fields, fetchFields } = useDashboardStore();
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    if (Object.keys(storeUserNames).length === 0) fetchUserNames();
+    if (fields.length === 0) fetchFields();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   const {
     companies,

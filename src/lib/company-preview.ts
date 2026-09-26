@@ -117,10 +117,17 @@ export function defaultCompanyFields(
 
   if (company.ASSIGNED_BY_ID) {
     const id = String(company.ASSIGNED_BY_ID);
+    // Provenance matters: an empty directory (lookup source incomplete) is
+    // distinct from an employee genuinely not present in the directory.
+    const directoryLoaded = fields.length > 0 && Object.keys(userNames).length > 0;
     out.push({
       id: "ASSIGNED_BY_ID",
       label: "Ответственный компании",
-      value: userNames[id] || "Неизвестный сотрудник",
+      value: userNames[id]
+        ? userNames[id]
+        : directoryLoaded
+        ? "Сотрудник не найден"
+        : "Неизвестный сотрудник (справочник неполный)",
       type: "user",
     });
   }
