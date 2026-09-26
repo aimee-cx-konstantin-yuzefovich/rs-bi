@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { COMMERCIAL_TIMEZONE } from "./constants";
+import { isValidCalendarDate } from "@/lib/date-safety";
 import type { CommercialFilters, PeriodBoundaries } from "./types";
 
 /**
@@ -109,6 +110,7 @@ export function parseDateTimestamp(
   // Date-only string "YYYY-MM-DD"
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     const [y, m, d] = trimmed.split("-").map(Number);
+    if (!isValidCalendarDate(y, m, d)) return null;
     const date = createZonedDate(y, m - 1, d, 0, 0, 0, 0, timeZone);
     return isNaN(date.getTime()) ? null : date.getTime();
   }
@@ -117,12 +119,19 @@ export function parseDateTimestamp(
   const naiveMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/);
   if (naiveMatch) {
     const [_, y, m, d, h, mi, s, msStr] = naiveMatch;
+    if (!isValidCalendarDate(Number(y), Number(m), Number(d))) return null;
     const ms = msStr ? Number(msStr.slice(0, 3).padEnd(3, "0")) : 0;
     const date = createZonedDate(Number(y), Number(m) - 1, Number(d), Number(h), Number(mi), Number(s), ms, timeZone);
     return isNaN(date.getTime()) ? null : date.getTime();
   }
 
   // Explicit offset / standard ISO
+  // If calendar date part is invalid, reject early to prevent rollover
+  const datePrefixMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (datePrefixMatch) {
+    const [_, y, m, d] = datePrefixMatch;
+    if (!isValidCalendarDate(Number(y), Number(m), Number(d))) return null;
+  }
   const d = new Date(trimmed);
   return isNaN(d.getTime()) ? null : d.getTime();
 }

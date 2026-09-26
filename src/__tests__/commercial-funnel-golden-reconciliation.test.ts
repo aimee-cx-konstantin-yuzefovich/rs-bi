@@ -7,10 +7,12 @@
 // 3. Strict numeric and calendar date parsing
 // 4. Currency preservation (EUR/USD not converted to RUB; missing currency not assumed RUB)
 // 5. Activity data authority without fabrication
-// 6. Excel workbook generation across all 5 sheets
+// 6. Complete independent ledger reconciliation across stages, WIP, currencies, managers
+// 7. Binary ExcelJS buffer reload with cell-by-cell inspection
 // ─────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from "vitest";
+import ExcelJS from "exceljs";
 import { normalizeDeals, normalizeCompanies } from "../lib/commercial-funnel/normalize";
 import {
   computeBottlenecks,
@@ -24,8 +26,10 @@ import { createCommercialFunnelWorkbook } from "../lib/commercial-funnel/export-
 import {
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TESTING_FIELD_ID,
+  DEAL_SAMPLE_SENT_DATE_FIELD_ID,
   COMPANY_SAMPLES_FIELD_ID,
 } from "../lib/crm-constants";
+import { isTerminalStage, isDealActiveStage } from "../lib/commercial-funnel/stage-utils";
 import type { CommercialFilters } from "../lib/commercial-funnel/types";
 
 describe("Commercial Funnel Golden Reconciliation", () => {
@@ -112,8 +116,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
       DATE_CREATE: "2026-02-31", // Impossible calendar date
       ASSIGNED_BY_ID: "U2",
     },
-    // 8 & 9. Company C5 has multiple deals with sample statuses:
-    // Deal 108 has sample testing status with newer date
+    // 8. Company C5 Deal 108: active testing cycle with sent date
     {
       ID: "108",
       TITLE: "Deal 108 - Active Testing Cycle",
@@ -123,9 +126,10 @@ describe("Commercial Funnel Golden Reconciliation", () => {
       CURRENCY_ID: "RUB",
       DATE_CREATE: "2026-02-20",
       [DEAL_SAMPLE_TESTING_FIELD_ID]: ["Тестирование успешно"],
+      [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: "2026-02-22",
       ASSIGNED_BY_ID: "U1",
     },
-    // Deal 109 has transfer status with older date
+    // 9. Company C5 Deal 109: older transfer cycle with sent date
     {
       ID: "109",
       TITLE: "Deal 109 - Older Transfer Cycle",
@@ -135,7 +139,42 @@ describe("Commercial Funnel Golden Reconciliation", () => {
       CURRENCY_ID: "RUB",
       DATE_CREATE: "2026-01-10",
       [DEAL_SAMPLE_TRANSFER_FIELD_ID]: "Передано на склад",
+      [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: "2026-01-12",
       ASSIGNED_BY_ID: "U1",
+    },
+    // 10. Deal 110: Prepayment invoice stage
+    {
+      ID: "110",
+      TITLE: "Deal 110 - Invoicing",
+      COMPANY_ID: "C6",
+      STAGE_ID: "PREPAYMENT_INVOICE",
+      OPPORTUNITY: "120000",
+      CURRENCY_ID: "RUB",
+      DATE_CREATE: "2026-03-12",
+      ASSIGNED_BY_ID: "U3",
+    },
+    // 11. Deal 111: Terminal Won with real zero opportunity in USD
+    {
+      ID: "111",
+      TITLE: "Deal 111 - Zero Dollar Won",
+      COMPANY_ID: "C7",
+      STAGE_ID: "WON",
+      OPPORTUNITY: "0",
+      CURRENCY_ID: "USD",
+      DATE_CREATE: "2026-02-10",
+      CLOSEDATE: "2026-03-15",
+      ASSIGNED_BY_ID: "U3",
+    },
+    // 12. Deal 112: Missing opportunity (blank)
+    {
+      ID: "112",
+      TITLE: "Deal 112 - Unspecified Amount",
+      COMPANY_ID: "C8",
+      STAGE_ID: "NEW",
+      OPPORTUNITY: "",
+      CURRENCY_ID: "RUB",
+      DATE_CREATE: "2026-03-18",
+      ASSIGNED_BY_ID: "U3",
     },
   ];
 
@@ -151,11 +190,15 @@ describe("Commercial Funnel Golden Reconciliation", () => {
       DATE_CREATE: "2026-01-05",
       [COMPANY_SAMPLES_FIELD_ID]: ["Образец запрошен"],
     },
+    { ID: "C6", TITLE: "Zeta Trading LLC", ASSIGNED_BY_ID: "U3", DATE_CREATE: "2026-01-20" },
+    { ID: "C7", TITLE: "Omega Zero Corp", ASSIGNED_BY_ID: "U3", DATE_CREATE: "2026-02-05" },
+    { ID: "C8", TITLE: "Theta Unknown Corp", ASSIGNED_BY_ID: "U3", DATE_CREATE: "2026-02-15" },
   ];
 
   const userNames = {
     U1: "Иван Иванов",
     U2: "Петр Петров",
+    U3: "Анна Сидорова",
   };
 
   it("TC-GOLDEN-01: normalizes deals with strict parsing and truthful currencies", () => {
@@ -185,6 +228,16 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     expect(d107.opportunity).toBeNull();
     expect(d107.opportunityQuality).toBe("INVALID");
     expect(d107.currencyId).toBe("USD");
+
+    // Deal 111: Real zero is 0 and VALID
+    const d111 = deals.find((d) => d.id === "111")!;
+    expect(d111.opportunity).toBe(0);
+    expect(d111.opportunityQuality).toBe("VALID");
+
+    // Deal 112: Blank is null and UNKNOWN
+    const d112 = deals.find((d) => d.id === "112")!;
+    expect(d112.opportunity).toBeNull();
+    expect(d112.opportunityQuality).toBe("UNKNOWN");
   });
 
   it("TC-GOLDEN-02: normalizes companies and selects authoritative current sample cycle", () => {
@@ -200,6 +253,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     const c5 = companies.find((c) => c.id === "C5")!;
     expect(c5.sampleStatus).toBe("Тестирование успешно");
     expect(c5.sampleStatusSource).toBe("DEAL");
+    expect(c5.sampleShipmentDate).toBe("2026-02-22");
   });
 
   it("TC-GOLDEN-03: computes truthful bottlenecks without next action fabrication", () => {
@@ -223,9 +277,10 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     expect(b102.issueLabel).toBe("Сделка без движения (83 дн., нет след. шага)");
     expect(b102.nextAction).toBe("Запланировать звонок / встречу с клиентом");
 
-    // Terminal deals (103 Won, 104 Lost) must NEVER appear as stalled deal bottlenecks
+    // Terminal deals (103 Won, 104 Lost, 111 Won) must NEVER appear as stalled deal bottlenecks
     expect(bottlenecks.some((b) => b.dealId === "103")).toBe(false);
     expect(bottlenecks.some((b) => b.dealId === "104")).toBe(false);
+    expect(bottlenecks.some((b) => b.dealId === "111")).toBe(false);
   });
 
   it("TC-GOLDEN-04: computes KPIs and manager scorecards consistently", () => {
@@ -278,5 +333,191 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     // Verify sheet data rows can be rendered and write to buffer without errors
     const buffer = await workbook.xlsx.writeBuffer();
     expect(buffer.byteLength).toBeGreaterThan(1000);
+  });
+
+  it("TC-GOLDEN-06: reconciles complete independent ledger (stages, WIP vs terminal, currencies, bottlenecks)", () => {
+    const deals = normalizeDeals(goldenRawDeals, { userNames });
+    const companies = normalizeCompanies(goldenRawCompanies, deals, {
+      userNames,
+      now: fixedNow,
+    });
+
+    // 1. Stage population assertion
+    const newDeals = deals.filter((d) => d.stageId === "NEW");
+    expect(newDeals.map((d) => d.id).sort()).toEqual(["107", "109", "112"]);
+
+    const prepDeals = deals.filter((d) => d.stageId === "PREPARATION");
+    expect(prepDeals.map((d) => d.id).sort()).toEqual(["105", "106"]);
+
+    const execDeals = deals.filter((d) => d.stageId === "EXECUTING");
+    expect(execDeals.map((d) => d.id).sort()).toEqual(["101", "102", "108"]);
+
+    const invoiceDeals = deals.filter((d) => d.stageId === "PREPAYMENT_INVOICE");
+    expect(invoiceDeals.map((d) => d.id).sort()).toEqual(["110"]);
+
+    const wonDeals = deals.filter((d) => d.stageId === "WON");
+    expect(wonDeals.map((d) => d.id).sort()).toEqual(["103", "111"]);
+
+    const lostDeals = deals.filter((d) => d.stageId === "LOSE" || d.stageId === "APOLOGY");
+    expect(lostDeals.map((d) => d.id).sort()).toEqual(["104"]);
+
+    // Total: 12 deals across all 6 stages
+    expect(deals).toHaveLength(12);
+
+    // 2. Active WIP vs Terminal deals
+    const terminalDeals = deals.filter((d) => isTerminalStage(d.stageId));
+    expect(terminalDeals.map((d) => d.id).sort()).toEqual(["103", "104", "111"]);
+
+    const activeWipDeals = deals.filter((d) => isDealActiveStage(d.stageId));
+    expect(activeWipDeals.map((d) => d.id).sort()).toEqual([
+      "101", "102", "105", "106", "107", "108", "109", "110", "112",
+    ]);
+
+    // 3. Currency isolation
+    expect(deals.find((d) => d.id === "105")?.currencyId).toBe("EUR");
+    expect(deals.find((d) => d.id === "106")?.currencyId).toBe("UNKNOWN");
+    expect(deals.find((d) => d.id === "107")?.currencyId).toBe("USD");
+    expect(deals.find((d) => d.id === "111")?.currencyId).toBe("USD");
+
+    // 4. Exact company primary deal opportunity & quality mappings
+    const c4 = companies.find((c) => c.id === "C4")!;
+    expect(c4.primaryDealOpportunity).toBeNull();
+    expect(c4.primaryDealOpportunityQuality).toBe("INVALID");
+
+    const c7 = companies.find((c) => c.id === "C7")!;
+    expect(c7.primaryDealOpportunity).toBe(0);
+    expect(c7.primaryDealOpportunityQuality).toBe("VALID");
+
+    const c8 = companies.find((c) => c.id === "C8")!;
+    expect(c8.primaryDealOpportunity).toBeNull();
+    expect(c8.primaryDealOpportunityQuality).toBe("UNKNOWN");
+
+    // 5. Manager scorecard ledger
+    const filters: CommercialFilters = { periodPreset: "90days" };
+    const boundaries = computePeriodBoundaries(filters, fixedNow);
+    const bottlenecks = computeBottlenecks(companies, fixedNow);
+    const scorecard = computeManagerScorecard(companies, boundaries, bottlenecks, userNames);
+
+    const m1 = scorecard.find((s) => s.responsibleId === "U1")!;
+    expect(m1).toBeDefined();
+    expect(m1.name).toBe("Иван Иванов");
+    expect(m1.dealsCreated).toBe(6);
+    expect(m1.bottlenecksCount).toBe(4);
+
+    const m2 = scorecard.find((s) => s.responsibleId === "U2")!;
+    expect(m2).toBeDefined();
+    expect(m2.name).toBe("Петр Петров");
+    expect(m2.dealsCreated).toBe(2);
+    expect(m2.bottlenecksCount).toBe(0);
+
+    const m3 = scorecard.find((s) => s.responsibleId === "U3")!;
+    expect(m3).toBeDefined();
+    expect(m3.name).toBe("Анна Сидорова");
+    expect(m3.dealsCreated).toBe(3);
+    expect(m3.bottlenecksCount).toBe(0);
+
+    // Exact bottleneck deals assertion
+    expect(bottlenecks).toHaveLength(4);
+    expect(bottlenecks.map((b) => b.dealId).sort()).toEqual(["101", "102", "108", "109"]);
+  });
+
+  it("TC-GOLDEN-07: verifies binary ExcelJS reload with cell-by-cell inspection of golden values, invalid money formatting, real zero, and date types", async () => {
+    const deals = normalizeDeals(goldenRawDeals, { userNames });
+    const companies = normalizeCompanies(goldenRawCompanies, deals, {
+      userNames,
+      now: fixedNow,
+    });
+
+    const filters: CommercialFilters = { periodPreset: "90days" };
+    const workbook = await createCommercialFunnelWorkbook({
+      companies,
+      deals,
+      filters,
+      userNames,
+      now: fixedNow,
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    // Reload workbook from binary buffer to test strict round-trip
+    const reloaded = new ExcelJS.Workbook();
+    await reloaded.xlsx.load(buffer);
+
+    // 1. Assert all 5 worksheets exist
+    expect(reloaded.getWorksheet("Executive Summary")).toBeDefined();
+    expect(reloaded.getWorksheet("Companies")).toBeDefined();
+    expect(reloaded.getWorksheet("Samples")).toBeDefined();
+    expect(reloaded.getWorksheet("Managers")).toBeDefined();
+    expect(reloaded.getWorksheet("Bottlenecks")).toBeDefined();
+
+    // 2. Companies sheet inspection
+    const compSheet = reloaded.getWorksheet("Companies")!;
+    let headerRowNum = -1;
+    compSheet.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === "ID компании") {
+        headerRowNum = rowNumber;
+      }
+    });
+    expect(headerRowNum).toBeGreaterThan(0);
+
+    const headerRow = compSheet.getRow(headerRowNum);
+    expect(headerRow.getCell(1).value).toBe("ID компании");
+    expect(headerRow.getCell(2).value).toBe("Название компании");
+    expect(headerRow.getCell(8).value).toBe("Статус образцов");
+    expect(headerRow.getCell(10).value).toBe("Дата передачи / отправки");
+    expect(headerRow.getCell(14).value).toBe("Сумма");
+
+    let c1Row: ExcelJS.Row | undefined;
+    let c4Row: ExcelJS.Row | undefined;
+    let c5Row: ExcelJS.Row | undefined;
+    let c7Row: ExcelJS.Row | undefined;
+    let c8Row: ExcelJS.Row | undefined;
+
+    compSheet.eachRow((row, rowNumber) => {
+      if (rowNumber <= headerRowNum) return;
+      const idVal = row.getCell(1).value;
+      if (idVal === "C1") c1Row = row;
+      if (idVal === "C4") c4Row = row;
+      if (idVal === "C5") c5Row = row;
+      if (idVal === "C7") c7Row = row;
+      if (idVal === "C8") c8Row = row;
+    });
+
+    // C1: valid opportunity 200,000 (number)
+    expect(c1Row).toBeDefined();
+    expect(c1Row!.getCell(14).value).toBe(200000);
+
+    // C4: invalid amount must be exact text "Неверная сумма", NOT 0, NOT "0 ₽", NOT blank
+    expect(c4Row).toBeDefined();
+    expect(c4Row!.getCell(2).value).toBe("Delta Testing Corp");
+    expect(c4Row!.getCell(14).value).toBe("Неверная сумма");
+
+    // C7: real zero must be number 0
+    expect(c7Row).toBeDefined();
+    expect(c7Row!.getCell(2).value).toBe("Omega Zero Corp");
+    expect(c7Row!.getCell(14).value).toBe(0);
+
+    // C8: blank opportunity is "—"
+    expect(c8Row).toBeDefined();
+    expect(c8Row!.getCell(14).value).toBe("—");
+
+    // C5: authoritative sample cycle and date cell
+    expect(c5Row).toBeDefined();
+    expect(c5Row!.getCell(2).value).toBe("Epsilon Samples Group");
+    expect(c5Row!.getCell(8).value).toBe("Тестирование успешно, Передано на склад, Образец запрошен");
+    expect(c5Row!.getCell(9).value).toBe("DEAL");
+    const sampleDateVal = c5Row!.getCell(10).value;
+    expect(sampleDateVal).toBeInstanceOf(Date);
+    expect((sampleDateVal as Date).toISOString()).toContain("2026-02-22");
+
+    // 3. Bottlenecks sheet inspection
+    const botSheet = reloaded.getWorksheet("Bottlenecks")!;
+    let botHeaderRow = -1;
+    botSheet.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === "Компания") {
+        botHeaderRow = rowNumber;
+      }
+    });
+    expect(botHeaderRow).toBeGreaterThan(0);
   });
 });
