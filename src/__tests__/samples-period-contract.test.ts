@@ -4,8 +4,8 @@
 // Pure predicate accepts injected `now`; boundary cases below.
 // ─────────────────────────────────────────────────────────────────────
 import { describe, expect, it } from "vitest";
-import { matchesPeriod, samplesPeriodWindow } from "@/components/dashboard/samples/samples-filters";
-import type { SampleSummary, SamplesFilters } from "@/components/dashboard/samples/samples-filters";
+import { matchesPeriod, samplesPeriodWindow, type SamplesFilters } from "@/components/dashboard/samples/samples-filters";
+import type { SampleSummary } from "@/lib/samples/types";
 
 function summaryWithDates(dates: string[]): SampleSummary {
   return { sentDates: dates } as unknown as SampleSummary;

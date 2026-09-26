@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Building2, ExternalLink, FlaskConical } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { getDealStageDisplayLabel } from "@/lib/crm-constants";
+import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
 
 type PreviewState =
   | { status: "loading" }
@@ -126,8 +127,9 @@ export function DealPreview({
 
   const formatDate = (isoStr: unknown): string => {
     if (!isoStr || typeof isoStr !== "string") return "";
-    const d = new Date(isoStr);
-    if (isNaN(d.getTime())) return String(isoStr);
+    // Strict parsing: impossible dates (2026-02-31, 25:00) never roll over.
+    const d = parseStrictDate(isoStr, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    if (!d) return String(isoStr);
     return d.toLocaleDateString("ru-RU", {
       day: "2-digit",
       month: "2-digit",
@@ -198,17 +200,20 @@ export function DealPreview({
                   </div>
                 ) : null}
 
-                {/* Amount / Currency */}
+                {/* Amount / Currency — strict parsing: malformed amounts never
+                    display as numbers; they show the truthful raw text. */}
                 {state.deal.OPPORTUNITY !== undefined &&
                 state.deal.OPPORTUNITY !== null &&
                 state.deal.OPPORTUNITY !== "" ? (
                   <div>
                     <dt className="text-xs text-muted-foreground">Сумма</dt>
                     <dd className="mt-1 font-mono text-sm font-semibold tabular-nums">
-                      {Number(state.deal.OPPORTUNITY).toLocaleString("ru-RU", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{" "}
+                      {parseStrictNumber(state.deal.OPPORTUNITY) !== undefined
+                        ? parseStrictNumber(state.deal.OPPORTUNITY)!.toLocaleString("ru-RU", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                        : String(state.deal.OPPORTUNITY)}{" "}
                       <span className="text-muted-foreground text-xs font-normal">
                         {(() => {
                           const cur = String(state.deal.CURRENCY_ID ?? "").trim();

@@ -37,6 +37,7 @@ import { searchParams } from "@/lib/search-params";
 import { DealPreview } from "./deal-preview";
 import { CompanyPreview } from "./company-preview";
 import { isDealId } from "@/lib/deal-preview";
+import { parseStrictNumber } from "@/lib/scalar-safety";
 
 /**
  * SECURITY NOTE: All cell values are rendered as JSX text content.
@@ -742,12 +743,12 @@ function CellValue({
     }
   }
 
-  // Money type — formatted with currency
+  // Money type — formatted with currency (strict parsing)
   if (field?.type === "money" && raw) {
     const parts = String(raw).split("|");
-    const amount = parseFloat(parts[0]);
+    const amount = parseStrictNumber(parts[0]);
     const currency = parts[1] || "";
-    if (!isNaN(amount)) {
+    if (amount !== undefined) {
       return (
         <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
           {amount.toLocaleString("ru-RU", {
@@ -760,10 +761,10 @@ function CellValue({
     }
   }
 
-  // Numeric fields (double, integer)
+  // Numeric fields (double, integer) — strict parsing: malformed stays text
   if (field?.type === "double" || field?.type === "integer") {
-    const num = parseFloat(resolved);
-    if (!isNaN(num) && field?.type === "double") {
+    const num = parseStrictNumber(resolved);
+    if (num !== undefined && field?.type === "double") {
       return (
         <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
           {num.toLocaleString("ru-RU", {
@@ -773,7 +774,7 @@ function CellValue({
         </span>
       );
     }
-    if (!isNaN(num) && field?.type === "integer") {
+    if (num !== undefined && field?.type === "integer") {
       return (
         <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
           {Math.round(num).toLocaleString("ru-RU")}
@@ -782,10 +783,10 @@ function CellValue({
     }
   }
 
-  // Opportunity field
+  // Opportunity field — strict parsing: malformed amounts never display
   if (field?.id === "OPPORTUNITY") {
-    const num = parseFloat(resolved);
-    if (!isNaN(num)) {
+    const num = parseStrictNumber(resolved);
+    if (num !== undefined) {
       // Generate some fake historical data for the sparkline based on the deal ID and amount
       // In a real app, this would come from the backend
       const dealIdNum = parseInt(String(deal.ID || deal.id || "0"), 10) || 0;
