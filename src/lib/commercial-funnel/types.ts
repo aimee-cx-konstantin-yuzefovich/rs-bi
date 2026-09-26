@@ -62,6 +62,7 @@ export interface CommercialDeal {
   region?: string;
   activityLast?: string;
   activityNext?: string;
+  activityDataKnown?: boolean;
 }
 
 export type SampleStatusSource = "DEAL" | "COMPANY" | "NONE";
@@ -115,6 +116,7 @@ export interface CommercialCompany {
   primaryDealPaymentStatus?: string;
   primaryDealPaymentDate?: string;
   primaryDealActivityNext?: string;
+  primaryDealActivityDataKnown?: boolean;
   hasAttention: boolean;
   attentionReasons: string[];
 }

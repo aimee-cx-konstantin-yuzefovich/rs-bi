@@ -464,10 +464,15 @@ export function computeBottlenecks(
         const isStalledByAge = days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS;
 
         if (isStalledByAge) {
-          const hasNoNextAction = !d.activityNext;
+          const hasNoNextAction = Boolean(d.activityDataKnown && !d.activityNext);
           const issueLabel = hasNoNextAction
             ? `Сделка без движения (${days} дн., нет след. шага)`
             : `Сделка без движения (${days} дн.)`;
+          const nextAction = d.activityNext
+            ? d.activityNext
+            : d.activityDataKnown
+            ? "Запланировать звонок / встречу с клиентом"
+            : undefined;
           items.push({
             id: `bottleneck-stalled-${d.id}`,
             companyId: c.id,
@@ -483,7 +488,7 @@ export function computeBottlenecks(
             dealTitle: d.title,
             amount: d.opportunity,
             currencyId: d.currencyId,
-            nextAction: d.activityNext || "Запланировать звонок / встречу с клиентом",
+            nextAction,
           });
         }
       }

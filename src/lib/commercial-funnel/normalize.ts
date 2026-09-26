@@ -240,6 +240,22 @@ export function normalizeDeals(
     const region = row["UF_CRM_69259C45EC14B"] ? String(row["UF_CRM_69259C45EC14B"]).trim() : undefined;
     const activityLast = row["ACTIVITY_LAST"] ? String(row["ACTIVITY_LAST"]).trim() : undefined;
     const activityNext = row["ACTIVITY_NEXT"] ? String(row["ACTIVITY_NEXT"]).trim() : undefined;
+    const hasActivityKeys =
+      "ACTIVITY_LAST" in row ||
+      "ACTIVITY_NEXT" in row ||
+      "activityLast" in row ||
+      "activityNext" in row ||
+      "activityDataKnown" in row;
+    const activityDataKnown =
+      typeof row.activityDataKnown === "boolean"
+        ? row.activityDataKnown
+        : Boolean(
+            hasActivityKeys &&
+              (row["ACTIVITY_LAST"] !== undefined ||
+                row["ACTIVITY_NEXT"] !== undefined ||
+                row.activityLast !== undefined ||
+                row.activityNext !== undefined)
+          );
 
     return {
       id,
@@ -274,6 +290,7 @@ export function normalizeDeals(
       region,
       activityLast,
       activityNext,
+      activityDataKnown,
     };
   });
 }
@@ -577,9 +594,10 @@ export function normalizeCompanies(
         const refDate = d.beginDate || d.dateCreate;
         const days = calculateDaysWaiting(refDate, now) || 0;
         if (days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS) {
-          const reason = !d.activityNext
-            ? `Сделка без движения ${days} дн. (нет следующего шага) «${d.title}»`
-            : `Сделка без движения ${days} дн. «${d.title}»`;
+          const reason =
+            d.activityDataKnown && !d.activityNext
+              ? `Сделка без движения ${days} дн. (нет следующего шага) «${d.title}»`
+              : `Сделка без движения ${days} дн. «${d.title}»`;
           attentionReasons.push(reason);
         }
       }
@@ -625,6 +643,7 @@ export function normalizeCompanies(
       primaryDealPaymentStatus: primaryDeal?.paymentStatusLabel,
       primaryDealPaymentDate: primaryDeal?.paymentDate,
       primaryDealActivityNext: primaryDeal?.activityNext,
+      primaryDealActivityDataKnown: primaryDeal?.activityDataKnown,
       hasAttention: attentionReasons.length > 0,
       attentionReasons,
     });
