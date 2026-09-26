@@ -11,7 +11,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "qa:bitrix-contract": "node scripts/verify-bitrix-contract.mjs"
+    "qa:bitrix-contract": "node scripts/verify-bitrix-contract.mjs",
+    "qa:benchmark": "node scripts/benchmark-commercial-funnel.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
