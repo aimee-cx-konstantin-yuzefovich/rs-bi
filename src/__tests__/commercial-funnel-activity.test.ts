@@ -67,14 +67,14 @@ describe("Commercial Funnel Activity Authority", () => {
     const stalled = bottlenecks.find((b) => b.dealId === "101");
 
     expect(stalled).toBeDefined();
-    // Must NOT say "(нет след. шага)"
+    // Must NOT say "(нет след. шага)" and must explicitly state activity data is unavailable
     expect(stalled?.issueLabel).not.toContain("нет след. шага");
-    expect(stalled?.issueLabel).toBe("Сделка без движения (83 дн.)");
+    expect(stalled?.issueLabel).toBe("Старая активная сделка (83 дн., данные активности недоступны)");
     // nextAction should be undefined (not fabricated)
     expect(stalled?.nextAction).toBeUndefined();
 
-    // Company attention reason must not claim (нет следующего шага)
-    expect(companies[0].attentionReasons[0]).toBe("Сделка без движения 83 дн. «Stalled Deal Unknown Activity»");
+    // Company attention reason must truthfully state activity is unavailable
+    expect(companies[0].attentionReasons[0]).toBe("Старая активная сделка 83 дн. (данные активности недоступны) «Stalled Deal Unknown Activity»");
   });
 
   it("TC-ACTIVITY-04: stalled deal with known activity data and no next action states '(нет след. шага)' truthfully", () => {

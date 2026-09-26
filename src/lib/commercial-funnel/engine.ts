@@ -21,6 +21,7 @@ import {
 } from "./date-utils";
 import { normalizeCurrencyCode } from "./normalize";
 import { isDealActiveStage, isProgressedCommercialStage } from "./stage-utils";
+import { evaluateStalledDeal } from "./bottlenecks";
 import type {
   BottleneckItem,
   CommercialCompany,
@@ -434,8 +435,9 @@ export function computeBottlenecks(
     if (c.sampleStatus === "Подошли") {
       const hasProgressed = c.deals.some((d) => isProgressedCommercialStage(d.stageId));
       if (!hasProgressed) {
-        const refDate = c.sampleShipmentDate || c.dateCreate;
-        const days = calculateDaysWaiting(refDate, now) || 0;
+        // Authoritative current-cycle sample date only! Never fallback to c.dateCreate!
+        const refDate = c.sampleShipmentDate || undefined;
+        const days = refDate ? calculateDaysWaiting(refDate, now) : null;
         items.push({
           id: `bottleneck-success-${c.id}`,
           companyId: c.id,
@@ -461,49 +463,34 @@ export function computeBottlenecks(
     // Note: Bitrix CRM does not provide an invoice issue date. Do NOT fabricate invoice age from deal creation date.
     // If an authoritative invoice date is populated in the future, it is used here.
 
-    // 4. Stalled active deal (exceeds STALLED_DEAL_DAYS threshold of 30 days)
-    // Young deals (age <= 30 days) must NOT be classified as stalled deal bottlenecks.
+    // 4. Stalled active deal (evaluated via canonical evaluateStalledDeal helper)
     for (const d of c.deals) {
-      if (isDealActiveStage(d.stageId)) {
-        const refDate = d.beginDate || d.dateCreate;
-        const days = calculateDaysWaiting(refDate, now) || 0;
-        const isStalledByAge = days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS;
-
-        if (isStalledByAge) {
-          const hasNoNextAction = Boolean(d.activityDataKnown && !d.activityNext);
-          const issueLabel = hasNoNextAction
-            ? `Сделка без движения (${days} дн., нет след. шага)`
-            : `Сделка без движения (${days} дн.)`;
-          const nextAction = d.activityNext
-            ? d.activityNext
-            : d.activityDataKnown
-            ? "Запланировать звонок / встречу с клиентом"
-            : undefined;
-          items.push({
-            id: `bottleneck-stalled-${d.id}`,
-            companyId: c.id,
-            companyTitle: c.title,
-            responsibleId: d.responsibleId || c.responsibleId,
-            responsibleName: d.responsibleName || c.responsibleName || "Не назначен",
-            type: "stalled_deal",
-            issueLabel,
-            currentState: d.stageName || d.stageId,
-            relevantDate: refDate,
-            daysWaiting: days,
-            dealId: d.id,
-            dealTitle: d.title,
-            amount: d.opportunity,
-            amountQuality: d.opportunityQuality,
-            currencyId: d.currencyId,
-            nextAction,
-          });
-        }
+      const stalledInfo = evaluateStalledDeal(d, now);
+      if (stalledInfo) {
+        items.push({
+          id: `bottleneck-stalled-${d.id}`,
+          companyId: c.id,
+          companyTitle: c.title,
+          responsibleId: d.responsibleId || c.responsibleId,
+          responsibleName: d.responsibleName || c.responsibleName || "Не назначен",
+          type: "stalled_deal",
+          issueLabel: stalledInfo.issueLabel,
+          currentState: d.stageName || d.stageId,
+          relevantDate: stalledInfo.relevantDate,
+          daysWaiting: stalledInfo.daysWaiting,
+          dealId: d.id,
+          dealTitle: d.title,
+          amount: d.opportunity,
+          amountQuality: d.opportunityQuality,
+          currencyId: d.currencyId,
+          nextAction: stalledInfo.nextAction,
+        });
       }
     }
   }
 
-  // Sort bottlenecks by waiting days descending
-  return items.sort((a, b) => b.daysWaiting - a.daysWaiting);
+  // Sort bottlenecks by waiting days descending (null days sorted to bottom)
+  return items.sort((a, b) => ((b.daysWaiting ?? -1) - (a.daysWaiting ?? -1)));
 }
 
 /**

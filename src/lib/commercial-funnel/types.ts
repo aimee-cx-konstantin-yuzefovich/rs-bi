@@ -123,6 +123,12 @@ export interface CommercialCompany {
   attentionReasons: string[];
 }
 
+export type AggregateAmountQuality =
+  | "COMPLETE"
+  | "PARTIAL"
+  | "UNKNOWN"
+  | "INVALID_ONLY";
+
 export interface DatedKpi {
   id: string;
   label: string;
@@ -134,9 +140,14 @@ export interface DatedKpi {
   isCurrency?: boolean;
   currencyId?: string;
   isMultiCurrency?: boolean;
+  amountQuality?: AggregateAmountQuality;
   currencyBreakdown?: {
     current: Record<string, number>;
     previous: Record<string, number>;
+  };
+  currencyBreakdownQuality?: {
+    current: Record<string, AggregateAmountQuality>;
+    previous: Record<string, AggregateAmountQuality>;
   };
 }
 
@@ -164,7 +175,7 @@ export interface BottleneckItem {
   issueLabel: string;
   currentState: string;
   relevantDate?: string;
-  daysWaiting: number;
+  daysWaiting: number | null;
   dealId?: string;
   dealTitle?: string;
   amount?: number | null;
@@ -185,7 +196,9 @@ export interface ManagerScorecardRow {
   dealsCreated: number;
   paymentsReceived: number;
   paymentAmount: number | null;
+  paymentAmountQuality?: AggregateAmountQuality;
   paymentAmountsByCurrency: Record<string, number>;
+  paymentAmountsQualityByCurrency?: Record<string, AggregateAmountQuality>;
   bottlenecksCount: number;
   companyIds: string[];
 }

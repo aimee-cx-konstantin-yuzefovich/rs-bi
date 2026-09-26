@@ -16,6 +16,7 @@ import {
 } from "./constants";
 import { calculateDaysWaiting } from "./date-utils";
 import { isValidCalendarDate } from "@/lib/date-safety";
+import { evaluateStalledDeal } from "./bottlenecks";
 import type {
   CommercialCompany,
   CommercialDeal,
@@ -635,18 +636,11 @@ export function normalizeCompanies(
       }
     }
 
-    // Bottleneck 4: Stalled deal (active deal older than STALLED_DEAL_DAYS threshold)
+    // Bottleneck 4: Stalled deal (evaluated via canonical evaluateStalledDeal helper)
     for (const d of linkedDeals) {
-      if (isDealActiveStage(d.stageId)) {
-        const refDate = d.beginDate || d.dateCreate;
-        const days = calculateDaysWaiting(refDate, now) || 0;
-        if (days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS) {
-          const reason =
-            d.activityDataKnown && !d.activityNext
-              ? `Сделка без движения ${days} дн. (нет следующего шага) «${d.title}»`
-              : `Сделка без движения ${days} дн. «${d.title}»`;
-          attentionReasons.push(reason);
-        }
+      const stalledInfo = evaluateStalledDeal(d, now);
+      if (stalledInfo) {
+        attentionReasons.push(stalledInfo.attentionReason);
       }
     }
 

@@ -117,7 +117,7 @@ export function CommercialBottlenecksTab({
                     {/* Дней ожидания */}
                     <TableCell className="text-xs text-right whitespace-nowrap">
                       <span className="font-semibold text-amber-600 dark:text-amber-400">
-                        {item.daysWaiting} дн.
+                        {item.daysWaiting !== null && item.daysWaiting !== undefined ? `${item.daysWaiting} дн.` : "—"}
                       </span>
                     </TableCell>
 
