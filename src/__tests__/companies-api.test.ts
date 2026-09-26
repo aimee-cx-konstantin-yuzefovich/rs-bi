@@ -199,5 +199,85 @@ describe('Companies API & Partial Failure Semantics', () => {
 
     globalFetchSpy.mockRestore();
   });
+
+  describe('Company Request Cardinality Limits (TC-COMPANY-LIMIT-01 to 05)', () => {
+    it('TC-COMPANY-LIMIT-01: MAX_COMPANY_IDS (500) valid IDs is accepted', async () => {
+      const bitrixSpy = vi.spyOn(bitrix, 'bitrixPost').mockResolvedValue({
+        result: [],
+      } as any);
+
+      const ids = Array.from({ length: 500 }, (_, i) => String(i + 1));
+      const res = await POST(makeRequest({ ids }));
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(bitrixSpy).toHaveBeenCalled();
+    });
+
+    it('TC-COMPANY-LIMIT-02: MAX_COMPANY_IDS + 1 (501) is rejected with 400 before Bitrix access', async () => {
+      const bitrixSpy = vi.spyOn(bitrix, 'bitrixPost').mockResolvedValue({
+        result: [],
+      } as any);
+
+      const ids = Array.from({ length: 501 }, (_, i) => String(i + 1));
+      const res = await POST(makeRequest({ ids }));
+      const data = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(data.success).toBe(false);
+      expect(data.error).toBe('Too many company IDs requested.');
+      expect(bitrixSpy.mock.calls.length).toBe(0);
+    });
+
+    it('TC-COMPANY-LIMIT-03: huge duplicate array that normalizes below limit is accepted', async () => {
+      const bitrixSpy = vi.spyOn(bitrix, 'bitrixPost').mockResolvedValue({
+        result: [],
+      } as any);
+
+      // 1000 items but only 10 unique IDs
+      const ids = Array.from({ length: 1000 }, (_, i) => String((i % 10) + 1));
+      const res = await POST(makeRequest({ ids }));
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(bitrixSpy).toHaveBeenCalled();
+    });
+
+    it('TC-COMPANY-LIMIT-04: excessive select field count (> 100) rejected with 400 before Bitrix call', async () => {
+      const bitrixSpy = vi.spyOn(bitrix, 'bitrixPost').mockResolvedValue({
+        result: [],
+      } as any);
+
+      const select = Array.from({ length: 105 }, (_, i) => `FIELD_${i}`);
+      const res = await POST(makeRequest({ ids: ['1', '2'], select }));
+      const data = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(data.success).toBe(false);
+      expect(data.error).toBe('Too many company fields requested.');
+      expect(bitrixSpy.mock.calls.length).toBe(0);
+    });
+
+    it('TC-COMPANY-LIMIT-05: malformed/non-numeric IDs do not count as valid IDs', async () => {
+      const bitrixSpy = vi.spyOn(bitrix, 'bitrixPost').mockResolvedValue({
+        result: [],
+      } as any);
+
+      // 600 items, but only 2 are valid numbers
+      const ids = [
+        ...Array.from({ length: 598 }, (_, i) => `invalid_id_${i}`),
+        '10',
+        '20',
+      ];
+      const res = await POST(makeRequest({ ids }));
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(bitrixSpy).toHaveBeenCalled();
+    });
+  });
 });
 

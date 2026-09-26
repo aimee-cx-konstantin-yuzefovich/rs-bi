@@ -9,6 +9,8 @@ type CompanyRecord = Record<string, any>;
 const BATCH_SIZE = 50;
 const FALLBACK_GET_CONCURRENCY = 5;
 const MAX_FALLBACK_IDS = 15;
+export const MAX_COMPANY_IDS = 500;
+export const MAX_SELECT_FIELDS = 100;
 
 function normalizeIds(ids: unknown): string[] {
   if (!Array.isArray(ids)) return [];
@@ -70,6 +72,26 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const ids = normalizeIds(body?.ids);
     const select = normalizeSelect(body?.select);
+
+    if (ids.length > MAX_COMPANY_IDS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many company IDs requested.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (select.length > MAX_SELECT_FIELDS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many company fields requested.",
+        },
+        { status: 400 }
+      );
+    }
 
     if (ids.length === 0) {
       return NextResponse.json({ success: true, companies: {} });
