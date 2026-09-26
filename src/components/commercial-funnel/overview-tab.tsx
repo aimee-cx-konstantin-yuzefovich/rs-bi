@@ -26,7 +26,7 @@ import type {
   PeriodBoundaries,
   WipKpi,
 } from "@/lib/commercial-funnel/types";
-import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
+import { formatCurrencyAmount, getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
 
 interface OverviewTabProps {
   datedKpis: DatedKpi[];
@@ -106,29 +106,46 @@ export function CommercialOverviewTab({
                   {kpi.isMultiCurrency && kpi.currencyBreakdown ? (
                     <div className="space-y-0.5">
                       {(() => {
-                        const allCurrs = Array.from(
-                          new Set([
-                            ...Object.keys(kpi.currencyBreakdown.current),
-                            ...Object.keys(kpi.currencyBreakdown.previous),
-                          ])
-                        ).sort();
+                        const allCurrs = getCurrencyUniverse(
+                          kpi.currencyBreakdown.current,
+                          kpi.currencyBreakdown.previous,
+                          kpi.currencyBreakdownQuality?.current,
+                          kpi.currencyBreakdownQuality?.previous
+                        );
                         if (allCurrs.length === 0) {
                           return <div className="text-lg font-bold tracking-tight">0</div>;
                         }
                         return allCurrs.map((cur) => {
-                          const amt = kpi.currencyBreakdown!.current[cur] || 0;
+                          const amt = kpi.currencyBreakdown!.current[cur];
                           const curQuality =
                             kpi.currencyBreakdownQuality?.current?.[cur] ||
-                            (Object.keys(kpi.currencyBreakdown!.current).length === 1
-                              ? kpi.amountQuality
-                              : undefined);
+                            (allCurrs.length === 1 ? kpi.amountQuality : undefined);
+
+                          if (curQuality === "INVALID_ONLY") {
+                            return (
+                              <div key={cur} className="text-sm font-normal text-rose-600 dark:text-rose-400">
+                                {cur} — ошибка данных
+                              </div>
+                            );
+                          }
+
+                          if (curQuality === "UNKNOWN") {
+                            return (
+                              <div key={cur} className="text-sm font-normal text-muted-foreground">
+                                {cur} — нет данных
+                              </div>
+                            );
+                          }
+
                           const isPartial = curQuality === "PARTIAL";
+                          const displayAmt = amt !== undefined ? amt : 0;
+
                           return (
                             <div key={cur} className="text-base font-bold tracking-tight">
-                              {formatCurrencyAmount(amt, cur)}
+                              {formatCurrencyAmount(displayAmt, cur)}
                               {isPartial && (
                                 <span className="ml-1.5 text-xs font-normal text-amber-600 dark:text-amber-400">
-                                  (неполные)
+                                  (неполные данные)
                                 </span>
                               )}
                             </div>
@@ -149,9 +166,13 @@ export function CommercialOverviewTab({
                             )}
                           </>
                         ) : kpi.amountQuality === "INVALID_ONLY" ? (
-                          <span className="text-sm font-normal text-rose-600 dark:text-rose-400">— (ошибка данных)</span>
+                          <span className="text-sm font-normal text-rose-600 dark:text-rose-400">
+                            {kpi.currencyId ? `${kpi.currencyId} — ошибка данных` : "— (ошибка данных)"}
+                          </span>
                         ) : kpi.amountQuality === "UNKNOWN" ? (
-                          <span className="text-sm font-normal text-muted-foreground">— (нет данных)</span>
+                          <span className="text-sm font-normal text-muted-foreground">
+                            {kpi.currencyId ? `${kpi.currencyId} — нет данных` : "— (нет данных)"}
+                          </span>
                         ) : (
                           "—"
                         )
@@ -165,12 +186,22 @@ export function CommercialOverviewTab({
                   <div className="mt-1 text-[11px]">
                     {kpi.isMultiCurrency && kpi.currencyBreakdown ? (
                       <div className="flex flex-col gap-0.5">
-                        {Array.from(
-                          new Set([
-                            ...Object.keys(kpi.currencyBreakdown.current),
-                            ...Object.keys(kpi.currencyBreakdown.previous),
-                          ])
-                        ).sort().map((cur) => {
+                        {getCurrencyUniverse(
+                          kpi.currencyBreakdown.current,
+                          kpi.currencyBreakdown.previous,
+                          kpi.currencyBreakdownQuality?.current,
+                          kpi.currencyBreakdownQuality?.previous
+                        ).map((cur) => {
+                          const cQuality = kpi.currencyBreakdownQuality?.current?.[cur];
+                          const pQuality = kpi.currencyBreakdownQuality?.previous?.[cur];
+                          if (
+                            cQuality === "INVALID_ONLY" ||
+                            cQuality === "UNKNOWN" ||
+                            pQuality === "INVALID_ONLY" ||
+                            pQuality === "UNKNOWN"
+                          ) {
+                            return null;
+                          }
                           const cVal = kpi.currencyBreakdown!.current[cur] || 0;
                           const pVal = kpi.currencyBreakdown!.previous[cur] || 0;
                           const curDelta = cVal - pVal;

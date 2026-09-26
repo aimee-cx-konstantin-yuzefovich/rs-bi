@@ -14,8 +14,8 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Users } from "lucide-react";
-import type { ManagerScorecardRow } from "@/lib/commercial-funnel/types";
-import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
+import type { AggregateAmountQuality, ManagerScorecardRow } from "@/lib/commercial-funnel/types";
+import { formatCurrencyAmount, getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
 
 interface ManagersTabProps {
   scorecard: ManagerScorecardRow[];
@@ -52,15 +52,58 @@ export function CommercialManagersTab({
     }
   );
 
-  // Compute multi-currency payment totals across all managers without cross-currency summation
-  const totalPaymentAmountsByCurrency: Record<string, number> = {};
-  for (const row of scorecard) {
-    if (row.paymentAmountsByCurrency && Object.keys(row.paymentAmountsByCurrency).length > 0) {
-      for (const [cur, amt] of Object.entries(row.paymentAmountsByCurrency)) {
-        totalPaymentAmountsByCurrency[cur] = (totalPaymentAmountsByCurrency[cur] || 0) + amt;
+  // Compute multi-currency payment totals with quality preservation across all managers
+  const allManagerCurrencies = getCurrencyUniverse(
+    ...scorecard.map((r) => r.paymentAmountsByCurrency),
+    ...scorecard.map((r) => r.paymentAmountsQualityByCurrency)
+  );
+
+  const totalCurrencyBreakdown: Record<
+    string,
+    { amount: number | null; quality: AggregateAmountQuality }
+  > = {};
+
+  for (const cur of allManagerCurrencies) {
+    let validSum = 0;
+    let hasValid = false;
+    const qualities = new Set<AggregateAmountQuality>();
+
+    for (const row of scorecard) {
+      const q = row.paymentAmountsQualityByCurrency?.[cur];
+      const hasAmt = row.paymentAmountsByCurrency && cur in row.paymentAmountsByCurrency;
+      const amt = row.paymentAmountsByCurrency?.[cur];
+
+      if (q) {
+        qualities.add(q);
       }
-    } else if (row.paymentAmount !== null && row.paymentAmount > 0) {
-      totalPaymentAmountsByCurrency["UNKNOWN"] = (totalPaymentAmountsByCurrency["UNKNOWN"] || 0) + row.paymentAmount;
+      if (hasAmt && typeof amt === "number") {
+        validSum += amt;
+        hasValid = true;
+      }
+    }
+
+    if (hasValid) {
+      const isPartial =
+        qualities.has("PARTIAL") ||
+        qualities.has("INVALID_ONLY") ||
+        qualities.has("UNKNOWN");
+      totalCurrencyBreakdown[cur] = {
+        amount: validSum,
+        quality: isPartial ? "PARTIAL" : "COMPLETE",
+      };
+    } else {
+      let finalQuality: AggregateAmountQuality = "UNKNOWN";
+      if (qualities.size > 0 && Array.from(qualities).every((q) => q === "INVALID_ONLY")) {
+        finalQuality = "INVALID_ONLY";
+      } else if (qualities.size > 0 && Array.from(qualities).every((q) => q === "UNKNOWN")) {
+        finalQuality = "UNKNOWN";
+      } else if (qualities.has("INVALID_ONLY") || qualities.has("UNKNOWN") || qualities.has("PARTIAL")) {
+        finalQuality = "PARTIAL";
+      }
+      totalCurrencyBreakdown[cur] = {
+        amount: null,
+        quality: finalQuality,
+      };
     }
   }
 
@@ -141,39 +184,70 @@ export function CommercialManagersTab({
                       {row.paymentsReceived || "—"}
                     </TableCell>
                     <TableCell className="text-xs text-right font-semibold whitespace-nowrap">
-                      {row.paymentAmountsByCurrency && Object.keys(row.paymentAmountsByCurrency).length > 0 ? (
-                        <div className="flex flex-col gap-0.5 items-end">
-                          {Object.entries(row.paymentAmountsByCurrency).map(([cur, amt]) => {
-                            const curQ = row.paymentAmountsQualityByCurrency?.[cur];
-                            const isPartial = curQ === "PARTIAL";
-                            return (
-                              <span key={cur}>
-                                {formatCurrencyAmount(amt, cur)}
-                                {isPartial && (
-                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1 font-normal">
-                                    (неполные)
+                      {(() => {
+                        const managerCurrs = getCurrencyUniverse(
+                          row.paymentAmountsByCurrency,
+                          row.paymentAmountsQualityByCurrency
+                        );
+                        if (managerCurrs.length > 0) {
+                          return (
+                            <div className="flex flex-col gap-0.5 items-end">
+                              {managerCurrs.map((cur) => {
+                                const curQ = row.paymentAmountsQualityByCurrency?.[cur];
+                                const hasAmt =
+                                  row.paymentAmountsByCurrency && cur in row.paymentAmountsByCurrency;
+                                const amt = row.paymentAmountsByCurrency?.[cur];
+
+                                if (curQ === "INVALID_ONLY") {
+                                  return (
+                                    <span key={cur} className="text-destructive text-[11px] font-normal">
+                                      {cur} — ошибка данных
+                                    </span>
+                                  );
+                                }
+                                if (curQ === "UNKNOWN") {
+                                  return (
+                                    <span key={cur} className="text-muted-foreground text-[11px] font-normal">
+                                      {cur} — нет данных
+                                    </span>
+                                  );
+                                }
+                                const isPartial = curQ === "PARTIAL";
+                                const displayAmt = hasAmt && typeof amt === "number" ? amt : 0;
+                                return (
+                                  <span key={cur}>
+                                    {formatCurrencyAmount(displayAmt, cur)}
+                                    {isPartial && (
+                                      <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1 font-normal">
+                                        (неполные данные)
+                                      </span>
+                                    )}
                                   </span>
-                                )}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      ) : row.paymentAmount !== null && row.paymentAmount > 0 ? (
-                        <span>
-                          {formatCurrencyAmount(row.paymentAmount, "UNKNOWN")}
-                          {row.paymentAmountQuality === "PARTIAL" && (
-                            <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1 font-normal">
-                              (неполные)
+                                );
+                              })}
+                            </div>
+                          );
+                        }
+                        if (row.paymentAmount !== null && row.paymentAmount > 0) {
+                          return (
+                            <span>
+                              {formatCurrencyAmount(row.paymentAmount, "UNKNOWN")}
+                              {row.paymentAmountQuality === "PARTIAL" && (
+                                <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1 font-normal">
+                                  (неполные данные)
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </span>
-                      ) : row.paymentAmountQuality === "INVALID_ONLY" ? (
-                        <span className="text-destructive text-[11px] font-normal">— (ошибка)</span>
-                      ) : row.paymentAmountQuality === "UNKNOWN" && row.paymentsReceived > 0 ? (
-                        <span className="text-muted-foreground text-[11px] font-normal">— (нет данных)</span>
-                      ) : (
-                        "—"
-                      )}
+                          );
+                        }
+                        if (row.paymentAmountQuality === "INVALID_ONLY") {
+                          return <span className="text-destructive text-[11px] font-normal">— (ошибка данных)</span>;
+                        }
+                        if (row.paymentAmountQuality === "UNKNOWN" && row.paymentsReceived > 0) {
+                          return <span className="text-muted-foreground text-[11px] font-normal">— (нет данных)</span>;
+                        }
+                        return "—";
+                      })()}
                     </TableCell>
                     <TableCell className="text-xs text-right">
                       {row.bottlenecksCount > 0 ? (
@@ -205,11 +279,36 @@ export function CommercialManagersTab({
                   <TableCell className="text-xs text-right font-bold">{totals.dealsCreated}</TableCell>
                   <TableCell className="text-xs text-right font-bold">{totals.paymentsReceived}</TableCell>
                   <TableCell className="text-xs text-right font-bold whitespace-nowrap">
-                    {Object.keys(totalPaymentAmountsByCurrency).length > 0 ? (
+                    {allManagerCurrencies.length > 0 ? (
                       <div className="flex flex-col gap-0.5 items-end">
-                        {Object.entries(totalPaymentAmountsByCurrency).map(([cur, amt]) => (
-                          <span key={cur}>{formatCurrencyAmount(amt, cur)}</span>
-                        ))}
+                        {allManagerCurrencies.map((cur) => {
+                          const item = totalCurrencyBreakdown[cur];
+                          if (!item) return null;
+                          if (item.quality === "INVALID_ONLY" && item.amount === null) {
+                            return (
+                              <span key={cur} className="text-destructive text-[11px] font-normal">
+                                {cur} — ошибка данных
+                              </span>
+                            );
+                          }
+                          if (item.quality === "UNKNOWN" && item.amount === null) {
+                            return (
+                              <span key={cur} className="text-muted-foreground text-[11px] font-normal">
+                                {cur} — нет данных
+                              </span>
+                            );
+                          }
+                          return (
+                            <span key={cur}>
+                              {formatCurrencyAmount(item.amount ?? 0, cur)}
+                              {item.quality === "PARTIAL" && (
+                                <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1 font-normal">
+                                  (неполные данные)
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })}
                       </div>
                     ) : (
                       "—"
