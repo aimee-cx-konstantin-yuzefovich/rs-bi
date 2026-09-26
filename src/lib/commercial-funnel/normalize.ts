@@ -15,8 +15,7 @@ import {
   UNCLASSIFIED_LABEL,
 } from "./constants";
 import { calculateDaysWaiting } from "./date-utils";
-import { isValidCalendarDate } from "@/lib/date-safety";
-import { parseStrictDate } from "@/lib/scalar-safety";
+import { isValidCalendarDate, isValidTime, parseStrictDate } from "@/lib/scalar-safety";
 import { evaluateStalledDeal } from "./bottlenecks";
 import type {
   CommercialCompany,
@@ -107,22 +106,79 @@ function parseQuantity(val: unknown): number | undefined {
   return num !== undefined && num > 0 ? num : undefined;
 }
 
+const MOSCOW_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Moscow",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function extractSingleIsoDate(rawStr: string): string | null {
+  const str = rawStr.trim();
+  if (!str || str === "—") return null;
+
+  // 1. ISO Date: YYYY-MM-DD
+  const m1 = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m1) {
+    const y = Number(m1[1]);
+    const m = Number(m1[2]);
+    const d = Number(m1[3]);
+    return isValidCalendarDate(y, m, d) ? `${m1[1]}-${m1[2]}-${m1[3]}` : null;
+  }
+
+  // 2. Russian Date: DD.MM.YYYY
+  const m2 = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (m2) {
+    const d = Number(m2[1]);
+    const m = Number(m2[2]);
+    const y = Number(m2[3]);
+    return isValidCalendarDate(y, m, d) ? `${m2[3]}-${m2[2]}-${m2[1]}` : null;
+  }
+
+  // 3. ISO Datetime: YYYY-MM-DD[T ]HH:mm(:ss)?
+  const m3 = str.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m3) {
+    const y = Number(m3[1]);
+    const m = Number(m3[2]);
+    const d = Number(m3[3]);
+    const hh = Number(m3[4]);
+    const mm = Number(m3[5]);
+    const ss = Number(m3[6] || 0);
+    if (!isValidCalendarDate(y, m, d) || !isValidTime(hh, mm, ss)) return null;
+    if (str.includes("Z") || str.match(/[+-]\d{2}:?\d{2}$/)) {
+      const dt = parseStrictDate(str, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      return dt ? MOSCOW_DATE_FORMATTER.format(dt) : null;
+    }
+    return `${m3[1]}-${m3[2]}-${m3[3]}`;
+  }
+
+  // 4. Russian Datetime: DD.MM.YYYY[T ]HH:mm(:ss)?
+  const m4 = str.match(/^(\d{2})\.(\d{2})\.(\d{4})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m4) {
+    const d = Number(m4[1]);
+    const m = Number(m4[2]);
+    const y = Number(m4[3]);
+    const hh = Number(m4[4]);
+    const mm = Number(m4[5]);
+    const ss = Number(m4[6] || 0);
+    if (!isValidCalendarDate(y, m, d) || !isValidTime(hh, mm, ss)) return null;
+    if (str.includes("Z") || str.match(/[+-]\d{2}:?\d{2}$/)) {
+      const dt = parseStrictDate(str, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      return dt ? MOSCOW_DATE_FORMATTER.format(dt) : null;
+    }
+    return `${m4[3]}-${m4[2]}-${m4[1]}`;
+  }
+
+  return null;
+}
+
 function extractIsoDates(raw: unknown): string[] {
   const strings = toStringArray(raw);
   const out: string[] = [];
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Moscow",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
   for (const s of strings) {
-    const parsed = parseStrictDate(s, { mode: "DATETIME_BUSINESS_TIMEZONE" });
-    if (parsed) {
-      const iso = formatter.format(parsed);
-      if (!out.includes(iso)) {
-        out.push(iso);
-      }
+    const iso = extractSingleIsoDate(s);
+    if (iso && !out.includes(iso)) {
+      out.push(iso);
     }
   }
   return out;
