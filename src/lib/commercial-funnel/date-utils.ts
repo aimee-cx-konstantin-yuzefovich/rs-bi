@@ -196,8 +196,8 @@ export function computePeriodBoundaries(
 
   if (periodPreset === "custom" && customFrom && customTo) {
     // Normalize calendar strings FIRST so inverted ranges cleanly span both full boundary days
-    let startStr = customFrom;
-    let endStr = customTo;
+    let startStr = customFrom.trim();
+    let endStr = customTo.trim();
     if (startStr > endStr) {
       const tmp = startStr;
       startStr = endStr;
@@ -205,6 +205,13 @@ export function computePeriodBoundaries(
     }
     const [fy, fm, fd] = startStr.split("-").map(Number);
     const [ty, tm, td] = endStr.split("-").map(Number);
+
+    if (!isValidCalendarDate(fy, fm, fd) || !isValidCalendarDate(ty, tm, td)) {
+      throw new Error(
+        `Invalid custom period boundaries: '${startStr}' to '${endStr}' contains an impossible calendar date`
+      );
+    }
+
     currentStart = createZonedDate(fy, fm - 1, fd, 0, 0, 0, 0, timeZone);
     currentEnd = createZonedDate(ty, tm - 1, td, 23, 59, 59, 999, timeZone);
   } else if (periodPreset === "quarter") {

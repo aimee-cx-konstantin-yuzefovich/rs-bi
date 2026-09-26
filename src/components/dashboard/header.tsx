@@ -24,6 +24,7 @@ import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
 import Link from "next/link";
 import { useCallback } from "react";
 import { motion } from "framer-motion";
+import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
 
 export function Header() {
   const { data: session } = useSession();
@@ -77,22 +78,22 @@ export function Header() {
 
         if (field?.type === "money" && raw) {
           const parts = String(raw).split("|");
-          const amount = parseFloat(parts[0]);
-          if (!isNaN(amount)) {
+          const amount = parseStrictNumber(parts[0]);
+          if (amount !== undefined) {
             return amount;
           }
         }
 
         if (field?.type === "double" || field?.type === "integer" || field?.id === "OPPORTUNITY" || colId === "OPPORTUNITY") {
-          const num = parseFloat(resolved);
-          if (!isNaN(num)) {
+          const num = parseStrictNumber(resolved);
+          if (num !== undefined) {
             return num;
           }
         }
 
         if (field?.type === "date" || field?.type === "datetime" || field?.id === "DATE_CREATE" || field?.id === "DATE_MODIFY") {
-          const d = new Date(resolved);
-          if (!isNaN(d.getTime())) {
+          const d = parseStrictDate(resolved);
+          if (d && !isNaN(d.getTime())) {
             return d;
           }
         }

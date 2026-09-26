@@ -9,7 +9,7 @@ import {
 } from "@/lib/crm-constants";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
 import { formatHeaderToRussian } from "@/lib/excel-brand";
-import { parseStrictDate } from "@/lib/date-safety";
+import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
 import { CompanyPreview } from "./company-preview";
 import { DealPreview } from "./deal-preview";
 import { isCompanyId, defaultSampleFields } from "@/lib/company-preview";
@@ -111,15 +111,15 @@ function resolveCompanyValue(
 
   if (field?.type === "money" && typeof raw === "string") {
     const [amountStr, currency] = raw.split("|");
-    const amount = parseFloat(amountStr);
-    if (!isNaN(amount)) {
+    const amount = parseStrictNumber(amountStr);
+    if (amount !== undefined) {
       return `${amount.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${currency ? ` ${currency}` : ""}`;
     }
   }
 
   if ((field?.type === "double" || field?.type === "integer") && (typeof raw === "string" || typeof raw === "number")) {
-    const num = parseFloat(String(raw));
-    if (!isNaN(num)) {
+    const num = parseStrictNumber(raw);
+    if (num !== undefined) {
       return field.type === "integer"
         ? Math.round(num).toLocaleString("ru-RU")
         : num.toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

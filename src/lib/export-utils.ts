@@ -43,7 +43,7 @@ import {
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
 } from "./crm-constants";
-import { isValidCalendarDate, parseStrictDate } from "./date-safety";
+import { isValidCalendarDate, parseStrictDate, parseStrictNumber } from "./scalar-safety";
 
 export interface WysiwygExportOptions {
   sheetName?: string;
@@ -298,12 +298,23 @@ export function parseCellNativeValue(
     if (dt) return dt;
   }
 
+  // Strict numeric/money parsing when metadata specifies numeric column
+  const fType = options?.fieldType?.toLowerCase();
+  if (fType === "double" || fType === "integer" || fType === "money") {
+    const moneyMatch = str.match(/^([+-]?[\d\s\u00A0]+(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|RUB|\$|EUR|€)?$/i);
+    if (moneyMatch) {
+      const parsed = parseStrictNumber(moneyMatch[1]);
+      if (parsed !== undefined) return parsed;
+    }
+    const parsed = parseStrictNumber(str);
+    if (parsed !== undefined) return parsed;
+  }
+
   // Check formatted money string with currency symbol (e.g. "120 000 ₽" or "50000 руб")
-  const moneyMatch = str.match(/^([+-]?[\d\s]+(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|RUB)$/i);
+  const moneyMatch = str.match(/^([+-]?[\d\s\u00A0]+(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|RUB|\$|EUR|€)$/i);
   if (moneyMatch) {
-    const cleanNum = moneyMatch[1].replace(/\s+/g, "").replace(",", ".");
-    const num = parseFloat(cleanNum);
-    if (!isNaN(num)) return num;
+    const parsed = parseStrictNumber(moneyMatch[1]);
+    if (parsed !== undefined) return parsed;
   }
 
   let outStr = translateCrmValueToRussian(str);
