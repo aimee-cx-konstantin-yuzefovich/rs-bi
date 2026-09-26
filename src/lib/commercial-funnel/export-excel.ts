@@ -91,6 +91,15 @@ export interface BuildExcelOptions {
   filters: CommercialFilters;
   userNames?: Record<string, string>;
   now?: Date;
+  /**
+   * Demo-mode guard: a demo dataset must NEVER be exported as a live
+   * management report. The safest product policy is to disable export
+   * entirely in demo mode — the caller (UI) disables the button, and this
+   * hard guard throws if a demo dataset is ever passed through.
+   */
+  isDemoMode?: boolean;
+  /** Domain-specific warnings stamped on relevant sheets (e.g. activity partial). */
+  extraWarnings?: string[];
 }
 
 /**
@@ -99,7 +108,15 @@ export interface BuildExcelOptions {
 export async function createCommercialFunnelWorkbook(
   options: BuildExcelOptions
 ): Promise<ExcelJS.Workbook> {
-  const { companies, deals, filters, userNames = {}, now = new Date() } = options;
+  const { companies, deals, filters, userNames = {}, now = new Date(), extraWarnings = [] } = options;
+
+  // Hard guard (Option A — safest): demo data never becomes a detached
+  // workbook that could be mistaken for a live management report.
+  if (options.isDemoMode) {
+    throw new Error(
+      "Экспорт в демо-режиме отключён: демонстрационные данные не могут использоваться как управленческий отчёт."
+    );
+  }
 
   const boundaries = computePeriodBoundaries(filters, now);
   const filteredCompanies = filterCompaniesByDimensions(companies, filters);
@@ -1009,6 +1026,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     recordCount: managerScorecard.length,
     filtersText: filtersSummaryText,
     colCount: managersColumns.length,
+    disclosureLines: extraWarnings,
   });
 
   const managersHeader = managersSheet.getRow(managersHeaderRowIndex);
@@ -1142,6 +1160,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     recordCount: bottlenecks.length,
     filtersText: filtersSummaryText,
     colCount: bottlenecksColumns.length,
+    disclosureLines: extraWarnings,
   });
 
   const bottlenecksHeader = bottlenecksSheet.getRow(botHeaderRowIndex);

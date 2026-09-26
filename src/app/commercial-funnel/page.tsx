@@ -58,6 +58,8 @@ function CommercialFunnelContent() {
     loading,
     error,
     isDemoMode,
+    activityPartial,
+    activityWarning,
     reload,
   } = useCommercialFunnelData();
 
@@ -121,6 +123,8 @@ function CommercialFunnelContent() {
   };
 
   const handleExportExcel = async () => {
+    // Demo data must never become a detached management report (Option A).
+    if (isDemoMode) return;
     setExportingExcel(true);
     try {
       await downloadCommercialFunnelExcel({
@@ -128,6 +132,8 @@ function CommercialFunnelContent() {
         deals,
         filters,
         userNames,
+        extraWarnings:
+          activityPartial && activityWarning ? [activityWarning] : [],
       });
     } catch (err) {
       console.error("[Excel Export Error]", err);
@@ -176,6 +182,20 @@ function CommercialFunnelContent() {
           </div>
         )}
 
+        {/* Activity-partial disclosure: activities are the authoritative source
+            for next actions and bottlenecks; a partial fetch must be visible. */}
+        {activityPartial && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-md bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800"
+            data-testid="activity-partial-banner"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span className="text-xs text-rose-700 dark:text-rose-400 font-medium">
+              {activityWarning || "Данные активностей загружены частично — показатели, зависящие от активностей, могут быть неполными"}
+            </span>
+          </div>
+        )}
+
         {/* Global Filter Bar */}
         <CommercialFilterBar
           filters={filters}
@@ -185,6 +205,7 @@ function CommercialFunnelContent() {
           userNames={userNames}
           onExportExcel={handleExportExcel}
           exportingExcel={exportingExcel}
+          isDemoMode={isDemoMode}
           onRefresh={reload}
           refreshing={loading}
         />

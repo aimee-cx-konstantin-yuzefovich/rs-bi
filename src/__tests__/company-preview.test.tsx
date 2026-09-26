@@ -247,11 +247,11 @@ it("full report export stays disabled while related deals are loading, and offer
       })
     );
   });
-  const cardCall = exportCompanyToExcel.mock.calls[0][0];
+  const cardCall = (exportCompanyToExcel as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
   expect(cardCall.companyTitle).toContain("только карточка компании");
 
   // Once deals succeed, the full report becomes available.
-  exportCompanyToExcel.mockClear();
+  (exportCompanyToExcel as unknown as ReturnType<typeof vi.fn>).mockClear();
   resolveDeals({
     ok: true,
     json: async () => ({ success: true, deals: [{ ID: "1", TITLE: "Сделка 1", OPPORTUNITY: "100", CURRENCY_ID: "RUB" }] }),

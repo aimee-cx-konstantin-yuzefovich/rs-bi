@@ -26,7 +26,10 @@ interface FilterBarProps {
   userNames: Record<string, string>;
   onExportExcel: () => void;
   exportingExcel: boolean;
+  /** Demo mode: export must be disabled — demo data is not a management report. */
+  isDemoMode?: boolean;
   onRefresh: () => void;
+
   refreshing: boolean;
 }
 
@@ -46,6 +49,7 @@ export function CommercialFilterBar({
   userNames,
   onExportExcel,
   exportingExcel,
+  isDemoMode = false,
   onRefresh,
   refreshing,
 }: FilterBarProps) {
@@ -175,7 +179,12 @@ export function CommercialFilterBar({
             variant="default"
             size="sm"
             onClick={onExportExcel}
-            disabled={exportingExcel}
+            disabled={exportingExcel || isDemoMode}
+            title={
+              isDemoMode
+                ? "Экспорт отключён в демо-режиме: демонстрационные данные не могут использоваться как управленческий отчёт"
+                : undefined
+            }
             className="h-8 text-xs font-medium gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             <Download className="h-3.5 w-3.5" />
