@@ -11,6 +11,10 @@ interface ActiveFilterItem {
   label: string;
   value: string;
   onRemove: () => void;
+  /** Scope contract: GLOBAL filters affect StatsCards + Table + Excel;
+   *  TABLE-ONLY filters affect the table population (and Excel row scope)
+   *  but NOT the KPI cards. Visually separated to remove ambiguity. */
+  scope: "GLOBAL" | "TABLE-ONLY";
 }
 
 export function ActiveFilters() {
@@ -47,6 +51,7 @@ export function ActiveFilters() {
         label: "Период",
         value: presetLabels[dateFilter.preset] || dateFilter.preset,
         onRemove: () => setDateFilter({ preset: "all" }),
+        scope: "GLOBAL",
       });
     }
 
@@ -62,6 +67,7 @@ export function ActiveFilters() {
         label: "Воронка",
         value: pipelineLabels[pipelineFilter] || getDealStageDisplayLabel(pipelineFilter),
         onRemove: () => setPipelineFilter("all"),
+        scope: "GLOBAL",
       });
     }
 
@@ -73,6 +79,7 @@ export function ActiveFilters() {
         label: "Ответственный",
         value: userName || `ID ${responsibleFilter}`,
         onRemove: () => setResponsibleFilter("all"),
+        scope: "GLOBAL",
       });
     }
 
@@ -83,6 +90,7 @@ export function ActiveFilters() {
         label: "Поиск",
         value: searchQuery.length > 20 ? searchQuery.slice(0, 20) + "…" : searchQuery,
         onRemove: () => setSearchQuery(""),
+        scope: "TABLE-ONLY",
       });
     }
 
@@ -96,6 +104,7 @@ export function ActiveFilters() {
           label: `Столбец: ${fieldTitle}`,
           value: cf.value.length > 20 ? cf.value.slice(0, 20) + "…" : cf.value,
           onRemove: () => clearColumnFilter(cf.columnId),
+          scope: "TABLE-ONLY",
         });
       }
     });
@@ -115,6 +124,9 @@ export function ActiveFilters() {
     setSearchQuery,
     clearColumnFilter,
   ]);
+
+  const globalFilters = filters.filter((f) => f.scope === "GLOBAL");
+  const tableOnlyFilters = filters.filter((f) => f.scope === "TABLE-ONLY");
 
   const handleClearAll = useCallback(() => {
     clearAllColumnFilters();
@@ -146,25 +158,23 @@ export function ActiveFilters() {
           </span>
         </div>
         <div className="p-2 max-h-64 overflow-y-auto custom-scrollbar space-y-1">
-          {filters.map((f) => (
-            <div
-              key={f.key}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/50 group"
-            >
-              <div className="flex-1 min-w-0">
-                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                  {f.label}
-                </span>
-                <div className="text-xs text-foreground truncate">{f.value}</div>
-              </div>
-              <button
-                onClick={f.onRemove}
-                className="shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                aria-label={`Удалить фильтр: ${f.label}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
+          {/* GLOBAL filters affect StatsCards + Table + Excel */}
+          {globalFilters.length > 0 && (
+            <div className="px-2 pt-1 pb-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Глобальные (карточки, таблица, Excel)
             </div>
+          )}
+          {globalFilters.map((f) => (
+            <FilterRow key={f.key} f={f} />
+          ))}
+          {/* TABLE-ONLY filters affect only the table population */}
+          {tableOnlyFilters.length > 0 && (
+            <div className="px-2 pt-2 pb-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Только таблица (не влияют на карточки)
+            </div>
+          )}
+          {tableOnlyFilters.map((f) => (
+            <FilterRow key={f.key} f={f} />
           ))}
         </div>
         <div className="px-3 py-2 border-t border-border">
@@ -177,5 +187,28 @@ export function ActiveFilters() {
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function FilterRow({ f }: { f: ActiveFilterItem }) {
+  return (
+    <div
+      className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/50 group"
+      data-filter-scope={f.scope}
+    >
+      <div className="flex-1 min-w-0">
+        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+          {f.label}
+        </span>
+        <div className="text-xs text-foreground truncate">{f.value}</div>
+      </div>
+      <button
+        onClick={f.onRemove}
+        className="shrink-0 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        aria-label={`Удалить фильтр: ${f.label}`}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
   );
 }
