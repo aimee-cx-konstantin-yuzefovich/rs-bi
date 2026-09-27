@@ -21,31 +21,34 @@ interface ResponsibleOption {
 }
 
 export function ResponsibleFilter() {
-  const { allDeals, setResponsibleFilter, userNames } = useDashboardStore();
+  const { allDeals, setResponsibleFilter, userNames, usersCoverage } = useDashboardStore();
   const [responsibleFilter, setResponsibleFilterUrl] = useQueryState("responsible", searchParams.responsible);
 
   const responsibleOptions = useMemo<ResponsibleOption[]>(() => {
-    const map = new Map<string, { name: string; count: number }>();
-
-    // Use allDeals so counts are stable regardless of active filters
+    // Counts are computed ONLY from the currently loaded (possibly capped)
+    // deal window — they are NOT global CRM counts and are labeled as such
+    // in the dropdown footer.
+    const counts = new Map<string, number>();
     for (const deal of allDeals) {
       const id = String(deal.ASSIGNED_BY_ID || "");
       if (!id) continue;
-
-      // Priority: userNames from API/fetch > ASSIGNED_BY_NAME from deal data > fallback
-      const name = userNames[id] || String(deal.ASSIGNED_BY_NAME || "");
-
-      const existing = map.get(id);
-      if (existing) {
-        existing.count++;
-      } else {
-        map.set(id, { name: name || `ID ${id}`, count: 1 });
-      }
+      counts.set(id, (counts.get(id) || 0) + 1);
     }
 
-    return Array.from(map.entries())
-      .map(([id, data]) => ({ id, name: data.name, count: data.count }))
-      .sort((a, b) => b.count - a.count);
+    // Option universe must NOT be restricted to the current capped deal
+    // window: a manager whose deals all lie outside the first window would
+    // otherwise be unselectable. The authoritative source is the user
+    // directory (userNames, independent of deal pagination); observed deal
+    // owners are unioned in as a fallback while the directory loads.
+    const ids = new Set<string>([...Object.keys(userNames), ...counts.keys()]);
+
+    const options: ResponsibleOption[] = Array.from(ids).map((id) => ({
+      id,
+      name: userNames[id] || `ID ${id}`,
+      count: counts.get(id) || 0,
+    }));
+
+    return options.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ru"));
   }, [allDeals, userNames]);
 
   const handleFilterChange = (id: string) => {
@@ -66,7 +69,13 @@ export function ResponsibleFilter() {
   const activeName =
     responsibleFilter === "all"
       ? "Все ответственные"
-      : responsibleOptions.find((r) => r.id === responsibleFilter)?.name || "Все ответственные";
+      : (responsibleOptions.find((r) => r.id === responsibleFilter)?.name ??
+        (userNames[responsibleFilter] || `ID ${responsibleFilter}`));
+
+  // Provenance disclosure: the option universe may be incomplete when the
+  // user directory itself is partial/capped or has not loaded yet.
+  const directoryIncomplete =
+    !usersCoverage || usersCoverage.status === "PARTIAL" || usersCoverage.status === "CAPPED";
 
   return (
     <DropdownMenu>
@@ -99,23 +108,37 @@ export function ResponsibleFilter() {
 
         <DropdownMenuSeparator />
 
-        {responsibleOptions.map((option) => (
-          <DropdownMenuItem
-            key={option.id}
-            onClick={() => handleFilterChange(option.id)}
-            className="flex items-center gap-2 text-xs cursor-pointer"
-          >
-            <span className="w-4 flex items-center justify-center">
-              {responsibleFilter === option.id && (
-                <Check className="h-3 w-3 text-brand-orange" />
-              )}
+        <div className="max-h-64 overflow-y-auto">
+          {responsibleOptions.map((option) => (
+            <DropdownMenuItem
+              key={option.id}
+              onClick={() => handleFilterChange(option.id)}
+              className="flex items-center gap-2 text-xs cursor-pointer"
+            >
+              <span className="w-4 flex items-center justify-center">
+                {responsibleFilter === option.id && (
+                  <Check className="h-3 w-3 text-brand-orange" />
+                )}
+              </span>
+              <span className="flex-1 truncate">{option.name}</span>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {option.count}
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </div>
+
+        {/* Counts provenance: numbers beside managers come from the currently
+            loaded dataset, never the full CRM. */}
+        <DropdownMenuSeparator />
+        <div className="px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
+          Счётчики — по загруженному набору данных.
+          {directoryIncomplete && (
+            <span className="block text-amber-600 dark:text-amber-400">
+              Список сотрудников может быть неполным.
             </span>
-            <span className="flex-1 truncate">{option.name}</span>
-            <span className="text-[10px] text-muted-foreground tabular-nums">
-              {option.count}
-            </span>
-          </DropdownMenuItem>
-        ))}
+          )}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

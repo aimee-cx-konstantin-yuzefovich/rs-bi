@@ -815,6 +815,18 @@ export const useDashboardStore = create<DashboardState>()(
       setResponsibleFilter: (id) => {
         set({ responsibleFilter: id, currentPage: 1 });
         get().applyClientFilters();
+        // ─── Upstream-bound filter invariant ───
+        // responsibleFilter is pushed to Bitrix as ASSIGNED_BY_ID BEFORE the
+        // capped pagination window (see fetchDeals). If the filter changes
+        // AFTER the initial Deal fetch, the loaded dataset no longer matches
+        // the filter — a manager whose only deals lie outside the first capped
+        // window would otherwise show a false zero. Refetch upstream in live
+        // mode (same precedent as setDateFilter); request-sequence protection
+        // in fetchDeals discards stale responses. In demo mode the client-side
+        // filter IS the authoritative dataset.
+        if (!get().isDemoMode) {
+          void get().fetchDeals();
+        }
       },
 
       setViewMode: (mode) => set({ viewMode: mode }),
@@ -852,7 +864,17 @@ export const useDashboardStore = create<DashboardState>()(
           columnFilters: view.columnFilters ? [...view.columnFilters] : [],
           currentPage: 1,
         });
-        get().applyClientFilters();
+        // ─── Upstream-bound filter invariant ───
+        // A saved view may restore responsibleFilter/dateFilter AFTER the
+        // initial fetch. The Deal dataset source must match the restored
+        // upstream filter, so refetch in live mode (single call; fetchDeals
+        // applies client filters itself when data lands — no duplicate
+        // applyClientFilters pre-call). Demo mode keeps client-side filtering.
+        if (!get().isDemoMode) {
+          void get().fetchDeals();
+        } else {
+          get().applyClientFilters();
+        }
         get().fetchActivitiesData();
         get().fetchCompaniesData();
       },
