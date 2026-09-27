@@ -13,6 +13,16 @@ import {
   isTerminalWonStage,
 } from "@/lib/stage-utils";
 import type { DatasetCoverage } from "@/lib/dataset-coverage";
+import {
+  resolveUsersCoverage,
+  resolveFieldsCoverage,
+  resolveIdSetCoverage,
+  USERS_DIRECTORY_FAILED_WARNING,
+  FIELDS_METADATA_FAILED_WARNING,
+  ACTIVITIES_FAILED_WARNING,
+  COMPANIES_FAILED_WARNING,
+} from "@/lib/enrichment-coverage";
+import { USERS_DIRECTORY_CAP } from "@/lib/crm-constants";
 
 // ─── Client-side fetch timeout (prevents infinite loading spinner) ───
 // Server-side bitrix helpers already have 15s/30s timeouts,
@@ -189,6 +199,7 @@ interface DashboardState {
   usersCoverage: DatasetCoverage | null;
   fieldsCoverage: DatasetCoverage | null;
   activitiesCoverage: DatasetCoverage | null;
+  companiesDataCoverage: DatasetCoverage | null;
 
   // ─── Actions ───
   checkConfig: () => Promise<void>;
@@ -379,6 +390,7 @@ export const useDashboardStore = create<DashboardState>()(
       usersCoverage: null,
       fieldsCoverage: null,
       activitiesCoverage: null,
+      companiesDataCoverage: null,
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -426,7 +438,16 @@ export const useDashboardStore = create<DashboardState>()(
           if (data.fields.length === 0) {
             set({ fields: DEMO_FIELDS, fieldsLoading: false, isDemoMode: true });
           } else {
-            set({ fields: data.fields, fieldsLoading: false, isDemoMode: false, isConfigured: true });
+            set({
+              fields: data.fields,
+              fieldsLoading: false,
+              isDemoMode: false,
+              isConfigured: true,
+              // Truthful metadata provenance: a failed sub-source
+              // (crm.company.fields, crm.status.list:…) makes the directory
+              // PARTIAL even though some fields arrived.
+              fieldsCoverage: resolveFieldsCoverage(data),
+            });
           }
 
           const currentSelected = get().selectedColumns;
@@ -457,6 +478,12 @@ export const useDashboardStore = create<DashboardState>()(
             set({
               fieldsLoading: false,
               fieldsError: "Failed to load fields",
+              // Failed refresh must not leave a stale COMPLETE provenance.
+              fieldsCoverage: {
+                status: "PARTIAL",
+                fetched: 0,
+                warning: FIELDS_METADATA_FAILED_WARNING,
+              },
             });
           }
         }
@@ -900,7 +927,11 @@ export const useDashboardStore = create<DashboardState>()(
           for (const person of RESPONSIBLE_PERSONS) {
             demoNames[person.ID] = person.NAME;
           }
-          set({ userNames: demoNames, userNamesLoading: false });
+          set({
+            userNames: demoNames,
+            userNamesLoading: false,
+            usersCoverage: { status: "COMPLETE", fetched: RESPONSIBLE_PERSONS.length, total: RESPONSIBLE_PERSONS.length },
+          });
           return;
         }
 
@@ -909,7 +940,16 @@ export const useDashboardStore = create<DashboardState>()(
             const response = await fetchWithTimeout(`/api/bitrix/users`);
             if (!response.ok) {
               console.warn("[Dashboard] Failed to fetch user names: API returned", response.status);
-              set({ userNamesLoading: false });
+              // A failed refresh must never leave a previous COMPLETE state
+              // standing — the current directory provenance is unknown/partial.
+              set({
+                userNamesLoading: false,
+                usersCoverage: {
+                  status: "PARTIAL",
+                  fetched: 0,
+                  warning: USERS_DIRECTORY_FAILED_WARNING,
+                },
+              });
               return;
             }
             const data = await response.json();
@@ -917,13 +957,28 @@ export const useDashboardStore = create<DashboardState>()(
               set((state) => ({
                 userNames: { ...state.userNames, ...data.users },
                 userNamesLoading: false,
+                usersCoverage: resolveUsersCoverage(data, USERS_DIRECTORY_CAP),
               }));
             } else {
-              set({ userNamesLoading: false });
+              set({
+                userNamesLoading: false,
+                usersCoverage: {
+                  status: "PARTIAL",
+                  fetched: 0,
+                  warning: USERS_DIRECTORY_FAILED_WARNING,
+                },
+              });
             }
           } catch {
             console.warn("[Dashboard] Failed to fetch user names");
-            set({ userNamesLoading: false });
+            set({
+              userNamesLoading: false,
+              usersCoverage: {
+                status: "PARTIAL",
+                fetched: 0,
+                warning: USERS_DIRECTORY_FAILED_WARNING,
+              },
+            });
           } finally {
             inFlightUsersPromise = null;
           }
@@ -984,6 +1039,9 @@ export const useDashboardStore = create<DashboardState>()(
         set({ companiesDataLoading: true });
 
         inFlightCompaniesPromise = (async () => {
+          // Snapshot the requested scope for truthful coverage: coverage is
+          // relative to the IDs actually requested in THIS request.
+          const requestedIds = missingIds;
           try {
             const response = await fetchWithTimeout("/api/bitrix/companies", {
               method: "POST",
@@ -996,7 +1054,16 @@ export const useDashboardStore = create<DashboardState>()(
 
             if (!response.ok) {
               console.warn("[Dashboard] Failed to fetch companies data: API returned", response.status);
-              set({ companiesDataLoading: false });
+              set({
+                companiesDataLoading: false,
+                // Failed refresh must not leave a stale COMPLETE provenance.
+                companiesDataCoverage: {
+                  status: "PARTIAL",
+                  fetched: 0,
+                  total: requestedIds.length,
+                  warning: COMPANIES_FAILED_WARNING,
+                },
+              });
               return;
             }
             const data = await response.json();
@@ -1024,7 +1091,7 @@ export const useDashboardStore = create<DashboardState>()(
                 }
                 const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
                 const fetchTimestamp = Date.now();
-                
+
                 // Only mark successfully fetched company IDs as fetched (unresolved IDs remain eligible for retry)
                 const successfulIds: string[] = Array.isArray(data.fetchedCompanyIds)
                   ? data.fetchedCompanyIds
@@ -1041,14 +1108,41 @@ export const useDashboardStore = create<DashboardState>()(
                     delete newCompaniesDataFetchedAt[id];
                   }
                 }
-                return { companiesData: newCompaniesData, companiesDataFetchedAt: newCompaniesDataFetchedAt, companiesDataLoading: false };
+                return {
+                  companiesData: newCompaniesData,
+                  companiesDataFetchedAt: newCompaniesDataFetchedAt,
+                  companiesDataLoading: false,
+                  // Unresolved company IDs mean PARTIAL — they must never be
+                  // presented as successfully enriched.
+                  companiesDataCoverage: resolveIdSetCoverage(
+                    requestedIds,
+                    successfulIds,
+                    { warning: data.warning }
+                  ),
+                };
               });
             } else {
-              set({ companiesDataLoading: false });
+              set({
+                companiesDataLoading: false,
+                companiesDataCoverage: {
+                  status: "PARTIAL",
+                  fetched: 0,
+                  total: requestedIds.length,
+                  warning: COMPANIES_FAILED_WARNING,
+                },
+              });
             }
           } catch {
             console.warn("[Dashboard] Failed to fetch companies data");
-            set({ companiesDataLoading: false });
+            set({
+              companiesDataLoading: false,
+              companiesDataCoverage: {
+                status: "PARTIAL",
+                fetched: 0,
+                total: requestedIds.length,
+                warning: COMPANIES_FAILED_WARNING,
+              },
+            });
           } finally {
             inFlightCompaniesPromise = null;
           }
@@ -1091,6 +1185,9 @@ export const useDashboardStore = create<DashboardState>()(
         set({ activitiesDataLoading: true });
 
         inFlightActivitiesPromise = (async () => {
+          // Snapshot the requested scope for truthful coverage: coverage is
+          // relative to the deal IDs actually requested in THIS request.
+          const requestedIds = missingIds;
           try {
             const response = await fetchWithTimeout("/api/bitrix/activities", {
               method: "POST",
@@ -1102,7 +1199,17 @@ export const useDashboardStore = create<DashboardState>()(
 
             if (!response.ok) {
               console.warn("[Dashboard] Failed to fetch activities data: API returned", response.status);
-              set({ activitiesDataLoading: false });
+              set({
+                activitiesDataLoading: false,
+                // Failed refresh must not leave a stale COMPLETE provenance.
+                // "Request finished" never implies "activities complete".
+                activitiesCoverage: {
+                  status: "PARTIAL",
+                  fetched: 0,
+                  total: requestedIds.length,
+                  warning: ACTIVITIES_FAILED_WARNING,
+                },
+              });
               return;
             }
             const data = await response.json();
@@ -1111,7 +1218,7 @@ export const useDashboardStore = create<DashboardState>()(
                 const newActivitiesData = { ...state.activitiesData, ...data.activities };
                 const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
                 const fetchTimestamp = Date.now();
-                
+
                 // Only mark successfully fetched IDs as fetched (failed IDs remain UNKNOWN for retry)
                 const successfulIds: string[] = Array.isArray(data.fetchedDealIds)
                   ? data.fetchedDealIds
@@ -1128,14 +1235,41 @@ export const useDashboardStore = create<DashboardState>()(
                     delete newActivitiesDataFetchedAt[id];
                   }
                 }
-                return { activitiesData: newActivitiesData, activitiesDataFetchedAt: newActivitiesDataFetchedAt, activitiesDataLoading: false };
+                return {
+                  activitiesData: newActivitiesData,
+                  activitiesDataFetchedAt: newActivitiesDataFetchedAt,
+                  activitiesDataLoading: false,
+                  // Any failed/incomplete deal ID makes the enrichment PARTIAL
+                  // relative to the requested set — never COMPLETE.
+                  activitiesCoverage: resolveIdSetCoverage(
+                    requestedIds,
+                    successfulIds,
+                    { warning: data.warning }
+                  ),
+                };
               });
             } else {
-              set({ activitiesDataLoading: false });
+              set({
+                activitiesDataLoading: false,
+                activitiesCoverage: {
+                  status: "PARTIAL",
+                  fetched: 0,
+                  total: requestedIds.length,
+                  warning: ACTIVITIES_FAILED_WARNING,
+                },
+              });
             }
           } catch {
             console.warn("[Dashboard] Failed to fetch activities data");
-            set({ activitiesDataLoading: false });
+            set({
+              activitiesDataLoading: false,
+              activitiesCoverage: {
+                status: "PARTIAL",
+                fetched: 0,
+                total: requestedIds.length,
+                warning: ACTIVITIES_FAILED_WARNING,
+              },
+            });
           } finally {
             inFlightActivitiesPromise = null;
           }

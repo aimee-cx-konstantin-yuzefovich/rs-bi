@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { bitrixGet, bitrixPost } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
 import pLimit from "p-limit";
+import {
+  USERS_DIRECTORY_MAX_ITERATIONS,
+  USERS_DIRECTORY_PAGE_SIZE,
+} from "@/lib/crm-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +24,8 @@ export async function GET(request: NextRequest) {
   if (isAuthError(authResult)) return authResult;
   try {
     const userMap: Record<string, string> = {};
-    const MAX_ITERATIONS = 50; // 50 * 50 = 2500 users max
+    const MAX_ITERATIONS = USERS_DIRECTORY_MAX_ITERATIONS;
+    const PAGE_SIZE = USERS_DIRECTORY_PAGE_SIZE;
     
     // First request to get total count
     const initialData = await bitrixPost<{
@@ -45,13 +50,13 @@ export async function GET(request: NextRequest) {
     
     let failedBatches = 0;
     // Fetch remaining pages in parallel
-    if (total > 50) {
-      const remainingPages = Math.min(Math.ceil(total / 50) - 1, MAX_ITERATIONS - 1);
+    if (total > PAGE_SIZE) {
+      const remainingPages = Math.min(Math.ceil(total / PAGE_SIZE) - 1, MAX_ITERATIONS - 1);
       for (let i = 1; i <= remainingPages; i++) {
         promises.push(
           limit(() => bitrixPost<{
             result: Array<{ ID: string; NAME: string; LAST_NAME: string; SECOND_NAME: string }>;
-          }>("user.get", { start: i * 50 }).catch(e => {
+          }>("user.get", { start: i * PAGE_SIZE }).catch(e => {
             console.error(`[Users API] Failed to fetch users batch at start ${i * 50}:`, e);
             return null;
           }))
@@ -76,7 +81,7 @@ export async function GET(request: NextRequest) {
 
     const fetched = Object.keys(userMap).length;
     const partial = failedBatches > 0;
-    const cappedByLimit = total > MAX_ITERATIONS * 50;
+    const cappedByLimit = total > MAX_ITERATIONS * PAGE_SIZE;
     const truncated = total > fetched;
 
     // SECURITY: Only log user count in development to avoid leaking

@@ -204,3 +204,11 @@ export const ALERT_THRESHOLDS = {
   WIN_RATE_WARNING_THRESHOLD: 20, // percent
   MIN_CLOSED_DEALS_FOR_WIN_RATE: 5,
 } as const;
+
+// User-directory fetch cap (user.get pagination: 50 users per page, max 50
+// iterations). Shared by /api/bitrix/users (route cap computation) and the
+// client store (CAPPED coverage cap value) so both stay in sync.
+export const USERS_DIRECTORY_PAGE_SIZE = 50;
+export const USERS_DIRECTORY_MAX_ITERATIONS = 50;
+export const USERS_DIRECTORY_CAP =
+  USERS_DIRECTORY_PAGE_SIZE * USERS_DIRECTORY_MAX_ITERATIONS; // 2500
