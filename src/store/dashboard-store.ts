@@ -229,11 +229,14 @@ interface DashboardState {
 
   // ─── Actions (header features) ───
   setPipelineFilter: (filter: string) => void;
-  setResponsibleFilter: (id: string) => void;
+  // Returns the refetch promise (when one is initiated) so callers/tests can
+  // deterministically await the filtered dataset; UI callers may ignore it.
+  setResponsibleFilter: (id: string) => void | Promise<void>;
   setViewMode: (mode: "table" | "cards" | "kanban") => void;
   saveView: (name: string) => void;
   deleteSavedView: (id: string) => void;
-  loadSavedView: (id: string) => void;
+  // Same refetch-promise contract as setResponsibleFilter.
+  loadSavedView: (id: string) => void | Promise<void>;
   setConnectionStatus: (status: "checking" | "connected" | "demo" | "disconnected") => void;
   setAppLoaded: (loaded: boolean) => void;
   fetchUserNames: () => Promise<void>;
@@ -852,7 +855,7 @@ export const useDashboardStore = create<DashboardState>()(
         // in fetchDeals discards stale responses. In demo mode the client-side
         // filter IS the authoritative dataset.
         if (!get().isDemoMode) {
-          void get().fetchDeals();
+          return get().fetchDeals();
         }
       },
 
@@ -898,10 +901,9 @@ export const useDashboardStore = create<DashboardState>()(
         // applies client filters itself when data lands — no duplicate
         // applyClientFilters pre-call). Demo mode keeps client-side filtering.
         if (!get().isDemoMode) {
-          void get().fetchDeals();
-        } else {
-          get().applyClientFilters();
+          return get().fetchDeals();
         }
+        get().applyClientFilters();
         get().fetchActivitiesData();
         get().fetchCompaniesData();
       },
