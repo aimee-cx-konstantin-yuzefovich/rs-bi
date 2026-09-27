@@ -1,5 +1,9 @@
 /** Company-only normalization for the universal CRM response. */
 import { parseStrictDate } from "./scalar-safety";
+import {
+  resolveResponsibleDisplay,
+  type DatasetCoverage,
+} from "./enrichment-coverage";
 
 export function normalizeCompanyPreview(item: Record<string, unknown>) {
   const company: Record<string, unknown> = {};
@@ -107,7 +111,8 @@ export function defaultSampleFields(
 export function defaultCompanyFields(
   company: Record<string, unknown>,
   userNames: Record<string, string> = {},
-  fields: Array<{ id: string; title: string; type?: string }> = []
+  fields: Array<{ id: string; title: string; type?: string }> = [],
+  usersCoverage?: DatasetCoverage | null
 ): PreviewField[] {
   const fieldMap = new Map(fields.map(f => [f.id, f]));
   const typeOf = (id: string): string | undefined =>
@@ -117,17 +122,15 @@ export function defaultCompanyFields(
 
   if (company.ASSIGNED_BY_ID) {
     const id = String(company.ASSIGNED_BY_ID);
-    // Provenance matters: an empty directory (lookup source incomplete) is
-    // distinct from an employee genuinely not present in the directory.
-    const directoryLoaded = fields.length > 0 && Object.keys(userNames).length > 0;
+    // Provenance matters and comes from the actual user-directory coverage —
+    // NEVER inferred from dictionary non-emptiness:
+    //  - known ID           → real employee name
+    //  - missing + COMPLETE → "Сотрудник не найден"
+    //  - missing + PARTIAL/CAPPED/unknown → directory-incomplete variant
     out.push({
       id: "ASSIGNED_BY_ID",
       label: "Ответственный компании",
-      value: userNames[id]
-        ? userNames[id]
-        : directoryLoaded
-        ? "Сотрудник не найден"
-        : "Неизвестный сотрудник (справочник неполный)",
+      value: resolveResponsibleDisplay(id, userNames, usersCoverage),
       type: "user",
     });
   }

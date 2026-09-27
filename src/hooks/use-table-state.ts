@@ -7,6 +7,7 @@ import {
   getDealStageDisplayLabel,
 } from "@/lib/crm-constants";
 import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
+import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
 
 export function useTableState() {
   const {
@@ -20,6 +21,7 @@ export function useTableState() {
     companiesData,
     activitiesData,
     userNamesLoading,
+    usersCoverage,
   } = useDashboardStore(useShallow((state) => ({
     deals: state.deals,
     fields: state.fields,
@@ -31,6 +33,7 @@ export function useTableState() {
     companiesData: state.companiesData,
     activitiesData: state.activitiesData,
     userNamesLoading: state.userNamesLoading,
+    usersCoverage: state.usersCoverage,
   })));
 
   const fieldMap = useMemo(
@@ -80,8 +83,9 @@ export function useTableState() {
         const responsibleId = String(company.ASSIGNED_BY_ID || "").trim();
         if (!responsibleId) return "";
 
-        const userName = userNames?.[responsibleId]?.trim();
-        return userName || "Неизвестный сотрудник";
+        // Provenance-aware: directory-complete missing ID vs incomplete
+        // directory are distinct states (shared helper with previews).
+        return resolveResponsibleDisplay(responsibleId, userNames || {}, usersCoverage);
       }
 
       if (colId === "ACTIVITY_LAST" || colId === "ACTIVITY_NEXT") {
@@ -167,11 +171,13 @@ export function useTableState() {
 
       if (colId === RESPONSIBLE_FIELD_ID) {
         const id = String(raw);
-        const userName = userNames[id]?.trim();
         const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
 
-        // Never expose the internal user ID as a human name (QA invariant).
-        return userName || dealName || "Неизвестный сотрудник";
+        // Provenance-aware resolution shared with company/deal previews:
+        // never expose the internal user ID as a human name (QA invariant),
+        // and distinguish directory-complete missing IDs from an incomplete
+        // directory.
+        return resolveResponsibleDisplay(id, userNames || {}, usersCoverage) || dealName;
       }
 
       if (field?.listValues && raw) {
@@ -194,7 +200,7 @@ export function useTableState() {
 
       return String(raw);
     },
-    [fieldMap, userNames, companiesData, activitiesData]
+    [fieldMap, userNames, companiesData, activitiesData, usersCoverage]
   );
 
   const getSortValue = useCallback(

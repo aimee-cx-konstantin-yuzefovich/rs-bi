@@ -17,6 +17,7 @@ import { Building2, ExternalLink, FlaskConical } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { getDealStageDisplayLabel } from "@/lib/crm-constants";
 import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
+import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
 
 type PreviewState =
   | { status: "loading" }
@@ -44,7 +45,7 @@ export function DealPreview({
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
 
-  const { userNames, fields, activitiesData } = useDashboardStore();
+  const { userNames, fields, activitiesData, usersCoverage } = useDashboardStore();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -229,7 +230,11 @@ export function DealPreview({
                   <dt className="text-xs text-muted-foreground">Ответственный</dt>
                   <dd className="mt-1 font-medium">
                     {state.deal.ASSIGNED_BY_ID
-                      ? userNames[String(state.deal.ASSIGNED_BY_ID)] || "Неизвестный сотрудник"
+                      ? resolveResponsibleDisplay(
+                          String(state.deal.ASSIGNED_BY_ID),
+                          userNames || {},
+                          usersCoverage
+                        )
                       : "—"}
                   </dd>
                 </div>

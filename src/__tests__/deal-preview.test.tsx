@@ -50,6 +50,9 @@ const mockStore = vi.hoisted(() => ({
   columnFilters: [],
   userNames: { "7": "Анна" } as Record<string, string>,
   userNamesLoading: false,
+  // Coverage provenance: null means "unknown" → the directory-incomplete
+  // placeholder is the truthful fallback in the tests below.
+  usersCoverage: null,
   companiesData: { "42": { ID: "42", TITLE: "Компания из таблицы" } } as Record<string, any>,
   companiesDataLoading: false,
   activitiesData: {},
@@ -459,10 +462,11 @@ describe("Deal Preview Component and Navigation", () => {
       expect(res4).toBe("—");
     });
 
-    it("falls back to 'Неизвестный сотрудник' for COMPANY_RESPONSIBLE and never exposes internal responsible ID", async () => {
+    it("falls back to a provenance-aware unknown-employee label for COMPANY_RESPONSIBLE and never exposes internal responsible ID", async () => {
       const { renderHook } = await import("@testing-library/react");
       const { useTableState } = await import("@/hooks/use-table-state");
       const { COMPANY_RESPONSIBLE_FIELD_ID } = await import("@/lib/crm-constants");
+      const { RESPONSIBLE_DIRECTORY_INCOMPLETE_LABEL } = await import("@/lib/enrichment-coverage");
 
       mockStore.companiesData = {
         "50": { ID: "50", TITLE: "Компания", ASSIGNED_BY_ID: "999" },
@@ -475,7 +479,8 @@ describe("Deal Preview Component and Navigation", () => {
         COMPANY_RESPONSIBLE_FIELD_ID
       );
 
-      expect(res).toBe("Неизвестный сотрудник");
+      // usersCoverage = null (unknown provenance) → directory-incomplete label
+      expect(res).toBe(RESPONSIBLE_DIRECTORY_INCOMPLETE_LABEL);
       expect(res).not.toContain("999");
       expect(res).not.toContain("ID");
     });
@@ -484,6 +489,7 @@ describe("Deal Preview Component and Navigation", () => {
       const { renderHook } = await import("@testing-library/react");
       const { useTableState } = await import("@/hooks/use-table-state");
       const { RESPONSIBLE_FIELD_ID } = await import("@/lib/crm-constants");
+      const { RESPONSIBLE_DIRECTORY_INCOMPLETE_LABEL } = await import("@/lib/enrichment-coverage");
 
       mockStore.userNames = {}; // responsible not in dictionary
 
@@ -493,7 +499,7 @@ describe("Deal Preview Component and Navigation", () => {
         RESPONSIBLE_FIELD_ID
       );
 
-      expect(res).toBe("Неизвестный сотрудник");
+      expect(res).toBe(RESPONSIBLE_DIRECTORY_INCOMPLETE_LABEL);
       expect(res).not.toContain("7");
       expect(res).not.toContain("ID 7");
     });
@@ -538,7 +544,9 @@ describe("Deal Preview Component and Navigation", () => {
   });
 
   describe("Fix 4: Human-name ID fallbacks", () => {
-    it("displays 'Неизвестный сотрудник' instead of ID fallback when employee name is not in userNames", async () => {
+    it("displays a provenance-aware unknown-employee label instead of ID fallback when employee name is not in userNames", async () => {
+      const { RESPONSIBLE_DIRECTORY_INCOMPLETE_LABEL } = await import("@/lib/enrichment-coverage");
+
       fetchMock.mockResolvedValue(
         ok({
           success: true,
@@ -554,7 +562,7 @@ describe("Deal Preview Component and Navigation", () => {
 
       render(<DealPreview id="101" onClose={() => {}} />);
       expect(await screen.findByRole("heading", { name: "Сделка 101" })).toBeInTheDocument();
-      expect(screen.getByText("Неизвестный сотрудник")).toBeInTheDocument();
+      expect(screen.getByText(RESPONSIBLE_DIRECTORY_INCOMPLETE_LABEL)).toBeInTheDocument();
       expect(screen.queryByText("Сотрудник ID 999")).not.toBeInTheDocument();
       expect(screen.queryByText("ID 999")).not.toBeInTheDocument();
     });

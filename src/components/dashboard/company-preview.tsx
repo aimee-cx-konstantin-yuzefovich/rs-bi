@@ -78,9 +78,9 @@ export function CompanyPreview({
   const [attempt, setAttempt] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
 
-  const { userNames, fields } = useDashboardStore();
+  const { userNames, fields, usersCoverage } = useDashboardStore();
 
-  const activeFieldsFor = fieldsFor || ((c: Record<string, unknown>) => defaultCompanyFields(c, userNames || {}, fields || []));
+  const activeFieldsFor = fieldsFor || ((c: Record<string, unknown>) => defaultCompanyFields(c, userNames || {}, fields || [], usersCoverage));
   const activeSampleFieldsFor = sampleFieldsFor || ((c: Record<string, unknown>) => defaultSampleFields(c, fields || []));
 
   const stageField = fields?.find((f) => f.id === "STAGE_ID");

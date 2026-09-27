@@ -10,7 +10,9 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     fileParallelism: false,
     // e2e/ holds Playwright specs (run by `npm run qa:e2e`), not vitest tests.
-    exclude: ['**/node_modules/**', 'e2e/**'],
+    // .kilo/** holds agent worktree copies of the repo — their stale test
+    // snapshots must never run against this workspace's src via the '@' alias.
+    exclude: ['**/node_modules/**', 'e2e/**', '.kilo/**'],
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     }

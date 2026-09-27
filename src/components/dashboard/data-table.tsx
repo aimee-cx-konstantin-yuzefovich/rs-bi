@@ -38,6 +38,7 @@ import { DealPreview } from "./deal-preview";
 import { CompanyPreview } from "./company-preview";
 import { isDealId } from "@/lib/deal-preview";
 import { parseStrictNumber } from "@/lib/scalar-safety";
+import { isUnknownResponsibleLabel } from "@/lib/enrichment-coverage";
 
 /**
  * SECURITY NOTE: All cell values are rendered as JSX text content.
@@ -929,8 +930,9 @@ function CellValue({
     const userId = String(deal?.ASSIGNED_BY_ID || "").trim();
     if (userId) {
       // Show a skeleton while the user-name dictionary is still loading and no
-      // human name could be resolved yet (prevents flashing "Неизвестный сотрудник").
-      if (userNamesLoading && resolved.trim() === "Неизвестный сотрудник") {
+      // human name could be resolved yet (prevents flashing a provenance
+      // placeholder like "Неизвестный сотрудник (справочник неполный)").
+      if (userNamesLoading && isUnknownResponsibleLabel(resolved.trim())) {
         return <Skeleton className="h-4 w-28 rounded" />;
       }
       return (
