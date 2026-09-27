@@ -17,6 +17,7 @@ import { SavedViews } from "./saved-views";
 import { SectionNav } from "./section-nav";
 import { RefreshCw, Download, Columns3, BarChart3, LogOut, User } from "lucide-react";
 import { exportToExcelWysiwyg } from "@/lib/export-utils";
+import { buildEnrichmentExtraWarnings } from "@/lib/enrichment-disclosure";
 import { formatHeaderToRussian, formatStageToRussian } from "@/lib/excel-brand";
 import { getDealStageDisplayLabel } from "@/lib/crm-constants";
 import { PRODUCT_UI_DESCRIPTOR } from "@/lib/product-identity";
@@ -43,6 +44,10 @@ export function Header() {
     companiesDataLoading,
     activitiesDataLoading,
     userNamesLoading,
+    usersCoverage,
+    activitiesCoverage,
+    companiesDataCoverage,
+    fieldsCoverage,
   } = useDashboardStore();
   const { sortedDeals, columns, fieldMap, resolveValue } = useTableState();
 
@@ -153,11 +158,23 @@ export function Header() {
         rawColumnTypes: columns.map((colId: string) => fieldMap.get(colId)?.type),
         rowCurrencies: sortedDeals.map((d: any) => d.CURRENCY_ID),
         coverage: dealsCoverage ?? undefined,
+        // Selected-column-aware enrichment disclosure: a COMPLETE deals
+        // dataset with PARTIAL enrichment sources must say so in the
+        // detached workbook — but only for sources the exported columns
+        // actually depend on.
+        extraWarnings: buildEnrichmentExtraWarnings({
+          selectedColumns: columns,
+          fields,
+          usersCoverage,
+          activitiesCoverage,
+          companiesDataCoverage,
+          fieldsCoverage,
+        }),
       });
     } catch (err) {
       console.error("Ошибка при экспорте сделок в Excel:", err);
     }
-  }, [sortedDeals, columns, fieldMap, resolveValue, dateFilter, pipelineFilter, responsibleFilter, searchQuery, columnFilters, dealsCoverage, userNames]);
+  }, [sortedDeals, columns, fieldMap, resolveValue, dateFilter, pipelineFilter, responsibleFilter, searchQuery, columnFilters, dealsCoverage, userNames, fields, usersCoverage, activitiesCoverage, companiesDataCoverage, fieldsCoverage]);
 
   // Enrichment readiness: an export-selected column that depends on a source
   // still loading must not turn "not loaded yet" into a legitimate CRM blank.

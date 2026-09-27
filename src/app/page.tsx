@@ -14,6 +14,7 @@ import { DataTable } from "@/components/dashboard/data-table";
 import { ColumnSelector } from "@/components/dashboard/column-selector";
 import { ConfigBanner } from "@/components/dashboard/config-banner";
 import { CoverageBanner } from "@/components/dashboard/coverage-banner";
+import { EnrichmentCoverageBanner } from "@/components/dashboard/enrichment-coverage-banner";
 import { Footer } from "@/components/dashboard/footer";
 import { INITIAL_STARTUP, runDashboardStartup, type StartupState } from "@/lib/dashboard-startup";
 import { LoadingScreen } from "@/components/dashboard/loading-screen";
@@ -196,6 +197,7 @@ function DashboardContent() {
             </div>
           )}
           <CoverageBanner />
+          <EnrichmentCoverageBanner />
           <StatsCards />
           <DataTable />
         </main>

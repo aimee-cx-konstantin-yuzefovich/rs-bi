@@ -1,0 +1,124 @@
+// src/lib/enrichment-disclosure.ts
+// ─────────────────────────────────────────────────────────────────────
+// Selected-column-aware enrichment disclosure. One dependency model feeds
+// BOTH the UI warning banner and the Excel extraWarnings block so the two
+// surfaces can never diverge.
+//
+// A Deals dataset may be COMPLETE while its enrichment sources (user
+// directory, activities, company enrichment, CRM field metadata) are
+// PARTIAL/CAPPED. The detached workbook must disclose every incomplete
+// source that the exported columns actually depend on — and must stay
+// silent about sources outside the exported semantic scope.
+// ─────────────────────────────────────────────────────────────────────
+
+import type { DatasetCoverage } from "./dataset-coverage";
+import type { FieldInfo } from "@/store/dashboard-store";
+
+/** Russian Excel/UI warnings — one wording per source (§18). */
+export const WARNING_USERS_PARTIAL =
+  "ВНИМАНИЕ: справочник сотрудников загружен частично. Некоторые ФИО ответственных могут быть недоступны.";
+export const WARNING_ACTIVITIES_PARTIAL =
+  "ВНИМАНИЕ: данные активностей загружены частично. Поля \"Последнее дело\" / \"Следующий шаг\" могут быть неполными.";
+export const WARNING_COMPANIES_PARTIAL =
+  "ВНИМАНИЕ: данные компаний загружены частично. Некоторые поля компаний не были получены из CRM.";
+export const WARNING_FIELDS_PARTIAL =
+  "ВНИМАНИЕ: метаданные CRM загружены частично. Типы/подписи части пользовательских полей могут быть недоступны.";
+
+export interface EnrichmentCoverageSnapshot {
+  usersCoverage?: DatasetCoverage | null;
+  activitiesCoverage?: DatasetCoverage | null;
+  companiesDataCoverage?: DatasetCoverage | null;
+  fieldsCoverage?: DatasetCoverage | null;
+}
+
+export interface EnrichmentWarningsInput extends EnrichmentCoverageSnapshot {
+  /** Raw selected column IDs (the export semantic scope). */
+  selectedColumns: string[];
+  /** Field metadata for user-type detection (may be empty). */
+  fields?: Array<Pick<FieldInfo, "id" | "type">>;
+}
+
+function isIncomplete(coverage?: DatasetCoverage | null): boolean {
+  return coverage?.status === "PARTIAL" || coverage?.status === "CAPPED";
+}
+
+/** Does any selected column depend on the user directory? */
+export function selectedColumnsNeedUsers(
+  selectedColumns: string[],
+  fields?: Array<Pick<FieldInfo, "id" | "type">>
+): boolean {
+  const fieldMap = new Map((fields || []).map((f) => [f.id, f]));
+  return selectedColumns.some(
+    (c) => c === "ASSIGNED_BY_ID" || c === "COMPANY_ASSIGNED_BY_ID" || fieldMap.get(c)?.type === "user"
+  );
+}
+
+/** Does any selected column depend on activities enrichment? */
+export function selectedColumnsNeedActivities(selectedColumns: string[]): boolean {
+  return selectedColumns.includes("ACTIVITY_LAST") || selectedColumns.includes("ACTIVITY_NEXT");
+}
+
+/** Does any selected column depend on company enrichment? */
+export function selectedColumnsNeedCompanies(selectedColumns: string[]): boolean {
+  return selectedColumns.some((c) => c.startsWith("COMPANY_"));
+}
+
+/**
+ * Does any selected column depend on CRM field metadata for correct
+ * types/labels (crm_status/listValues-driven custom fields)? Standard
+ * fields with fixed semantics (dates, money, stage) do not require it.
+ */
+export function selectedColumnsNeedFieldMetadata(
+  selectedColumns: string[],
+  fields?: Array<Pick<FieldInfo, "id" | "type">>
+): boolean {
+  const fieldMap = new Map((fields || []).map((f) => [f.id, f]));
+  return selectedColumns.some((c) => {
+    const meta = fieldMap.get(c);
+    if (!meta) return false;
+    // Fields whose display depends on listValues/type metadata:
+    // crm_status enums and enumeration-typed custom fields.
+    return meta.type === "crm_status" || meta.type === "enumeration";
+  });
+}
+
+/**
+ * Returns the extraWarnings lines for the export's selected-column scope.
+ * Only sources that are BOTH incomplete AND actually depended upon by the
+ * selected columns produce a warning — unrelated failures never leak into
+ * unrelated exports.
+ */
+export function buildEnrichmentExtraWarnings(
+  input: EnrichmentWarningsInput
+): string[] {
+  const warnings: string[] = [];
+  const { selectedColumns, fields } = input;
+
+  if (selectedColumnsNeedUsers(selectedColumns, fields) && isIncomplete(input.usersCoverage)) {
+    warnings.push(WARNING_USERS_PARTIAL);
+  }
+  if (selectedColumnsNeedActivities(selectedColumns) && isIncomplete(input.activitiesCoverage)) {
+    warnings.push(WARNING_ACTIVITIES_PARTIAL);
+  }
+  if (selectedColumnsNeedCompanies(selectedColumns) && isIncomplete(input.companiesDataCoverage)) {
+    warnings.push(WARNING_COMPANIES_PARTIAL);
+  }
+  if (
+    selectedColumnsNeedFieldMetadata(selectedColumns, fields) &&
+    isIncomplete(input.fieldsCoverage)
+  ) {
+    warnings.push(WARNING_FIELDS_PARTIAL);
+  }
+
+  return warnings;
+}
+
+/**
+ * Compact UI warning lines for enrichment sources a currently visible
+ * column depends on (shorter phrasing than the Excel block).
+ */
+export function buildEnrichmentUiWarnings(
+  input: EnrichmentWarningsInput
+): string[] {
+  return buildEnrichmentExtraWarnings(input).map((w) => w.replace("ВНИМАНИЕ: ", ""));
+}

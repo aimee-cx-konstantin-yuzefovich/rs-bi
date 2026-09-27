@@ -8,8 +8,12 @@
 import {
   resolveDatasetCoverage,
   type CoverageApiEnvelope,
-  type DatasetCoverage,
 } from "./dataset-coverage";
+
+// Re-exported so downstream modules can import the coverage type from this
+// single enrichment authority.
+export type { DatasetCoverage } from "./dataset-coverage";
+import type { DatasetCoverage } from "./dataset-coverage";
 
 /** Standard Russian warning for a failed user-directory refresh. */
 export const USERS_DIRECTORY_FAILED_WARNING =
