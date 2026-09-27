@@ -255,8 +255,9 @@ describe("ENR — enrichment coverage → provenance", () => {
 
     const state = useDashboardStore.getState();
     expect(state.fieldsCoverage?.status).toBe("PARTIAL");
-    expect(state.fieldsCoverage?.warning).toContain("crm.company.fields");
-    expect(state.fieldsCoverage?.warning).toContain("crm.status.list:INDUSTRY");
+    const warning = state.fieldsCoverage?.status === "PARTIAL" ? state.fieldsCoverage.warning : "";
+    expect(warning).toContain("crm.company.fields");
+    expect(warning).toContain("crm.status.list:INDUSTRY");
     // Receiving SOME fields must not pretend the metadata directory is complete.
     expect(state.fields.length).toBe(1);
   });

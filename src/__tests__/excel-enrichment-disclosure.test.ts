@@ -47,7 +47,7 @@ async function serializeAndRead(workbook: ExcelJS.Workbook): Promise<string[]> {
         cells.push(v.toISOString());
         return;
       }
-      const obj = v as Record<string, unknown>;
+      const obj = v as unknown as Record<string, unknown>;
       if (typeof v === "number") {
         cells.push(String(v));
       } else if ("richText" in obj && Array.isArray(obj.richText)) {
@@ -72,7 +72,6 @@ describe("Cross-layer Excel enrichment disclosure", () => {
     const warnings = buildEnrichmentExtraWarnings({
       selectedColumns: columns,
       fields: [{ id: "ASSIGNED_BY_ID", type: "string" }],
-      dealsCoverage: undefined,
       usersCoverage: USERS_PARTIAL,
       activitiesCoverage: ACTIVITIES_PARTIAL,
       companiesDataCoverage: null,
