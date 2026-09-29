@@ -17,6 +17,13 @@ import {
   computeWipMetrics,
   buildSampleRegister,
 } from "../lib/commercial-funnel/engine";
+import {
+  computeActionPlan,
+  computeFunnelView,
+  computeManagementSignals,
+  computeSegmentBreakdown,
+  buildSampleTestingSnapshot,
+} from "../lib/commercial-funnel/analytics";
 import { computePeriodBoundaries } from "../lib/commercial-funnel/date-utils";
 import { createCommercialFunnelWorkbook } from "../lib/commercial-funnel/export-excel";
 import {
@@ -37,6 +44,7 @@ interface BenchmarkResult {
   managersMs: number;
   bottlenecksMs: number;
   samplesMs: number;
+  managementMs: number;
   excelMs: number | null;
   totalTimeMs: number;
   heapDeltaMb: number;
@@ -164,6 +172,18 @@ async function executeProfileBenchmark(
   const sampleRegister = buildSampleRegister(companies, fixedNow);
   const samplesMs = performance.now() - tSamplesStart;
 
+  // Phase 7b: Management Rebuild analytical path (QA closure HA contract):
+  // Funnel view, three segment breakdowns, action plan, signals, snapshot.
+  const tManagementStart = performance.now();
+  const funnelView = computeFunnelView(companies, boundaries);
+  const segmentIndustry = computeSegmentBreakdown(companies, boundaries, "industry");
+  const segmentDirection = computeSegmentBreakdown(companies, boundaries, "direction");
+  const segmentProduct = computeSegmentBreakdown(companies, boundaries, "product");
+  const actionPlan = computeActionPlan(companies, fixedNow);
+  const signals = computeManagementSignals(companies, fixedNow);
+  const sampleSnapshot = buildSampleTestingSnapshot(companies, fixedNow);
+  const managementMs = performance.now() - tManagementStart;
+
   // Phase 8: Excel workbook generation
   let excelMs: number | null = null;
   if (runExcel) {
@@ -191,6 +211,11 @@ async function executeProfileBenchmark(
   expect(verifiedBottlenecks.length).toBeGreaterThan(0);
   expect(scorecard.length).toBe(10);
   expect(sampleRegister.length).toBeGreaterThan(0);
+  // Management path sanity (HA)
+  expect(funnelView.sampleTestingStages.length).toBeGreaterThan(0);
+  expect(segmentIndustry.rows.length).toBeGreaterThan(0);
+  expect(segmentDirection.rows.length).toBeGreaterThan(0);
+  expect(segmentProduct.rows.length).toBeGreaterThan(0);
 
   const result: BenchmarkResult = {
     profile: profileName,
@@ -203,13 +228,14 @@ async function executeProfileBenchmark(
     managersMs,
     bottlenecksMs,
     samplesMs,
+    managementMs,
     excelMs,
     totalTimeMs,
     heapDeltaMb,
   };
 
   console.log(
-    `[${profileName}] Gen: ${fixtureGenMs.toFixed(1)}ms | DealNorm: ${dealNormMs.toFixed(1)}ms | CompNorm: ${compNormMs.toFixed(1)}ms | Analytics: ${analyticsMs.toFixed(1)}ms | Mgrs: ${managersMs.toFixed(1)}ms | Bot: ${bottlenecksMs.toFixed(1)}ms | Samples: ${samplesMs.toFixed(1)}ms | Excel: ${excelMs?.toFixed(1)}ms | Total: ${totalTimeMs.toFixed(1)}ms`
+    `[${profileName}] Gen: ${fixtureGenMs.toFixed(1)}ms | DealNorm: ${dealNormMs.toFixed(1)}ms | CompNorm: ${compNormMs.toFixed(1)}ms | Analytics: ${analyticsMs.toFixed(1)}ms | Mgrs: ${managersMs.toFixed(1)}ms | Bot: ${bottlenecksMs.toFixed(1)}ms | Samples: ${samplesMs.toFixed(1)}ms | Mgmt: ${managementMs.toFixed(1)}ms | Excel: ${excelMs?.toFixed(1)}ms | Total: ${totalTimeMs.toFixed(1)}ms`
   );
 
   benchmarkMatrixResults.push(result);
@@ -219,7 +245,7 @@ async function executeProfileBenchmark(
 function printMatrixTable(results: BenchmarkResult[]) {
   console.log("\n======================== PRODUCTION SCALE BENCHMARK MATRIX ========================");
   console.log(
-    "| Profile | Companies | Deals | Deal Norm | Comp Norm | Analytics | Managers | Bottlenecks | Samples | Excel | Total Time | Heap Delta |"
+    "| Profile | Companies | Deals | Deal Norm | Comp Norm | Analytics | Managers | Bottlenecks | Samples | Mgmt | Excel | Total Time | Heap Delta |"
   );
   console.log(
     "|---|---|---|---|---|---|---|---|---|---|---|---|"
@@ -227,7 +253,7 @@ function printMatrixTable(results: BenchmarkResult[]) {
   for (const r of results) {
     const excelStr = r.excelMs !== null ? `${r.excelMs.toFixed(1)} ms` : "Omitted (Memory)";
     console.log(
-      `| ${r.profile} | ${r.companies.toLocaleString("ru-RU")} | ${r.deals.toLocaleString("ru-RU")} | ${r.dealNormMs.toFixed(1)} ms | ${r.compNormMs.toFixed(1)} ms | ${r.analyticsMs.toFixed(1)} ms | ${r.managersMs.toFixed(1)} ms | ${r.bottlenecksMs.toFixed(1)} ms | ${r.samplesMs.toFixed(1)} ms | ${excelStr} | ${r.totalTimeMs.toFixed(1)} ms | +${r.heapDeltaMb.toFixed(1)} MB |`
+      `| ${r.profile} | ${r.companies.toLocaleString("ru-RU")} | ${r.deals.toLocaleString("ru-RU")} | ${r.dealNormMs.toFixed(1)} ms | ${r.compNormMs.toFixed(1)} ms | ${r.analyticsMs.toFixed(1)} ms | ${r.managersMs.toFixed(1)} ms | ${r.bottlenecksMs.toFixed(1)} ms | ${r.samplesMs.toFixed(1)} ms | ${r.managementMs.toFixed(1)} ms | ${excelStr} | ${r.totalTimeMs.toFixed(1)} ms | +${r.heapDeltaMb.toFixed(1)} MB |`
     );
   }
   console.log("====================================================================================\n");
@@ -241,9 +267,9 @@ describe("Commercial Funnel Scale Benchmark Matrix", () => {
       const res = await executeProfileBenchmark("Profile S", 1000, 3000, true);
 
       const analyticalComputeMs =
-        res.dealNormMs + res.compNormMs + res.analyticsMs + res.managersMs + res.bottlenecksMs + res.samplesMs;
+        res.dealNormMs + res.compNormMs + res.analyticsMs + res.managersMs + res.bottlenecksMs + res.samplesMs + res.managementMs;
 
-      // Invariant: Analytical pipeline must complete in < 500 ms
+      // Invariant: Analytical pipeline (incl. Management Rebuild path) must complete in < 500 ms
       expect(analyticalComputeMs).toBeLessThan(500);
 
       // Invariant: Total time including Excel must complete in < 3,000 ms
@@ -259,7 +285,7 @@ describe("Commercial Funnel Scale Benchmark Matrix", () => {
       const res = await executeProfileBenchmark("Profile M", 5000, 15000, true);
 
       const analyticalComputeMs =
-        res.dealNormMs + res.compNormMs + res.analyticsMs + res.managersMs + res.bottlenecksMs + res.samplesMs;
+        res.dealNormMs + res.compNormMs + res.analyticsMs + res.managersMs + res.bottlenecksMs + res.samplesMs + res.managementMs;
 
       // Invariant: Analytical pipeline completes without OOM and under 2,500 ms
       expect(analyticalComputeMs).toBeLessThan(2500);
@@ -275,7 +301,7 @@ describe("Commercial Funnel Scale Benchmark Matrix", () => {
       const res = await executeProfileBenchmark("Profile L", 10000, 50000, false);
 
       const analyticalComputeMs =
-        res.dealNormMs + res.compNormMs + res.analyticsMs + res.managersMs + res.bottlenecksMs + res.samplesMs;
+        res.dealNormMs + res.compNormMs + res.analyticsMs + res.managersMs + res.bottlenecksMs + res.samplesMs + res.managementMs;
 
       // Invariant: Upper stress boundary completes analytical pipeline without crashing
       expect(analyticalComputeMs).toBeLessThan(6000);

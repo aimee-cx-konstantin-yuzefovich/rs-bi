@@ -537,7 +537,15 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     expect(c5Row!.getCell(11).value).toBe("Deal 108 - Active Testing Cycle");
     const sampleDateVal = c5Row!.getCell(7).value;
     expect(sampleDateVal).toBeInstanceOf(Date);
-    expect((sampleDateVal as Date).toISOString()).toContain("2026-02-22");
+    // HD contract: Excel dates are normalized to the business-timezone
+    // (Europe/Moscow) calendar date — 2026-02-22 00:00 MSK.
+    const mskDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(sampleDateVal as Date);
+    expect(mskDate).toBe("2026-02-22");
 
     // 3. Action Plan sheet inspection
     const apSheet = reloaded.getWorksheet("Action Plan")!;

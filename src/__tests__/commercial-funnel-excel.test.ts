@@ -167,10 +167,18 @@ describe("Commercial Funnel — Excel Export (6-sheet management workbook)", () 
       const title = String(row.getCell(2).value || "");
       if (title === "Компания Старое Испытание") {
         foundOldActiveRow = true;
-        // Col 7: shipment date must be a native Date with dd.mm.yyyy
+        // Col 7: shipment date must be a native Date with dd.mm.yyyy.
+        // HD contract: the Date carries the Europe/Moscow calendar date
+        // (2026-07-01 00:00 MSK), independent of host timezone.
         const shipmentCell = row.getCell(7);
         expect(shipmentCell.value).toBeInstanceOf(Date);
-        expect((shipmentCell.value as Date).getMonth()).toBe(6); // July
+        const mskParts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Europe/Moscow",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(shipmentCell.value as Date);
+        expect(mskParts).toBe("2026-07-01");
         expect(shipmentCell.numFmt).toBe("dd.mm.yyyy");
       }
     });

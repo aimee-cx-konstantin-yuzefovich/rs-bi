@@ -508,7 +508,7 @@ describe("Q16–Q19: effective segment provenance", () => {
       deals: [
         deal({
           id: "pd1",
-          industry: "B",
+          industry: ["B"],
           direction: ["Y"],
           productType: ["Gel"],
         }),
@@ -754,8 +754,7 @@ describe("Q29: business-timezone Excel date integrity around midnight", () => {
       if (cell.value instanceof Date) found = cell.value;
     }
     expect(found).toBeDefined();
-    // 2026-09-20 00:00 MSK == 2026-09-19 21:00 UTC — the Excel Date must
-    // render as Sep 20 in the business timezone, not shift a day.
+    // The Excel Date must render as Sep 20 in the business timezone.
     const msk = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Europe/Moscow",
       year: "numeric",
@@ -763,6 +762,47 @@ describe("Q29: business-timezone Excel date integrity around midnight", () => {
       day: "2-digit",
     }).format(found!);
     expect(msk).toBe("2026-09-20");
+  });
+
+  it("Q29b: UTC late-evening datetime displays the MSK calendar date (no day shift)", async () => {
+    // 2026-09-24 22:30 UTC == 2026-09-25 01:30 MSK → Excel cell must be Sep 25 in MSK
+    const c = company({
+      id: "1",
+      title: "Компания UTC",
+      sampleStatus: "На испытании",
+      sampleStatusSource: "DEAL",
+      sampleResponsibleDealId: "d1",
+      // explicit-offset late-evening UTC datetime as the sample shipment value
+      sampleShipmentDate: "2026-09-24T22:30:00Z",
+      deals: [
+        deal({
+          id: "d1",
+          sampleTransferStatus: "На испытании",
+          sampleSentDate: "2026-09-24T22:30:00Z",
+        }),
+      ],
+    });
+    const wb = await createCommercialFunnelWorkbook({
+      companies: [c],
+      deals: c.deals,
+      filters: { periodPreset: "30days" },
+      userNames: {},
+      now: FIXED_NOW,
+    });
+    const st = wb.worksheets.find((s) => s.name === "Sample Testing")!;
+    let found: Date | undefined;
+    for (let r = 1; r <= st.rowCount; r++) {
+      const cell = st.getRow(r).getCell(7); // Дата отправки
+      if (cell.value instanceof Date) found = cell.value;
+    }
+    expect(found).toBeDefined();
+    const msk = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(found!);
+    expect(msk).toBe("2026-09-25"); // MSK calendar date, not UTC Sep 24
   });
 });
 

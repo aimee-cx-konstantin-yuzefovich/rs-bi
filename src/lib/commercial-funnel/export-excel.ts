@@ -28,6 +28,8 @@ import {
 } from "./analytics";
 import {
   computePeriodBoundaries,
+  createZonedDate,
+  getZonedCalendarParts,
   isDateInPeriod,
   safeDeltaPercent,
 } from "./date-utils";
@@ -77,9 +79,19 @@ import {
 /**
  * Convert ISO date or datetime string to native Date object for Excel.
  * Returns null if missing or invalid, ensuring empty cells stay blank.
+ *
+ * Business-timezone integrity (HD contract): the Date is normalized to the
+ * calendar date it represents in Europe/Moscow (00:00:00 MSK), so a UTC
+ * late-evening datetime (e.g. 22:30Z = next day 01:30 MSK) displays the
+ * MSK calendar date, not the UTC one. Date-only strings are already parsed
+ * as 00:00 UTC by parseStrictDate; MSK normalization keeps them on the same
+ * intended business date (00:00 UTC = 03:00 MSK, same calendar day).
  */
 function toExcelDate(dateStr?: string | null): Date | null {
-  return parseStrictDate(dateStr);
+  const parsed = parseStrictDate(dateStr);
+  if (!parsed) return null;
+  const p = getZonedCalendarParts(parsed, COMMERCIAL_TIMEZONE);
+  return createZonedDate(p.year, p.monthIndex, p.day, 0, 0, 0, 0, COMMERCIAL_TIMEZONE);
 }
 function sanitizeExcelValue(val: any): any {
   if (typeof val === "string" && /^[=\-+\@]/.test(val)) {

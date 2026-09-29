@@ -250,6 +250,14 @@ describe("Ingress-to-Domain End-to-End Pipeline Fixture", () => {
     expect(sampleRow!.getCell(8).value).toBe("Образцы отправлены");
     const shipmentCellVal = sampleRow!.getCell(7).value;
     expect(shipmentCellVal).toBeInstanceOf(Date);
-    expect((shipmentCellVal as Date).toISOString()).toContain("2026-02-22");
+    // HD contract: Excel dates carry the business-timezone (Europe/Moscow)
+    // calendar date — 2026-02-22 00:00 MSK.
+    const mskDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(shipmentCellVal as Date);
+    expect(mskDate).toBe("2026-02-22");
   });
 });
