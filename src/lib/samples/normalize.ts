@@ -18,6 +18,46 @@ import {
   SENT_INDICATOR_KEYWORDS,
 } from "./constants";
 
+/** Checks if a value is absent or a Bitrix REST API sentinel (false, "false", "true", "null", "undefined", ""). */
+export function isSentinelValue(v: unknown): boolean {
+  if (v === null || v === undefined || v === false || v === true) return true;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "" || s === "false" || s === "true" || s === "null" || s === "undefined";
+  }
+  return false;
+}
+
+const GEOGRAPHIC_PATTERNS = [
+  /росси/i,
+  /москв/i,
+  /петербург/i,
+  /спб/i,
+  /рф/i,
+  /снг/i,
+  /беларус/i,
+  /казахстан/i,
+  /федеральн.*округ/i,
+  /(?:^|\s)(?:цфо|сзфо|юфо|скфо|пфо|уфо|сфо|дфо)(?:$|\s)/i,
+  /приволж/i,
+  /центральн.*округ/i,
+  /сибирск/i,
+  /уральск/i,
+  /северо-запад/i,
+  /северо-кавказ/i,
+  /дальневосточ/i,
+  /южн.*округ/i,
+  /область/i,
+  /край/i,
+  /республик/i,
+];
+
+/** Returns true if string represents a region or geographic entity rather than an industrial application. */
+export function isGeographicValue(val: string): boolean {
+  const trimmed = val.trim();
+  return GEOGRAPHIC_PATTERNS.some((pat) => pat.test(trimmed));
+}
+
 /** Identity resolver — used when field metadata is unavailable. */
 export const identityLabelResolver: LabelResolver = (_fieldId, rawValue) =>
   rawValue;
@@ -25,33 +65,34 @@ export const identityLabelResolver: LabelResolver = (_fieldId, rawValue) =>
 /**
  * Coerces a raw Bitrix value into a string label via the resolver.
  * Arrays: every element resolved and preserved (order kept).
- * Numbers/booleans → string. null/undefined/"" → undefined.
+ * Sentinels (false, "false", "true", "null", "undefined") → undefined.
  */
 export function resolveValue(
   fieldId: string,
   raw: BitrixFieldValue,
   resolve: LabelResolver
 ): string[] | undefined {
-  if (raw === null || raw === undefined || raw === "") return undefined;
+  if (isSentinelValue(raw)) return undefined;
   if (Array.isArray(raw)) {
     const labels = raw
+      .filter((item) => !isSentinelValue(item))
       .map((item) => String(item).trim())
-      .filter((item) => item !== "")
-      .map((item) => resolve(fieldId, item));
+      .map((item) => resolve(fieldId, item))
+      .filter((item) => !isSentinelValue(item));
     return labels.length > 0 ? labels : undefined;
   }
   const label = resolve(fieldId, String(raw).trim());
-  return label !== "" ? [label] : undefined;
+  return !isSentinelValue(label) ? [label] : undefined;
 }
 
-/** Deduplicates strings, preserving first-seen order, trimming empties. */
+/** Deduplicates strings, preserving first-seen order, trimming empties and sentinels. */
 export function dedupe(values: Array<string | undefined>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const value of values) {
-    if (!value) continue;
+    if (!value || isSentinelValue(value)) continue;
     const trimmed = value.trim();
-    if (!trimmed) continue;
+    if (!trimmed || isSentinelValue(trimmed)) continue;
     const key = trimmed.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -65,13 +106,14 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
 /**
  * Extracts valid dates (ISO YYYY-MM-DD prefix) from a raw Bitrix value.
  * Bitrix multiple-date fields arrive as arrays; single dates as strings.
- * Invalid garbage is skipped (never invented into a fake date).
+ * Invalid garbage and sentinels are skipped (never invented into a fake date).
  */
 export function extractDates(raw: BitrixFieldValue): string[] {
-  if (raw === null || raw === undefined || raw === "") return [];
+  if (isSentinelValue(raw)) return [];
   const parts = Array.isArray(raw) ? raw : [raw];
   const out: string[] = [];
   for (const part of parts) {
+    if (isSentinelValue(part)) continue;
     const str = String(part).trim();
     if (!ISO_DATE_RE.test(str)) continue;
     // Take the date part; datetime suffixes are legal but irrelevant here.
@@ -89,12 +131,14 @@ export function extractDates(raw: BitrixFieldValue): string[] {
 export function parseQuantity(
   raw: BitrixFieldValue
 ): number | string | undefined {
-  if (raw === null || raw === undefined || raw === "") return undefined;
+  if (isSentinelValue(raw)) return undefined;
   if (Array.isArray(raw)) {
-    return raw.length === 1 ? parseQuantity(raw[0]) : raw.map(String).join("; ");
+    const valid = raw.filter((item) => !isSentinelValue(item));
+    if (valid.length === 0) return undefined;
+    return valid.length === 1 ? parseQuantity(valid[0]) : valid.map(String).join("; ");
   }
   const str = String(raw).trim();
-  if (str === "") return undefined;
+  if (str === "" || isSentinelValue(str)) return undefined;
   const num = Number(str.replace(",", "."));
   return Number.isFinite(num) && str !== "" ? num : str;
 }

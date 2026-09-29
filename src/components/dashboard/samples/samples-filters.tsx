@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { X } from "lucide-react";
 import type { NormalizedResult, SampleSummary } from "@/lib/samples/types";
-import { NORMALIZED_RESULT_LABELS, SOURCE_QUALITY_LABELS } from "@/lib/samples/constants";
+import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import { parseStrictDate, BUSINESS_TIMEZONE } from "@/lib/scalar-safety";
 
 export type SamplesPeriodPreset =
@@ -39,7 +39,6 @@ export interface SamplesFilters {
   status: string; // "all" | observed indicator/status label
   result: string; // "all" | NormalizedResult
   hasDeals: string; // "all" | "yes" | "no"
-  quality: string; // "all" | SampleQuality
 }
 
 export const DEFAULT_SAMPLES_FILTERS: SamplesFilters = {
@@ -53,7 +52,6 @@ export const DEFAULT_SAMPLES_FILTERS: SamplesFilters = {
   status: "all",
   result: "all",
   hasDeals: "all",
-  quality: "all",
 };
 
 const PERIOD_OPTIONS: Array<{ value: SamplesPeriodPreset; label: string }> = [
@@ -306,19 +304,6 @@ export function SamplesFilterBar({
           { value: "all", label: "Сделки: любые" },
           { value: "yes", label: "Есть связанные сделки" },
           { value: "no", label: "Без связанных сделок" },
-        ]}
-      />
-
-      <SelectFilter
-        value={filters.quality}
-        onChange={(v) => set({ quality: v })}
-        placeholder="Качество данных"
-        options={[
-          { value: "all", label: "Любое качество" },
-          ...(["structured", "partial", "legacy", "ambiguous"] as const).map((q) => ({
-            value: q,
-            label: SOURCE_QUALITY_LABELS[q] ?? q,
-          })),
         ]}
       />
 

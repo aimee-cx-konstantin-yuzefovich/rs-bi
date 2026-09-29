@@ -349,7 +349,7 @@ export function DataTable() {
                       return (
                         <th 
                           key={colId} 
-                          className="text-left sticky top-0 z-20 group bg-card border-b border-border relative py-2 px-2"
+                          className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2"
                           style={{ 
                             width: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,
                             minWidth: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,

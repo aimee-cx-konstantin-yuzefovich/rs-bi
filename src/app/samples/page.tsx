@@ -11,7 +11,8 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { SectionNav } from "@/components/dashboard/section-nav";
 import { ProductFooter } from "@/components/dashboard/footer";
 import { CompanyPreview } from "@/components/dashboard/company-preview";
@@ -27,6 +28,9 @@ import {
 import { SamplesRegistry } from "@/components/dashboard/samples/samples-registry";
 import { SamplePreview } from "@/components/dashboard/samples/sample-preview";
 import { computeSampleKpis } from "@/lib/samples/aggregate";
+import { exportSamplesToExcel } from "@/lib/export-utils";
+import { isSentinelValue } from "@/lib/samples/normalize";
+import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
 import { isCompanyId } from "@/lib/company-preview";
 import { isDealId } from "@/lib/deal-preview";
 import type { SampleSummary } from "@/lib/samples/types";
@@ -34,7 +38,7 @@ import type { SampleSummary } from "@/lib/samples/types";
 function SamplesContent() {
   const { data: session, status } = useSession();
   const rawSearchParams = useSearchParams();
-  const { userNames, fetchUserNames, isDemoMode, checkConfig } =
+  const { userNames, fetchUserNames, usersCoverage, isDemoMode, checkConfig } =
     useDashboardStore();
 
   const { samples, meta, orphanDealCount, loading, error, reload } =
@@ -72,14 +76,14 @@ function SamplesContent() {
       if (s.responsibleId) {
         entries.set(
           s.responsibleId,
-          s.responsibleName ?? userNames[s.responsibleId] ?? s.responsibleId
+          resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
         );
       }
     }
     return Array.from(entries.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label, "ru"));
-  }, [samples, userNames]);
+  }, [samples, userNames, usersCoverage]);
 
   const productFamilyOptions = useMemo(
     () =>
@@ -118,16 +122,14 @@ function SamplesContent() {
   const statusOptions = useMemo(() => {
     const observed = new Set<string>();
     for (const s of samples) {
-      for (const v of [...s.sampleIndicators, ...s.processStatuses]) observed.add(v);
-    }
-    // Known labels from server metadata enrich the observed union.
-    for (const fieldLabels of Object.values(meta?.statusLabels ?? {})) {
-      for (const label of Object.values(fieldLabels)) {
-        if (label && observed.size < 60) observed.add(label);
+      for (const v of [...s.sampleIndicators, ...s.processStatuses]) {
+        if (v && !isSentinelValue(v)) {
+          observed.add(v.trim());
+        }
       }
     }
     return Array.from(observed).sort((a, b) => a.localeCompare(b, "ru"));
-  }, [samples, meta]);
+  }, [samples]);
 
   const filtered = useMemo(() => {
     const query = companyPreselect
@@ -170,8 +172,6 @@ function SamplesContent() {
         return false;
       if (filters.hasDeals === "yes" && s.relatedDeals.length === 0) return false;
       if (filters.hasDeals === "no" && s.relatedDeals.length > 0) return false;
-      if (filters.quality !== "all" && s.sourceQuality !== filters.quality)
-        return false;
       return true;
     });
   }, [samples, filters, companyPreselect]);
@@ -202,9 +202,28 @@ function SamplesContent() {
             </div>
           </div>
 
-          <span className="hidden md:inline text-xs font-normal text-white/40">
-            Образцы · аналитика испытаний
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="hidden md:inline text-xs font-normal text-white/40">
+              Образцы · аналитика испытаний
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                exportSamplesToExcel({
+                  summaries: filtered,
+                  userNames,
+                  usersCoverage,
+                })
+              }
+              disabled={filtered.length === 0}
+              className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/30"
+              title="Выгрузить реестр в Excel"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Выгрузить Excel</span>
+            </Button>
+          </div>
         </div>
       </header>
 

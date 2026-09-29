@@ -13,11 +13,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  NORMALIZED_RESULT_LABELS,
-  SOURCE_QUALITY_LABELS,
-} from "@/lib/samples/constants";
+import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { NormalizedResult, SampleSummary } from "@/lib/samples/types";
+import { useDashboardStore } from "@/store/dashboard-store";
+import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
 
 const RESULT_BADGE_CLASS: Record<NormalizedResult, string> = {
   positive: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
@@ -26,13 +25,6 @@ const RESULT_BADGE_CLASS: Record<NormalizedResult, string> = {
   pending: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
   mixed: "bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
   unknown: "bg-muted text-muted-foreground",
-};
-
-const QUALITY_BADGE_CLASS: Record<string, string> = {
-  structured: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
-  partial: "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300",
-  legacy: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  ambiguous: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
 };
 
 export function formatDateRu(iso: string): string {
@@ -83,6 +75,9 @@ export function SamplesRegistry({
   summaries: SampleSummary[];
   onSelect: (summary: SampleSummary) => void;
 }) {
+  const userNames = useDashboardStore((s) => s.userNames);
+  const usersCoverage = useDashboardStore((s) => s.usersCoverage);
+
   if (summaries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -101,6 +96,7 @@ export function SamplesRegistry({
       <Table containerClassName="max-h-[calc(100vh-320px)] min-h-[420px] overflow-auto">
         <TableHeader>
           <TableRow>
+            <TableHead className="text-xs w-10 min-w-[40px] text-center">№</TableHead>
             <TableHead className="text-xs min-w-[200px]">Компания</TableHead>
             <TableHead className="text-xs">Ответственный</TableHead>
             <TableHead className="text-xs min-w-[160px]">Отрасль / применение</TableHead>
@@ -111,17 +107,19 @@ export function SamplesRegistry({
             <TableHead className="text-xs min-w-[140px]">Статус</TableHead>
             <TableHead className="text-xs">Результат</TableHead>
             <TableHead className="text-xs">Сделки</TableHead>
-            <TableHead className="text-xs">Качество данных</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {summaries.map((s) => (
+          {summaries.map((s, idx) => (
             <TableRow
               key={s.companyId}
               data-company-id={s.companyId}
               className="cursor-pointer"
               onClick={() => onSelect(s)}
             >
+              <TableCell className="text-xs font-mono tabular-nums text-muted-foreground text-center">
+                {idx + 1}
+              </TableCell>
               <TableCell className="text-sm font-medium">
                 <span className="block max-w-[260px] truncate" title={s.companyTitle}>
                   {s.companyTitle}
@@ -136,7 +134,9 @@ export function SamplesRegistry({
                 )}
               </TableCell>
               <TableCell className="text-xs text-muted-foreground">
-                {s.responsibleName ?? s.responsibleId ?? "—"}
+                {s.responsibleId
+                  ? resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
+                  : s.responsibleName ?? "—"}
               </TableCell>
               <TableCell className="text-xs text-muted-foreground">
                 <span className="block max-w-[180px] truncate">
@@ -191,13 +191,6 @@ export function SamplesRegistry({
                 ) : (
                   <span className="text-muted-foreground">—</span>
                 )}
-              </TableCell>
-              <TableCell>
-                <Badge
-                  className={`text-[10px] px-1.5 py-0 font-normal ${QUALITY_BADGE_CLASS[s.sourceQuality] ?? ""}`}
-                >
-                  {SOURCE_QUALITY_LABELS[s.sourceQuality] ?? s.sourceQuality}
-                </Badge>
               </TableCell>
             </TableRow>
           ))}

@@ -19,8 +19,10 @@ export const WARNING_USERS_PARTIAL =
   "ВНИМАНИЕ: справочник сотрудников загружен частично. Некоторые ФИО ответственных могут быть недоступны.";
 export const WARNING_ACTIVITIES_PARTIAL =
   "ВНИМАНИЕ: данные активностей загружены частично. Поля \"Последнее дело\" / \"Следующий шаг\" могут быть неполными.";
+export const WARNING_COMPANIES_PARTIAL_FALLBACK =
+  "Не удалось получить данные части компаний из CRM.";
 export const WARNING_COMPANIES_PARTIAL =
-  "ВНИМАНИЕ: данные компаний загружены частично. Некоторые поля компаний не были получены из CRM.";
+  `ВНИМАНИЕ: данные компаний загружены частично. ${WARNING_COMPANIES_PARTIAL_FALLBACK}`;
 export const WARNING_FIELDS_PARTIAL =
   "ВНИМАНИЕ: метаданные CRM загружены частично. Типы/подписи части пользовательских полей могут быть недоступны.";
 
@@ -101,7 +103,15 @@ export function buildEnrichmentExtraWarnings(
     warnings.push(WARNING_ACTIVITIES_PARTIAL);
   }
   if (selectedColumnsNeedCompanies(selectedColumns) && isIncomplete(input.companiesDataCoverage)) {
-    warnings.push(WARNING_COMPANIES_PARTIAL);
+    const cov = input.companiesDataCoverage;
+    if (cov && typeof cov.total === "number" && typeof cov.fetched === "number") {
+      const unresolved = Math.max(0, cov.total - cov.fetched);
+      warnings.push(
+        `ВНИМАНИЕ: данные компаний загружены частично. Не удалось получить данные ${unresolved} из ${cov.total} компаний из CRM.`
+      );
+    } else {
+      warnings.push(WARNING_COMPANIES_PARTIAL);
+    }
   }
   if (
     selectedColumnsNeedFieldMetadata(selectedColumns, fields) &&
@@ -120,5 +130,12 @@ export function buildEnrichmentExtraWarnings(
 export function buildEnrichmentUiWarnings(
   input: EnrichmentWarningsInput
 ): string[] {
-  return buildEnrichmentExtraWarnings(input).map((w) => w.replace("ВНИМАНИЕ: ", ""));
+  return buildEnrichmentExtraWarnings(input).map((w) => {
+    const companyMatch = w.match(/Не удалось получить данные (.*)$/);
+    if (companyMatch) {
+      return `Не удалось получить данные ${companyMatch[1]}`;
+    }
+    const stripped = w.replace(/^ВНИМАНИЕ:\s*/, "");
+    return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+  });
 }

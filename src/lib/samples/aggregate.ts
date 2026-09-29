@@ -50,6 +50,7 @@ import {
   dedupe,
   extractDates,
   identityLabelResolver,
+  isGeographicValue,
   isSentIndicator,
   isTestingStatus,
   normalizeResult,
@@ -208,13 +209,24 @@ function buildCompanyParts(
   const industryRaw = resolveValue("INDUSTRY", row["INDUSTRY"], resolve);
   const industry = industryRaw?.[0];
 
-  const appNew = rowString(row, COMPANY_APPLICATION_NEW_FIELD_ID);
-  const appOld = rowString(row, COMPANY_APPLICATION_OLD_FIELD_ID);
+  const appNewResolved = resolveValue(
+    COMPANY_APPLICATION_NEW_FIELD_ID,
+    row[COMPANY_APPLICATION_NEW_FIELD_ID],
+    resolve
+  )?.filter((a) => !isGeographicValue(a));
+  const appOldResolved = resolveValue(
+    COMPANY_APPLICATION_OLD_FIELD_ID,
+    row[COMPANY_APPLICATION_OLD_FIELD_ID],
+    resolve
+  )?.filter((a) => !isGeographicValue(a));
+  const appNew = appNewResolved && appNewResolved.length > 0 ? appNewResolved.join(", ") : undefined;
+  const appOld = appOldResolved && appOldResolved.length > 0 ? appOldResolved.join(", ") : undefined;
   let application = appNew ?? appOld;
   if (appNew && appOld && appNew !== appOld) {
     issues.push("application_fields_differ");
   }
-  const directions = resolveValue(COMPANY_DIRECTION_FIELD_ID, row[COMPANY_DIRECTION_FIELD_ID], resolve) ?? [];
+  const directions = (resolveValue(COMPANY_DIRECTION_FIELD_ID, row[COMPANY_DIRECTION_FIELD_ID], resolve) ?? [])
+    .filter((d) => !isGeographicValue(d));
   if (!application && directions.length > 0) {
     application = directions.join(", ");
   }

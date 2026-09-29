@@ -69,7 +69,7 @@ describe('Companies API & Partial Failure Semantics', () => {
     expect(data.partial).toBe(true);
     expect(data.fetchedCompanyIds).toEqual(['10']);
     expect(data.unresolvedCompanyIds).toEqual(['20']);
-    expect(data.warning).toContain('Не удалось загрузить данные для 1 компаний');
+    expect(data.warning).toContain('Не удалось загрузить данные для 1 из 2 компаний');
     expect(data.companies['10'].TITLE).toBe('ООО Ромашка');
     expect(data.companies['20'].TITLE).toBe('');
   });

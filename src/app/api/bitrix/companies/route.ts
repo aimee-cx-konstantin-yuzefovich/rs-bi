@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       partial: isPartial,
-      warning: isPartial ? `Не удалось загрузить данные для ${stillUnresolved.length} компаний.` : undefined,
+      warning: isPartial ? `Не удалось загрузить данные для ${stillUnresolved.length} из ${ids.length} компаний.` : undefined,
       companies: companiesMap,
       fetchedCompanyIds,
       unresolvedCompanyIds: stillUnresolved,
