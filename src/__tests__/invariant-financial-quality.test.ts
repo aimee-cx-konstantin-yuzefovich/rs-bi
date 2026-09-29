@@ -523,12 +523,12 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       expect(kpiRow!.getCell(2).value).toBe("Ошибка данных");
       expect(kpiRow!.getCell(2).value).not.toBe(0);
 
-      // Verify Managers Sheet (single currency -> col 10)
+      // Verify Managers Sheet (single currency -> col 13 after portfolio group)
       const managersSheet = reloaded.getWorksheet("Managers")!;
       const m1Row = findRowByLabel(managersSheet, "Manager 1");
       expect(m1Row).toBeDefined();
-      expect(m1Row!.getCell(10).value).toBe("Ошибка данных");
-      expect(m1Row!.getCell(10).value).not.toBe(0);
+      expect(m1Row!.getCell(13).value).toBe("Ошибка данных");
+      expect(m1Row!.getCell(13).value).not.toBe(0);
     });
 
     it("FQ-4: unknown-only EUR only preserves quality and does NOT collapse to numeric zero", async () => {
@@ -601,12 +601,12 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       expect(kpiRow!.getCell(2).value).toBe("Нет данных");
       expect(kpiRow!.getCell(2).value).not.toBe(0);
 
-      // Verify Managers Sheet (single currency -> col 10)
+      // Verify Managers Sheet (single currency -> col 13 after portfolio group)
       const managersSheet = reloaded.getWorksheet("Managers")!;
       const m1Row = findRowByLabel(managersSheet, "Manager 1");
       expect(m1Row).toBeDefined();
-      expect(m1Row!.getCell(10).value).toBe("Нет данных");
-      expect(m1Row!.getCell(10).value).not.toBe(0);
+      expect(m1Row!.getCell(13).value).toBe("Нет данных");
+      expect(m1Row!.getCell(13).value).not.toBe(0);
     });
 
     it("FQ-5: valid RUB 0 proves genuine zero remains numeric 0 across engine, UI, and Excel", async () => {
@@ -679,7 +679,7 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       const managersSheet = reloaded.getWorksheet("Managers")!;
       const m1Row = findRowByLabel(managersSheet, "Manager 1");
       expect(m1Row).toBeDefined();
-      expect(m1Row!.getCell(10).value).toBe(0);
+      expect(m1Row!.getCell(13).value).toBe(0);
       expect(typeof m1Row!.getCell(10).value).toBe("number");
     });
   });

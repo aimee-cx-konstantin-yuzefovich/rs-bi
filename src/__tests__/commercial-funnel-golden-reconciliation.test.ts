@@ -354,7 +354,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     expect(scorecard).toHaveLength(3);
   });
 
-  it("TC-GOLDEN-05: generates 5-sheet RusSilica Management Excel workbook cleanly", async () => {
+  it("TC-GOLDEN-05: generates 6-sheet RusSilica Management Excel workbook cleanly", async () => {
     const deals = normalizeDeals(goldenRawDeals, { userNames });
     const companies = normalizeCompanies(goldenRawCompanies, deals, {
       userNames,
@@ -370,12 +370,15 @@ describe("Commercial Funnel Golden Reconciliation", () => {
       now: fixedNow,
     });
 
-    // Check all 5 required management sheets
-    expect(workbook.getWorksheet("Executive Summary")).toBeDefined();
-    expect(workbook.getWorksheet("Companies")).toBeDefined();
-    expect(workbook.getWorksheet("Samples")).toBeDefined();
-    expect(workbook.getWorksheet("Managers")).toBeDefined();
-    expect(workbook.getWorksheet("Bottlenecks")).toBeDefined();
+    // Check all 6 required management sheets in order
+    expect(workbook.worksheets.map((s) => s.name)).toEqual([
+      "Executive Summary",
+      "Funnel",
+      "Segments",
+      "Sample Testing",
+      "Managers",
+      "Action Plan",
+    ]);
 
     // Verify sheet data rows can be rendered and write to buffer without errors
     const buffer = await workbook.xlsx.writeBuffer();
@@ -490,81 +493,55 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     const reloaded = new ExcelJS.Workbook();
     await reloaded.xlsx.load(buffer);
 
-    // 1. Assert all 5 worksheets exist
-    expect(reloaded.getWorksheet("Executive Summary")).toBeDefined();
-    expect(reloaded.getWorksheet("Companies")).toBeDefined();
-    expect(reloaded.getWorksheet("Samples")).toBeDefined();
-    expect(reloaded.getWorksheet("Managers")).toBeDefined();
-    expect(reloaded.getWorksheet("Bottlenecks")).toBeDefined();
+    // 1. Assert all 6 worksheets exist in order
+    expect(reloaded.worksheets.map((s) => s.name)).toEqual([
+      "Executive Summary",
+      "Funnel",
+      "Segments",
+      "Sample Testing",
+      "Managers",
+      "Action Plan",
+    ]);
 
-    // 2. Companies sheet inspection
-    const compSheet = reloaded.getWorksheet("Companies")!;
-    let headerRowNum = -1;
-    compSheet.eachRow((row, rowNumber) => {
-      if (row.getCell(1).value === "ID компании") {
-        headerRowNum = rowNumber;
+    // 2. Sample Testing sheet inspection (management snapshot with native dates)
+    const stSheet = reloaded.getWorksheet("Sample Testing")!;
+    let stHeaderRowNum = -1;
+    stSheet.eachRow((row, rowNumber) => {
+      if (row.getCell(2).value === "Компания") {
+        stHeaderRowNum = rowNumber;
       }
     });
-    expect(headerRowNum).toBeGreaterThan(0);
+    expect(stHeaderRowNum).toBeGreaterThan(0);
 
-    const headerRow = compSheet.getRow(headerRowNum);
-    expect(headerRow.getCell(1).value).toBe("ID компании");
-    expect(headerRow.getCell(2).value).toBe("Название компании");
-    expect(headerRow.getCell(8).value).toBe("Статус образцов");
-    expect(headerRow.getCell(10).value).toBe("Дата передачи / отправки");
-    expect(headerRow.getCell(14).value).toBe("Сумма");
+    const stHeaderRow = stSheet.getRow(stHeaderRowNum);
+    expect(stHeaderRow.getCell(2).value).toBe("Компания");
+    expect(stHeaderRow.getCell(7).value).toBe("Дата отправки");
+    expect(stHeaderRow.getCell(8).value).toBe("Статус испытаний");
 
-    let c1Row: ExcelJS.Row | undefined;
-    let c4Row: ExcelJS.Row | undefined;
+    // C5 (Epsilon Samples Group): authoritative sample cycle and date cell.
+    // Snapshot emits one row per sample deal; deal 108 carries the authoritative
+    // current cycle (status "Тестирование успешно", sent 2026-02-22).
     let c5Row: ExcelJS.Row | undefined;
-    let c7Row: ExcelJS.Row | undefined;
-    let c8Row: ExcelJS.Row | undefined;
-
-    compSheet.eachRow((row, rowNumber) => {
-      if (rowNumber <= headerRowNum) return;
-      const idVal = row.getCell(1).value;
-      if (idVal === "C1") c1Row = row;
-      if (idVal === "C4") c4Row = row;
-      if (idVal === "C5") c5Row = row;
-      if (idVal === "C7") c7Row = row;
-      if (idVal === "C8") c8Row = row;
+    stSheet.eachRow((row, rowNumber) => {
+      if (rowNumber <= stHeaderRowNum) return;
+      if (row.getCell(2).value === "Epsilon Samples Group" && row.getCell(12).value === "Deal 108 - Active Testing Cycle") {
+        c5Row = row;
+      }
     });
-
-    // C1: valid opportunity 200,000 (number)
-    expect(c1Row).toBeDefined();
-    expect(c1Row!.getCell(14).value).toBe(200000);
-
-    // C4: invalid amount must be exact text "Неверная сумма", NOT 0, NOT "0 ₽", NOT blank
-    expect(c4Row).toBeDefined();
-    expect(c4Row!.getCell(2).value).toBe("Delta Testing Corp");
-    expect(c4Row!.getCell(14).value).toBe("Неверная сумма");
-
-    // C7: real zero must be number 0
-    expect(c7Row).toBeDefined();
-    expect(c7Row!.getCell(2).value).toBe("Omega Zero Corp");
-    expect(c7Row!.getCell(14).value).toBe(0);
-
-    // C8: blank opportunity is "—"
-    expect(c8Row).toBeDefined();
-    expect(c8Row!.getCell(14).value).toBe("—");
-
-    // C5: authoritative sample cycle and date cell
     expect(c5Row).toBeDefined();
-    expect(c5Row!.getCell(2).value).toBe("Epsilon Samples Group");
-    expect(c5Row!.getCell(8).value).toBe("Тестирование успешно, Передано на склад, Образец запрошен");
-    expect(c5Row!.getCell(9).value).toBe("DEAL");
-    const sampleDateVal = c5Row!.getCell(10).value;
+    expect(c5Row!.getCell(8).value).toBe("Тестирование успешно");
+    const sampleDateVal = c5Row!.getCell(7).value;
     expect(sampleDateVal).toBeInstanceOf(Date);
     expect((sampleDateVal as Date).toISOString()).toContain("2026-02-22");
 
-    // 3. Bottlenecks sheet inspection
-    const botSheet = reloaded.getWorksheet("Bottlenecks")!;
-    let botHeaderRow = -1;
-    botSheet.eachRow((row, rowNumber) => {
+    // 3. Action Plan sheet inspection
+    const apSheet = reloaded.getWorksheet("Action Plan")!;
+    let apHeaderRow = -1;
+    apSheet.eachRow((row, rowNumber) => {
       if (row.getCell(1).value === "Компания") {
-        botHeaderRow = rowNumber;
+        apHeaderRow = rowNumber;
       }
     });
-    expect(botHeaderRow).toBeGreaterThan(0);
+    expect(apHeaderRow).toBeGreaterThan(0);
   });
 });
