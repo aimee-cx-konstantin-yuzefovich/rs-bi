@@ -197,9 +197,9 @@ describe("Samples UI Remediation (SMP-UI-1 .. SMP-UI-7)", () => {
   it("SMP-UI-7: Excel export button exists", () => {
     render(<SamplesPage />);
 
-    const exportBtn = screen.getByRole("button", { name: /Выгрузить Excel/i });
+    const exportBtn = screen.getByRole("button", { name: /Экспорт/i });
     expect(exportBtn).toBeDefined();
-    expect(exportBtn.textContent).toContain("Выгрузить Excel");
+    expect(exportBtn.textContent).toContain("Экспорт");
   });
 
   it("SMP-UI-RESP: Responsible person renders employee name or incomplete notice, never raw ID in registry and popup", () => {
