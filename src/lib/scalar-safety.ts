@@ -71,7 +71,7 @@ export function parseStrictDate(
   if (typeof dateStr !== "string") return null;
 
   const str = dateStr.trim();
-  if (!str || str === "—") return null;
+  if (!str || str === "—" || str === "–") return null;
 
   const mode = typeof options === "string" ? options : options?.mode || "AUTO";
   const timeZone = typeof options === "object" ? options?.timeZone || BUSINESS_TIMEZONE : BUSINESS_TIMEZONE;
@@ -206,7 +206,7 @@ export function parseStrictNumber(value: unknown): number | undefined {
   }
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
-  if (!trimmed || trimmed === "—") return undefined;
+  if (!trimmed || trimmed === "—" || trimmed === "–") return undefined;
 
   const normalized = trimmed.replace(/[\s\u00A0]+/g, "").replace(",", ".");
   if (!/^[+-]?\d+(?:\.\d+)?$/.test(normalized)) {

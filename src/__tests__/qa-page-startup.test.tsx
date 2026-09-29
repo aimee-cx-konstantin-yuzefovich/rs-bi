@@ -16,6 +16,7 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('nuqs', () => ({
   useQueryStates: () => [{}, vi.fn()],
+  useQueryState: (key: string, def: any) => [def?.defaultValue ?? (key === "page" ? 1 : key === "size" ? 50 : []), vi.fn()],
 }));
 vi.mock('@/hooks/use-login-redirect', () => ({
   useLoginRedirect: () => {},
@@ -24,6 +25,7 @@ vi.mock('@/hooks/use-login-redirect', () => ({
 // Child components are irrelevant to startup visibility/inertness — stub them
 // out so the harness only exercises page-level composition logic.
 vi.mock('@/components/dashboard/header', () => ({ Header: () => <div data-testid="stub-header" /> }));
+vi.mock('@/components/dashboard/deals-toolbar', () => ({ DealsToolbar: () => <div data-testid="stub-toolbar" /> }));
 vi.mock('@/components/dashboard/stats-cards', () => ({ StatsCards: () => <div data-testid="stub-stats" /> }));
 vi.mock('@/components/dashboard/data-table', () => ({ DataTable: () => <div data-testid="stub-table" /> }));
 vi.mock('@/components/dashboard/column-selector', () => ({ ColumnSelector: () => null }));

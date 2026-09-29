@@ -291,40 +291,6 @@ export function DataTable() {
     <div className="flex-1 flex flex-col min-h-0 mx-4 sm:mx-6 mb-4">
       {/* Table container card */}
       <div className="flex-1 flex flex-col min-h-0 rounded-md border border-border bg-card shadow-sm overflow-hidden">
-        {/* Filter bar */}
-        <div className="px-4 py-2 border-b border-border bg-card flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            {activeFilterCount > 0 && (
-              <>
-                <Badge variant="secondary" className="text-[10px] gap-1 h-6 filter-badge-pulse bg-brand-orange/10 text-brand-orange border-brand-orange/20">
-                  <Filter className="h-2.5 w-2.5" />
-                  {activeFilterCount}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearAllColumnFilters}
-                  className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground px-2"
-                >
-                  <X className="h-2.5 w-2.5" />
-                  Сбросить
-                </Button>
-              </>
-            )}
-          </div>
-          <div className="text-[10px] text-muted-foreground tabular-nums ml-auto flex items-center gap-2">
-            {dealsTruncated && (
-              <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1" title="Показаны не все сделки. Уточните фильтры.">
-                <AlertTriangle className="h-3 w-3" />
-                Показаны первые {dealsFetched.toLocaleString("ru-RU")}
-              </span>
-            )}
-            <span>
-              {sortedDeals.length.toLocaleString("ru-RU")} из {dealsTotal.toLocaleString("ru-RU")}
-            </span>
-          </div>
-        </div>
-
         {/* Table */}
         <div className="flex-1 min-h-0 overflow-hidden">
           <div ref={parentRef} data-testid="deals-table-scroll" className="h-full overflow-auto custom-scrollbar">
@@ -553,7 +519,9 @@ export function DataTable() {
         <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between">
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="tabular-nums">
-              {((currentPage - 1) * pageSize) + 1}–{Math.min(currentPage * pageSize, sortedDeals.length)} из {sortedDeals.length}
+              {sortedDeals.length > 0
+                ? `${((currentPage - 1) * pageSize) + 1}–${Math.min(currentPage * pageSize, sortedDeals.length)} из ${sortedDeals.length}`
+                : "0 из 0"}
             </span>
             {(searchQuery || activeFilterCount > 0) && (
               <Tooltip>
@@ -681,7 +649,7 @@ function CellValue({
       return <Skeleton className="h-4 w-28 rounded" />;
     }
 
-    if (resolved?.trim() && resolved !== "—" && resolved !== "Без названия") {
+    if (resolved?.trim() && resolved !== "—" && resolved !== "–" && resolved !== "Без названия") {
       return (
         <span className="truncate block max-w-[180px]" title={resolved}>
           {resolved}
@@ -698,7 +666,7 @@ function CellValue({
       );
     }
 
-    return <span className="text-muted-foreground">—</span>;
+    return <span className="text-muted-foreground">–</span>;
   }
 
   if (!resolved) {
@@ -714,7 +682,7 @@ function CellValue({
             className="text-muted-foreground" 
             title={`Company ID: ${companyId}`}
           >
-            —
+            –
           </span>
         );
       }
@@ -726,7 +694,7 @@ function CellValue({
       }
     }
 
-    return <span className="text-muted-foreground/30">—</span>;
+    return <span className="text-muted-foreground/30">–</span>;
   }
 
   // Boolean / char fields
@@ -870,7 +838,7 @@ function CellValue({
   // Stage — colored badges
   if (field?.id === "STAGE_ID") {
     const displayLabel = getDealStageDisplayLabel(resolved);
-    const label = displayLabel && displayLabel !== "—" ? displayLabel : resolved;
+    const label = displayLabel && displayLabel !== "—" && displayLabel !== "–" ? displayLabel : resolved;
     const stageColors: Record<string, string> = {
       "Новые": "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
       "Новая": "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",

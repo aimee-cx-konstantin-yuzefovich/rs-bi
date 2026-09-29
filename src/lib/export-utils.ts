@@ -304,7 +304,7 @@ export function parseCellNativeValue(
   val: unknown,
   options?: CellParseOptions
 ): string | number | Date | null {
-  if (val === null || val === undefined || val === "" || val === "—") {
+  if (val === null || val === undefined || val === "" || val === "—" || val === "–" || val === "-") {
     return null;
   }
   if (val instanceof Date) {
@@ -313,14 +313,26 @@ export function parseCellNativeValue(
   if (typeof val === "number") {
     return isNaN(val) ? null : val;
   }
+
+  const fType = options?.fieldType?.toLowerCase();
+  const isBooleanField = fType === "boolean" || fType === "char";
+
   if (typeof val === "boolean") {
+    if (!isBooleanField && fType) {
+      return null;
+    }
     return val ? "Да" : "Нет";
   }
 
   const str = String(val).trim();
-  if (!str) return null;
+  if (!str || str === "—" || str === "–" || str === "-") return null;
 
-  const fType = options?.fieldType?.toLowerCase();
+  if (!isBooleanField && fType) {
+    const sLower = str.toLowerCase();
+    if (sLower === "false" || sLower === "null" || sLower === "undefined") {
+      return null;
+    }
+  }
 
   // ── 1. Explicit numeric metadata: strict parse, no content guessing ──
   if (fType === "double" || fType === "integer" || fType === "money") {
@@ -530,12 +542,22 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
     );
 
   const raw = field.value;
-  if (raw === null || raw === undefined || raw === "" || raw === "—") {
+  if (raw === null || raw === undefined || raw === "" || raw === "—" || raw === "–" || raw === "-") {
     return { value: null, isDateField: isExplicitDateField };
   }
 
+  const isBoolField = typeLower === "boolean" || typeLower === "char";
+  if (!isBoolField && typeLower) {
+    if (
+      (raw as unknown) === false ||
+      (typeof raw === "string" && ["false", "null", "undefined"].includes(raw.trim().toLowerCase()))
+    ) {
+      return { value: null, isDateField: isExplicitDateField };
+    }
+  }
+
   const str = String(raw).trim();
-  if (!str || str === "—") {
+  if (!str || str === "—" || str === "–" || str === "-") {
     return { value: null, isDateField: isExplicitDateField };
   }
 

@@ -59,7 +59,7 @@ import {
   X,
 } from "lucide-react";
 
-const PAGE_SIZE = 50;
+const COMPANY_PAGE_SIZES = [25, 50, 100, 250];
 
 type SortDirection = "asc" | "desc" | null;
 interface CompanyColumnSort {
@@ -97,10 +97,27 @@ function resolveCompanyValue(
   const raw = company[colId];
   if (raw === null || raw === undefined || raw === "") return "";
 
+  const isBoolField = field?.type === "char" || field?.type === "boolean";
+  if (isBoolField) {
+    const rStr = String(raw).trim().toLowerCase();
+    if ((raw as unknown) === true || raw === "Y" || raw === "1" || rStr === "true" || rStr === "y") return "Да";
+    if ((raw as unknown) === false || raw === "N" || raw === "0" || rStr === "false" || rStr === "n") return "Нет";
+  } else {
+    const rStr = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if ((raw as unknown) === false || rStr === "false" || rStr === "null" || rStr === "undefined") {
+      return "";
+    }
+  }
+
   const listValues = field?.listValues;
   if (listValues && listValues.length > 0) {
     if (Array.isArray(raw)) {
-      return raw
+      const valid = raw.filter((v) => {
+        const s = String(v).trim().toLowerCase();
+        return (v as unknown) !== false && s !== "false" && s !== "null" && s !== "undefined" && s !== "";
+      });
+      if (valid.length === 0) return "";
+      return valid
         .map((v) => listValues.find((lv) => lv.ID === String(v))?.VALUE || String(v))
         .join(", ");
     }
@@ -108,7 +125,14 @@ function resolveCompanyValue(
     if (found) return found.VALUE;
   }
 
-  if (Array.isArray(raw)) return raw.join(", ");
+  if (Array.isArray(raw)) {
+    const valid = raw.filter((v) => {
+      const s = String(v).trim().toLowerCase();
+      return (v as unknown) !== false && s !== "false" && s !== "null" && s !== "undefined" && s !== "";
+    });
+    if (valid.length === 0) return "";
+    return valid.join(", ");
+  }
 
   if (field?.type === "money" && typeof raw === "string") {
     const [amountStr, currency] = raw.split("|");
@@ -141,7 +165,10 @@ function resolveCompanyValue(
     // Composite/object-shaped fields (e.g. Bitrix "address"-type values) have no
     // single string form — render their non-empty parts instead of "[object Object]".
     const parts = Object.values(raw as Record<string, unknown>).filter(
-      (v): v is string => typeof v === "string" && v.trim().length > 0
+      (v): v is string =>
+        typeof v === "string" &&
+        v.trim().length > 0 &&
+        !["false", "null", "undefined"].includes(v.trim().toLowerCase())
     );
     return parts.join(", ");
   }
@@ -271,7 +298,7 @@ export function buildCompanyExportPayload({
       const colType = getCompanyColumnType(colId, fieldMap);
       const raw = company[colId];
 
-      if (raw === null || raw === undefined || raw === "" || raw === "—") {
+      if (raw === null || raw === undefined || raw === "" || raw === "—" || raw === "–") {
         return null;
       }
 
@@ -350,11 +377,14 @@ export function CompanyBrowser() {
   const previewTrigger = useRef<HTMLButtonElement | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(50);
   const [columnSort, setColumnSort] = useState<CompanyColumnSort>({ columnId: "", direction: null });
   const [columnFilters, setColumnFilters] = useState<CompanyColumnFilter[]>([]);
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
   const [highlightSamples, setHighlightSamples] = useState(false);
   const [companyDateFilter, setCompanyDateFilter] = useState<DateFilter>({ preset: "all" });
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const [truncatedDismissed, setTruncatedDismissed] = useState(false);
   const filterInputRef = useRef<HTMLInputElement>(null);
 
   // Column resizing — same pointer-capture approach as the deals table.
@@ -506,11 +536,11 @@ export function CompanyBrowser() {
     [sortedItems]
   );
 
-  const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
   const pageItems = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return sortedItems.slice(start, start + PAGE_SIZE);
-  }, [sortedItems, currentPage]);
+    const start = (currentPage - 1) * pageSize;
+    return sortedItems.slice(start, start + pageSize);
+  }, [sortedItems, currentPage, pageSize]);
 
   // WYSIWYG export — same columns/order/formatting/filter/sort currently
   // shown in the table, but over the full set (not just the current page),
@@ -520,7 +550,7 @@ export function CompanyBrowser() {
 
     const periodLabel =
       companyDateFilter.preset === "custom" && companyDateFilter.customFrom && companyDateFilter.customTo
-        ? `${companyDateFilter.customFrom} — ${companyDateFilter.customTo}`
+        ? `${companyDateFilter.customFrom} – ${companyDateFilter.customTo}`
         : companyDateFilter.preset === "7days"
         ? "Последние 7 дней"
         : companyDateFilter.preset === "14days"
@@ -702,17 +732,6 @@ export function CompanyBrowser() {
           Столбцы
         </Button>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleExport}
-          disabled={companyBrowserItems.length === 0}
-          className="h-8 gap-1.5 text-xs"
-        >
-          <Download className="h-3.5 w-3.5" />
-          Экспорт
-        </Button>
-
         <label className="flex items-center gap-1.5 h-8 px-2 rounded-md border text-xs cursor-pointer select-none hover:bg-muted/50">
           <Checkbox
             checked={highlightSamples}
@@ -722,6 +741,20 @@ export function CompanyBrowser() {
           {COMPANY_SAMPLES_FIELD_TITLE}
           <span className="text-muted-foreground tabular-nums">Шт.: {samplesCount}</span>
         </label>
+
+        {/* Export — ALWAYS THE LAST ACTION CONTROL */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleExport}
+          disabled={companyBrowserItems.length === 0}
+          className="h-8 gap-1.5 text-xs shrink-0"
+          title="Экспорт реестра компаний в Excel"
+        >
+          <Download className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Экспорт</span>
+        </Button>
 
         <div className="ml-auto text-xs text-muted-foreground tabular-nums">
           {companyBrowserLoading ? (
@@ -737,31 +770,56 @@ export function CompanyBrowser() {
         </div>
       </div>
 
-      {companyBrowserError && (
-        <Alert variant="destructive" className="py-2">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="text-xs">{companyBrowserError}</AlertDescription>
+      {companyBrowserError && !errorDismissed && (
+        <Alert variant="destructive" className="py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-xs">{companyBrowserError}</AlertDescription>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorDismissed(true)}
+            aria-label="Закрыть"
+            title="Закрыть"
+            className="text-red-700/60 hover:text-red-900 dark:text-red-400/60 dark:hover:text-red-200 p-0.5"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </Alert>
       )}
 
-      {companyBrowserTruncated && !companyBrowserError && (
+      {companyBrowserTruncated && !companyBrowserError && !truncatedDismissed && (
         <Alert
           className={
             companyBrowserPartial
-              ? "py-2 border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800"
-              : "py-2 border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800"
+              ? "py-2 border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 flex items-center justify-between"
+              : "py-2 border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 flex items-center justify-between"
           }
         >
-          <AlertTriangle className={`h-4 w-4 ${companyBrowserPartial ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`} />
-          <AlertDescription className={`text-xs ${companyBrowserPartial ? "text-red-800 dark:text-red-300" : "text-amber-800 dark:text-amber-300"}`}>
-            {companyBrowserWarning || `Найдено ${companyBrowserTotal} компаний — показаны первые ${companyBrowserFetched}.`}
-          </AlertDescription>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className={`h-4 w-4 ${companyBrowserPartial ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`} />
+            <AlertDescription className={`text-xs ${companyBrowserPartial ? "text-red-800 dark:text-red-300" : "text-amber-800 dark:text-amber-300"}`}>
+              {companyBrowserWarning || `Найдено ${companyBrowserTotal} компаний – показаны первые ${companyBrowserFetched}.`}
+            </AlertDescription>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTruncatedDismissed(true)}
+            aria-label="Закрыть"
+            title="Закрыть"
+            className={
+              companyBrowserPartial
+                ? "text-red-700/60 hover:text-red-900 dark:text-red-400/60 dark:hover:text-red-200 p-0.5"
+                : "text-amber-700/60 hover:text-amber-900 dark:text-amber-400/60 dark:hover:text-amber-200 p-0.5"
+            }
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </Alert>
       )}
 
-      {/* Table */}
-      <div className="flex-1 min-h-0 rounded-md border overflow-hidden">
-        <Table containerClassName="h-full overflow-auto">
+      <div className="flex-1 flex flex-col min-h-0 rounded-md border border-border bg-card shadow-sm overflow-hidden">
+        <Table containerClassName="flex-1 min-h-0 overflow-auto custom-scrollbar">
           <TableHeader>
             <TableRow>
               <TableHead className="text-xs whitespace-nowrap w-10 sticky top-0 left-0 z-30 bg-card border-r border-b border-border text-center">№</TableHead>
@@ -877,17 +935,24 @@ export function CompanyBrowser() {
                   className={highlightSamples && hasSamplesInfo(company) ? "cursor-pointer bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40" : "cursor-pointer"}
                 >
                   <TableCell className={`text-xs text-muted-foreground tabular-nums sticky left-0 z-10 border-r border-border text-center ${highlightSamples && hasSamplesInfo(company) ? "bg-amber-100 dark:bg-amber-950" : "bg-card group-hover:bg-muted transition-colors"}`}>
-                    {(currentPage - 1) * PAGE_SIZE + idx + 1}
+                    {(currentPage - 1) * pageSize + idx + 1}
                   </TableCell>
                   {columns.map((colId) => {
                     const field = getField(colId);
                     return (
                       <TableCell key={colId} className="text-xs whitespace-nowrap max-w-[280px] truncate">
-                        {colId === "TITLE" ? <button type="button" data-company-preview
-                          className="max-w-full truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-                          onClick={(event) => openPreview(String(company.ID), event.currentTarget.closest("tr"))}>
-                          {resolveCompanyValue(company, colId, userNames, field) || "—"}
-                        </button> : resolveCompanyValue(company, colId, userNames, field) || "—"}
+                        {colId === "TITLE" ? (
+                          <button
+                            type="button"
+                            data-company-preview
+                            className="max-w-full truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                            onClick={(event) => openPreview(String(company.ID), event.currentTarget.closest("tr"))}
+                          >
+                            {resolveCompanyValue(company, colId, userNames, field) || "–"}
+                          </button>
+                        ) : (
+                          resolveCompanyValue(company, colId, userNames, field) || "–"
+                        )}
                       </TableCell>
                     );
                   })}
@@ -896,38 +961,59 @@ export function CompanyBrowser() {
             )}
           </TableBody>
         </Table>
-        {/* Spacer so the table's own horizontal scrollbar doesn't sit on top
-            of the last row when scrolled all the way down. */}
-        <div className="h-4" />
-      </div>
 
-      {/* Pagination (client-side, over the filtered/sorted set) */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span className="tabular-nums">
-          {sortedItems.length > 0
-            ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, sortedItems.length)} из ${sortedItems.length}`
-            : ""}
-        </span>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage <= 1}
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </Button>
-          <span className="tabular-nums px-1">{currentPage} / {totalPages}</span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage >= totalPages}
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </Button>
+        {/* Pagination (client-side, over the filtered/sorted set) */}
+        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between text-xs text-muted-foreground">
+          <div className="flex items-center gap-4">
+            <span className="tabular-nums">
+              {sortedItems.length > 0
+                ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, sortedItems.length)} из ${sortedItems.length}`
+                : "0 из 0"}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span>Строк:</span>
+              <select
+                aria-label="Строк на странице"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="h-6 rounded border border-border bg-background px-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {COMPANY_PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              aria-label="Предыдущая страница"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <span className="tabular-nums text-[11px] min-w-[50px] text-center">
+              {currentPage} / {Math.max(1, totalPages)}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-sm"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              aria-label="Следующая страница"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
 

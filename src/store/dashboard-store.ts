@@ -1045,98 +1045,68 @@ export const useDashboardStore = create<DashboardState>()(
           // relative to the IDs actually requested in THIS request.
           const requestedIds = missingIds;
           try {
-            const response = await fetchWithTimeout("/api/bitrix/companies", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                ids: missingIds,
-                select: companyFieldsToSelect,
-              }),
-            });
-
-            if (!response.ok) {
-              console.warn("[Dashboard] Failed to fetch companies data: API returned", response.status);
-              const total = uniqueIds.length;
-              const fetched = uniqueIds.filter(id => Boolean(companiesData[id]?.TITLE || companiesData[id]?.ID)).length;
-              const unresolved = total - fetched;
-              set({
-                companiesDataLoading: false,
-                companiesDataCoverage: {
-                  status: "PARTIAL",
-                  fetched,
-                  total,
-                  warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
-                },
-              });
-              return;
+            const API_MAX_COMPANY_BATCH = 500;
+            const batches: string[][] = [];
+            for (let i = 0; i < missingIds.length; i += API_MAX_COMPANY_BATCH) {
+              batches.push(missingIds.slice(i, i + API_MAX_COMPANY_BATCH));
             }
-            const data = await response.json();
-            if (data.success && data.companies) {
-              set((state) => {
-                const normalizedCompanies: Record<string, any> = {};
-                if (Array.isArray(data.companies)) {
-                  data.companies.forEach((c: any) => {
-                    if (c.ID) normalizedCompanies[String(c.ID)] = c;
-                  });
-                } else if (typeof data.companies === 'object') {
-                  for (const [k, v] of Object.entries(data.companies)) {
-                    normalizedCompanies[String(k)] = v;
+
+            const mergedNormalizedCompanies: Record<string, any> = {};
+            const allSuccessfulIds: string[] = [];
+            let anyBatchFailed = false;
+            let successfulBatchCount = 0;
+
+            for (const batch of batches) {
+              try {
+                const response = await fetchWithTimeout("/api/bitrix/companies", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    ids: batch,
+                    select: companyFieldsToSelect,
+                  }),
+                });
+
+                if (!response.ok) {
+                  console.warn("[Dashboard] Failed to fetch company batch: API returned", response.status);
+                  anyBatchFailed = true;
+                  continue;
+                }
+
+                const data = await response.json();
+                if (data.success && data.companies) {
+                  successfulBatchCount++;
+                  const normalized: Record<string, any> = {};
+                  if (Array.isArray(data.companies)) {
+                    data.companies.forEach((c: any) => {
+                      if (c.ID) normalized[String(c.ID)] = c;
+                    });
+                  } else if (typeof data.companies === "object") {
+                    for (const [k, v] of Object.entries(data.companies)) {
+                      normalized[String(k)] = v;
+                    }
                   }
-                }
-                // Deep merge to preserve previously fetched fields
-                const newCompaniesData = { ...state.companiesData };
-                for (const [id, companyData] of Object.entries(normalizedCompanies)) {
-                  const title = String(companyData?.TITLE || "").trim() || "Без названия";
-                  newCompaniesData[id] = {
-                    ...(newCompaniesData[id] || {}),
-                    ...companyData,
-                    TITLE: title,
-                  };
-                }
-                const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
-                const fetchTimestamp = Date.now();
+                  Object.assign(mergedNormalizedCompanies, normalized);
 
-                // Only mark successfully fetched company IDs as fetched (unresolved IDs remain eligible for retry)
-                const successfulIds: string[] = Array.isArray(data.fetchedCompanyIds)
-                  ? data.fetchedCompanyIds
-                  : Object.keys(normalizedCompanies);
+                  const successfulIds: string[] = Array.isArray(data.fetchedCompanyIds)
+                    ? data.fetchedCompanyIds
+                    : Object.keys(normalized);
+                  allSuccessfulIds.push(...successfulIds);
 
-                for (const id of successfulIds) {
-                  newCompaniesDataFetchedAt[id] = fetchTimestamp;
-                }
-                // Prune cache to only keep companies present in allDeals
-                const validCompanyIds = new Set(state.allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
-                for (const id in newCompaniesData) {
-                  if (!validCompanyIds.has(id)) {
-                    delete newCompaniesData[id];
-                    delete newCompaniesDataFetchedAt[id];
+                  if (data.partial) {
+                    anyBatchFailed = true;
                   }
+                } else {
+                  anyBatchFailed = true;
                 }
+              } catch (batchErr) {
+                console.warn("[Dashboard] Error fetching batch:", batchErr);
+                anyBatchFailed = true;
+              }
+            }
 
-                const total = uniqueIds.length;
-                const fetched = uniqueIds.filter(id => Boolean(newCompaniesData[id]?.TITLE || newCompaniesData[id]?.ID)).length;
-                const unresolved = total - fetched;
-                const isPartial = unresolved > 0;
-
-                return {
-                  companiesData: newCompaniesData,
-                  companiesDataFetchedAt: newCompaniesDataFetchedAt,
-                  companiesDataLoading: false,
-                  companiesDataCoverage: isPartial
-                    ? {
-                        status: "PARTIAL",
-                        fetched,
-                        total,
-                        warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
-                      }
-                    : {
-                        status: "COMPLETE",
-                        fetched: total,
-                        total,
-                      },
-                };
-              });
-            } else {
+            if (successfulBatchCount === 0) {
+              console.warn("[Dashboard] All company batches failed");
               const total = uniqueIds.length;
               const currentCompanies = get().companiesData;
               const fetched = uniqueIds.filter(id => Boolean(currentCompanies[id]?.TITLE || currentCompanies[id]?.ID)).length;
@@ -1150,7 +1120,59 @@ export const useDashboardStore = create<DashboardState>()(
                   warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
                 },
               });
+              return;
             }
+
+            set((state) => {
+              // Deep merge to preserve previously fetched fields
+              const newCompaniesData = { ...state.companiesData };
+              for (const [id, companyData] of Object.entries(mergedNormalizedCompanies)) {
+                const title = String(companyData?.TITLE || "").trim() || "Без названия";
+                newCompaniesData[id] = {
+                  ...(newCompaniesData[id] || {}),
+                  ...companyData,
+                  TITLE: title,
+                };
+              }
+              const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
+              const fetchTimestamp = Date.now();
+
+              // Only mark successfully fetched company IDs as fetched (unresolved IDs remain eligible for retry)
+              for (const id of allSuccessfulIds) {
+                newCompaniesDataFetchedAt[id] = fetchTimestamp;
+              }
+              // Prune cache to only keep companies present in allDeals
+              const validCompanyIds = new Set(state.allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
+              for (const id in newCompaniesData) {
+                if (!validCompanyIds.has(id)) {
+                  delete newCompaniesData[id];
+                  delete newCompaniesDataFetchedAt[id];
+                }
+              }
+
+              const total = uniqueIds.length;
+              const fetched = uniqueIds.filter(id => Boolean(newCompaniesData[id]?.TITLE || newCompaniesData[id]?.ID)).length;
+              const unresolved = total - fetched;
+              const isPartial = unresolved > 0 || anyBatchFailed;
+
+              return {
+                companiesData: newCompaniesData,
+                companiesDataFetchedAt: newCompaniesDataFetchedAt,
+                companiesDataLoading: false,
+                companiesDataCoverage: isPartial
+                  ? {
+                      status: "PARTIAL",
+                      fetched,
+                      total,
+                      warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
+                    }
+                  : {
+                      status: "COMPLETE",
+                      fetched: total,
+                      total,
+                    },
+              };
+            });
           } catch {
             console.warn("[Dashboard] Failed to fetch companies data");
             const total = uniqueIds.length;

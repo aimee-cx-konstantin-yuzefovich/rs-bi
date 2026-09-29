@@ -51,6 +51,7 @@ import {
   extractDates,
   identityLabelResolver,
   isGeographicValue,
+  isSentinelValue,
   isSentIndicator,
   isTestingStatus,
   normalizeResult,
@@ -70,6 +71,7 @@ type Evidence = { productFamily: string; result: NormalizedResult };
 
 function firstString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
+  if (isSentinelValue(value)) return undefined;
   const trimmed = value.trim();
   return trimmed !== "" ? trimmed : undefined;
 }
@@ -95,8 +97,8 @@ export function hasSampleActivity(row: BitrixRow): boolean {
   ];
   return keys.some((key) => {
     const v = row[key];
-    if (v === null || v === undefined || v === "") return false;
-    if (Array.isArray(v)) return v.length > 0;
+    if (isSentinelValue(v)) return false;
+    if (Array.isArray(v)) return v.some((item) => !isSentinelValue(item));
     return true;
   });
 }
@@ -112,8 +114,8 @@ export function dealHasSampleData(row: BitrixRow): boolean {
   ];
   return keys.some((key) => {
     const v = row[key];
-    if (v === null || v === undefined || v === "") return false;
-    if (Array.isArray(v)) return v.length > 0;
+    if (isSentinelValue(v)) return false;
+    if (Array.isArray(v)) return v.some((item) => !isSentinelValue(item));
     return true;
   });
 }
