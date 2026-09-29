@@ -28,6 +28,7 @@ import { normalizeCurrencyCode } from "./normalize";
 import { getCurrencyUniverse } from "./currency";
 import { parseStrictDate } from "@/lib/date-safety";
 import type {
+  AggregateAmountQuality,
   CommercialCompany,
   CommercialDeal,
   CommercialFilters,
@@ -161,13 +162,16 @@ function formatPeriodPresetToRussian(preset: string): string {
     case "14days": return "14 дней";
     case "30days": return "30 дней";
     case "90days": return "90 дней";
+    case "quarter": return "Квартал";
     case "custom": return "Пользовательский период";
-    case "all": return "Все";
+    case "all": return "За всё время";
     default: return preset;
   }
 }
 
-  const periodLabel = `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${formatPeriodPresetToRussian(filters.periodPreset)})`;
+  const periodLabel = boundaries.isAllTime
+    ? `За всё время (по ${boundaries.currentEndStr})`
+    : `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${formatPeriodPresetToRussian(filters.periodPreset)})`;
   const respLabel =
     filters.responsibleId && filters.responsibleId !== "all"
       ? userNames[filters.responsibleId] || `ID ${filters.responsibleId}`
@@ -223,7 +227,7 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   const paramRows: [string, string][] = [
     ["Период анализа:", periodLabel],
-    ["Предыдущий период для сравнения:", `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
+    ["Предыдущий период для сравнения:", boundaries.isAllTime ? "—" : `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
     ["Бизнес-часовой пояс:", `Москва (${COMMERCIAL_TIMEZONE}, UTC+3)`],
     ["Дата и время формирования:", `${formatReportDateTime(now)} (Москва, UTC+3)`],
     ["Ответственный:", respLabel],
@@ -514,16 +518,19 @@ function formatPeriodPresetToRussian(preset: string): string {
           prevAmt = 0;
         }
 
-        const deltaAmt: number | string =
-          typeof currAmt === "number" && typeof prevAmt === "number"
-            ? currAmt - prevAmt
-            : "—";
+        const isComparisonValid =
+          !boundaries.isAllTime &&
+          curQuality === "COMPLETE" &&
+          prevQuality === "COMPLETE" &&
+          typeof currAmt === "number" &&
+          typeof prevAmt === "number";
 
-        const pct =
-          typeof currAmt === "number" && typeof prevAmt === "number"
-            ? safeDeltaPercent(currAmt, prevAmt)
-            : null;
+        const numCurr = typeof currAmt === "number" ? currAmt : 0;
+        const numPrev = typeof prevAmt === "number" ? prevAmt : 0;
+        const deltaAmt: number | string = isComparisonValid ? numCurr - numPrev : "—";
+        const pct = isComparisonValid ? safeDeltaPercent(numCurr, numPrev) : null;
         const pctStr = pct !== null ? `${pct > 0 ? "+" : ""}${pct}%` : "—";
+        const prevDisplayAmt: number | string = boundaries.isAllTime ? "—" : prevAmt;
         const compCount = filteredCompanies.filter((c) =>
           c.deals.some(
             (d) =>
@@ -547,7 +554,7 @@ function formatPeriodPresetToRussian(preset: string): string {
         const row = summarySheet.addRow([
           `${k.label} — ${curLabel}${qualitySuffix}`,
           currAmt,
-          prevAmt,
+          prevDisplayAmt,
           deltaAmt,
           pctStr,
           compCount,
@@ -563,7 +570,7 @@ function formatPeriodPresetToRussian(preset: string): string {
         if (typeof currAmt === "number") {
           row.getCell(2).numFmt = getMoneyNumFmt(cur);
         }
-        if (typeof prevAmt === "number") {
+        if (typeof prevDisplayAmt === "number") {
           row.getCell(3).numFmt = getMoneyNumFmt(cur);
         }
         if (typeof deltaAmt === "number") {
@@ -577,74 +584,125 @@ function formatPeriodPresetToRussian(preset: string): string {
         }
       }
     } else {
-      const qualitySuffix =
-        k.isCurrency && k.amountQuality === "PARTIAL"
-          ? " (неполные данные)"
-          : k.isCurrency && k.amountQuality === "INVALID_ONLY"
-          ? " (ошибка данных)"
-          : k.isCurrency && k.amountQuality === "UNKNOWN"
-          ? " (нет данных)"
-          : "";
-
-      let currVal: number | string;
-      if (k.isCurrency && k.amountQuality === "INVALID_ONLY") {
-        currVal = "Ошибка данных";
-      } else if (k.isCurrency && k.amountQuality === "UNKNOWN") {
-        currVal = "Нет данных";
-      } else {
-        currVal = k.currentValue ?? 0;
-      }
-
-      let prevVal: number | string;
-      if (k.isCurrency && k.amountQuality === "INVALID_ONLY") {
-        prevVal = "Ошибка данных";
-      } else if (k.isCurrency && k.amountQuality === "UNKNOWN") {
-        prevVal = "Нет данных";
-      } else {
-        prevVal = k.previousValue ?? 0;
-      }
-
-      const deltaVal: number | string =
-        typeof currVal === "number" && typeof prevVal === "number"
-          ? currVal - prevVal
-          : (k.delta ?? 0);
-
-      const pctStr =
-        typeof currVal === "number" && typeof prevVal === "number" && k.deltaPercent !== null
-          ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%`
-          : "—";
-
-      const row = summarySheet.addRow([
-        `${k.label}${qualitySuffix}`,
-        currVal,
-        prevVal,
-        deltaVal,
-        pctStr,
-        k.companyIds.length,
-      ]);
-      row.height = 20;
-
-      for (let c = 1; c <= 6; c++) {
-        const cell = row.getCell(c);
-        cell.border = THIN_BORDER;
-        cell.font = FONT_DATA;
-      }
-
       if (k.isCurrency) {
         const cur = k.currencyId ? normalizeCurrencyCode(k.currencyId) : undefined;
+        const currentQuality: AggregateAmountQuality =
+          (cur && k.currencyBreakdownQuality?.current?.[cur]) || k.amountQuality || "COMPLETE";
+        const previousQuality: AggregateAmountQuality =
+          (cur && k.currencyBreakdownQuality?.previous?.[cur]) ||
+          (boundaries.isAllTime ? "UNKNOWN" : "COMPLETE");
+
+        const formatCell = (
+          rawVal: number | null,
+          quality: AggregateAmountQuality
+        ): { val: number | string; isNote: boolean } => {
+          if (quality === "INVALID_ONLY") {
+            return { val: "Ошибка данных", isNote: false };
+          }
+          if (quality === "UNKNOWN" || rawVal === null) {
+            return { val: "Нет данных", isNote: false };
+          }
+          if (quality === "PARTIAL") {
+            return { val: rawVal, isNote: true };
+          }
+          return { val: rawVal, isNote: false };
+        };
+
+        const currCell = formatCell(k.currentValue, currentQuality);
+        const prevCell = formatCell(k.previousValue, previousQuality);
+
+        const currVal = currCell.val;
+        const prevDisplayVal: number | string = boundaries.isAllTime ? "—" : prevCell.val;
+
+        const isComparisonValid =
+          !boundaries.isAllTime &&
+          currentQuality === "COMPLETE" &&
+          previousQuality === "COMPLETE" &&
+          typeof currVal === "number" &&
+          typeof prevDisplayVal === "number";
+
+        const deltaVal: number | string = isComparisonValid
+          ? (currVal as number) - (prevDisplayVal as number)
+          : "—";
+
+        const pct = isComparisonValid
+          ? safeDeltaPercent(currVal as number, prevDisplayVal as number)
+          : null;
+        const pctStr = pct !== null ? `${pct > 0 ? "+" : ""}${pct}%` : "—";
+
+        const qualitySuffix =
+          currentQuality === "PARTIAL"
+            ? " (неполные данные)"
+            : currentQuality === "INVALID_ONLY"
+            ? " (ошибка данных)"
+            : currentQuality === "UNKNOWN"
+            ? " (нет данных)"
+            : "";
+
+        const row = summarySheet.addRow([
+          `${k.label}${qualitySuffix}`,
+          currVal,
+          prevDisplayVal,
+          deltaVal,
+          pctStr,
+          k.companyIds.length,
+        ]);
+        row.height = 20;
+
+        for (let c = 1; c <= 6; c++) {
+          const cell = row.getCell(c);
+          cell.border = THIN_BORDER;
+          cell.font = FONT_DATA;
+        }
+
         if (typeof currVal === "number") {
           row.getCell(2).numFmt = getMoneyNumFmt(cur);
         }
-        if (typeof prevVal === "number") {
+        if (typeof prevDisplayVal === "number") {
           row.getCell(3).numFmt = getMoneyNumFmt(cur);
         }
         if (typeof deltaVal === "number") {
           row.getCell(4).numFmt = getDeltaMoneyNumFmt(cur);
         }
-        if (k.amountQuality === "PARTIAL") {
+        if (currCell.isNote) {
           row.getCell(2).note = "Неполные данные: присутствуют сделки с некорректной суммой";
         }
+        if (prevCell.isNote && !boundaries.isAllTime) {
+          row.getCell(3).note = "Неполные данные: присутствуют сделки с некорректной суммой";
+        }
       } else {
+        // Non-currency count KPIs
+        const currVal = k.currentValue ?? 0;
+        const prevVal = k.previousValue ?? 0;
+        const isComparisonValid =
+          !boundaries.isAllTime &&
+          k.comparisonAvailable !== false &&
+          typeof currVal === "number" &&
+          typeof prevVal === "number";
+
+        const deltaVal: number | string = isComparisonValid ? currVal - prevVal : "—";
+        const pctStr =
+          isComparisonValid && k.deltaPercent !== null
+            ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%`
+            : "—";
+        const prevDisplayVal: number | string = boundaries.isAllTime ? "—" : prevVal;
+
+        const row = summarySheet.addRow([
+          k.label,
+          currVal,
+          prevDisplayVal,
+          deltaVal,
+          pctStr,
+          k.companyIds.length,
+        ]);
+        row.height = 20;
+
+        for (let c = 1; c <= 6; c++) {
+          const cell = row.getCell(c);
+          cell.border = THIN_BORDER;
+          cell.font = FONT_DATA;
+        }
+
         row.getCell(2).numFmt = NUMFMT.INTEGER;
         row.getCell(3).numFmt = NUMFMT.INTEGER;
         row.getCell(4).numFmt = NUMFMT.DELTA_INTEGER;
@@ -1150,7 +1208,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     "Дней ожидания",
     "Сделка",
     "Сумма",
-    "Следующий шаг / Рекомендация",
+    "Следующий шаг",
   ];
 
   const botHeaderRowIndex = addOperationalHeader(bottlenecksSheet, logoImageId, {

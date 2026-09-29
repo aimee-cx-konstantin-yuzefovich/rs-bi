@@ -4,6 +4,7 @@
 // Samples view: Current-state status summary cards + Detailed sample table.
 // Preserves multiplicity, shows days since sent, and explicit status source.
 
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,6 +21,7 @@ import type {
   SampleRegisterRow,
   WipKpi,
 } from "@/lib/commercial-funnel/types";
+import { CommercialTablePagination } from "./table-pagination";
 
 interface SamplesTabProps {
   wipKpis: WipKpi[];
@@ -36,6 +38,19 @@ export function CommercialSamplesTab({
   onSelectCompany,
   onSelectDeal,
 }: SamplesTabProps) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  // Reset to first page when data changes
+  useEffect(() => {
+    setPage(1);
+  }, [sampleRows.length]);
+
+  const pagedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sampleRows.slice(start, start + pageSize);
+  }, [sampleRows, page, pageSize]);
+
   // Only sample-specific WIP cards (excluding commercial 'awaiting_payment')
   const sampleWipKpis = wipKpis.filter((w) => w.id !== "awaiting_payment");
 
@@ -121,7 +136,7 @@ export function CommercialSamplesTab({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sampleRows.map((row) => (
+                  {pagedRows.map((row) => (
                     <TableRow key={row.id} className="hover:bg-muted/30">
                       {/* Компания */}
                       <TableCell className="text-xs font-medium">
@@ -237,6 +252,13 @@ export function CommercialSamplesTab({
                   ))}
                 </TableBody>
               </Table>
+            <CommercialTablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={sampleRows.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
           </div>
         )}
       </div>

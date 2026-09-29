@@ -45,9 +45,7 @@ export function evaluateStalledDeal(
       const attentionReason = hasNoNextAction
         ? `Сделка без движения ${days} дн. (нет следующего шага) «${deal.title}»`
         : `Сделка без движения ${days} дн. «${deal.title}»`;
-      const nextAction = deal.activityNext
-        ? deal.activityNext
-        : "Запланировать звонок / встречу с клиентом";
+      const nextAction = deal.activityNext ? deal.activityNext : undefined;
 
       return {
         isStalled: true,

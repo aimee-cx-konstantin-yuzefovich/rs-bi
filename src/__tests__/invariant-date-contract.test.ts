@@ -107,7 +107,7 @@ describe("Invariant Date & Datetime Contract (Finding A)", () => {
 
       expect(boundaries.currentStartStr).toBe("2026-03-01");
       expect(boundaries.currentEndStr).toBe("2026-03-31");
-      expect(boundaries.currentStart.getTime()).toBeLessThan(boundaries.currentEnd.getTime());
+      expect(boundaries.currentStart!.getTime()).toBeLessThan(boundaries.currentEnd.getTime());
     });
 
     it("spans full start and end days for valid range", () => {

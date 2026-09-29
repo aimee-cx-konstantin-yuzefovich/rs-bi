@@ -4,6 +4,7 @@
 // Actionable bottlenecks & items requiring attention (Section 18).
 // Derived strictly from reliable event date + current state.
 
+import { useState, useMemo, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -16,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import type { BottleneckItem } from "@/lib/commercial-funnel/types";
 import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
+import { CommercialTablePagination } from "./table-pagination";
 
 interface BottlenecksTabProps {
   bottlenecks: BottleneckItem[];
@@ -28,6 +30,17 @@ export function CommercialBottlenecksTab({
   onSelectCompany,
   onSelectDeal,
 }: BottlenecksTabProps) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  useEffect(() => {
+    setPage(1);
+  }, [bottlenecks.length]);
+
+  const pagedBottlenecks = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return bottlenecks.slice(start, start + pageSize);
+  }, [bottlenecks, page, pageSize]);
   const getBadgeClass = (type: BottleneckItem["type"]) => {
     switch (type) {
       case "sample_testing_stalled":
@@ -74,11 +87,11 @@ export function CommercialBottlenecksTab({
                   <TableHead className="text-xs font-semibold text-right">Дней ожидания</TableHead>
                   <TableHead className="text-xs font-semibold">Сделка</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Сумма</TableHead>
-                  <TableHead className="text-xs font-semibold">Следующий шаг / Рекомендация</TableHead>
+                  <TableHead className="text-xs font-semibold">Следующий шаг</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {bottlenecks.map((item) => (
+                {pagedBottlenecks.map((item) => (
                   <TableRow key={item.id} className="hover:bg-muted/30">
                     {/* Компания */}
                     <TableCell className="text-xs font-medium">
@@ -151,14 +164,21 @@ export function CommercialBottlenecksTab({
                     </TableCell>
 
                     {/* Следующий шаг */}
-                    <TableCell className="text-xs max-w-[240px] truncate text-muted-foreground" title={item.nextAction}>
+                    <TableCell className="text-xs max-w-[240px] truncate text-muted-foreground" title={item.nextAction || "Следующий шаг не указан"}>
                       {item.nextAction || "—"}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-        </div>
+            <CommercialTablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={bottlenecks.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+          </div>
       )}
     </div>
   );

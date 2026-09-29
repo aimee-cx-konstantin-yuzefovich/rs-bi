@@ -275,7 +275,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     const b102 = bottlenecks.find((b) => b.dealId === "102")!;
     expect(b102).toBeDefined();
     expect(b102.issueLabel).toBe("Сделка без движения (83 дн., нет след. шага)");
-    expect(b102.nextAction).toBe("Запланировать звонок / встречу с клиентом");
+    expect(b102.nextAction).toBeUndefined();
 
     // Terminal deals (103 Won, 104 Lost, 111 Won) must NEVER appear as stalled deal bottlenecks
     expect(bottlenecks.some((b) => b.dealId === "103")).toBe(false);
@@ -348,7 +348,7 @@ describe("Commercial Funnel Golden Reconciliation", () => {
 
     const b102 = bottlenecks.find((b) => b.dealId === "102")!;
     expect(b102.daysWaiting).toBe(83);
-    expect(b102.nextAction).toBe("Запланировать звонок / встречу с клиентом");
+    expect(b102.nextAction).toBeUndefined();
 
     const scorecard = computeManagerScorecard(companies, boundaries, bottlenecks, userNames);
     expect(scorecard).toHaveLength(3);
