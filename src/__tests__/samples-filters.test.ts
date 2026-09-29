@@ -335,4 +335,152 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
     expect(orphanDeals.length).toBe(1);
     expect(orphanDeals[0].ID).toBe("903");
   });
+
+  it("SMP-FLT-11: Application enum numeric ID resolves to human-readable label via labelResolver", () => {
+    const rawCompany: BitrixRow = {
+      ID: "50",
+      TITLE: "Компания Энзимы",
+      [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
+      [COMPANY_APPLICATION_NEW_FIELD_ID]: "541", // Raw Bitrix enum ID
+    };
+
+    const resolver = (fieldId: string, val: string) => {
+      if (fieldId === COMPANY_APPLICATION_NEW_FIELD_ID && val === "541") {
+        return "Катализаторы гидроочистки";
+      }
+      return val;
+    };
+
+    const { summaries } = buildSampleSummaries([rawCompany], [], { labelResolver: resolver });
+    expect(summaries.length).toBe(1);
+    expect(summaries[0].application).toBe("Катализаторы гидроочистки");
+    expect(summaries[0].application).not.toBe("541");
+    expect(summaries[0].application).not.toContain("UF_CRM");
+  });
+
+  it("SMP-FLT-12: Region/geography cannot masquerade as Application merely because it is an enumeration", () => {
+    // 1. If an enumeration field returns a geographic region, it is stripped
+    const rawCompanyGeo: BitrixRow = {
+      ID: "51",
+      TITLE: "Компания Регион",
+      [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
+      [COMPANY_APPLICATION_NEW_FIELD_ID]: "999", // Points to a region in a misconfigured field
+    };
+
+    const resolver = (fieldId: string, val: string) => {
+      if (fieldId === COMPANY_APPLICATION_NEW_FIELD_ID && val === "999") {
+        return "Центральный федеральный округ";
+      }
+      return val;
+    };
+
+    const { summaries } = buildSampleSummaries([rawCompanyGeo], [], { labelResolver: resolver });
+    expect(summaries.length).toBe(1);
+    // Geographic label was stripped and did NOT become an industrial application
+    expect(summaries[0].application).toBeUndefined();
+  });
+
+  it("SMP-FLT-13: isGeographicValue acts strictly as defensive cleanup and preserves valid business applications", () => {
+    // Proven industrial applications must NEVER be falsely identified as geographic
+    const validApplications = [
+      "Катализаторы",
+      "Катализаторы гидроочистки",
+      "Осушка газов",
+      "Шинная промышленность",
+      "Керамика",
+      "Строительство",
+      "Лакокрасочные материалы",
+      "Буровые растворы",
+      "Бытовая химия",
+      "Производство резины",
+      "Пищевая промышленность",
+    ];
+
+    for (const app of validApplications) {
+      expect(isGeographicValue(app)).toBe(false);
+    }
+
+    // Obvious geographic strings must be caught
+    const geoStrings = [
+      "Москва",
+      "Санкт-Петербург",
+      "Приволжский федеральный округ",
+      "ЦФО",
+      "Свердловская область",
+      "Краснодарский край",
+      "Республика Татарстан",
+    ];
+
+    for (const geo of geoStrings) {
+      expect(isGeographicValue(geo)).toBe(true);
+    }
+  });
+
+  it("SMP-FLT-14: Live verifier semantic title comparison rejects mismatched titles and validates status dictionaries", async () => {
+    const { normalizeTitle, evaluateFieldSpec } = await import(
+      "../../scripts/verify-samples-field-map.mjs"
+    );
+
+    expect(normalizeTitle("  Область   Применения  ")).toBe("область применения");
+    expect(normalizeTitle("Марка и объём")).toBe("марка и объем");
+
+    const appSpec = {
+      role: "Область применения — current/new",
+      entity: "Company",
+      configuredId: "UF_CRM_1781806326214",
+      expectedTypes: ["enumeration"],
+      acceptedTitles: ["Область применения"],
+    };
+
+    // Case 1: Live CRM has title "Регион" (mismatched semantics)
+    const liveRegionField = {
+      title: "Регион",
+      type: "enumeration",
+      isMultiple: false,
+    };
+    const resultRegion = evaluateFieldSpec(appSpec, liveRegionField, []);
+    expect(resultRegion.SEMANTIC_STATUS).toBe("FAIL");
+    expect(resultRegion.TECHNICAL_STATUS).toBe("PASS");
+    expect(resultRegion.FINAL_STATUS).toBe("FAIL");
+
+    // Case 2: Live CRM has title "Область применения" (matching semantics)
+    const liveAppField = {
+      title: "Область применения",
+      type: "enumeration",
+      isMultiple: false,
+    };
+    const resultApp = evaluateFieldSpec(appSpec, liveAppField, []);
+    expect(resultApp.SEMANTIC_STATUS).toBe("PASS");
+    expect(resultApp.TECHNICAL_STATUS).toBe("PASS");
+    expect(resultApp.FINAL_STATUS).toBe("PASS");
+
+    // Case 3: Status field (INDUSTRY) with and without dictionary in statusList
+    const industrySpec = {
+      role: "INDUSTRY",
+      entity: "Company",
+      configuredId: "INDUSTRY",
+      expectedTypes: ["crm_status"],
+      acceptedTitles: ["Сфера деятельности", "Отрасль"],
+    };
+    const liveIndustry = {
+      title: "Сфера деятельности",
+      type: "crm_status",
+      statusType: "CRM_INDUSTRY",
+    };
+
+    // Missing dictionary in statusList
+    const resultNoDict = evaluateFieldSpec(industrySpec, liveIndustry, []);
+    expect(resultNoDict.SEMANTIC_STATUS).toBe("PASS");
+    expect(resultNoDict.TECHNICAL_STATUS).toBe("FAIL");
+    expect(resultNoDict.FINAL_STATUS).toBe("FAIL");
+
+    // Valid dictionary present
+    const validStatusList = [
+      { ENTITY_ID: "CRM_INDUSTRY", STATUS_ID: "CHEM", NAME: "Химия" },
+    ];
+    const resultWithDict = evaluateFieldSpec(industrySpec, liveIndustry, validStatusList);
+    expect(resultWithDict.SEMANTIC_STATUS).toBe("PASS");
+    expect(resultWithDict.TECHNICAL_STATUS).toBe("PASS");
+    expect(resultWithDict.FINAL_STATUS).toBe("PASS");
+  });
 });

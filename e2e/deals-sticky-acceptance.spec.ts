@@ -49,51 +49,86 @@ test.describe("authenticated deals sticky header acceptance", () => {
     // 2. Open Deals page
     await page.goto("/", { waitUntil: "domcontentloaded" });
 
-    // 3. Locate Deals virtualized table and scroll container
-    const tableLocator = page.locator("table");
-    await expect(tableLocator).toBeVisible({ timeout: 15_000 });
+    // 3. Locate Deals scroll container and sticky header using precise data-testid
+    const scroll = page.getByTestId("deals-table-scroll");
+    await expect(scroll).toBeVisible({ timeout: 15_000 });
 
-    const theadLocator = page.locator("thead");
-    await expect(theadLocator).toBeVisible();
+    const stickyHeader = page.getByTestId("deals-header-index");
+    await expect(stickyHeader).toBeVisible();
 
-    // Scroll container is the parent element with overflow
-    const scrollContainerLocator = page.locator("div.overflow-auto, div.overflow-y-auto").first();
-    await expect(scrollContainerLocator).toBeVisible();
+    // 4. Assert scroll container has real vertical overflow: scrollHeight > clientHeight
+    const hasVerticalOverflow = await scroll.evaluate(
+      (el) => el.scrollHeight > el.clientHeight
+    );
+    expect(hasVerticalOverflow).toBe(true);
 
-    // 4. Record header bounding box before scroll
-    const headerBoxBefore = await theadLocator.boundingBox();
-    const containerBox = await scrollContainerLocator.boundingBox();
-    expect(headerBoxBefore).not.toBeNull();
-    expect(containerBox).not.toBeNull();
+    // 5. Capture sticky header bounding box before scroll
+    const headerBefore = await stickyHeader.boundingBox();
+    expect(headerBefore).not.toBeNull();
 
-    // 5. Scroll table vertically by 300px
-    await scrollContainerLocator.evaluate((el) => {
+    // 6. Capture scroll container bounding box before scroll
+    const containerBefore = await scroll.boundingBox();
+    expect(containerBefore).not.toBeNull();
+
+    // 7. Set scrollTop = 300
+    await scroll.evaluate((el) => {
       el.scrollTop = 300;
     });
     await page.waitForTimeout(200);
 
-    // 6. Record header bounding box after scroll
-    const headerBoxAfter = await theadLocator.boundingBox();
-    expect(headerBoxAfter).not.toBeNull();
+    // 8. Verify actual scrollTop > 0
+    const actualScrollTop = await scroll.evaluate((el) => el.scrollTop);
+    expect(actualScrollTop).toBeGreaterThan(0);
 
-    // The header top relative to the viewport/container must remain sticky
-    expect(Math.abs(headerBoxAfter!.y - headerBoxBefore!.y)).toBeLessThanOrEqual(5);
+    // 9. Capture sticky header and container bounding boxes after vertical scroll
+    const headerAfter = await stickyHeader.boundingBox();
+    const containerAfter = await scroll.boundingBox();
+    expect(headerAfter).not.toBeNull();
+    expect(containerAfter).not.toBeNull();
 
-    // 7. Test horizontal scroll and sticky first column (№)
-    await scrollContainerLocator.evaluate((el) => {
+    // 10. Assert header top is effectively unchanged relative to container:
+    // abs((headerAfter.y - containerAfter.y) - (headerBefore.y - containerBefore.y)) <= 3
+    const relativeTopBefore = headerBefore!.y - containerBefore!.y;
+    const relativeTopAfter = headerAfter!.y - containerAfter!.y;
+    expect(Math.abs(relativeTopAfter - relativeTopBefore)).toBeLessThanOrEqual(3);
+
+    // 11. Horizontal sticky check:
+    // Before: scrollLeft = 0
+    await scroll.evaluate((el) => {
+      el.scrollLeft = 0;
+    });
+    await page.waitForTimeout(100);
+
+    // Then: scrollLeft = 200
+    await scroll.evaluate((el) => {
       el.scrollLeft = 200;
     });
     await page.waitForTimeout(200);
 
-    const firstColHeader = page.locator("th").first();
-    const firstColBox = await firstColHeader.boundingBox();
-    expect(firstColBox).not.toBeNull();
+    const actualScrollLeft = await scroll.evaluate((el) => el.scrollLeft);
+    expect(actualScrollLeft).toBeGreaterThan(0);
 
-    // The first column '№' header must remain at or near container left edge
-    expect(firstColBox!.x).toBeGreaterThanOrEqual(containerBox!.x - 2);
-    expect(firstColBox!.x).toBeLessThanOrEqual(containerBox!.x + 10);
+    // Measure data-testid="deals-header-index" and verify its X remains approximately aligned with scroll container left edge
+    const headerHoriz = await stickyHeader.boundingBox();
+    const containerHoriz = await scroll.boundingBox();
+    expect(headerHoriz).not.toBeNull();
+    expect(containerHoriz).not.toBeNull();
+    expect(Math.abs(headerHoriz!.x - containerHoriz!.x)).toBeLessThanOrEqual(5);
 
-    // 8. Assert zero uncaught page errors
+    // 12. Interaction sanity check:
+    // Click one sortable column header (data-testid="deals-header-column")
+    const columnHeaderButton = page
+      .getByTestId("deals-header-column")
+      .first()
+      .locator("button");
+    if (await columnHeaderButton.isVisible()) {
+      await columnHeaderButton.click();
+      await page.waitForTimeout(200);
+    }
+
+    // Verify UI remains intact and no uncaught exceptions occurred
+    await expect(scroll).toBeVisible();
     expect(pageErrors).toEqual([]);
+    expect(consoleErrors.filter((e) => !e.includes("favicon"))).toEqual([]);
   });
 });

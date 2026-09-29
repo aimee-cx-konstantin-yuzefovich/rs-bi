@@ -4,20 +4,197 @@
 // RusSilica BI Terminal - Samples Field Map & Filters CRM Verifier.
 // Validates configured Samples field IDs against real Bitrix24 CRM schema.
 // Strictly READ-ONLY operations (crm.company.fields, crm.deal.fields, crm.status.list).
+// Proves both TECHNICAL types and BUSINESS SEMANTICS (field TITLE / metadata).
 // ─────────────────────────────────────────────────────────────────────
 
 import fs from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createJiti } from "jiti";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const jiti = createJiti(import.meta.url);
 
-// 1. Detect BITRIX_WEBHOOK_URL
-function getWebhookUrl() {
+// Import actual constants — ONE source of truth from production code
+const crm = await jiti.import(resolve(root, "src/lib/crm-constants.ts"));
+
+export function normalizeTitle(t) {
+  if (!t || typeof t !== "string") return "";
+  return t
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ");
+}
+
+// Field Map specification to audit with strict business semantic expectations
+export const SAMPLES_FIELD_SPECS = [
+  // Company fields
+  {
+    role: "Образцы",
+    entity: "Company",
+    configuredId: crm.COMPANY_SAMPLES_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: ["Образцы", "Образцы (статус / наличие)"],
+  },
+  {
+    role: "Дата передачи образцов (multi)",
+    entity: "Company",
+    configuredId: crm.COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
+    expectedTypes: ["date"],
+    expectedMultiple: true,
+    acceptedTitles: ["Дата передачи образцов"],
+  },
+  {
+    role: "Дата передачи образцов (single)",
+    entity: "Company",
+    configuredId: crm.COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
+    expectedTypes: ["date"],
+    expectedMultiple: false,
+    acceptedTitles: ["Дата передачи образцов"],
+  },
+  {
+    role: "Марка предоставленных образцов (ГЕЛЬ)",
+    entity: "Company",
+    configuredId: crm.COMPANY_SAMPLES_GRADE_GEL_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: [
+      "Марка предоставленных образцов (ГЕЛЬ)",
+      "Марка образца (ГЕЛЬ)",
+    ],
+  },
+  {
+    role: "Марка предоставленных образцов (ЗОЛЬ)",
+    entity: "Company",
+    configuredId: crm.COMPANY_SAMPLES_GRADE_SOL_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: [
+      "Марка предоставленных образцов (ЗОЛЬ)",
+      "Марка образца (ЗОЛЬ)",
+    ],
+  },
+  {
+    role: "Кол-во переданного образца (ГЕЛЬ)",
+    entity: "Company",
+    configuredId: crm.COMPANY_SAMPLES_QTY_GEL_FIELD_ID,
+    expectedTypes: ["double"],
+    acceptedTitles: [
+      "Кол-во переданного образца (ГЕЛЬ) кг",
+      "Кол-во переданного (ГЕЛЬ)",
+      "Кол-во переданного образца (ГЕЛЬ)",
+    ],
+  },
+  {
+    role: "Кол-во переданного образца (ЗОЛЬ)",
+    entity: "Company",
+    configuredId: crm.COMPANY_SAMPLES_QTY_SOL_FIELD_ID,
+    expectedTypes: ["double"],
+    acceptedTitles: [
+      "Кол-во переданного образца (ЗОЛЬ) л",
+      "Кол-во переданного (ЗОЛЬ)",
+      "Кол-во переданного образца (ЗОЛЬ)",
+    ],
+  },
+  {
+    role: "Результат испытаний",
+    entity: "Company",
+    configuredId: crm.COMPANY_TEST_RESULT_FIELD_ID,
+    expectedTypes: ["string", "enumeration"],
+    acceptedTitles: ["Результат испытаний"],
+  },
+  {
+    role: "Тип продукта",
+    entity: "Company",
+    configuredId: crm.COMPANY_PRODUCT_TYPE_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    expectedMultiple: true,
+    acceptedTitles: ["Тип продукта"],
+  },
+  {
+    role: "Область применения — current/new",
+    entity: "Company",
+    configuredId: crm.COMPANY_APPLICATION_NEW_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: ["Область применения"],
+  },
+  {
+    role: "Область применения — legacy",
+    entity: "Company",
+    configuredId: crm.COMPANY_APPLICATION_OLD_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: ["Область применения"],
+  },
+  {
+    role: "Направление",
+    entity: "Company",
+    configuredId: crm.COMPANY_DIRECTION_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: ["Направление"],
+  },
+  {
+    role: "INDUSTRY",
+    entity: "Company",
+    configuredId: "INDUSTRY",
+    expectedTypes: ["crm_status"],
+    acceptedTitles: [
+      "Сфера деятельности",
+      "Отрасль",
+      "Отрасль / сфера деятельности",
+      "Industry",
+    ],
+  },
+
+  // Deal fields
+  {
+    role: "Передача образцов",
+    entity: "Deal",
+    configuredId: crm.DEAL_SAMPLE_TRANSFER_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: ["Передача образцов"],
+  },
+  {
+    role: "Тестирование образцов",
+    entity: "Deal",
+    configuredId: crm.DEAL_SAMPLE_TESTING_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: ["Тестирование образцов"],
+  },
+  {
+    role: "Дата отправки образцов",
+    entity: "Deal",
+    configuredId: crm.DEAL_SAMPLE_SENT_DATE_FIELD_ID,
+    expectedTypes: ["date"],
+    acceptedTitles: ["Дата отправки образцов"],
+  },
+  {
+    role: "Детали по образцам для ТВЛ",
+    entity: "Deal",
+    configuredId: crm.DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
+    expectedTypes: ["string"],
+    acceptedTitles: ["Детали по образцам для ТВЛ"],
+  },
+  {
+    role: "Марка и объём поставки",
+    entity: "Deal",
+    configuredId: crm.DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
+    expectedTypes: ["string"],
+    acceptedTitles: ["Марка и объём поставки", "Марка и объем поставки"],
+  },
+  {
+    role: "Направление",
+    entity: "Deal",
+    configuredId: crm.DEAL_DIRECTION_FIELD_ID,
+    expectedTypes: ["enumeration"],
+    acceptedTitles: ["Направление"],
+  },
+];
+
+// Detect BITRIX_WEBHOOK_URL from environment or standard env files only
+export function getWebhookUrl() {
   if (process.env.BITRIX_WEBHOOK_URL && process.env.BITRIX_WEBHOOK_URL.trim()) {
     return process.env.BITRIX_WEBHOOK_URL.trim();
   }
-  for (const envFile of [".env.local", ".env"]) {
+  for (const envFile of [".env", ".env.local", ".env.production.local"]) {
     const p = resolve(root, envFile);
     if (fs.existsSync(p)) {
       try {
@@ -40,142 +217,13 @@ function getWebhookUrl() {
   return null;
 }
 
-const webhookUrl = getWebhookUrl();
-
-if (!webhookUrl) {
-  console.log("LIVE BITRIX FILTER AUDIT: BLOCKED — BITRIX_WEBHOOK_URL NOT AVAILABLE");
-  console.log("LIVE AUDIT NOT EXECUTED");
-  process.exit(0);
-}
-
-// 2. Field Map specification to audit
-const SAMPLES_FIELD_SPECS = [
-  {
-    role: "Образцы (статус / наличие)",
-    entity: "Company",
-    configuredId: "UF_CRM_1753187313314",
-    expectedType: "enumeration",
-  },
-  {
-    role: "Дата передачи образцов (мульти)",
-    entity: "Company",
-    configuredId: "UF_CRM_1764156557536",
-    expectedType: "date",
-    expectedMultiple: true,
-  },
-  {
-    role: "Дата передачи образцов (одиночная)",
-    entity: "Company",
-    configuredId: "UF_CRM_1783429999269",
-    expectedType: "date",
-    expectedMultiple: false,
-  },
-  {
-    role: "Марка образца (ГЕЛЬ)",
-    entity: "Company",
-    configuredId: "UF_CRM_1764155817232",
-    expectedType: "enumeration",
-  },
-  {
-    role: "Марка образца (ЗОЛЬ)",
-    entity: "Company",
-    configuredId: "UF_CRM_1764155891815",
-    expectedType: "enumeration",
-  },
-  {
-    role: "Кол-во переданного (ГЕЛЬ)",
-    entity: "Company",
-    configuredId: "UF_CRM_1764156004815",
-    expectedType: "double",
-  },
-  {
-    role: "Кол-во переданного (ЗОЛЬ)",
-    entity: "Company",
-    configuredId: "UF_CRM_1764156064272",
-    expectedType: "double",
-  },
-  {
-    role: "Результат испытаний",
-    entity: "Company",
-    configuredId: "UF_CRM_1764156593",
-    expectedType: "string",
-  },
-  {
-    role: "Тип продукта",
-    entity: "Company",
-    configuredId: "UF_CRM_69257BBAB86F6",
-    expectedType: "enumeration",
-    expectedMultiple: true,
-  },
-  {
-    role: "Область применения (новая)",
-    entity: "Company",
-    configuredId: "UF_CRM_1781806326214",
-    expectedType: "enumeration",
-  },
-  {
-    role: "Область применения (старая)",
-    entity: "Company",
-    configuredId: "UF_CRM_69257337B8025",
-    expectedType: "enumeration",
-  },
-  {
-    role: "Направление",
-    entity: "Company",
-    configuredId: "UF_CRM_69259C45D3399",
-    expectedType: "enumeration",
-  },
-  {
-    role: "Отрасль / сфера деятельности",
-    entity: "Company",
-    configuredId: "INDUSTRY",
-    expectedType: "crm_status",
-  },
-  {
-    role: "Передача образцов (сделка)",
-    entity: "Deal",
-    configuredId: "UF_CRM_1779386185",
-    expectedType: "enumeration",
-  },
-  {
-    role: "Тестирование образцов (сделка)",
-    entity: "Deal",
-    configuredId: "UF_CRM_1779394379",
-    expectedType: "enumeration",
-  },
-  {
-    role: "Дата отправки образцов (сделка)",
-    entity: "Deal",
-    configuredId: "UF_CRM_1774879952785",
-    expectedType: "date",
-  },
-  {
-    role: "Детали по образцам для ТВЛ",
-    entity: "Deal",
-    configuredId: "UF_CRM_1774880017",
-    expectedType: "string",
-  },
-  {
-    role: "Марка и объём поставки",
-    entity: "Deal",
-    configuredId: "UF_CRM_1779384164284",
-    expectedType: "string",
-  },
-  {
-    role: "Направление (сделка)",
-    entity: "Deal",
-    configuredId: "UF_CRM_6915D8C328208",
-    expectedType: "enumeration",
-  },
-];
-
-async function callBitrixReadOnly(baseUrl, method) {
+export async function callBitrixReadOnly(baseUrl, method, body = {}) {
   const cleanBase = baseUrl.replace(/\/+$/, "");
   const url = `${cleanBase}/${method}`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     throw new Error(`Bitrix call ${method} failed with HTTP ${response.status}`);
@@ -184,7 +232,99 @@ async function callBitrixReadOnly(baseUrl, method) {
   return data.result;
 }
 
-async function verifyFieldMap() {
+export function evaluateFieldSpec(spec, liveField, statusList = []) {
+  if (!liveField) {
+    return {
+      ROLE: spec.role,
+      ENTITY: spec.entity,
+      FIELD_ID: spec.configuredId,
+      EXPECTED_TITLE: spec.acceptedTitles.join(" | "),
+      LIVE_TITLE: "—",
+      EXPECTED_TYPE: spec.expectedTypes.join(" | "),
+      LIVE_TYPE: "—",
+      EXPECTED_MULTIPLE: spec.expectedMultiple !== undefined ? (spec.expectedMultiple ? "Да" : "Нет") : "—",
+      LIVE_MULTIPLE: "—",
+      SEMANTIC_STATUS: "NOT_FOUND",
+      TECHNICAL_STATUS: "NOT_FOUND",
+      FINAL_STATUS: "NOT_FOUND",
+    };
+  }
+
+  const liveTitle =
+    liveField.title ||
+    liveField.formLabel ||
+    liveField.listLabel ||
+    liveField.name ||
+    "Без названия";
+  const liveType = liveField.type || "unknown";
+  const liveMultiple = Boolean(liveField.isMultiple);
+
+  // 1. Semantic title check
+  const normLiveTitle = normalizeTitle(liveTitle);
+  const isSemanticMatch = spec.acceptedTitles.some(
+    (accepted) => normalizeTitle(accepted) === normLiveTitle
+  );
+
+  // 2. Technical type and multiplicity check
+  let isTypeMatch = false;
+  if (spec.expectedTypes.includes(liveType)) {
+    isTypeMatch = true;
+  } else if (spec.expectedTypes.includes("string") && liveType === "enumeration") {
+    isTypeMatch = true;
+  }
+
+  let isMultipleMatch = true;
+  if (spec.expectedMultiple !== undefined && liveMultiple !== spec.expectedMultiple) {
+    isMultipleMatch = false;
+  }
+
+  // 3. Status list dictionary check for crm_status fields
+  let isStatusDictionaryMatch = true;
+  if (spec.expectedTypes.includes("crm_status")) {
+    const statusType = liveField.statusType;
+    if (!statusType) {
+      isStatusDictionaryMatch = false;
+    } else {
+      const dictEntries = Array.isArray(statusList)
+        ? statusList.filter((s) => s.ENTITY_ID === statusType)
+        : [];
+      if (dictEntries.length === 0) {
+        isStatusDictionaryMatch = false;
+      }
+    }
+  }
+
+  const isTechMatch = isTypeMatch && isMultipleMatch && isStatusDictionaryMatch;
+  const semanticStatus = isSemanticMatch ? "PASS" : "FAIL";
+  const technicalStatus = isTechMatch ? "PASS" : "FAIL";
+  const finalStatus = isSemanticMatch && isTechMatch ? "PASS" : "FAIL";
+
+  return {
+    ROLE: spec.role,
+    ENTITY: spec.entity,
+    FIELD_ID: spec.configuredId,
+    EXPECTED_TITLE: spec.acceptedTitles.join(" | "),
+    LIVE_TITLE: liveTitle,
+    EXPECTED_TYPE: spec.expectedTypes.join(" | "),
+    LIVE_TYPE: liveType,
+    EXPECTED_MULTIPLE: spec.expectedMultiple !== undefined ? (spec.expectedMultiple ? "Да" : "Нет") : "—",
+    LIVE_MULTIPLE: liveMultiple ? "Да" : "Нет",
+    SEMANTIC_STATUS: semanticStatus,
+    TECHNICAL_STATUS: technicalStatus,
+    FINAL_STATUS: finalStatus,
+  };
+}
+
+async function main() {
+  const webhookUrl = getWebhookUrl();
+
+  if (!webhookUrl) {
+    console.log("LIVE BITRIX FILTER AUDIT: BLOCKED — BITRIX_WEBHOOK_URL NOT AVAILABLE");
+    console.log("LIVE AUDIT NOT EXECUTED");
+    console.log("LIVE_AUDIT_STATUS=NOT_EXECUTED");
+    process.exit(0);
+  }
+
   console.log("=== RusSilica BI - Live Bitrix Samples Field Map Verification ===");
   console.log("Querying read-only metadata from CRM...");
 
@@ -196,81 +336,46 @@ async function verifyFieldMap() {
     ]);
 
     const results = [];
-    let hasMismatch = false;
+    let hasFailure = false;
 
     for (const spec of SAMPLES_FIELD_SPECS) {
       const fieldRepo = spec.entity === "Company" ? companyFields : dealFields;
       const liveField = fieldRepo ? fieldRepo[spec.configuredId] : undefined;
-
-      if (!liveField) {
-        results.push({
-          role: spec.role,
-          entity: spec.entity,
-          id: spec.configuredId,
-          crmTitle: "—",
-          crmType: "—",
-          multiple: "—",
-          status: "NOT_FOUND",
-        });
-        hasMismatch = true;
-        continue;
+      const row = evaluateFieldSpec(spec, liveField, statusList);
+      results.push(row);
+      if (row.FINAL_STATUS !== "PASS") {
+        hasFailure = true;
       }
-
-      const crmTitle = liveField.title || liveField.formLabel || liveField.listLabel || "Без названия";
-      const crmType = liveField.type || "unknown";
-      const isMultiple = Boolean(liveField.isMultiple);
-
-      let status = "OK";
-      if (spec.expectedType && crmType !== spec.expectedType && !(spec.expectedType === "string" && crmType === "enumeration")) {
-        status = "MISMATCH";
-        hasMismatch = true;
-      }
-      if (spec.expectedMultiple !== undefined && isMultiple !== spec.expectedMultiple) {
-        status = "MISMATCH";
-        hasMismatch = true;
-      }
-
-      results.push({
-        role: spec.role,
-        entity: spec.entity,
-        id: spec.configuredId,
-        crmTitle,
-        crmType,
-        multiple: isMultiple ? "Да" : "Нет",
-        status,
-        items: liveField.items || [],
-      });
     }
 
     console.log("\n--- Verification Summary Table ---");
-    console.table(
-      results.map((r) => ({
-        "Роль": r.role,
-        "Сущность": r.entity,
-        "ID в коде": r.id,
-        "Название в CRM": r.crmTitle,
-        "Тип": r.crmType,
-        "Мульти": r.multiple,
-        "Статус": r.status,
-      }))
-    );
+    console.table(results);
 
-    console.log(`\nVerified fields: ${results.length}. Mismatches/Missing: ${results.filter((r) => r.status !== "OK").length}`);
+    const total = results.length;
+    const passed = results.filter((r) => r.FINAL_STATUS === "PASS").length;
+    const failed = results.filter((r) => r.FINAL_STATUS === "FAIL").length;
+    const notFound = results.filter((r) => r.FINAL_STATUS === "NOT_FOUND").length;
 
-    if (hasMismatch) {
-      console.warn("WARNING: Some fields have type/existence mismatches with live CRM.");
-      console.log("LIVE AUDIT FAIL");
+    console.log(`\nVerified fields: ${total}. PASS: ${passed}, FAIL: ${failed}, NOT_FOUND: ${notFound}`);
+
+    if (hasFailure) {
+      console.warn("WARNING: Some fields have semantic or technical mismatches with live CRM.");
+      console.log("LIVE_AUDIT_STATUS=FAIL");
       process.exit(1);
     } else {
       console.log("All Samples fields verified successfully against live CRM.");
-      console.log("LIVE AUDIT PASS");
+      console.log("LIVE_AUDIT_STATUS=PASS");
       process.exit(0);
     }
   } catch (err) {
     console.error("Verification execution error:", err.message);
-    console.log("LIVE AUDIT FAIL");
+    console.log("LIVE_AUDIT_STATUS=FAIL");
     process.exit(1);
   }
 }
 
-verifyFieldMap();
+// Only run main when invoked as main script
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (isMain) {
+  main();
+}

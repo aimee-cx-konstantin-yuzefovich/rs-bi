@@ -84,11 +84,12 @@ describe("DEAL-STICKY-1 — Deals table header sticky contract", () => {
   it("table th elements have sticky top-0 and no conflicting relative class", () => {
     const { container } = render(<DataTable />);
 
-    // 1. First column header (№) has sticky top-0 left-0 z-30 bg-card
+    // 1. First column header (№) has sticky top-0 left-0 z-30 bg-card and precise data-testid
     const headers = container.querySelectorAll("thead th");
     expect(headers.length).toBeGreaterThanOrEqual(3); // №, TITLE, OPPORTUNITY
 
-    const numberHeader = headers[0];
+    const numberHeader = screen.getByTestId("deals-header-index");
+    expect(numberHeader).toBe(headers[0]);
     expect(numberHeader.textContent?.trim()).toBe("№");
     expect(numberHeader.className).toContain("sticky");
     expect(numberHeader.className).toContain("top-0");
@@ -96,9 +97,10 @@ describe("DEAL-STICKY-1 — Deals table header sticky contract", () => {
     expect(numberHeader.className).toContain("z-30");
     expect(numberHeader.className).toContain("bg-card");
 
-    // 2. Data column headers have sticky top-0 z-20 bg-card and NO relative class
-    for (let i = 1; i < headers.length; i++) {
-      const th = headers[i];
+    // 2. Data column headers have sticky top-0 z-20 bg-card, NO relative class, and data-testid="deals-header-column"
+    const columnHeaders = screen.getAllByTestId("deals-header-column");
+    expect(columnHeaders.length).toBe(headers.length - 1);
+    for (const th of columnHeaders) {
       expect(th.className).toContain("sticky");
       expect(th.className).toContain("top-0");
       expect(th.className).toContain("z-20");
@@ -106,12 +108,9 @@ describe("DEAL-STICKY-1 — Deals table header sticky contract", () => {
       expect(th.className).not.toContain("relative");
     }
 
-    // 3. Scroll container (parent of the table's wrapper) has h-full and overflow-auto
-    const table = container.querySelector("table.data-table");
-    expect(table).not.toBeNull();
-    const tableWrapper = table?.parentElement;
-    const scrollContainer = tableWrapper?.parentElement;
-    expect(scrollContainer?.className).toContain("overflow-auto");
-    expect(scrollContainer?.className).toContain("h-full");
+    // 3. Scroll container has data-testid="deals-table-scroll", h-full, and overflow-auto
+    const scrollContainer = screen.getByTestId("deals-table-scroll");
+    expect(scrollContainer.className).toContain("overflow-auto");
+    expect(scrollContainer.className).toContain("h-full");
   });
 });
