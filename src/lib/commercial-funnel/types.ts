@@ -209,6 +209,19 @@ export interface ManagerScorecardRow {
   paymentAmountsQualityByCurrency?: Record<string, AggregateAmountQuality>;
   bottlenecksCount: number;
   companyIds: string[];
+  // ── Portfolio / Load group (current state, never date-filtered) ──
+  /** Unique companies with ≥1 active (non-terminal) deal. */
+  activeCompanies: number;
+  activeCompaniesIds: string[];
+  /** Unique companies with a deal awaiting payment (INVOICE_SENT statuses). */
+  awaitingPayment: number;
+  awaitingPaymentIds: string[];
+  /**
+   * Unique companies whose active deals have known activity data but no
+   * next step (factual data-gap metric; only provable via activityDataKnown).
+   */
+  noNextStep: number;
+  noNextStepIds: string[];
 }
 
 export interface SampleRegisterRow {
@@ -232,6 +245,159 @@ export interface SampleRegisterRow {
   qtyGel?: string;
   qtySol?: string;
   nextAction?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Management Rebuild analytics contracts (UI + Excel share these types).
+// ─────────────────────────────────────────────────────────────────────
+
+/** A count with its exact underlying unique company IDs (drill-down truth). */
+export interface CountedPopulation {
+  count: number;
+  companyIds: string[];
+}
+
+/** One stage row of the Samples & Testing funnel track (current snapshot). */
+export interface FunnelStageRow {
+  id: string;
+  label: string;
+  companyCount: number;
+  dealCount: number;
+  companyIds: string[];
+  /**
+   * Period event count. Present ONLY where a reliable dated event exists
+   * (currently: "Образцы отправлены" via sampleSentDate provenance).
+   * null means: no reliable dated event → UI/Excel show "–". Never fake.
+   */
+  periodEventCount: number | null;
+  periodEventCompanyIds: string[] | null;
+}
+
+/** Commercial track of the Funnel view: current snapshot + period events. */
+export interface FunnelCommercialView {
+  current: {
+    activeDeals: CountedPopulation;
+    dealCount: number;
+    awaitingPayment: CountedPopulation;
+    awaitingPaymentDealCount: number;
+  };
+  period: {
+    /** Companies with deals created in period. */
+    dealsCreated: CountedPopulation;
+    /** Companies with payments received in period. */
+    paymentsReceived: CountedPopulation;
+    /** Payment amounts by currency (isolated; never cross-summed). */
+    paymentAmountsByCurrency: Record<string, number>;
+    paymentAmountQualityByCurrency: Record<string, AggregateAmountQuality>;
+    /** Companies with shipments in period. */
+    shipments: CountedPopulation;
+  };
+}
+
+/** Positive sample result → commercial continuation evidence (NOT conversion). */
+export interface FunnelContinuationLink {
+  /** Companies currently at "Подошли". */
+  positiveResult: CountedPopulation;
+  /** Subset of positiveResult with ≥1 progressed commercial deal. */
+  withCommercialContinuation: CountedPopulation;
+}
+
+export interface FunnelView {
+  sampleTestingStages: FunnelStageRow[];
+  commercial: FunnelCommercialView;
+  continuation: FunnelContinuationLink;
+}
+
+export type SegmentDimension = "industry" | "direction" | "product";
+
+/** Current-state metric group for one segment row. */
+export interface SegmentCurrentMetrics {
+  activeCompanies: CountedPopulation;
+  requireSamples: CountedPopulation;
+  samplesSent: CountedPopulation;
+  inTesting: CountedPopulation;
+  passed: CountedPopulation;
+  failed: CountedPopulation;
+  rework: CountedPopulation;
+  activeDeals: CountedPopulation;
+  awaitingPayment: CountedPopulation;
+  requireAttention: CountedPopulation;
+}
+
+/** Period-event metric group for one segment row (unique companies). */
+export interface SegmentPeriodMetrics {
+  newCompanies: CountedPopulation;
+  samplesSent: CountedPopulation;
+  dealsCreated: CountedPopulation;
+  paymentsReceived: CountedPopulation;
+  shipments: CountedPopulation;
+}
+
+export interface SegmentRow {
+  /** Segment value, or "Не указано" for missing dimension values. */
+  label: string;
+  isMissingValue: boolean;
+  current: SegmentCurrentMetrics;
+  period: SegmentPeriodMetrics;
+}
+
+export interface SegmentBreakdown {
+  dimension: SegmentDimension;
+  rows: SegmentRow[];
+  /** Union of unique company IDs across all rows (NOT the sum of row counts). */
+  totalUniqueCompanyIds: string[];
+  /** Product/Direction are multi-valued: row sums may exceed unique totals. */
+  isMultiValueDimension: boolean;
+}
+
+/** Action-center row (Management meeting-ready, authoritative data only). */
+export interface ActionPlanRow {
+  id: string;
+  companyId: string;
+  companyTitle: string;
+  responsibleId: string;
+  responsibleName: string;
+  /** Where it is stuck (existing bottleneck issueLabel). */
+  stuckAt: string;
+  currentState: string;
+  daysWaiting: number | null;
+  /** activityLast when known; undefined with explicit disclosure otherwise. */
+  lastActivity?: string;
+  lastActivityKnown: boolean;
+  /** activityNext only; NEVER invented. */
+  nextAction?: string;
+  nextActionDate?: string;
+  dealId?: string;
+  dealTitle?: string;
+}
+
+/** Management signal derived strictly from existing bottleneck rules. */
+export interface ManagementSignal {
+  id: string;
+  label: string;
+  /** Unique company count (drill-down reconciles exactly). */
+  companyCount: number;
+  companyIds: string[];
+}
+
+/** Sample & Testing management snapshot row (NOT the raw registry). */
+export interface SampleTestingSnapshotRow {
+  id: string;
+  companyId: string;
+  companyTitle: string;
+  responsibleName: string;
+  productType: string;
+  industry: string;
+  direction: string;
+  markOrBatch: string;
+  shipmentDate?: string;
+  testingStatus: string;
+  testResult: string;
+  /** Always undefined unless an authoritative planned/actual test date field exists. */
+  plannedOrActualTestDate?: string;
+  nextActionOrComment: string;
+  dealId?: string;
+  dealTitle?: string;
 }
 
 export interface CommercialDataset {

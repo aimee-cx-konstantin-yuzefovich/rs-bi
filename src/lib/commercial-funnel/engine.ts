@@ -700,11 +700,72 @@ export function computeManagerScorecard(
         paymentAmountsByCurrency: {},
         bottlenecksCount: 0,
         companyIds: [],
+        activeCompanies: 0,
+        activeCompaniesIds: [],
+        awaitingPayment: 0,
+        awaitingPaymentIds: [],
+        noNextStep: 0,
+        noNextStepIds: [],
       };
       managerMap.set(respId, row);
     }
     return row;
   };
+
+  // Portfolio / Load group (current state, never date-filtered).
+  // Attribution mirrors the provenance rules above: active-deal companies go
+  // to each manager owning an active deal; awaiting-payment likewise;
+  // no-next-step requires activityDataKnown === true (factual data gap only).
+  const activeDealsByManager = new Map<string, Set<string>>();
+  const awaitingPaymentByManager = new Map<string, Set<string>>();
+  const noNextStepByManager = new Map<string, Set<string>>();
+
+  for (const c of companies) {
+    for (const d of c.deals) {
+      const dealRespId = d.responsibleId || c.responsibleId;
+      if (!isDealActiveStage(d.stageId)) continue;
+      let set = activeDealsByManager.get(dealRespId);
+      if (!set) {
+        set = new Set();
+        activeDealsByManager.set(dealRespId, set);
+      }
+      set.add(c.id);
+
+      if (d.paymentStatus && INVOICE_SENT_STATUS_CODES.has(d.paymentStatus)) {
+        let paySet = awaitingPaymentByManager.get(dealRespId);
+        if (!paySet) {
+          paySet = new Set();
+          awaitingPaymentByManager.set(dealRespId, paySet);
+        }
+        paySet.add(c.id);
+      }
+
+      if (d.activityDataKnown && !d.activityNext) {
+        let stepSet = noNextStepByManager.get(dealRespId);
+        if (!stepSet) {
+          stepSet = new Set();
+          noNextStepByManager.set(dealRespId, stepSet);
+        }
+        stepSet.add(c.id);
+      }
+    }
+  }
+
+  for (const [respId, ids] of activeDealsByManager) {
+    const row = getOrCreate(respId);
+    row.activeCompanies = ids.size;
+    row.activeCompaniesIds = Array.from(ids);
+  }
+  for (const [respId, ids] of awaitingPaymentByManager) {
+    const row = getOrCreate(respId);
+    row.awaitingPayment = ids.size;
+    row.awaitingPaymentIds = Array.from(ids);
+  }
+  for (const [respId, ids] of noNextStepByManager) {
+    const row = getOrCreate(respId);
+    row.noNextStep = ids.size;
+    row.noNextStepIds = Array.from(ids);
+  }
 
   for (const c of companies) {
     // Dated: new company in period (factual Company owner ONLY when companyFactsIncluded !== false)
