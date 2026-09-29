@@ -744,14 +744,16 @@ export function CompanyBrowser() {
 
         {/* Export — ALWAYS THE LAST ACTION CONTROL */}
         <Button
+          type="button"
           variant="outline"
           size="sm"
           onClick={handleExport}
           disabled={companyBrowserItems.length === 0}
-          className="h-8 gap-1.5 text-xs"
+          className="h-8 gap-1.5 text-xs shrink-0"
+          title="Экспорт реестра компаний в Excel"
         >
           <Download className="h-3.5 w-3.5" />
-          Экспорт
+          <span className="hidden sm:inline">Экспорт</span>
         </Button>
 
         <div className="ml-auto text-xs text-muted-foreground tabular-nums">
@@ -966,7 +968,7 @@ export function CompanyBrowser() {
             <span className="tabular-nums">
               {sortedItems.length > 0
                 ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, sortedItems.length)} из ${sortedItems.length}`
-                : ""}
+                : "0 из 0"}
             </span>
             <div className="flex items-center gap-1.5">
               <span>Строк:</span>

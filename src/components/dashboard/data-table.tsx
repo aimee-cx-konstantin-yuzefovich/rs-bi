@@ -519,7 +519,9 @@ export function DataTable() {
         <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between">
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="tabular-nums">
-              {((currentPage - 1) * pageSize) + 1}–{Math.min(currentPage * pageSize, sortedDeals.length)} из {sortedDeals.length}
+              {sortedDeals.length > 0
+                ? `${((currentPage - 1) * pageSize) + 1}–${Math.min(currentPage * pageSize, sortedDeals.length)} из ${sortedDeals.length}`
+                : "0 из 0"}
             </span>
             {(searchQuery || activeFilterCount > 0) && (
               <Tooltip>

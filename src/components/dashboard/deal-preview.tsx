@@ -109,19 +109,25 @@ export function DealPreview({
       ? String(state.deal.TITLE || "").trim() || "Без названия"
       : "Сделка";
 
-  const renderFieldValue = (val: unknown): string => {
-    if (val === null || val === undefined || val === "") return "—";
+  const renderFieldValue = (val: unknown, isBoolean?: boolean): string => {
+    if (val === null || val === undefined || val === "") return "–";
+    if (isBoolean) {
+      if (val === true || String(val).toLowerCase() === "true" || val === "Y" || val === "1") return "Да";
+      if (val === false || String(val).toLowerCase() === "false" || val === "N" || val === "0") return "Нет";
+    } else {
+      if (val === false || String(val).trim().toLowerCase() === "false" || String(val).trim().toLowerCase() === "null" || String(val).trim().toLowerCase() === "undefined") {
+        return "–";
+      }
+    }
     if (val === true) return "Да";
-    if (val === false) return "Нет";
     if (typeof val === "object") {
-      if (Array.isArray(val)) return val.map(renderFieldValue).join(", ");
+      if (Array.isArray(val)) return val.map((v) => renderFieldValue(v, isBoolean)).join(", ");
       return JSON.stringify(val);
     }
     const str = String(val).trim();
-    if (!str || str === "null" || str === "undefined") return "—";
+    if (!str || str === "—" || str === "–" || str === "null" || str === "undefined") return "–";
     const upper = str.toUpperCase();
     if (upper === "TRUE") return "Да";
-    if (upper === "FALSE") return "Нет";
     if (upper === "UNKNOWN") return "Не классифицировано";
     return str;
   };
@@ -235,7 +241,7 @@ export function DealPreview({
                           userNames || {},
                           usersCoverage
                         )
-                      : "—"}
+                      : "–"}
                   </dd>
                 </div>
 
@@ -293,7 +299,7 @@ export function DealPreview({
                         </Link>
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <span className="text-muted-foreground">–</span>
                     )}
                   </dd>
                 </div>
@@ -359,11 +365,20 @@ export function DealPreview({
 
               {/* Custom UF Fields */}
               {(() => {
+                const fieldMap = new Map(fields.map((f) => [f.id, f]));
                 const ufEntries = Object.entries(state.deal).filter(
-                  ([k, v]) => k.startsWith("UF_CRM_") && v !== null && v !== "" && v !== undefined
+                  ([k, v]) => {
+                    if (!k.startsWith("UF_CRM_") || v === null || v === "" || v === undefined) return false;
+                    const fieldMeta = fieldMap.get(k);
+                    const isBool = fieldMeta?.type === "boolean" || fieldMeta?.type === "char";
+                    if (!isBool) {
+                      const s = String(v).trim().toLowerCase();
+                      if (v === false || s === "false" || s === "null" || s === "undefined") return false;
+                    }
+                    return true;
+                  }
                 );
                 if (ufEntries.length === 0) return null;
-                const fieldMap = new Map(fields.map((f) => [f.id, f]));
                 return (
                   <div className="pt-3 space-y-3">
                     <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -371,12 +386,13 @@ export function DealPreview({
                     </h4>
                     {ufEntries.map(([ufKey, ufVal]) => {
                       const fieldMeta = fieldMap.get(ufKey);
+                      const isBool = fieldMeta?.type === "boolean" || fieldMeta?.type === "char";
                       const label = fieldMeta?.title || ufKey;
                       return (
                         <div key={ufKey}>
                           <dt className="text-xs text-muted-foreground">{label}</dt>
                           <dd className="mt-1 whitespace-pre-wrap break-words text-xs">
-                            {renderFieldValue(ufVal)}
+                            {renderFieldValue(ufVal, isBool)}
                           </dd>
                         </div>
                       );

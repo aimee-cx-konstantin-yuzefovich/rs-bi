@@ -14,19 +14,25 @@ import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { SampleSummary } from "@/lib/samples/types";
 import { getDealStageDisplayLabel } from "@/lib/crm-constants";
 
-function formatPreviewValue(val: unknown): string {
-  if (val === null || val === undefined || val === "") return "—";
+function formatPreviewValue(val: unknown, isBoolean?: boolean): string {
+  if (val === null || val === undefined || val === "") return "–";
+  if (isBoolean) {
+    if (val === true || String(val).toLowerCase() === "true" || val === "Y" || val === "1") return "Да";
+    if (val === false || String(val).toLowerCase() === "false" || val === "N" || val === "0") return "Нет";
+  } else {
+    if (val === false || String(val).trim().toLowerCase() === "false" || String(val).trim().toLowerCase() === "null" || String(val).trim().toLowerCase() === "undefined") {
+      return "–";
+    }
+  }
   if (val === true) return "Да";
-  if (val === false) return "Нет";
   if (typeof val === "object") {
-    if (Array.isArray(val)) return val.map(formatPreviewValue).join(", ");
+    if (Array.isArray(val)) return val.map((v) => formatPreviewValue(v, isBoolean)).join(", ");
     return JSON.stringify(val);
   }
   const str = String(val).trim();
-  if (!str || str === "—" || str === "null" || str === "undefined") return "—";
+  if (!str || str === "—" || str === "–" || str === "null" || str === "undefined") return "–";
   const upper = str.toUpperCase();
   if (upper === "TRUE") return "Да";
-  if (upper === "FALSE") return "Нет";
   if (upper === "UNKNOWN") return "Не классифицировано";
   if (upper === "WON" || upper.endsWith(":WON")) return "Успешные";
   if (upper === "LOSE" || upper === "LOST" || upper.endsWith(":LOSE") || upper.endsWith(":LOST")) return "Проиграны";
@@ -267,7 +273,7 @@ export function CompanyPreview({
                 {activeFieldsFor(state.company).map((field) => (
                   <div key={field.id}>
                     <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                    <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value)}</dd>
+                    <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value, field.type === "boolean" || field.type === "char")}</dd>
                   </div>
                 ))}
               </dl>
@@ -281,7 +287,7 @@ export function CompanyPreview({
                   {activeSampleFieldsFor(state.company).map((field) => (
                     <div key={field.id}>
                       <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                      <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value)}</dd>
+                      <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value, field.type === "boolean" || field.type === "char")}</dd>
                     </div>
                   ))}
                 </dl>
@@ -385,7 +391,7 @@ export function CompanyPreview({
                                   })}
                                   {currency && currency.toUpperCase() !== "UNKNOWN"
                                     ? ` ${currency}`
-                                    : " — валюта не указана"}
+                                    : " – валюта не указана"}
                                 </span>
                               )}
                               {dealBitrixUrl && (

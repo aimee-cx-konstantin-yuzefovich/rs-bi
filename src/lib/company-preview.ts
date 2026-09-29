@@ -103,7 +103,10 @@ export function defaultSampleFields(
       }
     }
 
-    const value = raw !== undefined && raw !== null && String(raw).trim() !== "" ? String(raw).trim() : "—";
+    const isBool = metaType === "boolean" || metaType === "char";
+    const s = String(raw).trim();
+    const isSentinel = !isBool && (raw === false || s.toLowerCase() === "false" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined");
+    const value = raw !== undefined && raw !== null && s !== "" && !isSentinel ? s : "–";
     return { id, label, value, type: metaType };
   });
 }
@@ -171,12 +174,18 @@ export function defaultCompanyFields(
 
   for (const [key, val] of Object.entries(company)) {
     if (key.startsWith("UF_CRM_") && !sampleFieldIds.has(key) && val !== null && val !== "" && val !== undefined) {
-      out.push({
-        id: key,
-        label: key,
-        value: typeof val === "object" ? JSON.stringify(val) : String(val),
-        type: typeOf(key),
-      });
+      const fType = typeOf(key)?.toLowerCase();
+      const isBool = fType === "boolean" || fType === "char";
+      const s = String(val).trim();
+      const isSentinel = !isBool && (val === false || s.toLowerCase() === "false" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined");
+      if (!isSentinel) {
+        out.push({
+          id: key,
+          label: key,
+          value: typeof val === "object" ? JSON.stringify(val) : s,
+          type: fType,
+        });
+      }
     }
   }
 
