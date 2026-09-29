@@ -57,9 +57,7 @@ import {
   Filter,
   UserCircle,
   X,
-} from "lucide-react";
-
-const PAGE_SIZE = 50;
+const COMPANY_PAGE_SIZES = [25, 50, 100, 250];
 
 type SortDirection = "asc" | "desc" | null;
 interface CompanyColumnSort {
@@ -377,6 +375,7 @@ export function CompanyBrowser() {
   const previewTrigger = useRef<HTMLButtonElement | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(50);
   const [columnSort, setColumnSort] = useState<CompanyColumnSort>({ columnId: "", direction: null });
   const [columnFilters, setColumnFilters] = useState<CompanyColumnFilter[]>([]);
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
@@ -535,11 +534,11 @@ export function CompanyBrowser() {
     [sortedItems]
   );
 
-  const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
   const pageItems = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return sortedItems.slice(start, start + PAGE_SIZE);
-  }, [sortedItems, currentPage]);
+    const start = (currentPage - 1) * pageSize;
+    return sortedItems.slice(start, start + pageSize);
+  }, [sortedItems, currentPage, pageSize]);
 
   // WYSIWYG export — same columns/order/formatting/filter/sort currently
   // shown in the table, but over the full set (not just the current page),
@@ -932,7 +931,7 @@ export function CompanyBrowser() {
                   className={highlightSamples && hasSamplesInfo(company) ? "cursor-pointer bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40" : "cursor-pointer"}
                 >
                   <TableCell className={`text-xs text-muted-foreground tabular-nums sticky left-0 z-10 border-r border-border text-center ${highlightSamples && hasSamplesInfo(company) ? "bg-amber-100 dark:bg-amber-950" : "bg-card group-hover:bg-muted transition-colors"}`}>
-                    {(currentPage - 1) * PAGE_SIZE + idx + 1}
+                    {(currentPage - 1) * pageSize + idx + 1}
                   </TableCell>
                   {columns.map((colId) => {
                     const field = getField(colId);
@@ -961,11 +960,31 @@ export function CompanyBrowser() {
 
         {/* Pagination (client-side, over the filtered/sorted set) */}
         <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between text-xs text-muted-foreground">
-          <span className="tabular-nums">
-            {sortedItems.length > 0
-              ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, sortedItems.length)} из ${sortedItems.length}`
-              : ""}
-          </span>
+          <div className="flex items-center gap-4">
+            <span className="tabular-nums">
+              {sortedItems.length > 0
+                ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, sortedItems.length)} из ${sortedItems.length}`
+                : ""}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span>Строк:</span>
+              <select
+                aria-label="Строк на странице"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="h-6 rounded border border-border bg-background px-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {COMPANY_PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -973,6 +992,7 @@ export function CompanyBrowser() {
               className="h-7 w-7 rounded-sm"
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage <= 1}
+              aria-label="Предыдущая страница"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
@@ -985,6 +1005,7 @@ export function CompanyBrowser() {
               className="h-7 w-7 rounded-sm"
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage >= totalPages}
+              aria-label="Следующая страница"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </Button>

@@ -340,12 +340,12 @@ export function SamplesFilterBar({
           {showKpis ? (
             <>
               <ChevronUp className="h-3.5 w-3.5" />
-              <span>Скрыть показатели</span>
+              <span>Скрыть KPI</span>
             </>
           ) : (
             <>
               <ChevronDown className="h-3.5 w-3.5" />
-              <span>Показать показатели</span>
+              <span>Показать KPI</span>
             </>
           )}
         </Button>
@@ -357,12 +357,12 @@ export function SamplesFilterBar({
           size="sm"
           onClick={onExport}
           disabled={exportDisabled}
-          className="h-8 gap-1.5 text-xs"
-          title="Выгрузить реестр в Excel"
+          className="h-8 gap-1.5 text-xs shrink-0"
+          title="Экспорт реестра образцов в Excel"
           type="button"
         >
           <Download className="h-3.5 w-3.5" />
-          <span>Выгрузить Excel</span>
+          <span className="hidden sm:inline">Экспорт</span>
         </Button>
       )}
 
