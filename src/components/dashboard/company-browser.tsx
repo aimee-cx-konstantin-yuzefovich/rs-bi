@@ -57,6 +57,8 @@ import {
   Filter,
   UserCircle,
   X,
+} from "lucide-react";
+
 const COMPANY_PAGE_SIZES = [25, 50, 100, 250];
 
 type SortDirection = "asc" | "desc" | null;
