@@ -1,8 +1,9 @@
 // src/lib/commercial-funnel/export-excel.ts
 // ─────────────────────────────────────────────────────────────────────
-// Structured 5-sheet RusSilica Management Excel report generator.
+// Structured 6-sheet RusSilica Management Excel report generator.
 // Consumes the EXACT same analytical dataset and engine metrics as the UI.
-// Sheets: Executive Summary, Companies, Samples, Managers, Bottlenecks.
+// Sheets: Executive Summary, Funnel, Segments, Sample Testing, Managers,
+// Action Plan.
 // ─────────────────────────────────────────────────────────────────────
 
 import ExcelJS from "exceljs";
@@ -157,7 +158,7 @@ export async function createCommercialFunnelWorkbook(
   workbook.created = now;
   workbook.modified = now;
 
-  // Register logo once on workbook; reused across all 5 sheets
+  // Register logo once on workbook; reused across all 6 sheets
   const logoImageId = await registerBrandLogo(workbook);
 
   // Monkey-patch addRow for formula injection prevention
@@ -987,7 +988,7 @@ function formatPeriodPresetToRussian(preset: string): string {
   });
 
   const segmentCurrentCols = [
-    "Активные компании",
+    "Компании в текущем контуре",
     "Требуются образцы",
     "Отправлены",
     "На испытаниях",
@@ -1106,7 +1107,6 @@ function formatPeriodPresetToRussian(preset: string): string {
     "Дата отправки",
     "Статус испытаний",
     "Результат",
-    "Плановая / фактическая дата испытаний",
     "Следующий шаг / актуальный комментарий",
     "Сделка",
   ];
@@ -1149,7 +1149,6 @@ function formatPeriodPresetToRussian(preset: string): string {
       shipmentDateVal,
       s.testingStatus,
       s.testResult,
-      s.plannedOrActualTestDate ? toExcelDate(s.plannedOrActualTestDate) : "–",
       s.nextActionOrComment,
       s.dealTitle || "—",
     ]);
@@ -1157,9 +1156,6 @@ function formatPeriodPresetToRussian(preset: string): string {
     row.alignment = { vertical: "top", wrapText: true };
     row.getCell(1).numFmt = NUMFMT.INTEGER;
     if (shipmentDateVal) row.getCell(7).numFmt = NUMFMT.DATE;
-    if (s.plannedOrActualTestDate && toExcelDate(s.plannedOrActualTestDate)) {
-      row.getCell(10).numFmt = NUMFMT.DATE;
-    }
     applyStatusCell(row.getCell(8), s.testingStatus);
     row.getCell(8).value = s.testingStatus;
   });
@@ -1213,7 +1209,7 @@ function formatPeriodPresetToRussian(preset: string): string {
   const managersColumns = [
     "Менеджер",
     // PORTFOLIO (current)
-    "Активные компании (сейчас)",
+    "Компании в текущем контуре (сейчас)",
     "На испытании (сейчас)",
     "Ожидают оплаты (сейчас)",
     "Без следующего шага (сейчас)",

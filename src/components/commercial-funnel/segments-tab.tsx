@@ -41,7 +41,7 @@ type ColumnKey =
   | "shipments";
 
 const CURRENT_COLUMNS: Array<{ key: keyof SegmentRow["current"]; label: string }> = [
-  { key: "activeCompanies", label: "Активные компании" },
+  { key: "activeCompanies", label: "Компании в текущем контуре" },
   { key: "requireSamples", label: "Требуются образцы" },
   { key: "samplesSent", label: "Отправлены" },
   { key: "inTesting", label: "На испытаниях" },
@@ -167,6 +167,11 @@ export function CommercialSegmentsTab({
                   className={`font-medium text-muted-foreground px-2 py-1.5 whitespace-nowrap ${
                     i === 0 ? "border-l border-border/60" : ""
                   }`}
+                  title={
+                    col.key === "activeCompanies"
+                      ? "Компании в текущем контуре: у компании есть текущее состояние по образцам и/или активная коммерческая сделка."
+                      : undefined
+                  }
                 >
                   {col.label}
                 </th>

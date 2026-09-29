@@ -237,11 +237,13 @@ describe("Ingress-to-Domain End-to-End Pipeline Fixture", () => {
       "Action Plan",
     ]);
 
-    // Inspect Sample Testing sheet (management snapshot with native dates)
+    // Inspect Sample Testing sheet (management snapshot with native dates).
+    // Defect E: the dead "Плановая / фактическая дата испытаний" column was
+    // removed — Сделка is now column 11.
     const sampleSheet = reloaded.getWorksheet("Sample Testing")!;
     let sampleRow: ExcelJS.Row | undefined;
     sampleSheet.eachRow((r) => {
-      const dealTitleVal = String(r.getCell(12).value || "");
+      const dealTitleVal = String(r.getCell(11).value || "");
       if (dealTitleVal.includes("1005")) sampleRow = r;
     });
     expect(sampleRow).toBeDefined();

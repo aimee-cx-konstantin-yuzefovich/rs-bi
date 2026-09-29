@@ -51,6 +51,7 @@ import {
 } from "@/lib/commercial-funnel/analytics";
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
 import { downloadCommercialFunnelExcel } from "@/lib/commercial-funnel/export-excel";
+import { buildExcelExtraWarnings } from "@/lib/commercial-funnel/disclosure";
 import type { CommercialFilters } from "@/lib/commercial-funnel/types";
 
 export type ActiveTab = "overview" | "funnel" | "segments" | "managers" | "bottlenecks";
@@ -115,12 +116,24 @@ function CommercialFunnelContent() {
   // Excel export state
   const [exportingExcel, setExportingExcel] = useState(false);
 
+  // ─── ONE ANALYSIS CLOCK (Defect C fix) ───
+  // analysisNow is the frozen analytical timestamp for the current view.
+  // It refreshes ONLY when a fresh analytical view lands (initial load or
+  // reload completion) — never per render, never ticking. UI boundaries,
+  // bottleneck day-counts, action plan and the Excel export all consume the
+  // SAME instant, so "what I see is what I export" holds even across a
+  // calendar-day / quarter / midnight boundary.
+  const [analysisNow, setAnalysisNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    if (!loading) setAnalysisNow(new Date());
+  }, [loading]);
+
   // ─── ONE GLOBAL ANALYTICAL SLICE ───
   // Every tab and the Excel export consume the SAME filtered population and
   // boundaries. No tab may introduce hidden business filters.
   const boundaries = useMemo(
-    () => computePeriodBoundaries(filters),
-    [filters]
+    () => computePeriodBoundaries(filters, analysisNow),
+    [filters, analysisNow]
   );
 
   const filteredCompanies = useMemo(
@@ -134,8 +147,8 @@ function CommercialFunnelContent() {
   );
 
   const bottlenecks = useMemo(
-    () => computeBottlenecks(filteredCompanies),
-    [filteredCompanies]
+    () => computeBottlenecks(filteredCompanies, analysisNow),
+    [filteredCompanies, analysisNow]
   );
 
   const managerScorecard = useMemo(
@@ -162,14 +175,25 @@ function CommercialFunnelContent() {
   );
 
   const actionPlan = useMemo(
-    () => computeActionPlan(filteredCompanies),
-    [filteredCompanies]
+    () => computeActionPlan(filteredCompanies, analysisNow),
+    [filteredCompanies, analysisNow]
   );
 
   const managementSignals = useMemo(
-    () => computeManagementSignals(filteredCompanies),
-    [filteredCompanies]
+    () => computeManagementSignals(filteredCompanies, analysisNow),
+    [filteredCompanies, analysisNow]
   );
+
+  // HE contract: ONE shared disclosure rule for every surface whose values
+  // depend on incomplete data (UI banners + Excel extraWarnings).
+  const extraWarnings = useMemo(() => {
+    const paymentKpi = datedKpis.find((k) => k.id === "payment_amount");
+    return buildExcelExtraWarnings({
+      activityPartial,
+      activityWarning,
+      financialQualitiesByCurrency: paymentKpi?.currencyBreakdownQuality?.current,
+    });
+  }, [datedKpis, activityPartial, activityWarning]);
 
   const handleOpenDrillDown = (title: string, subtitle: string, companyIds: string[]) => {
     setDrillDownTitle(title);
@@ -188,8 +212,8 @@ function CommercialFunnelContent() {
         deals,
         filters,
         userNames,
-        extraWarnings:
-          activityPartial && activityWarning ? [activityWarning] : [],
+        now: analysisNow, // ONE ANALYSIS CLOCK: same instant as the UI view
+        extraWarnings,
       });
     } catch (err) {
       console.error("[Excel Export Error]", err);

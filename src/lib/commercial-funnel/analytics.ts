@@ -19,26 +19,21 @@
 
 import {
   INVOICE_SENT_STATUS_CODES,
-  PAID_STATUS_CODES,
   UNCLASSIFIED_LABEL,
   WIP_STATUS_KEYS,
 } from "./constants";
-import { isDateInPeriod } from "./date-utils";
 import { evaluateStalledDeal } from "./bottlenecks";
 import {
-  buildSampleRegister,
   computeBottlenecks,
   computePeriodMetrics,
-  evaluateAggregateAmountQuality,
+  computeWipMetrics,
 } from "./engine";
 import {
   isDealActiveStage,
   isProgressedCommercialStage,
 } from "./stage-utils";
-import { normalizeCurrencyCode } from "./normalize";
 import type {
   ActionPlanRow,
-  AggregateAmountQuality,
   BottleneckItem,
   CommercialCompany,
   CountedPopulation,
@@ -60,8 +55,18 @@ import type {
 // Small population helpers (exact-ID truth)
 // ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Deterministic ID ordering for analytical populations (HB contract):
+ * numeric-aware ascending compare so business output never depends on
+ * accidental Set/Map insertion order.
+ */
+export { compareCompanyIds } from "./analytics-helpers";
+
+import { compareCompanyIds } from "./analytics-helpers";
+
 function population(ids: Iterable<string>): CountedPopulation {
   const unique = Array.from(new Set(ids));
+  unique.sort(compareCompanyIds);
   return { count: unique.length, companyIds: unique };
 }
 
@@ -79,7 +84,15 @@ function companyHasActiveDeal(c: CommercialCompany): boolean {
   return c.deals.some((d) => isDealActiveStage(d.stageId));
 }
 
-/** Активные компании: sample process OR active commercial deal. */
+/**
+ * «Компании в текущем контуре» — the truthful name for the former
+ * "Активные компании" metric (Defect F fix).
+ *
+ * Documented population rule: a Company is in the current contour when it
+ * has a current sample state (any non-"—" sampleStatus, from Deal or
+ * Company provenance) and/or an active commercial Deal. No narrower or
+ * broader business meaning is implied; the label states exactly this rule.
+ */
 export function isActivePortfolioCompany(c: CommercialCompany): boolean {
   return isCompanyInSampleProcess(c) || companyHasActiveDeal(c);
 }
@@ -102,91 +115,48 @@ export function companyAwaitingPaymentIds(
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Builds the two-track funnel view.
- * Track A: Samples & Testing — current snapshot per WIP stage; period event
- *          count ONLY for "Образцы отправлены" (reliable sampleSentDate).
- * Track B: Коммерциализация — current snapshot + period events (reused from
- *          authoritative period metric logic, not recomputed).
+ * Builds the two-track funnel view by COMPOSING canonical engine outputs
+ * (Defect A fix — no duplicated business rules):
+ *   companies → computeWipMetrics + computePeriodMetrics → FunnelView
+ * Track A: Samples & Testing — current snapshot per WIP stage from
+ *          computeWipMetrics; period event count ONLY for
+ *          "Образцы отправлены" (from the canonical samples_sent KPI).
+ * Track B: Коммерциализация — current snapshot from computeWipMetrics
+ *          (awaiting_payment) plus the active-deal population; period
+ *          events and payment amounts/quality from computePeriodMetrics KPIs.
  */
 export function computeFunnelView(
   companies: CommercialCompany[],
-  boundaries: { currentStart: Date | null; currentEnd: Date | null }
+  boundaries: PeriodBoundaries
 ): FunnelView {
-  // ── Track A: current stage rows (reuse computeWipMetrics semantics) ──
-  const sampleTestingStages: FunnelStageRow[] = [];
+  // ── Canonical engine outputs (single source of truth) ──
+  const wipKpis = computeWipMetrics(companies);
+  const periodKpis = computePeriodMetrics(companies, boundaries);
+  const findPeriod = (id: string) => periodKpis.find((k) => k.id === id);
 
-  for (const key of WIP_STATUS_KEYS) {
-    const companyIds = new Set<string>();
-    let dealCount = 0;
-
-    for (const c of companies) {
-      const status = c.sampleStatus;
-      if (!status || status === "—") continue;
-      let targetKey: string = UNCLASSIFIED_LABEL;
-      for (const k of WIP_STATUS_KEYS) {
-        if (status === k || status.startsWith(k)) {
-          targetKey = k;
-          break;
-        }
-      }
-      if (targetKey !== key) continue;
-      companyIds.add(c.id);
-      // Deal count semantics mirror computeWipMetrics: only deals carrying
-      // sample evidence matching this status.
-      dealCount += c.deals.filter((d) => {
-        if (d.sampleTransferStatus) {
-          if (d.sampleTransferStatus === key || d.sampleTransferStatus.startsWith(key)) return true;
-        }
-        if (d.sampleTestingStatus && d.sampleTestingStatus.length > 0) {
-          if (d.sampleTestingStatus.some((s) => s === key || s.startsWith(key))) return true;
-        }
-        if (key === UNCLASSIFIED_LABEL) {
-          if (d.sampleTransferStatus?.startsWith(UNCLASSIFIED_LABEL)) return true;
-          if (d.sampleTestingStatus?.some((s) => s.startsWith(UNCLASSIFIED_LABEL))) return true;
-        }
-        return false;
-      }).length;
-    }
-
+  // ── Track A: current stage rows (canonical WIP output) ──
+  const samplesSentKpi = findPeriod("samples_sent");
+  const sampleTestingStages: FunnelStageRow[] = WIP_STATUS_KEYS.map((key) => {
+    const wip = wipKpis.find((k) => k.id === key)!;
     // Period event: ONLY "Образцы отправлены" has a reliable dated event
-    // (Deal sampleSentDate provenance, identical to computePeriodMetrics
-    // "samples_sent" counting). All other stages: null → "–".
-    if (key === "Образцы отправлены") {
-      const eventIds: string[] = [];
-      for (const c of companies) {
-        const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates || [];
-        if (eventDates.some((d) => isDateInPeriod(d, boundaries.currentStart, boundaries.currentEnd))) {
-          eventIds.push(c.id);
-        }
-      }
-      sampleTestingStages.push({
-        id: key,
-        label: key,
-        companyCount: companyIds.size,
-        dealCount,
-        companyIds: Array.from(companyIds),
-        periodEventCount: eventIds.length,
-        periodEventCompanyIds: eventIds,
-      });
-    } else {
-      sampleTestingStages.push({
-        id: key,
-        label: key,
-        companyCount: companyIds.size,
-        dealCount,
-        companyIds: Array.from(companyIds),
-        periodEventCount: null,
-        periodEventCompanyIds: null,
-      });
-    }
-  }
+    // (canonical samples_sent KPI provenance). All other stages: null → "–".
+    const hasDatedEvent = key === "Образцы отправлены";
+    return {
+      id: key,
+      label: key,
+      companyCount: wip.companyCount,
+      dealCount: wip.dealCount,
+      companyIds: wip.companyIds,
+      periodEventCount: hasDatedEvent ? samplesSentKpi?.currentValue ?? 0 : null,
+      periodEventCompanyIds: hasDatedEvent ? samplesSentKpi?.companyIds ?? [] : null,
+    };
+  });
 
   // ── Track B: commercial current snapshot ──
+  // Active-deal population: no canonical WIP KPI exposes this population;
+  // derived here as a minimal projection (isDealActiveStage only — no new rule).
   const activeDealCompanyIds: string[] = [];
   let activeDealCount = 0;
-  const awaitingPaymentCompanies = new Set<string>();
-  let awaitingPaymentDealCount = 0;
-
   for (const c of companies) {
     let hasActive = false;
     for (const d of c.deals) {
@@ -194,81 +164,45 @@ export function computeFunnelView(
         hasActive = true;
         activeDealCount++;
       }
-      if (d.paymentStatus && INVOICE_SENT_STATUS_CODES.has(d.paymentStatus)) {
-        awaitingPaymentCompanies.add(c.id);
-        awaitingPaymentDealCount++;
-      }
     }
     if (hasActive) activeDealCompanyIds.push(c.id);
   }
 
+  const awaitingPaymentKpi = wipKpis.find((k) => k.id === "awaiting_payment")!;
   const current: FunnelCommercialView["current"] = {
     activeDeals: population(activeDealCompanyIds),
     dealCount: activeDealCount,
-    awaitingPayment: population(awaitingPaymentCompanies),
-    awaitingPaymentDealCount,
+    awaitingPayment: {
+      count: awaitingPaymentKpi.companyCount,
+      companyIds: awaitingPaymentKpi.companyIds,
+    },
+    awaitingPaymentDealCount: awaitingPaymentKpi.dealCount,
   };
 
-  // ── Track B: period events (recomputed with the SAME rules as
-  //    computePeriodMetrics to keep reconciliation exact) ──
-  const dealsCreatedIds: string[] = [];
-  const paymentsReceivedIds: string[] = [];
-  const shipmentIds: string[] = [];
-  const currencyStats = new Map<string, { validSum: number; validCount: number; invalidCount: number; unknownCount: number }>();
-  const amountsByCurrency: Record<string, number> = {};
-
-  for (const c of companies) {
-    for (const d of c.deals) {
-      if (isDateInPeriod(d.dateCreate, boundaries.currentStart, boundaries.currentEnd)) {
-        dealsCreatedIds.push(c.id);
-      }
-      if (d.shipmentDate && isDateInPeriod(d.shipmentDate, boundaries.currentStart, boundaries.currentEnd)) {
-        shipmentIds.push(c.id);
-      }
-      if (d.paymentStatus && PAID_STATUS_CODES.has(d.paymentStatus) && d.paymentDate) {
-        if (isDateInPeriod(d.paymentDate, boundaries.currentStart, boundaries.currentEnd)) {
-          paymentsReceivedIds.push(c.id);
-          const normCur = normalizeCurrencyCode(d.currencyId);
-          const isValidOpp =
-            (d.opportunityQuality === "VALID" || d.opportunityQuality === undefined) &&
-            typeof d.opportunity === "number" &&
-            !isNaN(d.opportunity);
-          const isInvalidOpp = d.opportunityQuality === "INVALID";
-          let st = currencyStats.get(normCur);
-          if (!st) {
-            st = { validSum: 0, validCount: 0, invalidCount: 0, unknownCount: 0 };
-            currencyStats.set(normCur, st);
-          }
-          if (isValidOpp) {
-            st.validSum += d.opportunity!;
-            st.validCount++;
-            amountsByCurrency[normCur] = (amountsByCurrency[normCur] || 0) + d.opportunity!;
-          } else if (isInvalidOpp) {
-            st.invalidCount++;
-          } else {
-            st.unknownCount++;
-          }
-        }
-      }
-    }
-  }
-
-  const paymentAmountQualityByCurrency: Record<string, AggregateAmountQuality> = {};
-  for (const [cur, st] of currencyStats.entries()) {
-    paymentAmountQualityByCurrency[cur] = evaluateAggregateAmountQuality(
-      st.validSum, st.validCount, st.invalidCount, st.unknownCount
-    ).quality;
-  }
+  // ── Track B: period events + payment amounts (canonical period KPIs) ──
+  const dealsCreatedKpi = findPeriod("deals_created");
+  const paymentsReceivedKpi = findPeriod("payments_received");
+  const shipmentsKpi = findPeriod("shipments");
+  const paymentAmountKpi = findPeriod("payment_amount");
 
   const period: FunnelCommercialView["period"] = {
-    dealsCreated: population(dealsCreatedIds),
-    paymentsReceived: population(paymentsReceivedIds),
-    paymentAmountsByCurrency: amountsByCurrency,
-    paymentAmountQualityByCurrency,
-    shipments: population(shipmentIds),
+    dealsCreated: {
+      count: dealsCreatedKpi?.currentValue ?? 0,
+      companyIds: dealsCreatedKpi?.companyIds ?? [],
+    },
+    paymentsReceived: {
+      count: paymentsReceivedKpi?.currentValue ?? 0,
+      companyIds: paymentsReceivedKpi?.companyIds ?? [],
+    },
+    paymentAmountsByCurrency: { ...(paymentAmountKpi?.currencyBreakdown?.current ?? {}) },
+    paymentAmountQualityByCurrency: { ...(paymentAmountKpi?.currencyBreakdownQuality?.current ?? {}) },
+    shipments: {
+      count: shipmentsKpi?.currentValue ?? 0,
+      companyIds: shipmentsKpi?.companyIds ?? [],
+    },
   };
 
-  // ── Continuation link (evidence, NOT conversion) ──
+  // ── Continuation link (evidence, NOT conversion; no canonical source) ──
   const positiveIds: string[] = [];
   const continuationIds: string[] = [];
   for (const c of companies) {
@@ -314,14 +248,60 @@ function getCompanyDimensionValues(
 }
 
 /**
+ * EFFECTIVE SEGMENT PROVENANCE (Defect G fix).
+ *
+ * Global dimensional filters retain a Company when EITHER its factual
+ * Company-level dimension matched OR a child Deal matched
+ * (companyFactsIncluded === false means only the Deal path matched).
+ * Reading raw factual fields alone would then place such a Company under a
+ * factual value that the global filter excluded — the Segment view would
+ * contradict the very filter that retained the Company.
+ *
+ * Contract:
+ *   1. companyFactsIncluded !== false (Company matched the filter itself)
+ *      → the Company's factual dimension values are used.
+ *   2. companyFactsIncluded === false (retained only via matching Deals)
+ *      → the union of the surviving (filtered) Deals' dimension values is
+ *      used. Multi-value union semantics are explicit: a Company may appear
+ *      in several rows, but the grand total counts unique companies once.
+ *
+ * Factual Company fields are NEVER mutated — this is a separate analytical
+ * derivation. Company inclusion is unchanged from canonical filtering.
+ */
+export function getAnalyticalSegmentValues(
+  c: CommercialCompany,
+  dimension: SegmentDimension
+): string[] {
+  if (c.companyFactsIncluded !== false) {
+    return getCompanyDimensionValues(c, dimension);
+  }
+  // Deal-retained slice: derive the effective segment from the surviving deals.
+  const values = new Set<string>();
+  for (const d of c.deals) {
+    const dealValues =
+      dimension === "industry"
+        ? d.industry || []
+        : dimension === "direction"
+        ? d.direction || []
+        : d.productType || [];
+    for (const v of dealValues) {
+      if (v) values.add(v);
+    }
+  }
+  return Array.from(values);
+}
+
+/**
  * Builds the segment matrix for one dimension.
  * Missing values become "Не указано" (never silently omitted).
  * Every cell carries the exact underlying company IDs.
  * Итого = union of unique company IDs (NOT the sum of row counts).
+ * boundaries: the EXACT canonical PeriodBoundaries used by Overview/Funnel/
+ * Excel — never a synthetic adapter (Defect B fix: one time authority).
  */
 export function computeSegmentBreakdown(
   companies: CommercialCompany[],
-  boundaries: { currentStart: Date | null; currentEnd: Date | null },
+  boundaries: PeriodBoundaries,
   dimension: SegmentDimension
 ): SegmentBreakdown {
   // Group companies by dimension value (multi-valued dims → multiple rows)
@@ -329,7 +309,7 @@ export function computeSegmentBreakdown(
   const missing: CommercialCompany[] = [];
 
   for (const c of companies) {
-    const values = getCompanyDimensionValues(c, dimension);
+    const values = getAnalyticalSegmentValues(c, dimension);
     if (values.length === 0) {
       missing.push(c);
       continue;
@@ -429,26 +409,15 @@ function computeSegmentCurrentMetrics(group: CommercialCompany[]): SegmentCurren
 /**
  * Period-event metrics for a segment row.
  * Calls the authoritative computePeriodMetrics on the row's company subset
- * and extracts the five count KPIs → reconciliation by construction.
+ * with the REAL canonical boundaries and extracts the five count KPIs →
+ * reconciliation by construction. No synthetic boundaries, no implicit
+ * `new Date()` fallback (Defect B fix).
  */
 function computeSegmentPeriodMetrics(
   group: CommercialCompany[],
-  boundaries: { currentStart: Date | null; currentEnd: Date | null }
+  boundaries: PeriodBoundaries
 ): SegmentPeriodMetrics {
-  const adapted: PeriodBoundaries = {
-    currentStart: boundaries.currentStart,
-    currentEnd: boundaries.currentEnd ?? new Date(),
-    previousStart: null,
-    previousEnd: null,
-    currentStartStr: "",
-    currentEndStr: "",
-    previousStartStr: "",
-    previousEndStr: "",
-    isAllTime: boundaries.currentStart === null,
-    comparisonAvailable: false,
-  };
-
-  const kpis = computePeriodMetrics(group, adapted);
+  const kpis = computePeriodMetrics(group, boundaries);
   const find = (id: string) => kpis.find((k) => k.id === id);
 
   const newCompanies = find("new_companies");
@@ -497,7 +466,15 @@ export function computeActionPlan(
   const bottlenecks = computeBottlenecks(companies, now);
   const companyById = new Map(companies.map((c) => [c.id, c]));
 
-  return bottlenecks.map((b) => toActionPlanRow(b, companyById.get(b.companyId)));
+  const plan = bottlenecks.map((b) => toActionPlanRow(b, companyById.get(b.companyId)));
+  // Deterministic ordering (HB contract): daysWaiting desc (nulls last),
+  // then companyId ascending.
+  plan.sort(
+    (a, b) =>
+      (b.daysWaiting ?? -1) - (a.daysWaiting ?? -1) ||
+      compareCompanyIds(a.companyId, b.companyId)
+  );
+  return plan;
 }
 
 function toActionPlanRow(
@@ -539,45 +516,72 @@ export const NEXT_ACTION_MISSING_LABEL = "Следующий шаг не ука�
 
 /**
  * Builds the management snapshot of the sample/testing process.
- * Derives FROM buildSampleRegister (kept untouched — load-bearing provenance
- * semantics) and enriches each row with company dimension fields.
- * Active testing records remain present regardless of send date.
+ *
+ * Management grain (Defect E fix): ONE CURRENT sample/testing row per
+ * Company, derived from the canonical current-cycle provenance exposed by
+ * normalization — NOT from the raw buildSampleRegister (which intentionally
+ * emits granular sample-Deal rows and historical/fallback records).
+ *
+ *   A. sampleStatusSource === "DEAL"   → row from the Deal identified by
+ *                                        sampleResponsibleDealId.
+ *   B. sampleStatusSource === "COMPANY" → Company fallback state.
+ *   C. sampleStatusSource === "NONE" or sampleStatus === "—" → no row.
+ *
+ * Historical sibling sample Deals that are not the selected current cycle
+ * never appear merely because the register contains them. The dedicated
+ * top-level Samples export remains a separate product (untouched).
  */
 export function buildSampleTestingSnapshot(
   companies: CommercialCompany[],
-  now: Date = new Date()
+  _now: Date = new Date()
 ): SampleTestingSnapshotRow[] {
-  const register = buildSampleRegister(companies, now);
-  const companyById = new Map(companies.map((c) => [c.id, c]));
+  const rows: SampleTestingSnapshotRow[] = [];
 
-  return register.map((row) => {
-    const c = companyById.get(row.companyId);
+  for (const c of companies) {
+    if (!c.sampleStatus || c.sampleStatus === "—") continue;
+    if (c.sampleStatusSource === "NONE") continue;
+
+    // Resolve the authoritative current-cycle sample Deal (same provenance
+    // rule as computeBottlenecks — Defect D chain).
+    const sampleDeal =
+      c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
+        ? c.deals.find((d) => d.id === c.sampleResponsibleDealId)
+        : undefined;
+
     const markOrBatchParts = [
-      c?.gradeGel?.length ? `ГЕЛЬ: ${c.gradeGel.join(", ")}` : undefined,
-      c?.gradeSol?.length ? `ЗОЛЬ: ${c.gradeSol.join(", ")}` : undefined,
-      row.dealId && c ? dealMarkVolume(c, row.dealId) : undefined,
+      c.gradeGel?.length ? `ГЕЛЬ: ${c.gradeGel.join(", ")}` : undefined,
+      c.gradeSol?.length ? `ЗОЛЬ: ${c.gradeSol.join(", ")}` : undefined,
+      sampleDeal ? dealMarkVolume(c, sampleDeal.id) : undefined,
     ].filter(Boolean) as string[];
 
-    return {
-      id: row.id,
-      companyId: row.companyId,
-      companyTitle: row.companyTitle,
-      responsibleName: row.responsibleName,
-      productType: row.productType,
-      industry: c?.industry || "—",
-      direction: (c?.direction || []).join(", ") || "—",
+    rows.push({
+      id: `st-${c.id}`,
+      companyId: c.id,
+      companyTitle: c.title,
+      responsibleName:
+        c.sampleResponsibleName || c.responsibleName || "Не назначен",
+      productType: (c.productType || []).join(", ") || "—",
+      industry: c.industry || "—",
+      direction: (c.direction || []).join(", ") || "—",
       markOrBatch: markOrBatchParts.join(" · ") || "—",
-      shipmentDate: row.shipmentDate,
-      testingStatus: row.status,
-      testResult: row.testResult || "—",
-      // STOP rule: no authoritative planned/actual test-date field exists in
-      // CRM constants → always undefined (renders as "–"), never guessed.
-      plannedOrActualTestDate: undefined,
-      nextActionOrComment: row.nextAction || NEXT_ACTION_MISSING_LABEL,
-      dealId: row.dealId,
-      dealTitle: row.dealTitle,
-    };
-  });
+      shipmentDate: c.sampleShipmentDate,
+      testingStatus: c.sampleStatus,
+      testResult: c.sampleTestResult || "—",
+      nextActionOrComment:
+        (c.sampleStatusSource === "DEAL" ? sampleDeal?.activityNext : undefined) ||
+        NEXT_ACTION_MISSING_LABEL,
+      dealId: sampleDeal?.id,
+      dealTitle: sampleDeal?.title,
+    });
+  }
+
+  // Deterministic ordering (HB contract): companyTitle (ru), then companyId
+  rows.sort(
+    (a, b) =>
+      a.companyTitle.localeCompare(b.companyTitle, "ru") ||
+      compareCompanyIds(a.companyId, b.companyId)
+  );
+  return rows;
 }
 
 function dealMarkVolume(c: CommercialCompany, dealId: string): string | undefined {

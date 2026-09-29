@@ -12,6 +12,7 @@
 
 import { ExternalLink } from "lucide-react";
 import { NEXT_ACTION_MISSING_LABEL } from "@/lib/commercial-funnel/analytics";
+import { ACTIVITY_PARTIAL_DISCLOSURE } from "@/lib/commercial-funnel/disclosure";
 import type { ActionPlanRow } from "@/lib/commercial-funnel/types";
 
 interface BottlenecksTabProps {
@@ -46,8 +47,7 @@ export function CommercialBottlenecksTab({
       {activityPartial && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
           <span className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-            Данные активностей неполны: колонки «Последняя активность» и «Следующий шаг» могут
-            отражать не все сделки.
+            {ACTIVITY_PARTIAL_DISCLOSURE}
           </span>
         </div>
       )}

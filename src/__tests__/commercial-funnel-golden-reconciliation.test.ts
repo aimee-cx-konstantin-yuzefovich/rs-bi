@@ -518,18 +518,23 @@ describe("Commercial Funnel Golden Reconciliation", () => {
     expect(stHeaderRow.getCell(7).value).toBe("Дата отправки");
     expect(stHeaderRow.getCell(8).value).toBe("Статус испытаний");
 
-    // C5 (Epsilon Samples Group): authoritative sample cycle and date cell.
-    // Snapshot emits one row per sample deal; deal 108 carries the authoritative
-    // current cycle (status "Тестирование успешно", sent 2026-02-22).
+    // C5 (Epsilon Samples Group): authoritative current sample cycle.
+    // Defect E management grain: exactly ONE row per company, referring to the
+    // selected current sample Deal 108 (status "Тестирование успешно",
+    // sent 2026-02-22). Historical sibling Deal 109 never appears.
     let c5Row: ExcelJS.Row | undefined;
+    let c5RowCount = 0;
     stSheet.eachRow((row, rowNumber) => {
       if (rowNumber <= stHeaderRowNum) return;
-      if (row.getCell(2).value === "Epsilon Samples Group" && row.getCell(12).value === "Deal 108 - Active Testing Cycle") {
+      if (row.getCell(2).value === "Epsilon Samples Group") {
         c5Row = row;
+        c5RowCount++;
       }
     });
+    expect(c5RowCount).toBe(1); // current-cycle grain, not raw register
     expect(c5Row).toBeDefined();
     expect(c5Row!.getCell(8).value).toBe("Тестирование успешно");
+    expect(c5Row!.getCell(11).value).toBe("Deal 108 - Active Testing Cycle");
     const sampleDateVal = c5Row!.getCell(7).value;
     expect(sampleDateVal).toBeInstanceOf(Date);
     expect((sampleDateVal as Date).toISOString()).toContain("2026-02-22");

@@ -166,7 +166,7 @@ export function CommercialManagersTab({
                   <TableHead className="text-xs font-semibold text-right">Не подошли</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Доработка</TableHead>
                   <TableHead className="text-xs font-semibold text-right" title="Сумма сделок с полученной оплатой (по валютам)">Сумма сделок с получ. оплатой</TableHead>
-                  <TableHead className="text-xs font-semibold text-right border-l border-border/40">Активные компании</TableHead>
+                  <TableHead className="text-xs font-semibold text-right border-l border-border/40">Компании в текущем контуре</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Ожидают оплаты</TableHead>
                   <TableHead className="text-xs font-semibold text-right" title="Активные сделки без указанного следующего шага (известные данные активностей)">Без след. шага</TableHead>
                 </TableRow>

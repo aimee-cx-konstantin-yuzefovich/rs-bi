@@ -393,8 +393,6 @@ export interface SampleTestingSnapshotRow {
   shipmentDate?: string;
   testingStatus: string;
   testResult: string;
-  /** Always undefined unless an authoritative planned/actual test date field exists. */
-  plannedOrActualTestDate?: string;
   nextActionOrComment: string;
   dealId?: string;
   dealTitle?: string;

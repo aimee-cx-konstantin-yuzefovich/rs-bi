@@ -205,6 +205,8 @@ describe("buildSampleTestingSnapshot (T25)", () => {
       sampleStatusSource: "DEAL",
       sampleResponsibleId: "mgr-1",
       sampleResponsibleName: "Мария Е.",
+      sampleResponsibleDealId: "d1",
+      sampleShipmentDate: "2026-07-30", // canonical company-level projection of the current sample Deal
       industry: "ЛКМ",
       direction: ["Авто"],
       productType: ["Гель"],
@@ -215,7 +217,6 @@ describe("buildSampleTestingSnapshot (T25)", () => {
     expect(snap[0].companyId).toBe("1");
     expect(snap[0].testingStatus).toBe("На испытании");
     expect(snap[0].shipmentDate).toBe("2026-07-30"); // old date retained
-    expect(snap[0].plannedOrActualTestDate).toBeUndefined(); // STOP rule
     expect(snap[0].nextActionOrComment).toBe(NEXT_ACTION_MISSING_LABEL);
   });
 });

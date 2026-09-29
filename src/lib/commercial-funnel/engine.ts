@@ -21,6 +21,7 @@ import {
 } from "./date-utils";
 import { normalizeCurrencyCode, reprojectCompanyForFilteredGrain } from "./normalize";
 import { getCurrencyUniverse } from "./currency";
+import { compareCompanyIds } from "./analytics-helpers";
 
 export { getCurrencyUniverse } from "./currency";
 import { isDealActiveStage, isProgressedCommercialStage } from "./stage-utils";
@@ -287,7 +288,9 @@ export function computePeriodMetrics(
       previousValue: isComparisonAvailable ? prev : null,
       delta,
       deltaPercent,
-      companyIds,
+      // Deterministic ID ordering (HB contract): business output never
+      // depends on Set/Map insertion order.
+      companyIds: [...companyIds].sort(compareCompanyIds),
       isCurrency,
       comparisonAvailable: compAvail,
       ...extra,
@@ -523,7 +526,7 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
       label: key,
       companyCount: entry.companyIds.size,
       dealCount: entry.dealCount,
-      companyIds: Array.from(entry.companyIds),
+      companyIds: Array.from(entry.companyIds).sort(compareCompanyIds),
     };
   });
 
@@ -532,7 +535,7 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
     label: "Ожидает оплаты",
     companyCount: awaitingPaymentCompanyIds.size,
     dealCount: awaitingPaymentDealCount,
-    companyIds: Array.from(awaitingPaymentCompanyIds),
+    companyIds: Array.from(awaitingPaymentCompanyIds).sort(compareCompanyIds),
   });
 
   return kpis;
@@ -540,6 +543,14 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
 
 /**
  * Calculate actionable bottlenecks strictly derived from reliable date + current state.
+ *
+ * Sample bottleneck Deal provenance (Defect D fix): when the current sample
+ * state is sourced from a Deal (sampleStatusSource === "DEAL"), the exact
+ * sample Deal identified by sampleResponsibleDealId is used for all Deal
+ * fields — NEVER the representative primaryDeal, which may be an unrelated
+ * commercial Deal. When the state comes from the Company fallback, there is
+ * no authoritative sample Deal: Deal fields stay undefined (no borrowed
+ * representative Deal merely to fill columns).
  */
 export function computeBottlenecks(
   companies: CommercialCompany[],
@@ -548,6 +559,12 @@ export function computeBottlenecks(
   const items: BottleneckItem[] = [];
 
   for (const c of companies) {
+    // Resolve the authoritative current-cycle sample Deal (Defect D provenance).
+    const sampleDeal =
+      c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
+        ? c.deals.find((d) => d.id === c.sampleResponsibleDealId)
+        : undefined;
+
     // 1. Sample testing stalled (> 14 days)
     if (c.sampleStatus === "На испытании" && c.sampleShipmentDate) {
       const days = calculateDaysWaiting(c.sampleShipmentDate, now);
@@ -571,12 +588,12 @@ export function computeBottlenecks(
           currentState: `На испытании (${days} дн.)`,
           relevantDate: c.sampleShipmentDate,
           daysWaiting: days,
-          dealId: c.primaryDealId,
-          dealTitle: c.primaryDealTitle,
-          amount: c.primaryDealOpportunity,
-          amountQuality: c.primaryDealOpportunityQuality,
-          currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
-          nextAction: c.primaryDealActivityNext || undefined,
+          dealId: sampleDeal?.id,
+          dealTitle: sampleDeal?.title,
+          amount: sampleDeal?.opportunity,
+          amountQuality: sampleDeal?.opportunityQuality,
+          currencyId: sampleDeal?.currencyId,
+          nextAction: sampleDeal?.activityNext || undefined,
         });
       }
     }
@@ -607,12 +624,12 @@ export function computeBottlenecks(
           currentState: "Образец одобрен",
           relevantDate: refDate,
           daysWaiting: days,
-          dealId: c.primaryDealId,
-          dealTitle: c.primaryDealTitle,
-          amount: c.primaryDealOpportunity,
-          amountQuality: c.primaryDealOpportunityQuality,
-          currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
-          nextAction: c.primaryDealActivityNext || undefined,
+          dealId: sampleDeal?.id,
+          dealTitle: sampleDeal?.title,
+          amount: sampleDeal?.opportunity,
+          amountQuality: sampleDeal?.opportunityQuality,
+          currencyId: sampleDeal?.currencyId,
+          nextAction: sampleDeal?.activityNext || undefined,
         });
       }
     }
@@ -923,6 +940,14 @@ export function computeManagerScorecard(
     } else {
       row.paymentAmount = null; // Mixed currencies: scalar sum forbidden
     }
+  }
+
+  // Deterministic ID ordering for scorecard populations (HB contract)
+  for (const row of managerMap.values()) {
+    row.companyIds.sort(compareCompanyIds);
+    row.activeCompaniesIds.sort(compareCompanyIds);
+    row.awaitingPaymentIds.sort(compareCompanyIds);
+    row.noNextStepIds.sort(compareCompanyIds);
   }
 
   // Return rows sorted alphabetically by name (no best/worst ranking)

@@ -273,6 +273,8 @@ function makeFunnelData() {
       opportunityQuality: "VALID",
       currencyId: "RUB",
       dateCreate: "2026-09-05",
+      sampleSentDate: "2026-09-10",
+      sampleTransferStatus: "На испытании",
     },
   ] as unknown as CommercialDeal[];
   const companies: CommercialCompany[] = [
@@ -283,6 +285,13 @@ function makeFunnelData() {
       responsibleName: "Анна",
       dateCreate: "2026-09-01",
       industry: "Строительство",
+      // Current-cycle sample state (Defect E management grain: the Sample
+      // Testing sheet is built from current sample state, not the raw register).
+      sampleStatus: "На испытании",
+      sampleStatusSource: "DEAL",
+      sampleResponsibleId: "7",
+      sampleResponsibleDealId: "301",
+      sampleShipmentDate: "2026-09-10",
       deals,
     },
   ] as unknown as CommercialCompany[];
