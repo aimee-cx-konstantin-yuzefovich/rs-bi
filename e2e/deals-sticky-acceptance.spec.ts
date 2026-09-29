@@ -126,6 +126,16 @@ test.describe("authenticated deals sticky header acceptance", () => {
       await page.waitForTimeout(200);
     }
 
+    // Verify column filter button still works if present
+    const columnFilterButton = page
+      .getByTestId("deals-header-column")
+      .first()
+      .locator('button[title="Фильтр по столбцу"]');
+    if ((await columnFilterButton.count()) > 0) {
+      await columnFilterButton.first().click({ force: true });
+      await page.waitForTimeout(100);
+    }
+
     // Verify UI remains intact and no uncaught exceptions occurred
     await expect(scroll).toBeVisible();
     expect(pageErrors).toEqual([]);

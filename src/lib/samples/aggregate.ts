@@ -209,6 +209,10 @@ function buildCompanyParts(
   const industryRaw = resolveValue("INDUSTRY", row["INDUSTRY"], resolve);
   const industry = industryRaw?.[0];
 
+  // Application resolution:
+  // Central mapping uses COMPANY_APPLICATION_NEW_FIELD_ID and legacy fallback COMPANY_APPLICATION_OLD_FIELD_ID.
+  // isGeographicValue() is retained strictly as secondary defensive cleanup against historic dirty
+  // Bitrix CRM values where regional/geographic entities were entered into Application fields.
   const appNewResolved = resolveValue(
     COMPANY_APPLICATION_NEW_FIELD_ID,
     row[COMPANY_APPLICATION_NEW_FIELD_ID],

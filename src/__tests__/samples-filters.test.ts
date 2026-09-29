@@ -359,7 +359,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
   });
 
   it("SMP-FLT-12: Region/geography cannot masquerade as Application merely because it is an enumeration", () => {
-    // 1. If an enumeration field returns a geographic region, it is stripped
+    // 1. If the current application field returns a geographic region, it is stripped
     const rawCompanyGeo: BitrixRow = {
       ID: "51",
       TITLE: "Компания Регион",
@@ -371,13 +371,40 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       if (fieldId === COMPANY_APPLICATION_NEW_FIELD_ID && val === "999") {
         return "Центральный федеральный округ";
       }
+      if (fieldId === COMPANY_APPLICATION_OLD_FIELD_ID && val === "888") {
+        return "Свердловская область";
+      }
+      if (fieldId === COMPANY_DIRECTION_FIELD_ID && val === "777") {
+        return "Приволжский федеральный округ";
+      }
       return val;
     };
 
-    const { summaries } = buildSampleSummaries([rawCompanyGeo], [], { labelResolver: resolver });
-    expect(summaries.length).toBe(1);
-    // Geographic label was stripped and did NOT become an industrial application
-    expect(summaries[0].application).toBeUndefined();
+    const { summaries: s1 } = buildSampleSummaries([rawCompanyGeo], [], { labelResolver: resolver });
+    expect(s1.length).toBe(1);
+    expect(s1[0].application).toBeUndefined();
+
+    // 2. Legacy application field returning a geographic region must also be stripped
+    const rawLegacyGeo: BitrixRow = {
+      ID: "52",
+      TITLE: "Компания Легаси Регион",
+      [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
+      [COMPANY_APPLICATION_OLD_FIELD_ID]: "888",
+    };
+    const { summaries: s2 } = buildSampleSummaries([rawLegacyGeo], [], { labelResolver: resolver });
+    expect(s2.length).toBe(1);
+    expect(s2[0].application).toBeUndefined();
+
+    // 3. Direction field returning a geographic region must also not become an application
+    const rawDirectionGeo: BitrixRow = {
+      ID: "53",
+      TITLE: "Компания Направление Регион",
+      [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
+      [COMPANY_DIRECTION_FIELD_ID]: ["777"],
+    };
+    const { summaries: s3 } = buildSampleSummaries([rawDirectionGeo], [], { labelResolver: resolver });
+    expect(s3.length).toBe(1);
+    expect(s3[0].application).toBeUndefined();
   });
 
   it("SMP-FLT-13: isGeographicValue acts strictly as defensive cleanup and preserves valid business applications", () => {

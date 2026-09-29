@@ -134,7 +134,7 @@ export const SAMPLES_FIELD_SPECS = [
   {
     role: "INDUSTRY",
     entity: "Company",
-    configuredId: "INDUSTRY",
+    configuredId: crm.COMPANY_INDUSTRY_FIELD_ID || "INDUSTRY",
     expectedTypes: ["crm_status"],
     acceptedTitles: [
       "Сфера деятельности",
@@ -288,7 +288,10 @@ export function evaluateFieldSpec(spec, liveField, statusList = []) {
       const dictEntries = Array.isArray(statusList)
         ? statusList.filter((s) => s.ENTITY_ID === statusType)
         : [];
-      if (dictEntries.length === 0) {
+      if (
+        dictEntries.length === 0 ||
+        !dictEntries.some((e) => typeof e.NAME === "string" && e.NAME.trim() !== "")
+      ) {
         isStatusDictionaryMatch = false;
       }
     }
@@ -356,7 +359,51 @@ async function main() {
     const failed = results.filter((r) => r.FINAL_STATUS === "FAIL").length;
     const notFound = results.filter((r) => r.FINAL_STATUS === "NOT_FOUND").length;
 
-    console.log(`\nVerified fields: ${total}. PASS: ${passed}, FAIL: ${failed}, NOT_FOUND: ${notFound}`);
+    console.log(`\nVerified fields: ${total}. PASS: ${passed}, FAIL: ${failed}, NOT_FOUND: ${notFound}\n`);
+
+    const appNew = results.find((r) => r.ROLE === "Область применения — current/new");
+    const appOld = results.find((r) => r.ROLE === "Область применения — legacy");
+    const dir = results.find((r) => r.ROLE === "Направление" && r.ENTITY === "Company");
+    const ind = results.find((r) => r.ROLE === "INDUSTRY");
+
+    if (appNew) {
+      console.log("APPLICATION NEW:");
+      console.log(`FIELD_ID=${appNew.FIELD_ID}`);
+      console.log(`LIVE_TITLE=${appNew.LIVE_TITLE}`);
+      console.log(`LIVE_TYPE=${appNew.LIVE_TYPE}`);
+      console.log(`MULTIPLE=${appNew.LIVE_MULTIPLE}`);
+      console.log(`STATUS=${appNew.FINAL_STATUS}\n`);
+    }
+
+    if (appOld) {
+      console.log("APPLICATION OLD:");
+      console.log(`FIELD_ID=${appOld.FIELD_ID}`);
+      console.log(`LIVE_TITLE=${appOld.LIVE_TITLE}`);
+      console.log(`LIVE_TYPE=${appOld.LIVE_TYPE}`);
+      console.log(`MULTIPLE=${appOld.LIVE_MULTIPLE}`);
+      console.log(`STATUS=${appOld.FINAL_STATUS}\n`);
+    }
+
+    if (dir) {
+      console.log("DIRECTION:");
+      console.log(`FIELD_ID=${dir.FIELD_ID}`);
+      console.log(`LIVE_TITLE=${dir.LIVE_TITLE}`);
+      console.log(`LIVE_TYPE=${dir.LIVE_TYPE}`);
+      console.log(`MULTIPLE=${dir.LIVE_MULTIPLE}`);
+      console.log(`STATUS=${dir.FINAL_STATUS}\n`);
+    }
+
+    if (ind) {
+      const liveIndField = companyFields ? companyFields[ind.FIELD_ID] : undefined;
+      const statusType = liveIndField?.statusType || "—";
+      const resolvedCount = Array.isArray(statusList)
+        ? statusList.filter((s) => s.ENTITY_ID === statusType).length
+        : 0;
+      console.log("INDUSTRY:");
+      console.log(`FIELD_ID=${ind.FIELD_ID}`);
+      console.log(`STATUS_TYPE=${statusType}`);
+      console.log(`STATUS_DICTIONARY_RESOLVED=${resolvedCount > 0 ? `YES (${resolvedCount} entries)` : "NO"}\n`);
+    }
 
     if (hasFailure) {
       console.warn("WARNING: Some fields have semantic or technical mismatches with live CRM.");
