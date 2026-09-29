@@ -158,6 +158,21 @@ export function computePeriodBoundaries(
     timeZone
   );
 
+  if (periodPreset === "all") {
+    return {
+      currentStart: null,
+      currentEnd,
+      previousStart: null,
+      previousEnd: null,
+      currentStartStr: "",
+      currentEndStr: toISODate(currentEnd, timeZone),
+      previousStartStr: "",
+      previousEndStr: "",
+      isAllTime: true,
+      comparisonAvailable: false,
+    };
+  }
+
   if (periodPreset === "custom" && customFrom && customTo) {
     // Validate boundaries strictly against calendar rules
     const parsedFrom = parseStrictDate(customFrom, { mode: "DATE_ONLY" });
@@ -231,22 +246,26 @@ export function computePeriodBoundaries(
     currentEndStr: toISODate(currentEnd, timeZone),
     previousStartStr: toISODate(previousStart, timeZone),
     previousEndStr: toISODate(previousEnd, timeZone),
+    isAllTime: false,
+    comparisonAvailable: true,
   };
 }
 
 /**
- * Check if a date string falls within [startDate, endDate] inclusive
+ * Check if a date string falls within [startDate, endDate] inclusive.
+ * If startDate is omitted (e.g. all-time), validates valid calendar date up to endDate.
  */
 export function isDateInPeriod(
   dateStr?: string | null,
-  startDate?: Date,
-  endDate?: Date,
+  startDate?: Date | null,
+  endDate?: Date | null,
   timeZone: string = COMMERCIAL_TIMEZONE
 ): boolean {
-  if (!dateStr || !startDate || !endDate) return false;
+  if (!dateStr || !endDate) return false;
   const ts = parseDateTimestamp(dateStr, timeZone);
   if (ts === null) return false;
-  return ts >= startDate.getTime() && ts <= endDate.getTime();
+  if (startDate && ts < startDate.getTime()) return false;
+  return ts <= endDate.getTime();
 }
 
 /**

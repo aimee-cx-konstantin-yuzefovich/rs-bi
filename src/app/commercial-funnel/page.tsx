@@ -183,7 +183,7 @@ function CommercialFunnelContent() {
       </header>
 
       {/* ─── MAIN CONTENT CONTAINER ─── */}
-      <main className="flex-1 flex flex-col p-4 sm:p-6 max-w-7xl w-full mx-auto space-y-4">
+      <main className="flex-1 flex flex-col px-4 sm:px-6 py-4 w-full space-y-4">
         {/* Demo mode banner */}
         {isDemoMode && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">

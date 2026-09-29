@@ -161,13 +161,16 @@ function formatPeriodPresetToRussian(preset: string): string {
     case "14days": return "14 дней";
     case "30days": return "30 дней";
     case "90days": return "90 дней";
+    case "quarter": return "Квартал";
     case "custom": return "Пользовательский период";
-    case "all": return "Все";
+    case "all": return "За всё время";
     default: return preset;
   }
 }
 
-  const periodLabel = `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${formatPeriodPresetToRussian(filters.periodPreset)})`;
+  const periodLabel = boundaries.isAllTime
+    ? `За всё время (по ${boundaries.currentEndStr})`
+    : `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${formatPeriodPresetToRussian(filters.periodPreset)})`;
   const respLabel =
     filters.responsibleId && filters.responsibleId !== "all"
       ? userNames[filters.responsibleId] || `ID ${filters.responsibleId}`
@@ -223,7 +226,7 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   const paramRows: [string, string][] = [
     ["Период анализа:", periodLabel],
-    ["Предыдущий период для сравнения:", `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
+    ["Предыдущий период для сравнения:", boundaries.isAllTime ? "—" : `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
     ["Бизнес-часовой пояс:", `Москва (${COMMERCIAL_TIMEZONE}, UTC+3)`],
     ["Дата и время формирования:", `${formatReportDateTime(now)} (Москва, UTC+3)`],
     ["Ответственный:", respLabel],
@@ -514,16 +517,19 @@ function formatPeriodPresetToRussian(preset: string): string {
           prevAmt = 0;
         }
 
-        const deltaAmt: number | string =
-          typeof currAmt === "number" && typeof prevAmt === "number"
-            ? currAmt - prevAmt
-            : "—";
+        const isComparisonValid =
+          !boundaries.isAllTime &&
+          curQuality === "COMPLETE" &&
+          prevQuality === "COMPLETE" &&
+          typeof currAmt === "number" &&
+          typeof prevAmt === "number";
 
-        const pct =
-          typeof currAmt === "number" && typeof prevAmt === "number"
-            ? safeDeltaPercent(currAmt, prevAmt)
-            : null;
+        const numCurr = typeof currAmt === "number" ? currAmt : 0;
+        const numPrev = typeof prevAmt === "number" ? prevAmt : 0;
+        const deltaAmt: number | string = isComparisonValid ? numCurr - numPrev : "—";
+        const pct = isComparisonValid ? safeDeltaPercent(numCurr, numPrev) : null;
         const pctStr = pct !== null ? `${pct > 0 ? "+" : ""}${pct}%` : "—";
+        const prevDisplayAmt: number | string = boundaries.isAllTime ? "—" : prevAmt;
         const compCount = filteredCompanies.filter((c) =>
           c.deals.some(
             (d) =>
@@ -547,7 +553,7 @@ function formatPeriodPresetToRussian(preset: string): string {
         const row = summarySheet.addRow([
           `${k.label} — ${curLabel}${qualitySuffix}`,
           currAmt,
-          prevAmt,
+          prevDisplayAmt,
           deltaAmt,
           pctStr,
           compCount,
@@ -563,7 +569,7 @@ function formatPeriodPresetToRussian(preset: string): string {
         if (typeof currAmt === "number") {
           row.getCell(2).numFmt = getMoneyNumFmt(cur);
         }
-        if (typeof prevAmt === "number") {
+        if (typeof prevDisplayAmt === "number") {
           row.getCell(3).numFmt = getMoneyNumFmt(cur);
         }
         if (typeof deltaAmt === "number") {
@@ -604,20 +610,29 @@ function formatPeriodPresetToRussian(preset: string): string {
         prevVal = k.previousValue ?? 0;
       }
 
+      const isComparisonValid =
+        !boundaries.isAllTime &&
+        k.comparisonAvailable !== false &&
+        typeof currVal === "number" &&
+        typeof prevVal === "number" &&
+        (!k.isCurrency || k.amountQuality === "COMPLETE");
+
       const deltaVal: number | string =
-        typeof currVal === "number" && typeof prevVal === "number"
+        isComparisonValid && typeof currVal === "number" && typeof prevVal === "number"
           ? currVal - prevVal
-          : (k.delta ?? 0);
+          : "—";
 
       const pctStr =
-        typeof currVal === "number" && typeof prevVal === "number" && k.deltaPercent !== null
+        isComparisonValid && k.deltaPercent !== null
           ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%`
           : "—";
+
+      const prevDisplayVal: number | string = boundaries.isAllTime ? "—" : prevVal;
 
       const row = summarySheet.addRow([
         `${k.label}${qualitySuffix}`,
         currVal,
-        prevVal,
+        prevDisplayVal,
         deltaVal,
         pctStr,
         k.companyIds.length,

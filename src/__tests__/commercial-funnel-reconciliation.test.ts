@@ -112,7 +112,7 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
         expect(row.getCell(2).value).toBe(newCompUi.currentValue);
         expect(row.getCell(6).value).toBe(newCompUi.companyIds.length);
       }
-      if (cell1 === "Получено оплат") {
+      if (cell1 === "Компании с полученной оплатой" || cell1 === "Получено оплат") {
         foundPaymentsReceived = true;
         const paymentsUi = uiDatedKpis.find((k) => k.id === "payments_received")!;
         expect(row.getCell(2).value).toBe(paymentsUi.currentValue);

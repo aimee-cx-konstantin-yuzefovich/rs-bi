@@ -1,8 +1,8 @@
 "use client";
 
 // src/components/commercial-funnel/filter-bar.tsx
-// Global filter bar for Commercial Funnel Release 1.
-// Consistent filters across all 5 views and Excel export.
+// Global light inline business toolbar for Commercial Funnel.
+// Flow controls left-to-right: Period preset, Responsible, Product, Industry, Direction, Region, Reset, Refresh, Export.
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Download, RefreshCw, RotateCcw } from "lucide-react";
+import { FileSpreadsheet, RefreshCw, RotateCcw } from "lucide-react";
 import type { CommercialCompany, CommercialDeal, CommercialFilters, PeriodPreset } from "@/lib/commercial-funnel/types";
 import { DEFAULT_COMMERCIAL_FILTERS } from "@/lib/commercial-funnel/constants";
 import { useMemo } from "react";
@@ -29,7 +29,6 @@ interface FilterBarProps {
   /** Demo mode: export must be disabled — demo data is not a management report. */
   isDemoMode?: boolean;
   onRefresh: () => void;
-
   refreshing: boolean;
 }
 
@@ -38,6 +37,7 @@ const PERIOD_PRESETS: Array<{ value: PeriodPreset; label: string }> = [
   { value: "30days", label: "30 дней" },
   { value: "90days", label: "90 дней" },
   { value: "quarter", label: "Квартал" },
+  { value: "all", label: "За всё время" },
   { value: "custom", label: "Произвольный" },
 ];
 
@@ -110,190 +110,180 @@ export function CommercialFilterBar({
     Boolean(filters.customTo);
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border bg-card p-3.5 shadow-xs">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Period Preset Pills */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs font-medium text-muted-foreground mr-1">Период:</span>
-          {PERIOD_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => onFiltersChange({ ...filters, periodPreset: p.value })}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                filters.periodPreset === p.value
-                  ? "bg-primary text-primary-foreground shadow-xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-
-          {/* Custom Date Inputs */}
-          {filters.periodPreset === "custom" && (
-            <div className="flex items-center gap-1.5 ml-2">
-              <Input
-                type="date"
-                value={filters.customFrom || ""}
-                onChange={(e) => onFiltersChange({ ...filters, customFrom: e.target.value })}
-                className="h-7 w-32 text-xs"
-              />
-              <span className="text-xs text-muted-foreground">—</span>
-              <Input
-                type="date"
-                value={filters.customTo || ""}
-                onChange={(e) => onFiltersChange({ ...filters, customTo: e.target.value })}
-                className="h-7 w-32 text-xs"
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Action Buttons: Reset & Excel Export */}
-        <div className="flex items-center gap-2">
-          {isFiltered && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onFiltersChange(DEFAULT_COMMERCIAL_FILTERS)}
-              className="h-8 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-              Сбросить фильтры
-            </Button>
-          )}
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={refreshing}
-            className="h-8 text-xs"
-            title="Обновить данные"
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card/60 p-2.5 shadow-2xs">
+      {/* Period Preset Pills */}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-xs font-medium text-muted-foreground mr-1 hidden sm:inline">Период:</span>
+        {PERIOD_PRESETS.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => onFiltersChange({ ...filters, periodPreset: p.value })}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+              filters.periodPreset === p.value
+                ? "bg-primary text-primary-foreground shadow-2xs"
+                : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          </Button>
+            {p.label}
+          </button>
+        ))}
 
-          <Button
-            variant="default"
-            size="sm"
-            onClick={onExportExcel}
-            disabled={exportingExcel || isDemoMode}
-            title={
-              isDemoMode
-                ? "Экспорт отключён в демо-режиме: демонстрационные данные не могут использоваться как управленческий отчёт"
-                : undefined
-            }
-            className="h-8 text-xs font-medium gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {exportingExcel ? "Формирование..." : "Экспорт отчёта"}
-          </Button>
-        </div>
+        {/* Custom Date Inputs */}
+        {filters.periodPreset === "custom" && (
+          <div className="flex items-center gap-1 ml-1">
+            <Input
+              type="date"
+              value={filters.customFrom || ""}
+              onChange={(e) => onFiltersChange({ ...filters, customFrom: e.target.value })}
+              className="h-7 w-28 text-xs"
+            />
+            <span className="text-xs text-muted-foreground">—</span>
+            <Input
+              type="date"
+              value={filters.customTo || ""}
+              onChange={(e) => onFiltersChange({ ...filters, customTo: e.target.value })}
+              className="h-7 w-28 text-xs"
+            />
+          </div>
+        )}
       </div>
 
-      {/* Dimensional Selects Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 pt-1 border-t border-border/50">
+      <div className="hidden xl:block h-4 w-px bg-border/60" />
+
+      {/* Dimensional Selects */}
+      <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-[280px]">
         {/* Responsible */}
-        <div>
-          <Select
-            value={filters.responsibleId || "all"}
-            onValueChange={(val) => onFiltersChange({ ...filters, responsibleId: val })}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Ответственный" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все ответственные</SelectItem>
-              {responsibleOptions.map((opt) => (
-                <SelectItem key={opt.id} value={opt.id}>
-                  {opt.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select
+          value={filters.responsibleId || "all"}
+          onValueChange={(val) => onFiltersChange({ ...filters, responsibleId: val })}
+        >
+          <SelectTrigger className="h-7.5 w-[150px] text-xs">
+            <SelectValue placeholder="Ответственный" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Все ответственные</SelectItem>
+            {responsibleOptions.map((opt) => (
+              <SelectItem key={opt.id} value={opt.id}>
+                {opt.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {/* Product Type */}
-        <div>
-          <Select
-            value={filters.productType || "all"}
-            onValueChange={(val) => onFiltersChange({ ...filters, productType: val })}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Продукт" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все продукты</SelectItem>
-              {productOptions.map((prod) => (
-                <SelectItem key={prod} value={prod}>
-                  {prod}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select
+          value={filters.productType || "all"}
+          onValueChange={(val) => onFiltersChange({ ...filters, productType: val })}
+        >
+          <SelectTrigger className="h-7.5 w-[130px] text-xs">
+            <SelectValue placeholder="Продукт" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Все продукты</SelectItem>
+            {productOptions.map((prod) => (
+              <SelectItem key={prod} value={prod}>
+                {prod}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {/* Industry */}
-        <div>
-          <Select
-            value={filters.industry || "all"}
-            onValueChange={(val) => onFiltersChange({ ...filters, industry: val })}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Отрасль" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все отрасли</SelectItem>
-              {industryOptions.map((ind) => (
-                <SelectItem key={ind} value={ind}>
-                  {ind}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select
+          value={filters.industry || "all"}
+          onValueChange={(val) => onFiltersChange({ ...filters, industry: val })}
+        >
+          <SelectTrigger className="h-7.5 w-[130px] text-xs">
+            <SelectValue placeholder="Отрасль" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Все отрасли</SelectItem>
+            {industryOptions.map((ind) => (
+              <SelectItem key={ind} value={ind}>
+                {ind}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {/* Direction */}
-        <div>
-          <Select
-            value={filters.direction || "all"}
-            onValueChange={(val) => onFiltersChange({ ...filters, direction: val })}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Направление" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все направления</SelectItem>
-              {directionOptions.map((dir) => (
-                <SelectItem key={dir} value={dir}>
-                  {dir}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select
+          value={filters.direction || "all"}
+          onValueChange={(val) => onFiltersChange({ ...filters, direction: val })}
+        >
+          <SelectTrigger className="h-7.5 w-[130px] text-xs">
+            <SelectValue placeholder="Направление" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Все направления</SelectItem>
+            {directionOptions.map((dir) => (
+              <SelectItem key={dir} value={dir}>
+                {dir}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {/* Region */}
-        <div>
-          <Select
-            value={filters.region || "all"}
-            onValueChange={(val) => onFiltersChange({ ...filters, region: val })}
+        <Select
+          value={filters.region || "all"}
+          onValueChange={(val) => onFiltersChange({ ...filters, region: val })}
+        >
+          <SelectTrigger className="h-7.5 w-[120px] text-xs">
+            <SelectValue placeholder="Регион" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Все регионы</SelectItem>
+            {regionOptions.map((reg) => (
+              <SelectItem key={reg} value={reg}>
+                {reg}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Action Controls: Reset, Refresh, Neutral Excel Export */}
+      <div className="flex items-center gap-1.5 ml-auto">
+        {isFiltered && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onFiltersChange(DEFAULT_COMMERCIAL_FILTERS)}
+            className="h-7.5 px-2 text-xs text-muted-foreground hover:text-foreground"
           >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Регион" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Все регионы</SelectItem>
-              {regionOptions.map((reg) => (
-                <SelectItem key={reg} value={reg}>
-                  {reg}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+            <RotateCcw className="mr-1 h-3 w-3" />
+            Сбросить
+          </Button>
+        )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={refreshing}
+          className="h-7.5 w-7.5 p-0"
+          title="Обновить данные"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onExportExcel}
+          disabled={exportingExcel || isDemoMode}
+          title={
+            isDemoMode
+              ? "Экспорт отключён в демо-режиме: демонстрационные данные не могут использоваться как управленческий отчёт"
+              : "Экспорт отчёта в Excel"
+          }
+          className="h-7.5 text-xs font-medium gap-1.5 px-2.5"
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5 text-muted-foreground" />
+          {exportingExcel ? "Экспорт..." : "Экспорт отчёта"}
+        </Button>
       </div>
     </div>
   );

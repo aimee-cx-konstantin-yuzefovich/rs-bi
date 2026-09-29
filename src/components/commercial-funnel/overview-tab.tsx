@@ -70,7 +70,9 @@ export function CommercialOverviewTab({
               Активность за период
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              События с надёжной датой за период {boundaries.currentStartStr} — {boundaries.currentEndStr} в сравнении с предыдущим периодом
+              {boundaries.isAllTime
+                ? `События с надёжной датой за всё время по ${boundaries.currentEndStr}`
+                : `События с надёжной датой за период ${boundaries.currentStartStr} — ${boundaries.currentEndStr} в сравнении с предыдущим периодом`}
             </p>
           </div>
           <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
@@ -90,7 +92,9 @@ export function CommercialOverviewTab({
                 onClick={() =>
                   onOpenDrillDown(
                     kpi.label,
-                    `Период: ${boundaries.currentStartStr} — ${boundaries.currentEndStr}`,
+                    boundaries.isAllTime
+                      ? `За всё время (по ${boundaries.currentEndStr})`
+                      : `Период: ${boundaries.currentStartStr} — ${boundaries.currentEndStr}`,
                     kpi.companyIds
                   )
                 }
@@ -184,45 +188,49 @@ export function CommercialOverviewTab({
 
                   {/* Previous period comparison */}
                   <div className="mt-1 text-[11px]">
-                    {kpi.isMultiCurrency && kpi.currencyBreakdown ? (
+                    {boundaries.isAllTime || kpi.comparisonAvailable === false ? (
+                      <span className="text-muted-foreground">сравнение недоступно</span>
+                    ) : kpi.isMultiCurrency && kpi.currencyBreakdown ? (
                       <div className="flex flex-col gap-0.5">
-                        {getCurrencyUniverse(
-                          kpi.currencyBreakdown.current,
-                          kpi.currencyBreakdown.previous,
-                          kpi.currencyBreakdownQuality?.current,
-                          kpi.currencyBreakdownQuality?.previous
-                        ).map((cur) => {
-                          const cQuality = kpi.currencyBreakdownQuality?.current?.[cur];
-                          const pQuality = kpi.currencyBreakdownQuality?.previous?.[cur];
-                          if (
-                            cQuality === "INVALID_ONLY" ||
-                            cQuality === "UNKNOWN" ||
-                            pQuality === "INVALID_ONLY" ||
-                            pQuality === "UNKNOWN"
-                          ) {
-                            return null;
+                        {(() => {
+                          const comparableCurrs = getCurrencyUniverse(
+                            kpi.currencyBreakdown.current,
+                            kpi.currencyBreakdown.previous,
+                            kpi.currencyBreakdownQuality?.current,
+                            kpi.currencyBreakdownQuality?.previous
+                          ).filter((cur) => {
+                            const cQuality = kpi.currencyBreakdownQuality?.current?.[cur];
+                            const pQuality = kpi.currencyBreakdownQuality?.previous?.[cur];
+                            return cQuality === "COMPLETE" && pQuality === "COMPLETE";
+                          });
+
+                          if (comparableCurrs.length === 0) {
+                            return <span className="text-muted-foreground">сравнение недоступно</span>;
                           }
-                          const cVal = kpi.currencyBreakdown!.current[cur] || 0;
-                          const pVal = kpi.currencyBreakdown!.previous[cur] || 0;
-                          const curDelta = cVal - pVal;
-                          if (curDelta === 0) return null;
-                          const isCurPos = curDelta > 0;
-                          return (
-                            <span
-                              key={cur}
-                              className={`inline-flex items-center font-medium ${
-                                isCurPos ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                              }`}
-                            >
-                              {isCurPos ? (
-                                <ArrowUpRight className="h-3 w-3 inline mr-0.5 shrink-0" />
-                              ) : (
-                                <ArrowDownRight className="h-3 w-3 inline mr-0.5 shrink-0" />
-                              )}
-                              {curDelta > 0 ? "+" : ""}{formatCurrencyAmount(curDelta, cur)}
-                            </span>
-                          );
-                        })}
+
+                          return comparableCurrs.map((cur) => {
+                            const cVal = kpi.currencyBreakdown!.current[cur] || 0;
+                            const pVal = kpi.currencyBreakdown!.previous[cur] || 0;
+                            const curDelta = cVal - pVal;
+                            if (curDelta === 0) return null;
+                            const isCurPos = curDelta > 0;
+                            return (
+                              <span
+                                key={cur}
+                                className={`inline-flex items-center font-medium ${
+                                  isCurPos ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                                }`}
+                              >
+                                {isCurPos ? (
+                                  <ArrowUpRight className="h-3 w-3 inline mr-0.5 shrink-0" />
+                                ) : (
+                                  <ArrowDownRight className="h-3 w-3 inline mr-0.5 shrink-0" />
+                                )}
+                                {curDelta > 0 ? "+" : ""}{formatCurrencyAmount(curDelta, cur)}
+                              </span>
+                            );
+                          });
+                        })()}
                       </div>
                     ) : kpi.delta !== null && kpi.delta !== 0 ? (
                       <span
@@ -238,10 +246,16 @@ export function CommercialOverviewTab({
                         {kpi.isCurrency
                           ? `${kpi.delta > 0 ? "+" : ""}${formatCurrencyAmount(kpi.delta, kpi.currencyId)}`
                           : `${kpi.delta > 0 ? "+" : ""}${kpi.delta}`}
-                        {kpi.deltaPercent !== null && ` (${kpi.deltaPercent > 0 ? "+" : ""}${kpi.deltaPercent}%)`}
+                        {kpi.deltaPercent !== null
+                          ? ` (${kpi.deltaPercent > 0 ? "+" : ""}${kpi.deltaPercent}%)`
+                          : kpi.previousValue === 0
+                          ? " (с нулевой базы)"
+                          : ""}
                       </span>
+                    ) : kpi.delta === 0 && kpi.previousValue !== null ? (
+                      <span className="text-muted-foreground">0% без изменений</span>
                     ) : (
-                      <span className="text-muted-foreground">0% без изм.</span>
+                      <span className="text-muted-foreground">сравнение недоступно</span>
                     )}
                   </div>
                 </CardContent>

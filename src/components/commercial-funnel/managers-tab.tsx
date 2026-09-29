@@ -4,6 +4,7 @@
 // Managers scorecard view.
 // Operational visibility without artificial ranking (Section 19).
 
+import { useState, useMemo, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -16,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Users } from "lucide-react";
 import type { AggregateAmountQuality, ManagerScorecardRow } from "@/lib/commercial-funnel/types";
 import { formatCurrencyAmount, getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
+import { CommercialTablePagination } from "./table-pagination";
 
 interface ManagersTabProps {
   scorecard: ManagerScorecardRow[];
@@ -26,6 +28,17 @@ export function CommercialManagersTab({
   scorecard,
   onOpenDrillDown,
 }: ManagersTabProps) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  useEffect(() => {
+    setPage(1);
+  }, [scorecard.length]);
+
+  const pagedScorecard = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return scorecard.slice(start, start + pageSize);
+  }, [scorecard, page, pageSize]);
   // Aggregate non-monetary totals row
   const totals = scorecard.reduce(
     (acc, row) => ({
@@ -144,7 +157,7 @@ export function CommercialManagersTab({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {scorecard.map((row) => (
+                {pagedScorecard.map((row) => (
                   <TableRow
                     key={row.responsibleId}
                     className="hover:bg-muted/30 cursor-pointer"
@@ -326,7 +339,14 @@ export function CommercialManagersTab({
                 </TableRow>
               </TableBody>
             </Table>
-        </div>
+            <CommercialTablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={scorecard.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+          </div>
       )}
     </div>
   );

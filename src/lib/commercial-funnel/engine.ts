@@ -19,7 +19,7 @@ import {
   isDateInPeriod,
   safeDeltaPercent,
 } from "./date-utils";
-import { normalizeCurrencyCode } from "./normalize";
+import { normalizeCurrencyCode, reprojectCompanyForFilteredGrain } from "./normalize";
 import { getCurrencyUniverse } from "./currency";
 
 export { getCurrencyUniverse } from "./currency";
@@ -111,15 +111,7 @@ export function filterCompaniesByDimensions(
 
     // Retain company if company itself matches OR it has matching child deals
     if (companyMatches || matchingDeals.length > 0) {
-      result.push({
-        ...company,
-        deals: matchingDeals,
-        // If company itself did not match, do not pollute company-level creation or company sample dates
-        dateCreate: companyMatches ? company.dateCreate : undefined,
-        sampleEventDatesForPeriodMetrics: companyMatches
-          ? company.sampleEventDatesForPeriodMetrics
-          : matchingDeals.flatMap((d) => (d.sampleSentDate ? [d.sampleSentDate] : [])),
-      });
+      result.push(reprojectCompanyForFilteredGrain(company, matchingDeals, companyMatches));
     }
   }
 
@@ -268,6 +260,9 @@ export function computePeriodMetrics(
     }
   }
 
+  const isComparisonAvailable =
+    boundaries.comparisonAvailable !== false && !boundaries.isAllTime;
+
   const buildKpi = (
     id: string,
     label: string,
@@ -276,17 +271,28 @@ export function computePeriodMetrics(
     companyIds: string[],
     isCurrency = false,
     extra?: Partial<DatedKpi>
-  ): DatedKpi => ({
-    id,
-    label,
-    currentValue: curr,
-    previousValue: prev,
-    delta: curr !== null && prev !== null ? curr - prev : null,
-    deltaPercent: curr !== null && prev !== null ? safeDeltaPercent(curr, prev) : null,
-    companyIds,
-    isCurrency,
-    ...extra,
-  });
+  ): DatedKpi => {
+    const compAvail =
+      extra?.comparisonAvailable !== undefined
+        ? extra.comparisonAvailable
+        : isComparisonAvailable && prev !== null && curr !== null;
+
+    const delta = compAvail && curr !== null && prev !== null ? curr - prev : null;
+    const deltaPercent = compAvail && curr !== null && prev !== null ? safeDeltaPercent(curr, prev) : null;
+
+    return {
+      id,
+      label,
+      currentValue: curr,
+      previousValue: isComparisonAvailable ? prev : null,
+      delta,
+      deltaPercent,
+      companyIds,
+      isCurrency,
+      comparisonAvailable: compAvail,
+      ...extra,
+    };
+  };
 
   const distinctCurrencies = getCurrencyUniverse(
     currentCurrencyStats,
@@ -313,7 +319,7 @@ export function computePeriodMetrics(
       "payment_amount",
       PAYMENT_AMOUNT_LABEL,
       0,
-      0,
+      isComparisonAvailable ? 0 : null,
       Array.from(currentPaymentSumCompanyIds),
       true,
       {
@@ -322,6 +328,7 @@ export function computePeriodMetrics(
         currencyBreakdown: { current: {}, previous: {} },
         amountQuality: "COMPLETE",
         currencyBreakdownQuality: { current: {}, previous: {} },
+        comparisonAvailable: isComparisonAvailable,
       }
     );
   } else if (distinctCurrencies.length === 1) {
@@ -331,11 +338,21 @@ export function computePeriodMetrics(
     const cRes = evaluateAggregateAmountQuality(cStat.validSum, cStat.validCount, cStat.invalidCount, cStat.unknownCount);
     const pRes = evaluateAggregateAmountQuality(pStat.validSum, pStat.validCount, pStat.invalidCount, pStat.unknownCount);
 
+    const isSingleCurComplete =
+      isComparisonAvailable &&
+      cRes.quality === "COMPLETE" &&
+      pRes.quality === "COMPLETE" &&
+      cRes.amount !== null &&
+      pRes.amount !== null;
+
+    const singleDelta = isSingleCurComplete ? Math.round(cRes.amount!) - Math.round(pRes.amount!) : null;
+    const singleDeltaPct = isSingleCurComplete ? safeDeltaPercent(Math.round(cRes.amount!), Math.round(pRes.amount!)) : null;
+
     paymentKpi = buildKpi(
       "payment_amount",
       PAYMENT_AMOUNT_LABEL,
       cRes.amount !== null ? Math.round(cRes.amount) : null,
-      pRes.amount !== null ? Math.round(pRes.amount) : null,
+      isComparisonAvailable && pRes.amount !== null ? Math.round(pRes.amount) : null,
       Array.from(currentPaymentSumCompanyIds),
       true,
       {
@@ -343,13 +360,16 @@ export function computePeriodMetrics(
         currencyId: cur,
         currencyBreakdown: {
           current: currentPaymentAmountsByCurrency,
-          previous: prevPaymentAmountsByCurrency,
+          previous: isComparisonAvailable ? prevPaymentAmountsByCurrency : {},
         },
         amountQuality: cRes.quality,
         currencyBreakdownQuality: {
           current: currentQualityByCurrency,
-          previous: prevQualityByCurrency,
+          previous: isComparisonAvailable ? prevQualityByCurrency : {},
         },
+        comparisonAvailable: isSingleCurComplete,
+        delta: singleDelta,
+        deltaPercent: singleDeltaPct,
       }
     );
   } else {
@@ -377,13 +397,16 @@ export function computePeriodMetrics(
         isMultiCurrency: true,
         currencyBreakdown: {
           current: currentPaymentAmountsByCurrency,
-          previous: prevPaymentAmountsByCurrency,
+          previous: isComparisonAvailable ? prevPaymentAmountsByCurrency : {},
         },
         amountQuality: multiQuality,
         currencyBreakdownQuality: {
           current: currentQualityByCurrency,
-          previous: prevQualityByCurrency,
+          previous: isComparisonAvailable ? prevQualityByCurrency : {},
         },
+        comparisonAvailable: false,
+        delta: null,
+        deltaPercent: null,
       }
     );
   }
@@ -393,36 +416,36 @@ export function computePeriodMetrics(
       "new_companies",
       "Новые компании",
       currentNewCompanyIds.size,
-      prevNewCompanyIds.size,
+      isComparisonAvailable ? prevNewCompanyIds.size : null,
       Array.from(currentNewCompanyIds)
     ),
     buildKpi(
       "samples_sent",
-      "Образцы отправлены",
+      "Компании с отправленными образцами",
       currentSampleSentCompanyIds.size,
-      prevSampleSentCompanyIds.size,
+      isComparisonAvailable ? prevSampleSentCompanyIds.size : null,
       Array.from(currentSampleSentCompanyIds)
     ),
     buildKpi(
       "deals_created",
-      "Создано сделок",
+      "Компании с созданными сделками",
       currentDealCreatedCompanyIds.size,
-      prevDealCreatedCompanyIds.size,
+      isComparisonAvailable ? prevDealCreatedCompanyIds.size : null,
       Array.from(currentDealCreatedCompanyIds)
     ),
     buildKpi(
       "payments_received",
-      "Получено оплат",
+      "Компании с полученной оплатой",
       currentPaidCompanyIds.size,
-      prevPaidCompanyIds.size,
+      isComparisonAvailable ? prevPaidCompanyIds.size : null,
       Array.from(currentPaidCompanyIds)
     ),
     paymentKpi,
     buildKpi(
       "shipments",
-      "Отгрузки",
+      "Компании с отгрузками",
       currentShipmentCompanyIds.size,
-      prevShipmentCompanyIds.size,
+      isComparisonAvailable ? prevShipmentCompanyIds.size : null,
       Array.from(currentShipmentCompanyIds)
     ),
   ];

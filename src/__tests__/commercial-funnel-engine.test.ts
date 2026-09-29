@@ -41,11 +41,11 @@ describe("Commercial Funnel — Date Utilities & Safe Deltas", () => {
     const filters: CommercialFilters = { periodPreset: "30days" };
     const bounds = computePeriodBoundaries(filters, fixedNow);
 
-    const currentDuration = bounds.currentEnd.getTime() - bounds.currentStart.getTime();
-    const previousDuration = bounds.previousEnd.getTime() - bounds.previousStart.getTime();
+    const currentDuration = bounds.currentEnd.getTime() - bounds.currentStart!.getTime();
+    const previousDuration = bounds.previousEnd!.getTime() - bounds.previousStart!.getTime();
 
     expect(Math.abs(currentDuration - previousDuration)).toBeLessThanOrEqual(1000);
-    expect(bounds.previousEnd.getTime()).toBeLessThan(bounds.currentStart.getTime());
+    expect(bounds.previousEnd!.getTime()).toBeLessThan(bounds.currentStart!.getTime());
   });
 
   it("calculateDaysWaiting returns null for missing or invalid dates", () => {
@@ -405,7 +405,7 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
       fixedNow
     );
 
-    expect(bounds.currentStart.getTime()).toBeLessThan(bounds.currentEnd.getTime());
+    expect(bounds.currentStart!.getTime()).toBeLessThan(bounds.currentEnd.getTime());
     expect(bounds.currentStartStr).toBe("2026-09-01");
     expect(bounds.currentEndStr).toBe("2026-09-30");
   });

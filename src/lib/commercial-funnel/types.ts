@@ -4,7 +4,7 @@
 // All analytics metrics and Excel sheets consume these types.
 // ─────────────────────────────────────────────────────────────────────
 
-export type PeriodPreset = "7days" | "30days" | "90days" | "quarter" | "custom";
+export type PeriodPreset = "7days" | "30days" | "90days" | "quarter" | "custom" | "all";
 
 export interface CommercialFilters {
   periodPreset: PeriodPreset;
@@ -18,14 +18,16 @@ export interface CommercialFilters {
 }
 
 export interface PeriodBoundaries {
-  currentStart: Date;
+  currentStart: Date | null;
   currentEnd: Date;
-  previousStart: Date;
-  previousEnd: Date;
+  previousStart: Date | null;
+  previousEnd: Date | null;
   currentStartStr: string;
   currentEndStr: string;
   previousStartStr: string;
   previousEndStr: string;
+  isAllTime?: boolean;
+  comparisonAvailable?: boolean;
 }
 
 export interface CommercialDeal {
@@ -150,6 +152,7 @@ export interface DatedKpi {
     current: Record<string, AggregateAmountQuality>;
     previous: Record<string, AggregateAmountQuality>;
   };
+  comparisonAvailable?: boolean;
 }
 
 export interface WipKpi {

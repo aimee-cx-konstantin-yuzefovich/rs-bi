@@ -4,6 +4,7 @@
 // Commercial analytical companies table (Section 20).
 // Direct access to existing CompanyPreview & DealPreview.
 
+import { useState, useMemo, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -16,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertCircle, Building2, ExternalLink } from "lucide-react";
 import type { CommercialCompany } from "@/lib/commercial-funnel/types";
 import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
+import { CommercialTablePagination } from "./table-pagination";
 
 interface CompaniesTabProps {
   companies: CommercialCompany[];
@@ -28,6 +30,17 @@ export function CommercialCompaniesTab({
   onSelectCompany,
   onSelectDeal,
 }: CompaniesTabProps) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  useEffect(() => {
+    setPage(1);
+  }, [companies.length]);
+
+  const pagedCompanies = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return companies.slice(start, start + pageSize);
+  }, [companies, page, pageSize]);
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -66,7 +79,7 @@ export function CommercialCompaniesTab({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {companies.map((c) => (
+                {pagedCompanies.map((c) => (
                   <TableRow key={c.id} className="hover:bg-muted/30">
                     {/* Компания */}
                     <TableCell className="text-xs font-medium">
@@ -196,7 +209,14 @@ export function CommercialCompaniesTab({
                 ))}
               </TableBody>
             </Table>
-        </div>
+            <CommercialTablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={companies.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+          </div>
       )}
     </div>
   );
