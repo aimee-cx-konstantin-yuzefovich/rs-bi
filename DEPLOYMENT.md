@@ -75,26 +75,26 @@ directory and applies committed migrations. It loads production `.env` files lik
 Next.js; exported process variables take precedence. It rejects relative database
 URLs and unsafe/missing runtime secrets before changing the database.
 
-For **existing tables with no Prisma migration history**, complete this one-time
-operator procedure before the first deploy/restart using the new migrations:
+For **existing tables with no Prisma migration history**, manual baseline is no
+longer required for known legacy states. Known legacy DB states are automatically
+backed up, verified, upgraded and baselined by `scripts/migrate-deploy.mjs`:
 
-1. Stop application writes (stop the PM2 app/container). Identify the actual SQLite
-   file and create a SQLite-consistent backup outside the deployment directory,
-   using SQLite's `.backup` command. Include verification that the backup opens and
-   contains the expected audit/nonce records. Do not copy an active WAL database as
-   a single file or discard its sidecars.
-2. Stage the new artifact separately. Export `DATABASE_URL` as the absolute URL of
-   the existing file and `RUST_LOG=info` (Prisma 6 requires its startup log when
-   parsing connection errors). Run the packaged CLI against this file:
-   `node node_modules/prisma/build/index.js migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code`.
-   Exit 0 means no schema differences; exit 2 or any error means stop and investigate.
-3. Only after backup and an exact schema match, run
-   `node node_modules/prisma/build/index.js migrate resolve --applied 20260909000000_initial --schema prisma/schema.prisma`.
-   This records the baseline without recreating tables. Never mark an incompatible
-   schema applied. If migration history already exists, inspect it instead of
-   repeating this procedure.
-4. Run `NODE_ENV=production node scripts/migrate-deploy.mjs`, check that audit/nonce
-   records remain intact, then restart. No automatic baselining is implemented.
+- **State A (current schema without history)**: database contains both `audit_logs`
+  and `used_nonces` with zero schema drift against `prisma/schema.prisma`. A
+  transactionally consistent backup (`audit.db.pre-prisma-baseline-<timestamp>.backup`)
+  is created via SQLite `VACUUM INTO`, initial migration `20260909000000_initial` is
+  recorded as applied via `prisma migrate resolve`, and deployment completes.
+- **State B (legacy schema without history)**: database contains only `audit_logs`
+  matching the original schema and lacks `used_nonces`. An exact schema diff verifies
+  the legacy structure, a `VACUUM INTO` backup is created, the missing `used_nonces`
+  table is safely created, zero post-mutation drift against `prisma/schema.prisma` is
+  verified, initial migration `20260909000000_initial` is recorded as applied, and
+  deployment completes.
+
+Unknown schema drift fails closed and requires manual investigation. If any
+unrecognized table, missing column, or incompatible type is detected, the runner
+refuses to baseline or modify the database, prints full schema diffs to stderr, and
+aborts before application startup or PM2 restart.
 
 ## Existing PM2 deployment
 

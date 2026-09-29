@@ -79,4 +79,6 @@ rsync -a --delete --exclude='.env*' --exclude='db/' --exclude='*.db*' --exclude=
 [ ! -e "$dst/stale.txt" ] || fail "ordinary stale file was not deleted"
 echo "rsync SQLite/.env protection: PASS"
 
+node "$repo/scripts/qa-migration-bootstrap.mjs"
+
 echo "deployment QA: PASS"
