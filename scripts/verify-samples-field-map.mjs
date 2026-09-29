@@ -43,7 +43,8 @@ function getWebhookUrl() {
 const webhookUrl = getWebhookUrl();
 
 if (!webhookUrl) {
-  console.log("LIVE BITRIX FILTER AUDIT: NOT EXECUTED — BITRIX_WEBHOOK_URL NOT AVAILABLE");
+  console.log("LIVE BITRIX FILTER AUDIT: BLOCKED — BITRIX_WEBHOOK_URL NOT AVAILABLE");
+  console.log("LIVE AUDIT NOT EXECUTED");
   process.exit(0);
 }
 
@@ -258,13 +259,16 @@ async function verifyFieldMap() {
 
     if (hasMismatch) {
       console.warn("WARNING: Some fields have type/existence mismatches with live CRM.");
+      console.log("LIVE AUDIT FAIL");
       process.exit(1);
     } else {
       console.log("All Samples fields verified successfully against live CRM.");
+      console.log("LIVE AUDIT PASS");
       process.exit(0);
     }
   } catch (err) {
     console.error("Verification execution error:", err.message);
+    console.log("LIVE AUDIT FAIL");
     process.exit(1);
   }
 }
