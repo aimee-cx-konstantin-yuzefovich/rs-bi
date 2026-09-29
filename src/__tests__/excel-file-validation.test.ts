@@ -158,7 +158,7 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
     expect(sheet.headerFooter.oddFooter).toContain("RusSilica BI Terminal");
   });
 
-  it("Report 4: Commercial Funnel (5 Sheets) — validates round-trip, media reuse, and compact file size", async () => {
+  it("Report 4: Commercial Funnel (6 Sheets) — validates round-trip, media reuse, and compact file size", async () => {
     const demoData = generateDemoCommercialDataset();
     const filters: CommercialFilters = {
       periodPreset: "30days",
@@ -179,16 +179,17 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
 
     expect(sourceWorkbook.worksheets.map((s) => s.name)).toEqual([
       "Executive Summary",
-      "Companies",
-      "Samples",
+      "Funnel",
+      "Segments",
+      "Sample Testing",
       "Managers",
-      "Bottlenecks",
+      "Action Plan",
     ]);
 
     const buffer = await sourceWorkbook.xlsx.writeBuffer();
 
-    // File size check: 5 sheets + logo should remain very compact (under 60 KB)
-    expect(buffer.byteLength).toBeLessThan(60_000);
+    // File size check: 6 sheets + logo should remain very compact (under 80 KB)
+    expect(buffer.byteLength).toBeLessThan(80_000);
     expect(buffer.byteLength).toBeGreaterThan(15_000);
 
     // Round-trip parse
@@ -203,25 +204,26 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
     expect(summary.getCell("B1").value).toBe("КОММЕРЧЕСКАЯ ВОРОНКА");
     expect(summary.getCell("B2").value).toBe("Управленческий отчёт RusSilica BI");
 
-    // Validate Companies detail sheet
-    const compSheet = parsedWorkbook.getWorksheet("Companies")!;
-    expect(compSheet.getCell("B1").value).toContain("КОММЕРЧЕСКАЯ ВОРОНКА");
-    expect(compSheet.views.some((v) => v.state === "frozen" && v.ySplit === 6)).toBe(true);
-
-    // Validate Samples detail sheet
-    const samplesSheet = parsedWorkbook.getWorksheet("Samples")!;
-    expect(samplesSheet.getCell("B1").value).toContain("КОММЕРЧЕСКАЯ ВОРОНКА");
-    expect(samplesSheet.views.some((v) => v.state === "frozen" && v.ySplit === 6)).toBe(true);
-
-    // Validate Managers detail sheet
-    const managersSheet = parsedWorkbook.getWorksheet("Managers")!;
-    expect(managersSheet.getCell("B1").value).toContain("КОММЕРЧЕСКАЯ ВОРОНКА");
-    expect(managersSheet.views.some((v) => v.state === "frozen" && v.ySplit === 6)).toBe(true);
-
-    // Validate Bottlenecks detail sheet
-    const bottlenecksSheet = parsedWorkbook.getWorksheet("Bottlenecks")!;
-    expect(bottlenecksSheet.getCell("B1").value).toContain("КОММЕРЧЕСКАЯ ВОРОНКА");
-    expect(bottlenecksSheet.views.some((v) => v.state === "frozen" && v.ySplit === 6)).toBe(true);
+    // Validate detail sheets: branded header + frozen panes at the table header row.
+    // Header row index may exceed 6 when disclosure lines are present; freeze must
+    // always sit exactly at the data-table header row.
+    const detailExpectations: Array<[string, string]> = [
+      ["Funnel", "Раздел"],
+      ["Segments", "Сегмент"],
+      ["Sample Testing", "№"],
+      ["Managers", "Менеджер"],
+      ["Action Plan", "Компания"],
+    ];
+    for (const [name, firstColHeader] of detailExpectations) {
+      const ws = parsedWorkbook.getWorksheet(name)!;
+      expect(ws.getCell("B1").value).toContain("КОММЕРЧЕСКАЯ ВОРОНКА");
+      let headerRowNum = -1;
+      ws.eachRow((row, rowNumber) => {
+        if (row.getCell(1).value === firstColHeader) headerRowNum = rowNumber;
+      });
+      expect(headerRowNum).toBeGreaterThan(0);
+      expect(ws.views.some((v) => v.state === "frozen" && v.ySplit === headerRowNum)).toBe(true);
+    }
   });
 
   it("Report 5: Comprehensive Remediation Round-Trip — multi-currency, semantic status fills, field provenance, and Executive Summary attention section", async () => {
@@ -310,7 +312,7 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
       });
     });
 
-    expect(allSummaryTexts.some((t) => t.includes("ТРЕБУЮТ ВНИМАНИЯ (УЗКИЕ МЕСТА)"))).toBe(true);
+    expect(allSummaryTexts.some((t) => t.includes("ТРЕБУЮТ ВНИМАНИЯ (СИГНАЛЫ)"))).toBe(true);
     expect(allSummaryTexts.some((t) => t.includes("[KPI] Новые компании"))).toBe(true);
   });
 

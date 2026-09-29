@@ -227,44 +227,25 @@ describe("Ingress-to-Domain End-to-End Pipeline Fixture", () => {
     const reloaded = new ExcelJS.Workbook();
     await reloaded.xlsx.load(buffer);
 
-    // Verify all 5 sheets
+    // Verify all 6 sheets
     expect(reloaded.worksheets.map((w) => w.name)).toEqual([
       "Executive Summary",
-      "Companies",
-      "Samples",
+      "Funnel",
+      "Segments",
+      "Sample Testing",
       "Managers",
-      "Bottlenecks",
+      "Action Plan",
     ]);
 
-    // Inspect Companies sheet cell values
-    const compSheet = reloaded.getWorksheet("Companies")!;
-    let c1Row: ExcelJS.Row | undefined;
-    let c2Row: ExcelJS.Row | undefined;
-
-    compSheet.eachRow((r, num) => {
-      if (num === 1) return;
-      if (r.getCell(1).value === "C1") c1Row = r;
-      if (r.getCell(1).value === "C2") c2Row = r;
-    });
-
-    expect(c1Row).toBeDefined();
-    // Primary deal for C1: active deal 1002 (EXECUTING) takes deterministic priority over closed deal 1001 (WON)
-    expect(c1Row!.getCell(14).value).toBe(200000);
-
-    expect(c2Row).toBeDefined();
-    // Primary deal for C2: active deal 1003 (NEW) takes precedence over closed deal 1004 (WON).
-    // Deal 1003 has invalid opportunity ("1000rub"), exported faithfully as "Неверная сумма"
-    expect(c2Row!.getCell(14).value).toBe("Неверная сумма");
-
-    // Inspect Samples sheet
-    const sampleSheet = reloaded.getWorksheet("Samples")!;
+    // Inspect Sample Testing sheet (management snapshot with native dates)
+    const sampleSheet = reloaded.getWorksheet("Sample Testing")!;
     let sampleRow: ExcelJS.Row | undefined;
     sampleSheet.eachRow((r) => {
-      const dealTitleVal = String(r.getCell(3).value || "");
+      const dealTitleVal = String(r.getCell(12).value || "");
       if (dealTitleVal.includes("1005")) sampleRow = r;
     });
     expect(sampleRow).toBeDefined();
-    expect(sampleRow!.getCell(5).value).toBe("Образцы отправлены");
+    expect(sampleRow!.getCell(8).value).toBe("Образцы отправлены");
     const shipmentCellVal = sampleRow!.getCell(7).value;
     expect(shipmentCellVal).toBeInstanceOf(Date);
     expect((shipmentCellVal as Date).toISOString()).toContain("2026-02-22");

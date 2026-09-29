@@ -895,6 +895,10 @@ function formatPeriodPresetToRussian(preset: string): string {
   funnelSheet.views = [
     { state: "frozen", ySplit: funnelHeaderRowIndex, showGridLines: true },
   ];
+  funnelSheet.autoFilter = {
+    from: { row: funnelHeaderRowIndex, column: 1 },
+    to: { row: funnelHeaderRowIndex, column: funnelColumns.length },
+  };
 
   const startFunnelRow = funnelHeaderRowIndex + 1;
   // Section A: Samples & Testing

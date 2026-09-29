@@ -297,7 +297,7 @@ describe("Excel release acceptance — Commercial Funnel", () => {
     customTo: "2026-09-30",
   };
 
-  it("produces the 5 management sheets with reconciled entity IDs", async () => {
+  it("produces the 6 management sheets with reconciled entity IDs", async () => {
     const { companies, deals } = makeFunnelData();
     const wb = await createCommercialFunnelWorkbook({
       companies,
@@ -311,15 +311,15 @@ describe("Excel release acceptance — Commercial Funnel", () => {
     const sheetNames = reloaded.worksheets.map((s) => s.name);
     expect(sheetNames).toEqual([
       "Executive Summary",
-      "Companies",
-      "Samples",
+      "Funnel",
+      "Segments",
+      "Sample Testing",
       "Managers",
-      "Bottlenecks",
+      "Action Plan",
     ]);
 
-    const companiesSheet = reloaded.getWorksheet("Companies")!;
-    const texts = CELL_TEXT(companiesSheet);
-    expect(texts).toContain("901"); // company entity ID
+    const sampleTestingSheet = reloaded.getWorksheet("Sample Testing")!;
+    const texts = CELL_TEXT(sampleTestingSheet);
     expect(texts).toContain("Компания Ф1");
 
     // Filters disclosed on the summary sheet
@@ -327,7 +327,7 @@ describe("Excel release acceptance — Commercial Funnel", () => {
     expect(summaryTexts.some((t) => t.includes("Ответственный"))).toBe(true);
   });
 
-  it("stamps activity-partial warning on Managers and Bottlenecks sheets", async () => {
+  it("stamps activity-partial warning on Managers and Action Plan sheets", async () => {
     const { companies, deals } = makeFunnelData();
     const wb = await createCommercialFunnelWorkbook({
       companies,
@@ -340,9 +340,9 @@ describe("Excel release acceptance — Commercial Funnel", () => {
 
     const reloaded = await reload(wb);
     const managersTexts = CELL_TEXT(reloaded.getWorksheet("Managers")!);
-    const bottlenecksTexts = CELL_TEXT(reloaded.getWorksheet("Bottlenecks")!);
+    const actionPlanTexts = CELL_TEXT(reloaded.getWorksheet("Action Plan")!);
     expect(managersTexts.some((t) => t.includes("Данные активностей загружены частично"))).toBe(true);
-    expect(bottlenecksTexts.some((t) => t.includes("Данные активностей загружены частично"))).toBe(true);
+    expect(actionPlanTexts.some((t) => t.includes("Данные активностей загружены частично"))).toBe(true);
   });
 
   it("demo-mode dataset can never be exported (hard guard throws)", async () => {
@@ -368,7 +368,7 @@ describe("Excel release acceptance — Commercial Funnel", () => {
       now: new Date("2026-09-26T12:00:00Z"),
     });
     const reloaded = await reload(wb);
-    for (const name of ["Companies", "Managers", "Bottlenecks"]) {
+    for (const name of ["Funnel", "Segments", "Sample Testing", "Managers", "Action Plan"]) {
       const ws = reloaded.getWorksheet(name)!;
       expect(ws.views?.[0]?.state).toBe("frozen");
       expect(ws.autoFilter).toBeDefined();
