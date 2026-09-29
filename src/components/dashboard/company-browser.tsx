@@ -97,10 +97,27 @@ function resolveCompanyValue(
   const raw = company[colId];
   if (raw === null || raw === undefined || raw === "") return "";
 
+  const isBoolField = field?.type === "char" || field?.type === "boolean";
+  if (isBoolField) {
+    const rStr = String(raw).trim().toLowerCase();
+    if ((raw as unknown) === true || raw === "Y" || raw === "1" || rStr === "true" || rStr === "y") return "Да";
+    if ((raw as unknown) === false || raw === "N" || raw === "0" || rStr === "false" || rStr === "n") return "Нет";
+  } else {
+    const rStr = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if ((raw as unknown) === false || rStr === "false" || rStr === "null" || rStr === "undefined") {
+      return "";
+    }
+  }
+
   const listValues = field?.listValues;
   if (listValues && listValues.length > 0) {
     if (Array.isArray(raw)) {
-      return raw
+      const valid = raw.filter((v) => {
+        const s = String(v).trim().toLowerCase();
+        return (v as unknown) !== false && s !== "false" && s !== "null" && s !== "undefined" && s !== "";
+      });
+      if (valid.length === 0) return "";
+      return valid
         .map((v) => listValues.find((lv) => lv.ID === String(v))?.VALUE || String(v))
         .join(", ");
     }
@@ -108,7 +125,14 @@ function resolveCompanyValue(
     if (found) return found.VALUE;
   }
 
-  if (Array.isArray(raw)) return raw.join(", ");
+  if (Array.isArray(raw)) {
+    const valid = raw.filter((v) => {
+      const s = String(v).trim().toLowerCase();
+      return (v as unknown) !== false && s !== "false" && s !== "null" && s !== "undefined" && s !== "";
+    });
+    if (valid.length === 0) return "";
+    return valid.join(", ");
+  }
 
   if (field?.type === "money" && typeof raw === "string") {
     const [amountStr, currency] = raw.split("|");
@@ -141,7 +165,10 @@ function resolveCompanyValue(
     // Composite/object-shaped fields (e.g. Bitrix "address"-type values) have no
     // single string form — render their non-empty parts instead of "[object Object]".
     const parts = Object.values(raw as Record<string, unknown>).filter(
-      (v): v is string => typeof v === "string" && v.trim().length > 0
+      (v): v is string =>
+        typeof v === "string" &&
+        v.trim().length > 0 &&
+        !["false", "null", "undefined"].includes(v.trim().toLowerCase())
     );
     return parts.join(", ");
   }
