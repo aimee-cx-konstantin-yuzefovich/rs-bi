@@ -9,8 +9,8 @@ type CompanyRecord = Record<string, any>;
 const BATCH_SIZE = 50;
 const FALLBACK_GET_CONCURRENCY = 5;
 const MAX_FALLBACK_IDS = 15;
-export const MAX_COMPANY_IDS = 500;
-export const MAX_SELECT_FIELDS = 100;
+const MAX_COMPANY_IDS = 500;
+const MAX_SELECT_FIELDS = 100;
 
 function normalizeIds(ids: unknown): string[] {
   if (!Array.isArray(ids)) return [];
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       partial: isPartial,
-      warning: isPartial ? `Не удалось загрузить данные для ${stillUnresolved.length} компаний.` : undefined,
+      warning: isPartial ? `Не удалось загрузить данные для ${stillUnresolved.length} из ${ids.length} компаний.` : undefined,
       companies: companiesMap,
       fetchedCompanyIds,
       unresolvedCompanyIds: stillUnresolved,

@@ -48,6 +48,10 @@ export const COMPANY_APPLICATION_OLD_FIELD_ID = "UF_CRM_69257337B8025";
 // Company "Направление" (multiple enum)
 export const COMPANY_DIRECTION_FIELD_ID = "UF_CRM_69259C45D3399";
 
+// Company "Сфера деятельности" (crm_status)
+export const COMPANY_INDUSTRY_FIELD_ID = "INDUSTRY";
+export const COMPANY_INDUSTRY_FIELD_TITLE = "Сфера деятельности";
+
 // Deal "Передача образцов" (enum)
 export const DEAL_SAMPLE_TRANSFER_FIELD_ID = "UF_CRM_1779386185";
 // Deal "Тестирование образцов" (enum, possibly multiple)

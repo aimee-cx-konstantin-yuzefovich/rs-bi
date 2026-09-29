@@ -48,6 +48,8 @@ import {
   coverageExcelLines,
   type DatasetCoverage,
 } from "./dataset-coverage";
+import { resolveResponsibleDisplay } from "./enrichment-coverage";
+import type { SampleSummary, NormalizedResult } from "./samples/types";
 
 export interface WysiwygExportOptions {
   sheetName?: string;
@@ -67,7 +69,7 @@ export interface WysiwygExportOptions {
   // Detached-artifact truthfulness: the workbook must carry its own dataset
   // coverage (COMPLETE/CAPPED/PARTIAL) — a user can email the .xlsx without
   // the web UI beside it, so a website banner alone is not enough.
-  coverage?: DatasetCoverage;
+  coverage?: DatasetCoverage | null;
   // Domain-specific extra warnings (e.g. activity partial) rendered in the
   // same prominent report-level block.
   extraWarnings?: string[];
@@ -387,6 +389,9 @@ function resolveWysiwygFileName(prefix?: string, defaultPrefix = "РусСили
 
   if (!prefix) {
     return `${defaultPrefix}_${dateStr}.xlsx`;
+  }
+  if (prefix.toLowerCase().includes("sample") || prefix.toLowerCase().includes("образц")) {
+    return `РусСилика_Образцы_${dateStr}.xlsx`;
   }
   if (prefix.toLowerCase().includes("deal") || prefix.toLowerCase().includes("сделк")) {
     return `РусСилика_Сделки_${dateStr}.xlsx`;
@@ -868,6 +873,146 @@ export async function exportCompanyToExcel(options: ExportCompanyOptions): Promi
   const prefix = safeTitle ? `РусСилика_Компания_${safeTitle}` : "РусСилика_Компания";
   a.download = options.fileName || `${prefix}_${dateStr}.xlsx`;
 
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}
+
+export interface ExportSamplesOptions {
+  summaries: SampleSummary[];
+  userNames?: Record<string, string>;
+  usersCoverage?: DatasetCoverage | null;
+  period?: string;
+  filtersText?: string;
+  coverage?: DatasetCoverage | null;
+  extraWarnings?: string[];
+}
+
+/**
+ * Builds an ExcelJS Workbook for Samples registry export.
+ * Sheet: "Образцы", Title: "Реестр образцов", sequential 1..N row index.
+ */
+export async function buildSamplesWorkbook(
+  options: ExportSamplesOptions
+): Promise<ExcelJS.Workbook> {
+  const {
+    summaries,
+    userNames = {},
+    usersCoverage,
+    period = "Все",
+    filtersText = "Все",
+    coverage,
+    extraWarnings,
+  } = options;
+
+  const columns = [
+    "№",
+    "Компания",
+    "Ответственный",
+    "Отрасль / применение",
+    "Продукт",
+    "Марка",
+    "Количество",
+    "Дата передачи",
+    "Статус",
+    "Результат",
+    "Сделки",
+  ];
+
+  const RESULT_LABELS: Record<NormalizedResult, string> = {
+    positive: "Успешно",
+    negative: "Не подошли",
+    rework: "На доработке",
+    pending: "На испытаниях",
+    mixed: "Смешанный",
+    unknown: "Неизвестно",
+  };
+
+  const formatIsoDateToRu = (iso: string): string => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    if (match) return `${match[3]}.${match[2]}.${match[1]}`;
+    return iso;
+  };
+
+  const data: (string | number | null)[][] = summaries.map((s, idx) => {
+    const rowNum = idx + 1;
+    const company = s.companyTitle || (s.companyId ? `Компания #${s.companyId}` : "");
+    const responsible = s.responsibleId
+      ? resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
+      : s.responsibleName || null;
+    const industryApp = [s.industry, s.application].filter(Boolean).join(" / ") || null;
+    const products = s.productFamilies.length > 0 ? s.productFamilies.join(", ") : null;
+    const grades = s.grades.map((g) => g.value).filter(Boolean).join(", ") || null;
+    const quantities =
+      s.quantities.length > 0
+        ? s.quantities
+            .map((q) => {
+              const val = typeof q.value === "number" ? q.value.toLocaleString("ru-RU") : q.value;
+              return q.unit ? `${val} ${q.unit}` : String(val);
+            })
+            .join(", ")
+        : null;
+    const sentDates =
+      s.sentDates.length > 0
+        ? s.sentDates.map(formatIsoDateToRu).join(", ")
+        : null;
+    const statusesList = [...s.sampleIndicators, ...s.processStatuses];
+    const statuses = statusesList.length > 0 ? statusesList.join(", ") : null;
+    const result = RESULT_LABELS[s.normalizedResult] || "Неизвестно";
+    const deals =
+      s.relatedDeals.length > 0
+        ? s.relatedDeals.map((d) => d.title).filter(Boolean).join(", ")
+        : null;
+
+    return [
+      rowNum,
+      company,
+      responsible,
+      industryApp,
+      products,
+      grades,
+      quantities,
+      sentDates,
+      statuses,
+      result,
+      deals,
+    ];
+  });
+
+  return buildWysiwygWorkbook(data, columns, {
+    sheetName: "Образцы",
+    title: "Реестр образцов",
+    fileNamePrefix: "РусСилика_Образцы",
+    period,
+    filtersText,
+    coverage,
+    extraWarnings,
+  });
+}
+
+/**
+ * Exports filtered Samples registry to Excel file.
+ */
+export async function exportSamplesToExcel(
+  options: ExportSamplesOptions
+): Promise<void> {
+  if (options.summaries.length === 0) return;
+
+  const workbook = await buildSamplesWorkbook(options);
+  const buffer = await workbook.xlsx.writeBuffer();
+
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = resolveWysiwygFileName("РусСилика_Образцы", "РусСилика_Образцы");
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

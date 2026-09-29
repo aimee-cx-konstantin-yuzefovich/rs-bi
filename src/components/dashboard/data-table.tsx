@@ -327,13 +327,16 @@ export function DataTable() {
 
         {/* Table */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <div ref={parentRef} className="h-full overflow-auto custom-scrollbar">
+          <div ref={parentRef} data-testid="deals-table-scroll" className="h-full overflow-auto custom-scrollbar">
             <div className="min-w-full relative">
               <table className="data-table w-full border-separate border-spacing-0">
                 <thead className="bg-card shadow-sm">
                   <tr>
                     {/* Fixed Row Number Column */}
-                    <th className="text-center sticky top-0 left-0 z-30 bg-card border-r border-b border-border w-10 min-w-[40px] px-2">
+                    <th
+                      data-testid="deals-header-index"
+                      className="text-center sticky top-0 left-0 z-30 bg-card border-r border-b border-border w-10 min-w-[40px] px-2"
+                    >
                       №
                     </th>
                     {columns.map((colId) => {
@@ -349,7 +352,8 @@ export function DataTable() {
                       return (
                         <th 
                           key={colId} 
-                          className="text-left sticky top-0 z-20 group bg-card border-b border-border relative py-2 px-2"
+                          data-testid="deals-header-column"
+                          className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2"
                           style={{ 
                             width: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,
                             minWidth: columnWidths[colId] ? `${columnWidths[colId]}px` : undefined,

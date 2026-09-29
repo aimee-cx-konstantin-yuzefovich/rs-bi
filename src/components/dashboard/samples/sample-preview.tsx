@@ -16,29 +16,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Handshake, ExternalLink, FlaskConical } from "lucide-react";
-import {
-  NORMALIZED_RESULT_LABELS,
-  SAMPLE_DATA_ISSUE_LABELS,
-  SOURCE_QUALITY_LABELS,
-} from "@/lib/samples/constants";
 import type { SampleSummary } from "@/lib/samples/types";
 import { formatDateRu } from "./samples-registry";
-
-const RESULT_BADGE_CLASS: Record<string, string> = {
-  positive: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
-  negative: "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300",
-  rework: "bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-300",
-  pending: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
-  mixed: "bg-violet-100 text-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
-  unknown: "bg-muted text-muted-foreground",
-};
-
-const QUALITY_BADGE_CLASS: Record<string, string> = {
-  structured: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
-  partial: "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300",
-  legacy: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  ambiguous: "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
-};
+import { useDashboardStore } from "@/store/dashboard-store";
+import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
 
 export interface SamplePreviewProps {
   summary: SampleSummary;
@@ -82,6 +63,9 @@ export function SamplePreview({
   onOpenDealPreview,
 }: SamplePreviewProps) {
   const [bitrixUrl, setBitrixUrl] = useState<string | null>(null);
+
+  const userNames = useDashboardStore((s) => s.userNames);
+  const usersCoverage = useDashboardStore((s) => s.usersCoverage);
 
   // Safe external Bitrix link is derived server-side on the main pages;
   // here we reuse the same convention via the company details route pattern.
@@ -139,27 +123,11 @@ export function SamplePreview({
           aria-live="polite"
         >
           <dl className="space-y-1 pb-6 text-sm divide-y divide-border/60">
-            <div className="pt-2 flex flex-wrap items-center gap-2">
-              <Badge
-                className={`text-[10px] px-1.5 py-0 font-normal ${
-                  RESULT_BADGE_CLASS[summary.normalizedResult] ?? ""
-                }`}
-              >
-                {NORMALIZED_RESULT_LABELS[summary.normalizedResult] ?? summary.normalizedResult}
-              </Badge>
-              <Badge
-                className={`text-[10px] px-1.5 py-0 font-normal ${
-                  QUALITY_BADGE_CLASS[summary.sourceQuality] ?? ""
-                }`}
-                title="Качество данных источника"
-              >
-                {SOURCE_QUALITY_LABELS[summary.sourceQuality] ?? summary.sourceQuality}
-              </Badge>
-            </div>
-
             <Section title="Основное">
               <Row label="Ответственный">
-                {summary.responsibleName ?? summary.responsibleId ?? "—"}
+                {summary.responsibleId
+                  ? resolveResponsibleDisplay(summary.responsibleId, userNames, usersCoverage)
+                  : summary.responsibleName ?? "—"}
               </Row>
               <Row label="Компания">
                 {onOpenCompanyPreview ? (
@@ -285,26 +253,6 @@ export function SamplePreview({
                   ))}
                 </ul>
               )}
-            </Section>
-
-            <Section title="Качество данных">
-              {summary.dataIssues.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Существенных проблем в данных не обнаружено
-                </p>
-              ) : (
-                <ul className="space-y-1">
-                  {summary.dataIssues.map((issue) => (
-                    <li key={issue} className="text-xs text-amber-700 dark:text-amber-400">
-                      ⚠ {SAMPLE_DATA_ISSUE_LABELS[issue] ?? issue}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <p className="text-[10px] text-muted-foreground pt-1">
-                Уровень «{SOURCE_QUALITY_LABELS[summary.sourceQuality] ?? summary.sourceQuality}» —
-                автоматическая оценка полноты и согласованности полей образцов в Bitrix24.
-              </p>
             </Section>
           </dl>
         </div>

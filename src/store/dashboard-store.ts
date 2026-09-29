@@ -1056,14 +1056,16 @@ export const useDashboardStore = create<DashboardState>()(
 
             if (!response.ok) {
               console.warn("[Dashboard] Failed to fetch companies data: API returned", response.status);
+              const total = uniqueIds.length;
+              const fetched = uniqueIds.filter(id => Boolean(companiesData[id]?.TITLE || companiesData[id]?.ID)).length;
+              const unresolved = total - fetched;
               set({
                 companiesDataLoading: false,
-                // Failed refresh must not leave a stale COMPLETE provenance.
                 companiesDataCoverage: {
                   status: "PARTIAL",
-                  fetched: 0,
-                  total: requestedIds.length,
-                  warning: COMPANIES_FAILED_WARNING,
+                  fetched,
+                  total,
+                  warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
                 },
               });
               return;
@@ -1110,39 +1112,58 @@ export const useDashboardStore = create<DashboardState>()(
                     delete newCompaniesDataFetchedAt[id];
                   }
                 }
+
+                const total = uniqueIds.length;
+                const fetched = uniqueIds.filter(id => Boolean(newCompaniesData[id]?.TITLE || newCompaniesData[id]?.ID)).length;
+                const unresolved = total - fetched;
+                const isPartial = unresolved > 0;
+
                 return {
                   companiesData: newCompaniesData,
                   companiesDataFetchedAt: newCompaniesDataFetchedAt,
                   companiesDataLoading: false,
-                  // Unresolved company IDs mean PARTIAL — they must never be
-                  // presented as successfully enriched.
-                  companiesDataCoverage: resolveIdSetCoverage(
-                    requestedIds,
-                    successfulIds,
-                    { warning: data.warning }
-                  ),
+                  companiesDataCoverage: isPartial
+                    ? {
+                        status: "PARTIAL",
+                        fetched,
+                        total,
+                        warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
+                      }
+                    : {
+                        status: "COMPLETE",
+                        fetched: total,
+                        total,
+                      },
                 };
               });
             } else {
+              const total = uniqueIds.length;
+              const currentCompanies = get().companiesData;
+              const fetched = uniqueIds.filter(id => Boolean(currentCompanies[id]?.TITLE || currentCompanies[id]?.ID)).length;
+              const unresolved = total - fetched;
               set({
                 companiesDataLoading: false,
                 companiesDataCoverage: {
                   status: "PARTIAL",
-                  fetched: 0,
-                  total: requestedIds.length,
-                  warning: COMPANIES_FAILED_WARNING,
+                  fetched,
+                  total,
+                  warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
                 },
               });
             }
           } catch {
             console.warn("[Dashboard] Failed to fetch companies data");
+            const total = uniqueIds.length;
+            const currentCompanies = get().companiesData;
+            const fetched = uniqueIds.filter(id => Boolean(currentCompanies[id]?.TITLE || currentCompanies[id]?.ID)).length;
+            const unresolved = total - fetched;
             set({
               companiesDataLoading: false,
               companiesDataCoverage: {
                 status: "PARTIAL",
-                fetched: 0,
-                total: requestedIds.length,
-                warning: COMPANIES_FAILED_WARNING,
+                fetched,
+                total,
+                warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
               },
             });
           } finally {

@@ -162,7 +162,7 @@ function DashboardContent() {
           visible (opacity-100) as soon as the overlay starts closing — success, error,
           or 10s timeout — so it sits behind the fading splash with no flash frame.
           It only becomes interactive (inert/aria-hidden removed) after appLoaded=true. */}
-      <div data-testid="dashboard-root" inert={!appLoaded} aria-hidden={!appLoaded} className={`min-h-screen flex flex-col bg-background transition-opacity duration-200 motion-reduce:transition-none ${appLoaded || startup.finished || startupTimedOut ? "opacity-100" : "h-dvh overflow-hidden opacity-0 [contain:strict]"}`}>
+      <div data-testid="dashboard-root" inert={!appLoaded} aria-hidden={!appLoaded} className={`h-dvh flex flex-col bg-background overflow-hidden transition-opacity duration-200 motion-reduce:transition-none ${appLoaded || startup.finished || startupTimedOut ? "opacity-100" : "opacity-0 [contain:strict]"}`}>
         <Header />
         <main className="flex-1 flex flex-col min-h-0">
           <ConfigBanner />
