@@ -12,11 +12,9 @@ import {
   PAYMENT_AMOUNT_LABEL,
 } from "./constants";
 import {
-  buildSampleRegister,
   computeBottlenecks,
   computeManagerScorecard,
   computePeriodMetrics,
-  computeWipMetrics,
   filterCompaniesByDimensions,
 } from "./engine";
 import {
@@ -133,7 +131,6 @@ export async function createCommercialFunnelWorkbook(
   const filteredCompanies = filterCompaniesByDimensions(companies, filters);
 
   const datedKpis = computePeriodMetrics(filteredCompanies, boundaries);
-  const wipKpis = computeWipMetrics(filteredCompanies);
   const bottlenecks = computeBottlenecks(filteredCompanies, now);
   const managerScorecard = computeManagerScorecard(
     filteredCompanies,
