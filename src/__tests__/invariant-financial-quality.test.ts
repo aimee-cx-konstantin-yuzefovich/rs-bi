@@ -19,6 +19,7 @@ import { getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
 import { createCommercialFunnelWorkbook } from "@/lib/commercial-funnel/export-excel";
 import { CommercialOverviewTab } from "@/components/commercial-funnel/overview-tab";
 import { CommercialManagersTab } from "@/components/commercial-funnel/managers-tab";
+import { computeFunnelView, computeManagementSignals } from "@/lib/commercial-funnel/analytics";
 import { PAYMENT_AMOUNT_LABEL } from "@/lib/commercial-funnel/constants";
 import type { CommercialCompany, CommercialDeal } from "@/lib/commercial-funnel/types";
 
@@ -265,8 +266,9 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       render(
         React.createElement(CommercialOverviewTab, {
           datedKpis,
-          wipKpis,
           boundaries,
+          funnelView: computeFunnelView(companies, boundaries),
+          managementSignals: computeManagementSignals(companies),
           onOpenDrillDown: vi.fn(),
         })
       );
@@ -379,8 +381,9 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       render(
         React.createElement(CommercialOverviewTab, {
           datedKpis,
-          wipKpis,
           boundaries,
+          funnelView: computeFunnelView(companies, boundaries),
+          managementSignals: computeManagementSignals(companies),
           onOpenDrillDown: vi.fn(),
         })
       );
@@ -478,8 +481,9 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       render(
         React.createElement(CommercialOverviewTab, {
           datedKpis,
-          wipKpis,
           boundaries,
+          funnelView: computeFunnelView(companies, boundaries),
+          managementSignals: computeManagementSignals(companies),
           onOpenDrillDown: vi.fn(),
         })
       );
@@ -555,8 +559,9 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       render(
         React.createElement(CommercialOverviewTab, {
           datedKpis,
-          wipKpis,
           boundaries,
+          funnelView: computeFunnelView(companies, boundaries),
+          managementSignals: computeManagementSignals(companies),
           onOpenDrillDown: vi.fn(),
         })
       );
@@ -631,8 +636,9 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       render(
         React.createElement(CommercialOverviewTab, {
           datedKpis,
-          wipKpis,
           boundaries,
+          funnelView: computeFunnelView(companies, boundaries),
+          managementSignals: computeManagementSignals(companies),
           onOpenDrillDown: vi.fn(),
         })
       );

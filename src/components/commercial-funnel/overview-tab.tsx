@@ -1,319 +1,355 @@
 "use client";
 
 // src/components/commercial-funnel/overview-tab.tsx
-// Overview view: Period Activity (Dated events) + Current Portfolio (WIP).
-// Full drill-down support on every KPI card.
+// Tab 1 — Обзор: "Что происходит с бизнесом в целом?"
+// COMPACT, three conceptual sections:
+//   A. Результаты за период (event metrics, authoritative DatedKpis)
+//   B. Компактный текущий портфель (two tracks, every number clickable)
+//   C. Управленческие сигналы (existing deterministic bottleneck rules only)
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  ArrowDownRight,
-  ArrowUpRight,
-  Building2,
-  Calendar,
-  Clock,
-  CreditCard,
-  FileCheck2,
-  FlaskConical,
-  Handshake,
-  TrendingDown,
-  TrendingUp,
-  Truck,
-} from "lucide-react";
-import type {
-  CommercialCompany,
-  DatedKpi,
-  PeriodBoundaries,
-  WipKpi,
-} from "@/lib/commercial-funnel/types";
+import { ChevronRight } from "lucide-react";
 import { formatCurrencyAmount, getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
+import type {
+  DatedKpi,
+  FunnelView,
+  ManagementSignal,
+  PeriodBoundaries,
+} from "@/lib/commercial-funnel/types";
 
 interface OverviewTabProps {
   datedKpis: DatedKpi[];
-  wipKpis: WipKpi[];
+  funnelView: FunnelView;
   boundaries: PeriodBoundaries;
+  managementSignals: ManagementSignal[];
   onOpenDrillDown: (title: string, subtitle: string, companyIds: string[]) => void;
+}
+
+const PERIOD_KPI_IDS = [
+  "new_companies",
+  "samples_sent",
+  "deals_created",
+  "payments_received",
+  "payment_amount",
+  "shipments",
+] as const;
+
+function MiniStat({
+  label,
+  count,
+  companyIds,
+  onOpenDrillDown,
+  title,
+  subtitle,
+  accent = false,
+}: {
+  label: string;
+  count: number;
+  companyIds: string[];
+  onOpenDrillDown: OverviewTabProps["onOpenDrillDown"];
+  title: string;
+  subtitle: string;
+  accent?: boolean;
+}) {
+  const disabled = count === 0;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onOpenDrillDown(title, subtitle, companyIds)}
+      className={`group flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+        disabled
+          ? "border-border/50 bg-muted/30 opacity-60"
+          : accent
+          ? "border-rose-200 dark:border-rose-900 bg-rose-50/60 dark:bg-rose-950/20 hover:border-rose-400 cursor-pointer"
+          : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+      }`}
+    >
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-base font-semibold tabular-nums">{count}</span>
+          <span className="text-[11px] font-medium truncate">{label}</span>
+        </div>
+        {subtitle && <div className="text-[10px] text-muted-foreground truncate">{subtitle}</div>}
+      </div>
+      {!disabled && (
+        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0" />
+      )}
+    </button>
+  );
+}
+
+function findKpi(kpis: DatedKpi[], id: string): DatedKpi | undefined {
+  return kpis.find((k) => k.id === id);
+}
+
+/**
+ * Truthful per-currency money line for a KPI card.
+ * Preserves the financial-quality invariant: PARTIAL gets a note,
+ * UNKNOWN → "нет данных", INVALID_ONLY → "ошибка данных"; currencies are
+ * never cross-summed. Returns null for non-currency KPIs.
+ */
+function currencyLine(kpi: DatedKpi): string | null {
+  if (!kpi.isCurrency) return null;
+  if (kpi.isMultiCurrency && kpi.currencyBreakdown) {
+    const universe = getCurrencyUniverse(
+      kpi.currencyBreakdown.current,
+      kpi.currencyBreakdown.previous,
+      kpi.currencyBreakdownQuality?.current,
+      kpi.currencyBreakdownQuality?.previous
+    );
+    if (universe.length === 0) return null;
+    return universe
+      .map((cur) => {
+        const q = kpi.currencyBreakdownQuality?.current?.[cur] || "COMPLETE";
+        if (q === "INVALID_ONLY") return `${cur} — ошибка данных`;
+        if (q === "UNKNOWN") return `${cur} — нет данных`;
+        const amt = kpi.currencyBreakdown!.current[cur];
+        const val = typeof amt === "number" ? amt : 0;
+        return `${formatCurrencyAmount(val, cur)}${q === "PARTIAL" ? " (неполные данные)" : ""}`;
+      })
+      .join(" · ");
+  }
+  const q = kpi.amountQuality || "COMPLETE";
+  if (q === "INVALID_ONLY") return kpi.currencyId ? `${kpi.currencyId} — ошибка данных` : "— (ошибка данных)";
+  if (q === "UNKNOWN") return kpi.currencyId ? `${kpi.currencyId} — нет данных` : "— (нет данных)";
+  const val = kpi.currentValue ?? 0;
+  return `${formatCurrencyAmount(val, kpi.currencyId)}${q === "PARTIAL" ? " (неполные данные)" : ""}`;
 }
 
 export function CommercialOverviewTab({
   datedKpis,
-  wipKpis,
+  funnelView,
   boundaries,
+  managementSignals,
   onOpenDrillDown,
 }: OverviewTabProps) {
-  const getIconForDatedKpi = (id: string) => {
-    switch (id) {
-      case "new_companies":
-        return Building2;
-      case "samples_sent":
-        return FlaskConical;
-      case "deals_created":
-        return Handshake;
-      case "payments_received":
-      case "payment_amount":
-        return CreditCard;
-      case "shipments":
-        return Truck;
-      default:
-        return Calendar;
-    }
-  };
+  const { commercial, continuation, sampleTestingStages } = funnelView;
+  const stage = (id: string) => sampleTestingStages.find((s) => s.id === id);
+
+  const isAllTime = boundaries.isAllTime;
+
+  const periodRows = PERIOD_KPI_IDS.map((id) => findKpi(datedKpis, id)).filter(
+    (k): k is DatedKpi => Boolean(k)
+  );
 
   return (
-    <div className="space-y-6">
-      {/* ─── BLOCK 1: DATED EVENTS (Активность за период) ─── */}
-      <div>
-        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-primary" />
-              Активность за период
-            </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {boundaries.isAllTime
-                ? `События с надёжной датой за всё время по ${boundaries.currentEndStr}`
-                : `События с надёжной датой за период ${boundaries.currentStartStr} — ${boundaries.currentEndStr} в сравнении с предыдущим периодом`}
-            </p>
-          </div>
-          <span className="text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
-            Кликните на карточку для просмотра списка компаний
+    <div className="space-y-4" data-testid="overview-tab">
+      {/* ── A. РЕЗУЛЬТАТЫ ЗА ПЕРИОД ── */}
+      <section className="rounded-xl border bg-card/60 p-4 shadow-2xs">
+        <div className="flex items-baseline justify-between gap-2 mb-3">
+          <h3 className="text-sm font-semibold">Результаты за период</h3>
+          <span className="text-[11px] text-muted-foreground">
+            {isAllTime ? "За всё время · сравнение недоступно" : "События выбранного периода"}
           </span>
         </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {datedKpis.map((kpi) => {
-            const Icon = getIconForDatedKpi(kpi.id);
-            const isPositive = kpi.delta !== null && kpi.delta > 0;
-            const isNegative = kpi.delta !== null && kpi.delta < 0;
-
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+          {periodRows.map((kpi) => {
+            const delta =
+              !isAllTime && kpi.comparisonAvailable !== false && kpi.delta !== null
+                ? `${kpi.delta > 0 ? "+" : ""}${kpi.delta}`
+                : "—";
             return (
-              <Card
+              <button
                 key={kpi.id}
+                type="button"
+                disabled={kpi.companyIds.length === 0}
                 onClick={() =>
                   onOpenDrillDown(
                     kpi.label,
-                    boundaries.isAllTime
-                      ? `За всё время (по ${boundaries.currentEndStr})`
-                      : `Период: ${boundaries.currentStartStr} — ${boundaries.currentEndStr}`,
+                    "Компании, подходящие под показатель в выбранном периоде",
                     kpi.companyIds
                   )
                 }
-                className="cursor-pointer hover:border-primary/50 transition-all hover:shadow-xs group"
+                className={`group rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                  kpi.companyIds.length === 0
+                    ? "border-border/50 bg-muted/30 opacity-60"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+                }`}
               >
-                <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
-                  <span className="text-xs font-medium text-muted-foreground line-clamp-1 group-hover:text-primary transition-colors">
-                    {kpi.label}
-                  </span>
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  {kpi.isMultiCurrency && kpi.currencyBreakdown ? (
-                    <div className="space-y-0.5">
-                      {(() => {
-                        const allCurrs = getCurrencyUniverse(
-                          kpi.currencyBreakdown.current,
-                          kpi.currencyBreakdown.previous,
-                          kpi.currencyBreakdownQuality?.current,
-                          kpi.currencyBreakdownQuality?.previous
-                        );
-                        if (allCurrs.length === 0) {
-                          return <div className="text-lg font-bold tracking-tight">0</div>;
-                        }
-                        return allCurrs.map((cur) => {
-                          const amt = kpi.currencyBreakdown!.current[cur];
-                          const curQuality =
-                            kpi.currencyBreakdownQuality?.current?.[cur] ||
-                            (allCurrs.length === 1 ? kpi.amountQuality : undefined);
-
-                          if (curQuality === "INVALID_ONLY") {
-                            return (
-                              <div key={cur} className="text-sm font-normal text-rose-600 dark:text-rose-400">
-                                {cur} — ошибка данных
-                              </div>
-                            );
-                          }
-
-                          if (curQuality === "UNKNOWN") {
-                            return (
-                              <div key={cur} className="text-sm font-normal text-muted-foreground">
-                                {cur} — нет данных
-                              </div>
-                            );
-                          }
-
-                          const isPartial = curQuality === "PARTIAL";
-                          const displayAmt = amt !== undefined ? amt : 0;
-
-                          return (
-                            <div key={cur} className="text-base font-bold tracking-tight">
-                              {formatCurrencyAmount(displayAmt, cur)}
-                              {isPartial && (
-                                <span className="ml-1.5 text-xs font-normal text-amber-600 dark:text-amber-400">
-                                  (неполные данные)
-                                </span>
-                              )}
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                  ) : (
-                    <div className="text-lg font-bold tracking-tight">
-                      {kpi.isCurrency ? (
-                        kpi.currentValue !== null ? (
-                          <>
-                            {formatCurrencyAmount(kpi.currentValue, kpi.currencyId)}
-                            {kpi.amountQuality === "PARTIAL" && (
-                              <span className="ml-1.5 text-xs font-normal text-amber-600 dark:text-amber-400">
-                                (неполные данные)
-                              </span>
-                            )}
-                          </>
-                        ) : kpi.amountQuality === "INVALID_ONLY" ? (
-                          <span className="text-sm font-normal text-rose-600 dark:text-rose-400">
-                            {kpi.currencyId ? `${kpi.currencyId} — ошибка данных` : "— (ошибка данных)"}
-                          </span>
-                        ) : kpi.amountQuality === "UNKNOWN" ? (
-                          <span className="text-sm font-normal text-muted-foreground">
-                            {kpi.currencyId ? `${kpi.currencyId} — нет данных` : "— (нет данных)"}
-                          </span>
-                        ) : (
-                          "—"
-                        )
-                      ) : (
-                        kpi.currentValue ?? 0
-                      )}
-                    </div>
+                <div className="text-[10px] text-muted-foreground font-medium truncate">{kpi.label}</div>
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                  <span className="text-lg font-semibold tabular-nums">{kpi.currentValue ?? 0}</span>
+                  {!isAllTime && (
+                    <span
+                      className={`text-[10px] tabular-nums ${
+                        kpi.delta !== null && kpi.delta > 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : kpi.delta !== null && kpi.delta < 0
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {delta}
+                    </span>
                   )}
-
-                  {/* Previous period comparison */}
-                  <div className="mt-1 text-[11px]">
-                    {boundaries.isAllTime || kpi.comparisonAvailable === false ? (
-                      <span className="text-muted-foreground">сравнение недоступно</span>
-                    ) : kpi.isMultiCurrency && kpi.currencyBreakdown ? (
-                      <div className="flex flex-col gap-0.5">
-                        {(() => {
-                          const comparableCurrs = getCurrencyUniverse(
-                            kpi.currencyBreakdown.current,
-                            kpi.currencyBreakdown.previous,
-                            kpi.currencyBreakdownQuality?.current,
-                            kpi.currencyBreakdownQuality?.previous
-                          ).filter((cur) => {
-                            const cQuality = kpi.currencyBreakdownQuality?.current?.[cur];
-                            const pQuality = kpi.currencyBreakdownQuality?.previous?.[cur];
-                            return cQuality === "COMPLETE" && pQuality === "COMPLETE";
-                          });
-
-                          if (comparableCurrs.length === 0) {
-                            return <span className="text-muted-foreground">сравнение недоступно</span>;
-                          }
-
-                          return comparableCurrs.map((cur) => {
-                            const cVal = kpi.currencyBreakdown!.current[cur] || 0;
-                            const pVal = kpi.currencyBreakdown!.previous[cur] || 0;
-                            const curDelta = cVal - pVal;
-                            if (curDelta === 0) return null;
-                            const isCurPos = curDelta > 0;
-                            return (
-                              <span
-                                key={cur}
-                                className={`inline-flex items-center font-medium ${
-                                  isCurPos ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                                }`}
-                              >
-                                {isCurPos ? (
-                                  <ArrowUpRight className="h-3 w-3 inline mr-0.5 shrink-0" />
-                                ) : (
-                                  <ArrowDownRight className="h-3 w-3 inline mr-0.5 shrink-0" />
-                                )}
-                                {curDelta > 0 ? "+" : ""}{formatCurrencyAmount(curDelta, cur)}
-                              </span>
-                            );
-                          });
-                        })()}
-                      </div>
-                    ) : kpi.delta !== null && kpi.delta !== 0 ? (
-                      <span
-                        className={`inline-flex items-center font-medium ${
-                          isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                        }`}
-                      >
-                        {isPositive ? (
-                          <ArrowUpRight className="h-3 w-3 inline mr-0.5" />
-                        ) : (
-                          <ArrowDownRight className="h-3 w-3 inline mr-0.5" />
-                        )}
-                        {kpi.isCurrency
-                          ? `${kpi.delta > 0 ? "+" : ""}${formatCurrencyAmount(kpi.delta, kpi.currencyId)}`
-                          : `${kpi.delta > 0 ? "+" : ""}${kpi.delta}`}
-                        {kpi.deltaPercent !== null
-                          ? ` (${kpi.deltaPercent > 0 ? "+" : ""}${kpi.deltaPercent}%)`
-                          : kpi.previousValue === 0
-                          ? " (с нулевой базы)"
-                          : ""}
-                      </span>
-                    ) : kpi.delta === 0 && kpi.previousValue !== null ? (
-                      <span className="text-muted-foreground">0% без изменений</span>
-                    ) : (
-                      <span className="text-muted-foreground">сравнение недоступно</span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+                {kpi.isCurrency && (() => {
+                  const line = currencyLine(kpi);
+                  return line ? (
+                    <div className="text-[10px] text-muted-foreground" data-testid={`kpi-currency-${kpi.id}`}>
+                      {line}
+                    </div>
+                  ) : null;
+                })()}
+              </button>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      {/* ─── BLOCK 2: CURRENT STATE / WIP (Сейчас в работе) ─── */}
-      <div>
-        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
-              <Clock className="h-4 w-4 text-primary" />
-              Сейчас в работе (текущий портфель)
-            </h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Текущий статус по уникальным компаниям (не зависит от выбранного диапазона дат)
-            </p>
-          </div>
+      {/* ── B. КОМПАКТНЫЙ ТЕКУЩИЙ ПОРТФЕЛЬ ── */}
+      <section className="rounded-xl border bg-card/60 p-4 shadow-2xs">
+        <div className="flex items-baseline justify-between gap-2 mb-3">
+          <h3 className="text-sm font-semibold">Текущий портфель</h3>
+          <span className="text-[11px] text-muted-foreground">
+            Состояние «сейчас» · период его не ограничивает
+          </span>
         </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Track 1: Samples & Testing chain */}
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              Образцы и испытания
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <MiniStat
+                label="Требуются образцы"
+                count={stage("Требуются образцы")?.companyCount ?? 0}
+                companyIds={stage("Требуются образцы")?.companyIds ?? []}
+                onOpenDrillDown={onOpenDrillDown}
+                title="Требуются образцы"
+                subtitle="Компании, которым требуются образцы"
+              />
+              <MiniStat
+                label="Подготовка"
+                count={stage("Подготовка к отправке")?.companyCount ?? 0}
+                companyIds={stage("Подготовка к отправке")?.companyIds ?? []}
+                onOpenDrillDown={onOpenDrillDown}
+                title="Подготовка к отправке"
+                subtitle="Компании в подготовке образцов"
+              />
+              <MiniStat
+                label="Отправлены"
+                count={stage("Образцы отправлены")?.companyCount ?? 0}
+                companyIds={stage("Образцы отправлены")?.companyIds ?? []}
+                onOpenDrillDown={onOpenDrillDown}
+                title="Образцы отправлены"
+                subtitle="Компании с отправленными образцами"
+              />
+              <MiniStat
+                label="На испытаниях"
+                count={stage("На испытании")?.companyCount ?? 0}
+                companyIds={stage("На испытании")?.companyIds ?? []}
+                onOpenDrillDown={onOpenDrillDown}
+                title="На испытании"
+                subtitle="Компании, чьи образцы на испытаниях"
+              />
+              <MiniStat
+                label="Подошли"
+                count={stage("Подошли")?.companyCount ?? 0}
+                companyIds={stage("Подошли")?.companyIds ?? []}
+                onOpenDrillDown={onOpenDrillDown}
+                title="Подошли"
+                subtitle="Компании с положительным результатом"
+              />
+              <MiniStat
+                label="Не подошли / Доработка"
+                count={(stage("Не подошли")?.companyCount ?? 0) + (stage("Требуется доработка")?.companyCount ?? 0)}
+                companyIds={[
+                  ...(stage("Не подошли")?.companyIds ?? []),
+                  ...(stage("Требуется доработка")?.companyIds ?? []),
+                ]}
+                onOpenDrillDown={onOpenDrillDown}
+                title="Не подошли / Требуется доработка"
+                subtitle="Компании с отрицательным результатом или на доработке"
+              />
+            </div>
+          </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {wipKpis.map((wip) => {
-            return (
-              <Card
-                key={wip.id}
+          {/* Track 2: Commercial chain */}
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              Коммерциализация
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <MiniStat
+                label="Активные сделки"
+                count={commercial.current.activeDeals.count}
+                companyIds={commercial.current.activeDeals.companyIds}
+                onOpenDrillDown={onOpenDrillDown}
+                title="Активные коммерческие сделки"
+                subtitle="Компании с активными (не терминальными) сделками"
+              />
+              <MiniStat
+                label="Ожидают оплаты"
+                count={commercial.current.awaitingPayment.count}
+                companyIds={commercial.current.awaitingPayment.companyIds}
+                onOpenDrillDown={onOpenDrillDown}
+                title="Ожидают оплаты"
+                subtitle="Компании со счетами, ожидающими оплату"
+              />
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span>Положительный результат → продолжение:</span>
+              <button
+                type="button"
+                disabled={continuation.positiveResult.count === 0}
                 onClick={() =>
                   onOpenDrillDown(
-                    wip.label,
-                    `Текущий статус: ${wip.label} (${wip.companyCount} компаний)`,
-                    wip.companyIds
+                    "Положительный результат испытаний",
+                    "Компании с текущим статусом «Подошли»",
+                    continuation.positiveResult.companyIds
                   )
                 }
-                className="cursor-pointer hover:border-primary/50 transition-all hover:shadow-xs group"
+                className="tabular-nums font-semibold text-primary hover:underline disabled:opacity-50 cursor-pointer"
               >
-                <CardHeader className="p-3 pb-1 flex flex-row items-center justify-between space-y-0">
-                  <span className="text-xs font-medium text-muted-foreground line-clamp-1 group-hover:text-primary transition-colors">
-                    {wip.label}
-                  </span>
-                  <Badge variant="outline" className="text-[10px] px-1 py-0 font-normal">
-                    {wip.dealCount} сделок
-                  </Badge>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  <div className="text-xl font-bold tracking-tight">
-                    {wip.companyCount}
-                    <span className="text-xs font-normal text-muted-foreground ml-1.5">
-                      компаний
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                {continuation.positiveResult.count}
+              </button>
+              <span>→</span>
+              <button
+                type="button"
+                disabled={continuation.withCommercialContinuation.count === 0}
+                onClick={() =>
+                  onOpenDrillDown(
+                    "Коммерческое продолжение",
+                    "Компании с «Подошли» и продвинутой коммерческой сделкой",
+                    continuation.withCommercialContinuation.companyIds
+                  )
+                }
+                className="tabular-nums font-semibold text-primary hover:underline disabled:opacity-50 cursor-pointer"
+              >
+                {continuation.withCommercialContinuation.count}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* ── C. УПРАВЛЕНЧЕСКИЕ СИГНАЛЫ ── */}
+      <section className="rounded-xl border bg-card/60 p-4 shadow-2xs">
+        <div className="flex items-baseline justify-between gap-2 mb-3">
+          <h3 className="text-sm font-semibold">Управленческие сигналы</h3>
+          <span className="text-[11px] text-muted-foreground">Объективные правила, без субъективных оценок</span>
+        </div>
+        {managementSignals.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Сигналов нет — по текущим правилам всё в порядке.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+            {managementSignals.map((signal) => (
+              <MiniStat
+                key={signal.id}
+                label={signal.label}
+                count={signal.companyCount}
+                companyIds={signal.companyIds}
+                onOpenDrillDown={onOpenDrillDown}
+                title={signal.label}
+                subtitle="Открыть список компаний"
+                accent
+              />
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

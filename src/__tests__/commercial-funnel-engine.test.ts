@@ -311,7 +311,6 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
         // 58a0dfb provenance: manager samplesSent uses Deal sampleSentDate,
         // with Company transfer dates as the only fallback (no deals here).
         sampleCompanyTransferDates: ["2026-09-10"],
-        sampleCompanyTransferDates: ["2026-09-10"],
         gradeGel: [],
         gradeSol: [],
         deals: [],
