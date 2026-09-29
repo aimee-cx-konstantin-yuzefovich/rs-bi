@@ -85,6 +85,10 @@ export interface CommercialCompany {
   title: string;
   responsibleId: string;
   responsibleName?: string;
+  companyFactsIncluded?: boolean;
+  sampleResponsibleId?: string;
+  sampleResponsibleName?: string;
+  sampleResponsibleDealId?: string;
   dateCreate?: string;
   industry?: string;
   industryRaw?: string;

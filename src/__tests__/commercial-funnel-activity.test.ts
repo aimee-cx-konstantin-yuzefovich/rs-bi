@@ -103,7 +103,7 @@ describe("Commercial Funnel Activity Authority", () => {
 
     expect(stalled).toBeDefined();
     expect(stalled?.issueLabel).toBe("Сделка без движения (83 дн., нет след. шага)");
-    expect(stalled?.nextAction).toBe("Запланировать звонок / встречу с клиентом");
+    expect(stalled?.nextAction).toBeUndefined();
     expect(companies[0].attentionReasons[0]).toBe("Сделка без движения 83 дн. (нет следующего шага) «Stalled Deal Known Empty Activity»");
   });
 
@@ -207,7 +207,7 @@ describe("Authoritative Activities & Selection Semantics (ACT-1 to ACT-7)", () =
     const stalled = bottlenecks.find((b) => b.dealId === "102");
     expect(stalled).toBeDefined();
     expect(stalled?.issueLabel).toBe("Сделка без движения (83 дн., нет след. шага)");
-    expect(stalled?.nextAction).toBe("Запланировать звонок / встречу с клиентом");
+    expect(stalled?.nextAction).toBeUndefined();
   });
 
   it("ACT-3: old deal, activity fetch failed -> activityDataKnown=false and no confirmed (нет след. шага)", () => {

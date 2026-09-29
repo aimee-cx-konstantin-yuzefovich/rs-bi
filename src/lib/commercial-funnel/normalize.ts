@@ -673,11 +673,19 @@ export function reprojectCompanyForFilteredGrain(
   let sampleStatusRaw: string | undefined = undefined;
   let sampleStatusSource: SampleStatusSource = "NONE";
   let sampleShipmentDate: string | undefined = undefined;
+  let sampleResponsibleId: string | undefined = undefined;
+  let sampleResponsibleName: string | undefined = undefined;
+  let sampleResponsibleDealId: string | undefined = undefined;
 
   const currentSampleDeal = selectCurrentSampleDeal(matchingDeals);
   if (currentSampleDeal) {
     sampleStatusSource = "DEAL";
     sampleShipmentDate = currentSampleDeal.sampleSentDate || undefined;
+    sampleResponsibleId = currentSampleDeal.responsibleId;
+    sampleResponsibleName =
+      currentSampleDeal.responsibleName ||
+      (currentSampleDeal.responsibleId ? `ID ${currentSampleDeal.responsibleId}` : undefined);
+    sampleResponsibleDealId = currentSampleDeal.id;
     if (currentSampleDeal.sampleTestingStatus && currentSampleDeal.sampleTestingStatus.length > 0) {
       sampleStatus = currentSampleDeal.sampleTestingStatus[0];
       sampleStatusRaw = currentSampleDeal.sampleTestingStatusRaw?.[0] || sampleStatus;
@@ -692,6 +700,9 @@ export function reprojectCompanyForFilteredGrain(
       sampleStatusRaw = companyEntries[0].rawValue;
       sampleStatusSource = "COMPANY";
       sampleShipmentDate = sampleCompanyTransferDates[0] || undefined;
+      sampleResponsibleId = company.responsibleId;
+      sampleResponsibleName = company.responsibleName;
+      sampleResponsibleDealId = undefined;
     }
   }
 
@@ -736,6 +747,10 @@ export function reprojectCompanyForFilteredGrain(
 
   return {
     ...company,
+    companyFactsIncluded: companyMatches,
+    sampleResponsibleId,
+    sampleResponsibleName,
+    sampleResponsibleDealId,
     dateCreate: companyMatches ? company.dateCreate : undefined,
     deals: matchingDeals,
     sampleStatus,
@@ -840,6 +855,7 @@ export function normalizeCompanies(
       title,
       responsibleId,
       responsibleName,
+      companyFactsIncluded: true,
       dateCreate,
       industry,
       industryRaw,

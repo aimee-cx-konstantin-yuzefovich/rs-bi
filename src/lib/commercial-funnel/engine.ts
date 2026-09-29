@@ -552,12 +552,20 @@ export function computeBottlenecks(
     if (c.sampleStatus === "На испытании" && c.sampleShipmentDate) {
       const days = calculateDaysWaiting(c.sampleShipmentDate, now);
       if (days !== null && days > COMMERCIAL_THRESHOLDS.SAMPLE_TESTING_ATTENTION_DAYS) {
+        const respId =
+          c.sampleStatusSource === "DEAL" && c.sampleResponsibleId
+            ? c.sampleResponsibleId
+            : c.responsibleId;
+        const respName =
+          c.sampleStatusSource === "DEAL" && c.sampleResponsibleName
+            ? c.sampleResponsibleName
+            : c.responsibleName || `ID ${c.responsibleId}`;
         items.push({
           id: `bottleneck-testing-${c.id}`,
           companyId: c.id,
           companyTitle: c.title,
-          responsibleId: c.responsibleId,
-          responsibleName: c.responsibleName || `ID ${c.responsibleId}`,
+          responsibleId: respId,
+          responsibleName: respName,
           type: "sample_testing_stalled",
           issueLabel: "Испытание образцов затянулось",
           currentState: `На испытании (${days} дн.)`,
@@ -568,7 +576,7 @@ export function computeBottlenecks(
           amount: c.primaryDealOpportunity,
           amountQuality: c.primaryDealOpportunityQuality,
           currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
-          nextAction: c.primaryDealActivityNext || "Уточнить результаты испытаний у технолога клиента",
+          nextAction: c.primaryDealActivityNext || undefined,
         });
       }
     }
@@ -580,12 +588,20 @@ export function computeBottlenecks(
         // Authoritative current-cycle sample date only! Never fallback to c.dateCreate!
         const refDate = c.sampleShipmentDate || undefined;
         const days = refDate ? calculateDaysWaiting(refDate, now) : null;
+        const respId =
+          c.sampleStatusSource === "DEAL" && c.sampleResponsibleId
+            ? c.sampleResponsibleId
+            : c.responsibleId;
+        const respName =
+          c.sampleStatusSource === "DEAL" && c.sampleResponsibleName
+            ? c.sampleResponsibleName
+            : c.responsibleName || `ID ${c.responsibleId}`;
         items.push({
           id: `bottleneck-success-${c.id}`,
           companyId: c.id,
           companyTitle: c.title,
-          responsibleId: c.responsibleId,
-          responsibleName: c.responsibleName || `ID ${c.responsibleId}`,
+          responsibleId: respId,
+          responsibleName: respName,
           type: "sample_success_no_deal",
           issueLabel: "Образец подошел, нет коммерческой сделки",
           currentState: "Образец одобрен",
@@ -596,7 +612,7 @@ export function computeBottlenecks(
           amount: c.primaryDealOpportunity,
           amountQuality: c.primaryDealOpportunityQuality,
           currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
-          nextAction: "Выставить коммерческое предложение / подготовить договор",
+          nextAction: c.primaryDealActivityNext || undefined,
         });
       }
     }
@@ -691,27 +707,77 @@ export function computeManagerScorecard(
   };
 
   for (const c of companies) {
-    const row = getOrCreate(c.responsibleId);
-    if (!row.companyIds.includes(c.id)) {
-      row.companyIds.push(c.id);
-    }
-
-    // Dated: new company in period
-    if (isDateInPeriod(c.dateCreate, currentStart, currentEnd)) {
+    // Dated: new company in period (factual Company owner ONLY when companyFactsIncluded !== false)
+    if (c.companyFactsIncluded !== false && isDateInPeriod(c.dateCreate, currentStart, currentEnd)) {
+      const row = getOrCreate(c.responsibleId);
       row.newCompanies++;
-    }
-
-    // Dated: samples sent in period (strictly using authoritative date provenance)
-    const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates || [];
-    if (eventDates.some((d) => isDateInPeriod(d, currentStart, currentEnd))) {
-      row.samplesSent++;
+      if (!row.companyIds.includes(c.id)) {
+        row.companyIds.push(c.id);
+      }
     }
 
     // Current WIP: sample status
-    if (c.sampleStatus === "На испытании") row.inTesting++;
-    else if (c.sampleStatus === "Подошли") row.sampleSuccess++;
-    else if (c.sampleStatus === "Не подошли") row.sampleFail++;
-    else if (c.sampleStatus === "Требуется доработка") row.sampleRework++;
+    // DEAL-derived -> sampleResponsibleId; COMPANY fallback -> c.responsibleId (if companyFactsIncluded !== false)
+    const sampleWipMgrId =
+      c.sampleStatusSource === "DEAL"
+        ? c.sampleResponsibleId
+        : c.sampleStatusSource === "COMPANY" && c.companyFactsIncluded !== false
+        ? c.responsibleId
+        : undefined;
+
+    if (sampleWipMgrId) {
+      if (c.sampleStatus === "На испытании") {
+        const row = getOrCreate(sampleWipMgrId);
+        row.inTesting++;
+        if (!row.companyIds.includes(c.id)) row.companyIds.push(c.id);
+      } else if (c.sampleStatus === "Подошли") {
+        const row = getOrCreate(sampleWipMgrId);
+        row.sampleSuccess++;
+        if (!row.companyIds.includes(c.id)) row.companyIds.push(c.id);
+      } else if (c.sampleStatus === "Не подошли") {
+        const row = getOrCreate(sampleWipMgrId);
+        row.sampleFail++;
+        if (!row.companyIds.includes(c.id)) row.companyIds.push(c.id);
+      } else if (c.sampleStatus === "Требуется доработка") {
+        const row = getOrCreate(sampleWipMgrId);
+        row.sampleRework++;
+        if (!row.companyIds.includes(c.id)) row.companyIds.push(c.id);
+      }
+    }
+
+    // Dated: samples sent in period (strictly using authoritative date provenance)
+    const dealSampleSenders = new Set<string>();
+    let hasAnyDealSampleSent = false;
+    for (const d of c.deals) {
+      if (d.sampleSentDate) {
+        hasAnyDealSampleSent = true;
+        if (isDateInPeriod(d.sampleSentDate, currentStart, currentEnd)) {
+          const mgr = d.responsibleId || c.responsibleId;
+          if (mgr) dealSampleSenders.add(mgr);
+        }
+      }
+    }
+
+    if (hasAnyDealSampleSent) {
+      // Deal-authoritative sample events: attribute to each unique Deal manager for this Company
+      for (const mgrId of dealSampleSenders) {
+        const row = getOrCreate(mgrId);
+        row.samplesSent++;
+        if (!row.companyIds.includes(c.id)) {
+          row.companyIds.push(c.id);
+        }
+      }
+    } else if (c.companyFactsIncluded !== false) {
+      // No Deal shipment date exists, use Company fallback transfer date
+      const compDates = c.sampleCompanyTransferDates || [];
+      if (compDates.some((d) => isDateInPeriod(d, currentStart, currentEnd))) {
+        const row = getOrCreate(c.responsibleId);
+        row.samplesSent++;
+        if (!row.companyIds.includes(c.id)) {
+          row.companyIds.push(c.id);
+        }
+      }
+    }
 
     // Deals metrics
     for (const d of c.deals) {
@@ -766,9 +832,10 @@ export function computeManagerScorecard(
 
   // Count bottlenecks per manager
   for (const b of bottlenecks) {
-    const row = managerMap.get(b.responsibleId);
-    if (row) {
-      row.bottlenecksCount++;
+    const row = getOrCreate(b.responsibleId);
+    row.bottlenecksCount++;
+    if (b.companyId && !row.companyIds.includes(b.companyId)) {
+      row.companyIds.push(b.companyId);
     }
   }
 

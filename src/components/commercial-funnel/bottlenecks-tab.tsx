@@ -87,7 +87,7 @@ export function CommercialBottlenecksTab({
                   <TableHead className="text-xs font-semibold text-right">Дней ожидания</TableHead>
                   <TableHead className="text-xs font-semibold">Сделка</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Сумма</TableHead>
-                  <TableHead className="text-xs font-semibold">Следующий шаг / Рекомендация</TableHead>
+                  <TableHead className="text-xs font-semibold">Следующий шаг</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -164,7 +164,7 @@ export function CommercialBottlenecksTab({
                     </TableCell>
 
                     {/* Следующий шаг */}
-                    <TableCell className="text-xs max-w-[240px] truncate text-muted-foreground" title={item.nextAction}>
+                    <TableCell className="text-xs max-w-[240px] truncate text-muted-foreground" title={item.nextAction || "Следующий шаг не указан"}>
                       {item.nextAction || "—"}
                     </TableCell>
                   </TableRow>
