@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { X } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, X } from "lucide-react";
 import type { NormalizedResult, SampleSummary } from "@/lib/samples/types";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import { parseStrictDate, BUSINESS_TIMEZONE } from "@/lib/scalar-safety";
@@ -169,6 +169,11 @@ export function SamplesFilterBar({
   industryOptions,
   applicationOptions,
   statusOptions,
+  showKpis,
+  onToggleKpis,
+  onExport,
+  exportDisabled,
+  totalCount,
 }: {
   filters: SamplesFilters;
   onChange: (next: SamplesFilters) => void;
@@ -178,6 +183,11 @@ export function SamplesFilterBar({
   industryOptions: string[];
   applicationOptions: string[];
   statusOptions: string[];
+  showKpis?: boolean;
+  onToggleKpis?: () => void;
+  onExport?: () => void;
+  exportDisabled?: boolean;
+  totalCount?: number;
 }) {
   const set = (patch: Partial<SamplesFilters>) => onChange({ ...filters, ...patch });
   const isDirty = JSON.stringify(filters) !== JSON.stringify(DEFAULT_SAMPLES_FILTERS);
@@ -201,7 +211,7 @@ export function SamplesFilterBar({
               className="h-8 w-[130px] text-xs"
               aria-label="Дата передачи с"
             />
-            <span className="text-xs text-muted-foreground">—</span>
+            <span className="text-xs text-muted-foreground">–</span>
             <Input
               type="date"
               value={filters.customTo ?? ""}
@@ -317,6 +327,49 @@ export function SamplesFilterBar({
           <X className="h-3.5 w-3.5" />
           Сбросить
         </Button>
+      )}
+
+      {onToggleKpis && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs gap-1.5"
+          onClick={onToggleKpis}
+          type="button"
+        >
+          {showKpis ? (
+            <>
+              <ChevronUp className="h-3.5 w-3.5" />
+              <span>Скрыть показатели</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-3.5 w-3.5" />
+              <span>Показать показатели</span>
+            </>
+          )}
+        </Button>
+      )}
+
+      {onExport && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onExport}
+          disabled={exportDisabled}
+          className="h-8 gap-1.5 text-xs"
+          title="Выгрузить реестр в Excel"
+          type="button"
+        >
+          <Download className="h-3.5 w-3.5" />
+          <span>Выгрузить Excel</span>
+        </Button>
+      )}
+
+      {totalCount !== undefined && (
+        <div className="ml-auto text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+          Всего компаний: {totalCount}
+        </div>
       )}
     </div>
   );

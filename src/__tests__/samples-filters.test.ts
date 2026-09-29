@@ -78,6 +78,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       ID: "11",
       TITLE: "Компания Без Статуса",
       [COMPANY_SAMPLES_FIELD_ID]: false as any, // Raw boolean false from REST API
+      [COMPANY_SAMPLES_GRADE_GEL_FIELD_ID]: "КСМГ",
     };
     const rawCompanyFalseStr: BitrixRow = {
       ID: "12",

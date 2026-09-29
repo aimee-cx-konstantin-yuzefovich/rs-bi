@@ -68,8 +68,8 @@ export function useTableState() {
         // 3. "Без названия", if company exists but no usable title
         if (hasCompany) return "Без названия";
 
-        // 4. "—", if there is no company
-        return "—";
+        // 4. "–", if there is no company
+        return "–";
       }
 
       // MOVED UP: COMPANY_RESPONSIBLE_FIELD_ID is also a virtual field
@@ -133,9 +133,21 @@ export function useTableState() {
           return "";
         }
 
+        if (companyFieldId !== "TITLE" && field?.type !== "char" && field?.type !== "boolean") {
+          const s = String(rawCompanyVal).trim().toLowerCase();
+          if (rawCompanyVal === false || s === "false" || s === "null" || s === "undefined") {
+            return "";
+          }
+        }
+
         if (field?.listValues && rawCompanyVal) {
           if (Array.isArray(rawCompanyVal)) {
-            return rawCompanyVal
+            const valid = rawCompanyVal.filter((v) => {
+              const s = String(v).trim().toLowerCase();
+              return v !== false && s !== "false" && s !== "null" && s !== "undefined" && s !== "";
+            });
+            if (valid.length === 0) return "";
+            return valid
               .map((v) => {
                 const listVal = field.listValues?.find((lv) => lv.ID === String(v));
                 return listVal?.VALUE || String(v);
@@ -148,7 +160,12 @@ export function useTableState() {
         }
 
         if (Array.isArray(rawCompanyVal)) {
-          return rawCompanyVal.join(", ");
+          const valid = rawCompanyVal.filter((v) => {
+            const s = String(v).trim().toLowerCase();
+            return v !== false && s !== "false" && s !== "null" && s !== "undefined" && s !== "";
+          });
+          if (valid.length === 0) return "";
+          return valid.join(", ");
         }
 
         return String(rawCompanyVal);
@@ -160,6 +177,11 @@ export function useTableState() {
         const rStr = String(raw).trim().toLowerCase();
         if ((raw as unknown) === true || raw === "Y" || raw === "1" || rStr === "true" || rStr === "y") return "Да";
         if ((raw as unknown) === false || raw === "N" || raw === "0" || rStr === "false" || rStr === "n") return "Нет";
+      } else {
+        const rStr = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+        if ((raw as unknown) === false || rStr === "false" || rStr === "null" || rStr === "undefined") {
+          return "";
+        }
       }
 
       if (colId === "STAGE_ID") {
@@ -182,7 +204,12 @@ export function useTableState() {
 
       if (field?.listValues && raw) {
         if (Array.isArray(raw)) {
-          return raw
+          const valid = raw.filter((v) => {
+            const s = String(v).trim().toLowerCase();
+            return (v as unknown) !== false && s !== "false" && s !== "null" && s !== "undefined" && s !== "";
+          });
+          if (valid.length === 0) return "";
+          return valid
             .map((v) => {
               const listVal = field.listValues?.find((lv) => lv.ID === String(v));
               return listVal?.VALUE || String(v);
@@ -195,7 +222,12 @@ export function useTableState() {
       }
 
       if (Array.isArray(raw)) {
-        return raw.join(", ");
+        const valid = raw.filter((v) => {
+          const s = String(v).trim().toLowerCase();
+          return (v as unknown) !== false && s !== "false" && s !== "null" && s !== "undefined" && s !== "";
+        });
+        if (valid.length === 0) return "";
+        return valid.join(", ");
       }
 
       return String(raw);

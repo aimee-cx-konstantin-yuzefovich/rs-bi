@@ -9,11 +9,12 @@ import { useDashboardStore } from "@/store/dashboard-store";
 import { CompanyBrowser } from "@/components/dashboard/company-browser";
 import { SectionNav } from "@/components/dashboard/section-nav";
 import { ProductFooter } from "@/components/dashboard/footer";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, X } from "lucide-react";
 
 function CompaniesContent() {
   const { data: session, status } = useSession();
   const rawSearchParams = useSearchParams();
+  const [demoDismissed, setDemoDismissed] = useState(false);
   const {
     fields,
     fetchFields,
@@ -82,13 +83,24 @@ function CompaniesContent() {
       </header>
 
       <main className="flex-1 flex flex-col min-h-0">
-        {isDemoMode && (
-          <div className="px-4 sm:px-6 pt-3">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-              <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-              <span className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-                Демо-режим — прямой запрос к Bitrix24 недоступен без подключения
-              </span>
+        {isDemoMode && !demoDismissed && (
+          <div className="px-4 sm:px-6 pt-3 animate-fade-in">
+            <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                  Демо-режим – прямой запрос к Bitrix24 недоступен без подключения
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDemoDismissed(true)}
+                aria-label="Закрыть"
+                title="Закрыть"
+                className="text-amber-700/70 hover:text-amber-900 dark:text-amber-400/70 dark:hover:text-amber-200 p-1"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
         )}

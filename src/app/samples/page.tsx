@@ -11,7 +11,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { BarChart3, Download } from "lucide-react";
+import { BarChart3, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionNav } from "@/components/dashboard/section-nav";
 import { ProductFooter } from "@/components/dashboard/footer";
@@ -45,6 +45,10 @@ function SamplesContent() {
     useSamplesData();
 
   const [filters, setFilters] = useState<SamplesFilters>(DEFAULT_SAMPLES_FILTERS);
+  const [showKpis, setShowKpis] = useState(true);
+  const [demoDismissed, setDemoDismissed] = useState(false);
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const [orphanDismissed, setOrphanDismissed] = useState(false);
   const [selected, setSelected] = useState<SampleSummary | null>(null);
   const [companyPreviewId, setCompanyPreviewId] = useState<string | null>(null);
   const [dealPreviewId, setDealPreviewId] = useState<string | null>(null);
@@ -206,56 +210,71 @@ function SamplesContent() {
             <span className="hidden md:inline text-xs font-normal text-white/40">
               Образцы · аналитика испытаний
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                exportSamplesToExcel({
-                  summaries: filtered,
-                  userNames,
-                  usersCoverage,
-                })
-              }
-              disabled={filtered.length === 0}
-              className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 disabled:text-white/30"
-              title="Выгрузить реестр в Excel"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>Выгрузить Excel</span>
-            </Button>
           </div>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col min-h-0 gap-3 px-4 sm:px-6 py-4 overflow-y-auto">
-        {(isDemoMode || (error && error.includes("not configured"))) && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
-            <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-            Демо-режим: подключение к Bitrix24 не настроено — данные образцов недоступны.
-          </div>
-        )}
-
-        {error && !error.includes("not configured") && (
-          <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-800 dark:text-red-300">
-            <span>{error}</span>
+        {(isDemoMode || (error && error.includes("not configured"))) && !demoDismissed && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span>Демо-режим: подключение к Bitrix24 не настроено – данные образцов недоступны.</span>
+            </div>
             <button
               type="button"
-              onClick={reload}
-              className="underline underline-offset-2 hover:no-underline"
+              onClick={() => setDemoDismissed(true)}
+              aria-label="Закрыть"
+              title="Закрыть"
+              className="text-amber-700/60 hover:text-amber-900 dark:text-amber-400/60 dark:hover:text-amber-200 p-0.5"
             >
-              Повторить
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
         )}
 
-        {orphanDealCount > 0 && (
-          <div className="px-3 py-2 rounded-md bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-300">
-            Примечание: {orphanDealCount} сделок с данными по образцам не привязаны ни к одной
-            компании и не отображаются в реестре (зернистость — компания).
+        {error && !error.includes("not configured") && !errorDismissed && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-800 dark:text-red-300">
+            <div className="flex flex-wrap items-center gap-2">
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={reload}
+                className="underline underline-offset-2 hover:no-underline font-medium"
+              >
+                Повторить
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setErrorDismissed(true)}
+              aria-label="Закрыть"
+              title="Закрыть"
+              className="text-red-700/60 hover:text-red-900 dark:text-red-400/60 dark:hover:text-red-200 p-0.5"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
 
-        <SamplesKpiCards kpis={kpis} loading={loading} />
+        {orphanDealCount > 0 && !orphanDismissed && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-300">
+            <div>
+              Примечание: {orphanDealCount} сделок с данными по образцам не привязаны ни к одной компании и не отображаются в реестре (зернистость – компания).
+            </div>
+            <button
+              type="button"
+              onClick={() => setOrphanDismissed(true)}
+              aria-label="Закрыть"
+              title="Закрыть"
+              className="text-sky-700/60 hover:text-sky-900 dark:text-sky-400/60 dark:hover:text-sky-200 p-0.5"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {showKpis && <SamplesKpiCards kpis={kpis} loading={loading} />}
 
         {!loading && (
           <SamplesFilterBar
@@ -271,6 +290,17 @@ function SamplesContent() {
             industryOptions={industryOptions}
             applicationOptions={applicationOptions}
             statusOptions={statusOptions}
+            showKpis={showKpis}
+            onToggleKpis={() => setShowKpis((v) => !v)}
+            onExport={() =>
+              exportSamplesToExcel({
+                summaries: filtered,
+                userNames,
+                usersCoverage,
+              })
+            }
+            exportDisabled={filtered.length === 0}
+            totalCount={filtered.length}
           />
         )}
 
@@ -283,7 +313,7 @@ function SamplesContent() {
         )}
 
         <p className="text-[10px] text-muted-foreground pb-2">
-          Зернистость реестра — компания: одна компания с активностью по образцам = одна
+          Зернистость реестра – компания: одна компания с активностью по образцам = одна
           строка. Несколько марок, дат и сделок сохраняются и видны в карточке.
           KPI считается по компаниям в текущем отборе и не является количеством физических
           образцов.

@@ -454,12 +454,12 @@ describe("Deal Preview Component and Navigation", () => {
       expect(res3).not.toBe("99");
       expect(res3).not.toBe("ID 99");
 
-      // 4. no COMPANY_ID → "—"
+      // 4. no COMPANY_ID → "–"
       const res4 = result.current.resolveValue(
         { COMPANY_ID: "", COMPANY_TITLE: "" } as any,
         "COMPANY_TITLE"
       );
-      expect(res4).toBe("—");
+      expect(res4).toBe("–");
     });
 
     it("falls back to a provenance-aware unknown-employee label for COMPANY_RESPONSIBLE and never exposes internal responsible ID", async () => {

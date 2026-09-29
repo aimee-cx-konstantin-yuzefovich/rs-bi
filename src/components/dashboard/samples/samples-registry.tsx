@@ -4,7 +4,10 @@
 // Main registry: ONE row per company (primary SampleSummary grain).
 // Arrays render as compact badges; multiplicity is never exploded into rows.
 
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -38,7 +41,7 @@ export function formatDateRu(iso: string): string {
 }
 
 function Badges({ items, max = 3 }: { items: string[]; max?: number }) {
-  if (items.length === 0) return <span className="text-muted-foreground">—</span>;
+  if (items.length === 0) return <span className="text-muted-foreground">–</span>;
   const shown = items.slice(0, max);
   const rest = items.length - shown.length;
   return (
@@ -68,6 +71,8 @@ function formatQuantity(q: { value: number | string; unit?: string }): string {
   return q.unit ? `${value} ${q.unit}` : value;
 }
 
+const PAGE_SIZES = [25, 50, 100, 250];
+
 export function SamplesRegistry({
   summaries,
   onSelect,
@@ -78,6 +83,13 @@ export function SamplesRegistry({
   const userNames = useDashboardStore((s) => s.userNames);
   const usersCoverage = useDashboardStore((s) => s.usersCoverage);
 
+  const [pageSize, setPageSize] = useState<number>(50);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [summaries]);
+
   if (summaries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -85,40 +97,45 @@ export function SamplesRegistry({
           Нет компаний с образцами по текущим условиям фильтрации
         </p>
         <p className="mt-1 text-xs text-muted-foreground/70">
-          Данные берутся напрямую из Bitrix24 — попробуйте изменить фильтры или сбросить период
+          Данные берутся напрямую из Bitrix24 – попробуйте изменить фильтры или сбросить период
         </p>
       </div>
     );
   }
 
+  const totalPages = Math.max(1, Math.ceil(summaries.length / pageSize));
+  const activePage = Math.min(currentPage, totalPages);
+  const startIndex = (activePage - 1) * pageSize;
+  const pageItems = summaries.slice(startIndex, startIndex + pageSize);
+
   return (
-    <div className="rounded-md border overflow-hidden">
-      <Table containerClassName="max-h-[calc(100vh-320px)] min-h-[420px] overflow-auto">
+    <div className="flex-1 flex flex-col min-h-0 rounded-md border border-border bg-card shadow-sm overflow-hidden">
+      <Table containerClassName="flex-1 min-h-0 overflow-auto custom-scrollbar">
         <TableHeader>
           <TableRow>
-            <TableHead className="text-xs w-10 min-w-[40px] text-center">№</TableHead>
-            <TableHead className="text-xs min-w-[200px]">Компания</TableHead>
-            <TableHead className="text-xs">Ответственный</TableHead>
-            <TableHead className="text-xs min-w-[160px]">Отрасль / применение</TableHead>
-            <TableHead className="text-xs">Продукт</TableHead>
-            <TableHead className="text-xs min-w-[140px]">Марка</TableHead>
-            <TableHead className="text-xs">Количество</TableHead>
-            <TableHead className="text-xs">Дата передачи</TableHead>
-            <TableHead className="text-xs min-w-[140px]">Статус</TableHead>
-            <TableHead className="text-xs">Результат</TableHead>
-            <TableHead className="text-xs">Сделки</TableHead>
+            <TableHead className="text-xs w-10 min-w-[40px] text-center sticky top-0 left-0 z-30 bg-card border-r border-b border-border">№</TableHead>
+            <TableHead className="text-xs min-w-[200px] sticky top-0 z-20 bg-card border-b border-border shadow-sm">Компания</TableHead>
+            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Ответственный</TableHead>
+            <TableHead className="text-xs min-w-[160px] sticky top-0 z-20 bg-card border-b border-border shadow-sm">Отрасль / применение</TableHead>
+            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Продукт</TableHead>
+            <TableHead className="text-xs min-w-[140px] sticky top-0 z-20 bg-card border-b border-border shadow-sm">Марка</TableHead>
+            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Количество</TableHead>
+            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Дата передачи</TableHead>
+            <TableHead className="text-xs min-w-[140px] sticky top-0 z-20 bg-card border-b border-border shadow-sm">Статус</TableHead>
+            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Результат</TableHead>
+            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Сделки</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {summaries.map((s, idx) => (
+          {pageItems.map((s, idx) => (
             <TableRow
               key={s.companyId}
               data-company-id={s.companyId}
-              className="cursor-pointer"
+              className="cursor-pointer hover:bg-muted/50"
               onClick={() => onSelect(s)}
             >
-              <TableCell className="text-xs font-mono tabular-nums text-muted-foreground text-center">
-                {idx + 1}
+              <TableCell className="text-xs font-mono tabular-nums text-muted-foreground text-center sticky left-0 z-10 bg-card border-r border-border">
+                {startIndex + idx + 1}
               </TableCell>
               <TableCell className="text-sm font-medium">
                 <span className="block max-w-[260px] truncate" title={s.companyTitle}>
@@ -136,11 +153,11 @@ export function SamplesRegistry({
               <TableCell className="text-xs text-muted-foreground">
                 {s.responsibleId
                   ? resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
-                  : s.responsibleName ?? "—"}
+                  : s.responsibleName ?? "–"}
               </TableCell>
               <TableCell className="text-xs text-muted-foreground">
                 <span className="block max-w-[180px] truncate">
-                  {[s.industry, s.application].filter(Boolean).join(" · ") || "—"}
+                  {[s.industry, s.application].filter(Boolean).join(" · ") || "–"}
                 </span>
               </TableCell>
               <TableCell>
@@ -153,14 +170,14 @@ export function SamplesRegistry({
                 {s.quantities.length > 0 ? (
                   <Badges items={s.quantities.map(formatQuantity)} />
                 ) : (
-                  <span className="text-muted-foreground">—</span>
+                  <span className="text-muted-foreground">–</span>
                 )}
               </TableCell>
               <TableCell className="text-xs tabular-nums">
                 {s.sentDates.length > 0 ? (
                   <Badges items={s.sentDates.map(formatDateRu)} max={2} />
                 ) : (
-                  <span className="text-muted-foreground">—</span>
+                  <span className="text-muted-foreground">–</span>
                 )}
               </TableCell>
               <TableCell>
@@ -189,13 +206,68 @@ export function SamplesRegistry({
                     {s.relatedDeals.length}
                   </Badge>
                 ) : (
-                  <span className="text-muted-foreground">—</span>
+                  <span className="text-muted-foreground">–</span>
                 )}
               </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+
+      {/* Pagination footer */}
+      <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between text-xs text-muted-foreground">
+        <div className="flex items-center gap-4">
+          <span className="tabular-nums">
+            {summaries.length > 0
+              ? `${startIndex + 1}–${Math.min(startIndex + pageSize, summaries.length)} из ${summaries.length}`
+              : "0 из 0"}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span>Строк:</span>
+            <select
+              aria-label="Строк на странице"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="h-6 rounded border border-border bg-background px-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-sm"
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={activePage <= 1}
+            aria-label="Предыдущая страница"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <span className="text-[11px] text-muted-foreground min-w-[50px] text-center tabular-nums">
+            {activePage} / {totalPages}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-sm"
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={activePage >= totalPages}
+            aria-label="Следующая страница"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

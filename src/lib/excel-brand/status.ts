@@ -58,7 +58,7 @@ export function mapBusinessStatusToSemantic(status?: string | null): SemanticSta
   }
 
   const s = status.trim().toLowerCase();
-  if (!s || s === "—" || s === "-" || s === "нет данных") {
+  if (!s || s === "—" || s === "–" || s === "-" || s === "нет данных") {
     return "NEUTRAL";
   }
 

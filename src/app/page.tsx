@@ -9,7 +9,7 @@ import { useQueryStates } from "nuqs";
 import { searchParams } from "@/lib/search-params";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Header } from "@/components/dashboard/header";
-import { StatsCards } from "@/components/dashboard/stats-cards";
+import { DealsToolbar } from "@/components/dashboard/deals-toolbar";
 import { DataTable } from "@/components/dashboard/data-table";
 import { ColumnSelector } from "@/components/dashboard/column-selector";
 import { ConfigBanner } from "@/components/dashboard/config-banner";
@@ -18,7 +18,7 @@ import { EnrichmentCoverageBanner } from "@/components/dashboard/enrichment-cove
 import { Footer } from "@/components/dashboard/footer";
 import { INITIAL_STARTUP, runDashboardStartup, type StartupState } from "@/lib/dashboard-startup";
 import { LoadingScreen } from "@/components/dashboard/loading-screen";
-import { BarChart3, Loader2, AlertCircle } from "lucide-react";
+import { BarChart3, Loader2, AlertCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 // Maximum time to wait for NextAuth session check before showing timeout UI
@@ -34,6 +34,8 @@ function DashboardContent() {
   const [startupTimedOut, setStartupTimedOut] = useState(false);
   const [isUrlSynced, setIsUrlSynced] = useState(false);
   const [startup, setStartup] = useState<StartupState>(INITIAL_STARTUP);
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const [demoDismissed, setDemoDismissed] = useState(false);
 
   useLoginRedirect(status, session?.error);
 
@@ -164,9 +166,10 @@ function DashboardContent() {
           It only becomes interactive (inert/aria-hidden removed) after appLoaded=true. */}
       <div data-testid="dashboard-root" inert={!appLoaded} aria-hidden={!appLoaded} className={`h-dvh flex flex-col bg-background overflow-hidden transition-opacity duration-200 motion-reduce:transition-none ${appLoaded || startup.finished || startupTimedOut ? "opacity-100" : "opacity-0 [contain:strict]"}`}>
         <Header />
+        <DealsToolbar />
         <main className="flex-1 flex flex-col min-h-0">
           <ConfigBanner />
-          {dealsError && (
+          {dealsError && !errorDismissed && (
             <div className="px-4 sm:px-6 pt-3 animate-fade-in">
               <div className="flex items-center justify-between px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
                 <div className="flex items-center gap-3">
@@ -175,30 +178,51 @@ function DashboardContent() {
                     {dealsError}
                   </span>
                 </div>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => syncData()}
-                  className="border-red-200 hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400"
-                >
-                  Повторить
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => syncData()}
+                    className="border-red-200 hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400"
+                  >
+                    Повторить
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setErrorDismissed(true)}
+                    aria-label="Закрыть"
+                    title="Закрыть"
+                    className="text-red-600/70 hover:text-red-800 dark:text-red-400/70 dark:hover:text-red-300 p-1"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
           )}
-          {isDemoMode && (
+          {isDemoMode && !demoDismissed && (
             <div className="px-4 sm:px-6 pt-3 animate-fade-in">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                <span className="text-xs text-amber-700 dark:text-amber-400 font-medium">
-                  Демо-режим — Обратитесь к администратору для подключения реальных данных
-                </span>
+              <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  <span className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                    Демо-режим – Обратитесь к администратору для подключения реальных данных
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDemoDismissed(true)}
+                  aria-label="Закрыть"
+                  title="Закрыть"
+                  className="text-amber-700/70 hover:text-amber-900 dark:text-amber-400/70 dark:hover:text-amber-200 p-1"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
             </div>
           )}
           <CoverageBanner />
           <EnrichmentCoverageBanner />
-          <StatsCards />
           <DataTable />
         </main>
         <ColumnSelector />

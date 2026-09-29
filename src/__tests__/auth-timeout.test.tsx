@@ -21,6 +21,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('nuqs', () => ({
   useQueryStates: () => [{}, vi.fn()],
+  useQueryState: (key: string, def: any) => [def?.defaultValue ?? (key === "page" ? 1 : key === "size" ? 50 : []), vi.fn()],
 }));
 
 const mockLoginRedirect = vi.fn(() => '/login?callbackUrl=%2F');
@@ -29,6 +30,7 @@ vi.mock('@/lib/login-navigation', () => ({
 }));
 
 vi.mock('@/components/dashboard/header', () => ({ Header: () => null }));
+vi.mock('@/components/dashboard/deals-toolbar', () => ({ DealsToolbar: () => null }));
 vi.mock('@/components/dashboard/stats-cards', () => ({ StatsCards: () => null }));
 vi.mock('@/components/dashboard/data-table', () => ({ DataTable: () => null }));
 vi.mock('@/components/dashboard/column-selector', () => ({ ColumnSelector: () => null }));

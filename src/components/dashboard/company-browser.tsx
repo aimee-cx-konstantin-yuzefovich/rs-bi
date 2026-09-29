@@ -271,7 +271,7 @@ export function buildCompanyExportPayload({
       const colType = getCompanyColumnType(colId, fieldMap);
       const raw = company[colId];
 
-      if (raw === null || raw === undefined || raw === "" || raw === "—") {
+      if (raw === null || raw === undefined || raw === "" || raw === "—" || raw === "–") {
         return null;
       }
 
@@ -355,6 +355,8 @@ export function CompanyBrowser() {
   const [activeFilterCol, setActiveFilterCol] = useState<string | null>(null);
   const [highlightSamples, setHighlightSamples] = useState(false);
   const [companyDateFilter, setCompanyDateFilter] = useState<DateFilter>({ preset: "all" });
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const [truncatedDismissed, setTruncatedDismissed] = useState(false);
   const filterInputRef = useRef<HTMLInputElement>(null);
 
   // Column resizing — same pointer-capture approach as the deals table.
@@ -520,7 +522,7 @@ export function CompanyBrowser() {
 
     const periodLabel =
       companyDateFilter.preset === "custom" && companyDateFilter.customFrom && companyDateFilter.customTo
-        ? `${companyDateFilter.customFrom} — ${companyDateFilter.customTo}`
+        ? `${companyDateFilter.customFrom} – ${companyDateFilter.customTo}`
         : companyDateFilter.preset === "7days"
         ? "Последние 7 дней"
         : companyDateFilter.preset === "14days"
@@ -702,6 +704,17 @@ export function CompanyBrowser() {
           Столбцы
         </Button>
 
+        <label className="flex items-center gap-1.5 h-8 px-2 rounded-md border text-xs cursor-pointer select-none hover:bg-muted/50">
+          <Checkbox
+            checked={highlightSamples}
+            onCheckedChange={(checked) => setHighlightSamples(checked === true)}
+            className="h-3.5 w-3.5"
+          />
+          {COMPANY_SAMPLES_FIELD_TITLE}
+          <span className="text-muted-foreground tabular-nums">Шт.: {samplesCount}</span>
+        </label>
+
+        {/* Export — ALWAYS THE LAST ACTION CONTROL */}
         <Button
           variant="outline"
           size="sm"
@@ -712,16 +725,6 @@ export function CompanyBrowser() {
           <Download className="h-3.5 w-3.5" />
           Экспорт
         </Button>
-
-        <label className="flex items-center gap-1.5 h-8 px-2 rounded-md border text-xs cursor-pointer select-none hover:bg-muted/50">
-          <Checkbox
-            checked={highlightSamples}
-            onCheckedChange={(checked) => setHighlightSamples(checked === true)}
-            className="h-3.5 w-3.5"
-          />
-          {COMPANY_SAMPLES_FIELD_TITLE}
-          <span className="text-muted-foreground tabular-nums">Шт.: {samplesCount}</span>
-        </label>
 
         <div className="ml-auto text-xs text-muted-foreground tabular-nums">
           {companyBrowserLoading ? (
@@ -737,31 +740,56 @@ export function CompanyBrowser() {
         </div>
       </div>
 
-      {companyBrowserError && (
-        <Alert variant="destructive" className="py-2">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="text-xs">{companyBrowserError}</AlertDescription>
+      {companyBrowserError && !errorDismissed && (
+        <Alert variant="destructive" className="py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-xs">{companyBrowserError}</AlertDescription>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorDismissed(true)}
+            aria-label="Закрыть"
+            title="Закрыть"
+            className="text-red-700/60 hover:text-red-900 dark:text-red-400/60 dark:hover:text-red-200 p-0.5"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </Alert>
       )}
 
-      {companyBrowserTruncated && !companyBrowserError && (
+      {companyBrowserTruncated && !companyBrowserError && !truncatedDismissed && (
         <Alert
           className={
             companyBrowserPartial
-              ? "py-2 border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800"
-              : "py-2 border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800"
+              ? "py-2 border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 flex items-center justify-between"
+              : "py-2 border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 flex items-center justify-between"
           }
         >
-          <AlertTriangle className={`h-4 w-4 ${companyBrowserPartial ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`} />
-          <AlertDescription className={`text-xs ${companyBrowserPartial ? "text-red-800 dark:text-red-300" : "text-amber-800 dark:text-amber-300"}`}>
-            {companyBrowserWarning || `Найдено ${companyBrowserTotal} компаний — показаны первые ${companyBrowserFetched}.`}
-          </AlertDescription>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className={`h-4 w-4 ${companyBrowserPartial ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`} />
+            <AlertDescription className={`text-xs ${companyBrowserPartial ? "text-red-800 dark:text-red-300" : "text-amber-800 dark:text-amber-300"}`}>
+              {companyBrowserWarning || `Найдено ${companyBrowserTotal} компаний – показаны первые ${companyBrowserFetched}.`}
+            </AlertDescription>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTruncatedDismissed(true)}
+            aria-label="Закрыть"
+            title="Закрыть"
+            className={
+              companyBrowserPartial
+                ? "text-red-700/60 hover:text-red-900 dark:text-red-400/60 dark:hover:text-red-200 p-0.5"
+                : "text-amber-700/60 hover:text-amber-900 dark:text-amber-400/60 dark:hover:text-amber-200 p-0.5"
+            }
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </Alert>
       )}
 
-      {/* Table */}
-      <div className="flex-1 min-h-0 rounded-md border overflow-hidden">
-        <Table containerClassName="h-full overflow-auto">
+      <div className="flex-1 flex flex-col min-h-0 rounded-md border border-border bg-card shadow-sm overflow-hidden">
+        <Table containerClassName="flex-1 min-h-0 overflow-auto custom-scrollbar">
           <TableHeader>
             <TableRow>
               <TableHead className="text-xs whitespace-nowrap w-10 sticky top-0 left-0 z-30 bg-card border-r border-b border-border text-center">№</TableHead>
@@ -883,11 +911,18 @@ export function CompanyBrowser() {
                     const field = getField(colId);
                     return (
                       <TableCell key={colId} className="text-xs whitespace-nowrap max-w-[280px] truncate">
-                        {colId === "TITLE" ? <button type="button" data-company-preview
-                          className="max-w-full truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-                          onClick={(event) => openPreview(String(company.ID), event.currentTarget.closest("tr"))}>
-                          {resolveCompanyValue(company, colId, userNames, field) || "—"}
-                        </button> : resolveCompanyValue(company, colId, userNames, field) || "—"}
+                        {colId === "TITLE" ? (
+                          <button
+                            type="button"
+                            data-company-preview
+                            className="max-w-full truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                            onClick={(event) => openPreview(String(company.ID), event.currentTarget.closest("tr"))}
+                          >
+                            {resolveCompanyValue(company, colId, userNames, field) || "–"}
+                          </button>
+                        ) : (
+                          resolveCompanyValue(company, colId, userNames, field) || "–"
+                        )}
                       </TableCell>
                     );
                   })}
@@ -896,38 +931,37 @@ export function CompanyBrowser() {
             )}
           </TableBody>
         </Table>
-        {/* Spacer so the table's own horizontal scrollbar doesn't sit on top
-            of the last row when scrolled all the way down. */}
-        <div className="h-4" />
-      </div>
 
-      {/* Pagination (client-side, over the filtered/sorted set) */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span className="tabular-nums">
-          {sortedItems.length > 0
-            ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, sortedItems.length)} из ${sortedItems.length}`
-            : ""}
-        </span>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage <= 1}
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </Button>
-          <span className="tabular-nums px-1">{currentPage} / {totalPages}</span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage >= totalPages}
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </Button>
+        {/* Pagination (client-side, over the filtered/sorted set) */}
+        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between text-xs text-muted-foreground">
+          <span className="tabular-nums">
+            {sortedItems.length > 0
+              ? `${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, sortedItems.length)} из ${sortedItems.length}`
+              : ""}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <span className="tabular-nums text-[11px] min-w-[50px] text-center">
+              {currentPage} / {Math.max(1, totalPages)}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-sm"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
 

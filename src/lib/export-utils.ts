@@ -530,12 +530,12 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
     );
 
   const raw = field.value;
-  if (raw === null || raw === undefined || raw === "" || raw === "—") {
+  if (raw === null || raw === undefined || raw === "" || raw === "—" || raw === "–") {
     return { value: null, isDateField: isExplicitDateField };
   }
 
   const str = String(raw).trim();
-  if (!str || str === "—") {
+  if (!str || str === "—" || str === "–") {
     return { value: null, isDateField: isExplicitDateField };
   }
 
