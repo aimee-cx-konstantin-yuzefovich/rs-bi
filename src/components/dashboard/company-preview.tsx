@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Download, ExternalLink, Loader2, FlaskConical, ArrowRight } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { defaultCompanyFields, defaultSampleFields } from "@/lib/company-preview";
+import { defaultCompanyFields, defaultSampleFields, type PreviewField } from "@/lib/company-preview";
 import { exportCompanyToExcel } from "@/lib/export-utils";
 import { parseStrictNumber } from "@/lib/scalar-safety";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
@@ -48,14 +48,14 @@ export interface CompanyPreviewProps {
   id: string;
   onClose: () => void;
   onRestoreFocus?: () => void;
-  fieldsFor?: (company: Record<string, unknown>) => Array<{ id: string; label: string; value: string }>;
-  sampleFieldsFor?: (company: Record<string, unknown>) => Array<{ id: string; label: string; value: string }>;
+  fieldsFor?: (company: Record<string, unknown>) => PreviewField[];
+  sampleFieldsFor?: (company: Record<string, unknown>) => PreviewField[];
   onOpenDealPreview?: (dealId: string) => void;
   onExport?: (options: {
     companyTitle: string;
     companyId: string;
-    companyFields: Array<{ id?: string; label: string; value: string }>;
-    sampleFields: Array<{ id?: string; label: string; value: string }>;
+    companyFields: Array<{ id?: string; label: string; value: string; type?: string }>;
+    sampleFields: Array<{ id?: string; label: string; value: string; type?: string }>;
     deals: Array<{
       id: string;
       title: string;
