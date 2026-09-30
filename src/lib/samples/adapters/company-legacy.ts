@@ -23,6 +23,7 @@ import {
   COMPANY_APPLICATION_NEW_FIELD_ID,
   COMPANY_APPLICATION_OLD_FIELD_ID,
   COMPANY_DIRECTION_FIELD_ID,
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
   COMPANY_PRODUCT_TYPE_FIELD_ID,
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
@@ -153,8 +154,18 @@ export function adaptLegacyCompanySampleEvidence(
   const normalizedResult = normalizeResult(rawTestResult, []);
 
   // Industry and application
-  const industryRaw = resolveValue("INDUSTRY", row["INDUSTRY"], resolve);
-  const industry = industryRaw?.[0];
+  // Current Industry: the user-approved Company-card field
+  // «Отрасль (согл.список)» (UF_CRM_1784195884554) is the authoritative
+  // CURRENT classification for the Samples registry/filter. Legacy
+  // INDUSTRY (crm_status) and the retired «Отрасль (не использовать)»
+  // (UF_CRM_6915D8C0C6814) never override it. Absent current field =
+  // truthfully absent (no invented fallback).
+  const industryCurrent = resolveValue(
+    COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+    row[COMPANY_INDUSTRY_CURRENT_FIELD_ID],
+    resolve
+  )?.[0];
+  const industry = industryCurrent;
 
   const appNewResolved = resolveValue(
     COMPANY_APPLICATION_NEW_FIELD_ID,

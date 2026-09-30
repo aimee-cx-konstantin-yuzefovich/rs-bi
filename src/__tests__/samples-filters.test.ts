@@ -26,6 +26,7 @@ import {
   COMPANY_APPLICATION_NEW_FIELD_ID,
   COMPANY_APPLICATION_OLD_FIELD_ID,
   COMPANY_DIRECTION_FIELD_ID,
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
   COMPANY_PRODUCT_TYPE_FIELD_ID,
   COMPANY_SAMPLES_FIELD_ID,
   COMPANY_SAMPLES_GRADE_GEL_FIELD_ID,
@@ -168,22 +169,47 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
     ]);
   });
 
-  it("SMP-FLT-6: Industry resolves to human label", () => {
+  it("SMP-FLT-6: Industry uses the current approved Company-card field («Отрасль (согл.список)»)", () => {
+    // Current contract (Phase C §47): the Samples Industry projection uses
+    // UF_CRM_1784195884554 «Отрасль (согл.список)». Legacy INDUSTRY and the
+    // retired «Отрасль (не использовать)» never override it.
     const rawCompany: BitrixRow = {
       ID: "17",
       TITLE: "Компания Отрасль",
       [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
-      INDUSTRY: "CHEMISTRY", // Raw CRM status code
+      INDUSTRY: "CHEMISTRY", // legacy crm_status — must NOT be used
+      [COMPANY_INDUSTRY_CURRENT_FIELD_ID]: "Химическая промышленность",
     };
 
-    const resolver = (fieldId: string, val: string) => {
-      if (fieldId === "INDUSTRY" && val === "CHEMISTRY") return "Химическая промышленность";
-      return val;
-    };
-
-    const { summaries } = buildSampleSummaries([rawCompany], [], [], { labelResolver: resolver });
+    const { summaries } = buildSampleSummaries([rawCompany], [], []);
     expect(summaries.length).toBe(1);
     expect(summaries[0].industry).toBe("Химическая промышленность");
+  });
+
+  it("SMP-FLT-6b: legacy INDUSTRY never overrides the current approved field; absent current field is truthful", () => {
+    // Old field present, current field absent → industry is undefined
+    // (truthful absence), never a silent legacy fallback.
+    const legacyOnly: BitrixRow = {
+      ID: "18",
+      TITLE: "Компания Легаси Отрасль",
+      [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
+      INDUSTRY: "CHEMISTRY",
+    };
+    const { summaries: s1 } = buildSampleSummaries([legacyOnly], [], []);
+    expect(s1.length).toBe(1);
+    expect(s1[0].industry).toBeUndefined();
+
+    // Both present with different values → current approved field wins.
+    const both: BitrixRow = {
+      ID: "19",
+      TITLE: "Компания Обе Отрасли",
+      [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
+      INDUSTRY: "Старая отрасль",
+      [COMPANY_INDUSTRY_CURRENT_FIELD_ID]: "Новая отрасль",
+    };
+    const { summaries: s2 } = buildSampleSummaries([both], [], []);
+    expect(s2.length).toBe(1);
+    expect(s2[0].industry).toBe("Новая отрасль");
   });
 
   it("SMP-FLT-7: Application uses correct semantic field", () => {
@@ -523,7 +549,8 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       TITLE: "Инновации Плюс",
       [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
       [COMPANY_APPLICATION_NEW_FIELD_ID]: "Катализаторы",
-      INDUSTRY: "Химия",
+      // Current approved industry field (Phase C §47) — the projection source.
+      [COMPANY_INDUSTRY_CURRENT_FIELD_ID]: "Химия",
     };
     const rawDeal: BitrixRow = {
       ID: "101",
@@ -543,7 +570,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
     // Legacy application data MUST remain intact on SampleSummary
     expect(summary.application).toBe("Катализаторы");
 
-    // Industry data MUST remain intact
+    // Industry data MUST remain intact (from the current approved field)
     expect(summary.industry).toBe("Химия");
   });
 });
