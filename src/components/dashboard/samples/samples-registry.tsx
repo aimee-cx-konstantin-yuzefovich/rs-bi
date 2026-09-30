@@ -23,7 +23,12 @@ const RESULT_BADGE_CLASS: Record<NormalizedResult, string> = {
 };
 
 export function formatDateRu(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
+  if (!iso) return iso;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (match) return `${match[3]}.${match[2]}.${match[1]}`;
+  const ruMatch = /^(\d{2})\.(\d{2})\.(\d{4})/.exec(iso.trim());
+  if (ruMatch) return `${ruMatch[1]}.${ruMatch[2]}.${ruMatch[3]}`;
+  const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("ru-RU", {
     day: "2-digit",
