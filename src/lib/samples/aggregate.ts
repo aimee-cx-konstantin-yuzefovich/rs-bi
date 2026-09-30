@@ -257,9 +257,10 @@ export function buildCanonicalSampleDomain(
 export function buildSampleSummaries(
   companies: BitrixRow[],
   deals: BitrixRow[],
+  smartProcessItems: BitrixRow[],
   options: AggregateOptions & { labelResolver?: LabelResolver } = {}
-): { summaries: SampleSummary[]; orphanDeals: BitrixRow[] } {
-  const domain = buildCanonicalSampleDomain(companies, deals, [], options);
+): { summaries: SampleSummary[]; orphanDeals: BitrixRow[]; qualityCounts: SmartProcessQualityCounts } {
+  const domain = buildCanonicalSampleDomain(companies, deals, smartProcessItems, options);
 
   const summaries: SampleSummary[] = [];
   for (const canonical of domain.canonicalByCompany.values()) {
@@ -274,7 +275,7 @@ export function buildSampleSummaries(
     return a.companyId.localeCompare(b.companyId);
   });
 
-  return { summaries, orphanDeals: domain.orphanDeals };
+  return { summaries, orphanDeals: domain.orphanDeals, qualityCounts: domain.qualityCounts };
 }
 
 /**

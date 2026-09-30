@@ -1,6 +1,6 @@
 // src/app/api/bitrix/samples/route.ts
 // ─────────────────────────────────────────────────────────────────────
-// POST /api/bitrix/samples — authoritative Samples v1 dataset.
+// POST /api/bitrix/samples — authoritative Samples dataset (Phase C).
 //
 // Contract:
 // - requireAuth (WordPress SSO JWT), same as every Bitrix API route;
@@ -8,6 +8,9 @@
 // - fixed server-side SELECT; no arbitrary fields/methods/entityTypeId
 //   are accepted from the browser;
 // - complete dataset via fail-closed pagination (see bitrix-fetch.ts);
+// - Smart Process 1032 items fetched as the authoritative current-cycle
+//   source; SP fetch failure or unverified contract FAILS CLOSED (502) —
+//   a legacy-only dataset is never returned as if complete;
 // - responses never contain webhook URL or credential material.
 // ─────────────────────────────────────────────────────────────────────
 
@@ -17,10 +20,12 @@ import {
   fetchFieldLabelMaps,
   fetchSampleCompanies,
   fetchSampleDeals,
+  fetchSmartProcessSampleItems,
   makeLabelResolver,
 } from "@/lib/samples/bitrix-fetch";
 import { buildSampleSummaries } from "@/lib/samples/aggregate";
 import { SAMPLE_DATA_ISSUE_LABELS } from "@/lib/samples/constants";
+import { SMART_PROCESS_HAS_DISCOVERED_CONTRACT } from "@/lib/samples/smart-process-contract";
 import type { SamplesResponseMeta } from "@/lib/samples/types";
 
 export const dynamic = "force-dynamic";
@@ -101,19 +106,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fetch metadata, companies, and deals concurrently:
+    // Fail-closed gate: Smart Process is authoritative for current sample
+    // cycles. An unverified contract must never silently produce
+    // legacy-only analytics.
+    if (!SMART_PROCESS_HAS_DISCOVERED_CONTRACT) {
+      return respond(
+        {
+          success: false,
+          error:
+            "Smart Process contract not verified — run scripts/discover-smart-process-contract.mjs",
+        },
+        502
+      );
+    }
+
+    // Fetch metadata, companies, deals, and Smart Process items concurrently:
     // Independent until normalization/aggregation.
-    // Metadata failure remains non-fatal; Company/Deal fetch remains fail-closed.
-    const [fieldMetadata, companies, deals] = await Promise.all([
+    // Metadata failure remains non-fatal; Company/Deal/SP fetch is fail-closed.
+    const [fieldMetadata, companies, deals, smartProcessItems] = await Promise.all([
       fetchFieldLabelMaps(),
       fetchSampleCompanies(scope),
       fetchSampleDeals(scope),
+      fetchSmartProcessSampleItems(scope),
     ]);
     const labelResolver = makeLabelResolver(fieldMetadata.labels);
 
-    const { summaries, orphanDeals } = buildSampleSummaries(companies, deals, {
-      labelResolver,
-    });
+    const { summaries, orphanDeals, qualityCounts } = buildSampleSummaries(
+      companies,
+      deals,
+      smartProcessItems,
+      { labelResolver }
+    );
 
     const meta: SamplesResponseMeta = { statusLabels: fieldMetadata.labels };
 
@@ -122,6 +145,7 @@ export async function POST(request: NextRequest) {
       samples: summaries,
       total: summaries.length,
       orphanDealCount: orphanDeals.length,
+      smartProcess: { qualityCounts },
       meta,
       issueLabels: SAMPLE_DATA_ISSUE_LABELS,
     });

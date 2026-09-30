@@ -45,7 +45,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       [COMPANY_APPLICATION_NEW_FIELD_ID]: "Катализаторы", // Application MUST NOT leak into status
     };
 
-    const { summaries } = buildSampleSummaries([rawCompany], []);
+    const { summaries } = buildSampleSummaries([rawCompany], [], []);
     expect(summaries.length).toBe(1);
 
     const s = summaries[0];
@@ -86,7 +86,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       [COMPANY_SAMPLES_FIELD_ID]: ["false", "В работе", false as any],
     };
 
-    const { summaries } = buildSampleSummaries([rawCompanyFalse, rawCompanyFalseStr], []);
+    const { summaries } = buildSampleSummaries([rawCompanyFalse, rawCompanyFalseStr], [], []);
     expect(summaries.length).toBe(2);
 
     for (const s of summaries) {
@@ -140,7 +140,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       return val;
     };
 
-    const { summaries } = buildSampleSummaries([rawCompany], [], { labelResolver: resolver });
+    const { summaries } = buildSampleSummaries([rawCompany], [], [], { labelResolver: resolver });
     expect(summaries.length).toBe(1);
     expect(summaries[0].productFamilies).toEqual(["Гель", "Золь"]);
   });
@@ -160,7 +160,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       return val;
     };
 
-    const { summaries } = buildSampleSummaries([rawCompany], [], { labelResolver: resolver });
+    const { summaries } = buildSampleSummaries([rawCompany], [], [], { labelResolver: resolver });
     expect(summaries.length).toBe(1);
     expect(summaries[0].grades).toEqual([
       { productFamily: "Гель", value: "КСМГ-5" },
@@ -181,7 +181,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       return val;
     };
 
-    const { summaries } = buildSampleSummaries([rawCompany], [], { labelResolver: resolver });
+    const { summaries } = buildSampleSummaries([rawCompany], [], [], { labelResolver: resolver });
     expect(summaries.length).toBe(1);
     expect(summaries[0].industry).toBe("Химическая промышленность");
   });
@@ -208,7 +208,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       [COMPANY_DIRECTION_FIELD_ID]: ["Приволжский ФО", "Катализаторы гидроочистки"],
     };
 
-    const { summaries } = buildSampleSummaries([rawCompany], []);
+    const { summaries } = buildSampleSummaries([rawCompany], [], []);
     expect(summaries[0].application).toBe("Катализаторы гидроочистки");
     expect(summaries[0].application).not.toContain("Приволжский");
   });
@@ -324,7 +324,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       },
     ];
 
-    const { summaries, orphanDeals } = buildSampleSummaries(companies, deals);
+    const { summaries, orphanDeals } = buildSampleSummaries(companies, deals, []);
 
     expect(summaries.length).toBe(1);
     expect(summaries[0].companyId).toBe("100");
@@ -352,7 +352,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       return val;
     };
 
-    const { summaries } = buildSampleSummaries([rawCompany], [], { labelResolver: resolver });
+    const { summaries } = buildSampleSummaries([rawCompany], [], [], { labelResolver: resolver });
     expect(summaries.length).toBe(1);
     expect(summaries[0].application).toBe("Катализаторы гидроочистки");
     expect(summaries[0].application).not.toBe("541");
@@ -381,7 +381,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       return val;
     };
 
-    const { summaries: s1 } = buildSampleSummaries([rawCompanyGeo], [], { labelResolver: resolver });
+    const { summaries: s1 } = buildSampleSummaries([rawCompanyGeo], [], [], { labelResolver: resolver });
     expect(s1.length).toBe(1);
     expect(s1[0].application).toBeUndefined();
 
@@ -392,7 +392,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
       [COMPANY_APPLICATION_OLD_FIELD_ID]: "888",
     };
-    const { summaries: s2 } = buildSampleSummaries([rawLegacyGeo], [], { labelResolver: resolver });
+    const { summaries: s2 } = buildSampleSummaries([rawLegacyGeo], [], [], { labelResolver: resolver });
     expect(s2.length).toBe(1);
     expect(s2[0].application).toBeUndefined();
 
@@ -403,7 +403,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
       [COMPANY_DIRECTION_FIELD_ID]: ["777"],
     };
-    const { summaries: s3 } = buildSampleSummaries([rawDirectionGeo], [], { labelResolver: resolver });
+    const { summaries: s3 } = buildSampleSummaries([rawDirectionGeo], [], [], { labelResolver: resolver });
     expect(s3.length).toBe(1);
     expect(s3[0].application).toBeUndefined();
   });
@@ -532,7 +532,7 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       [DEAL_SAMPLE_TRANSFER_FIELD_ID]: "Y",
     };
 
-    const { summaries } = buildSampleSummaries([rawCompany], [rawDeal]);
+    const { summaries } = buildSampleSummaries([rawCompany], [rawDeal], []);
     expect(summaries.length).toBe(1);
     const summary = summaries[0];
 

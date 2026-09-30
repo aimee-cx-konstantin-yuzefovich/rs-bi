@@ -53,7 +53,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [COMPANY_SAMPLES_GRADE_GEL_FIELD_ID]: ["КСМГ"],
       }),
     ];
-    const { summaries, orphanDeals } = buildSampleSummaries(companies, []);
+    const { summaries, orphanDeals } = buildSampleSummaries(companies, [], []);
     expect(summaries).toHaveLength(1);
     expect(summaries[0].companyId).toBe("1");
     expect(summaries[0].relatedDeals).toHaveLength(0);
@@ -71,7 +71,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: "2026-02-15",
       }),
     ];
-    const { summaries, orphanDeals } = buildSampleSummaries(companies, deals);
+    const { summaries, orphanDeals } = buildSampleSummaries(companies, deals, []);
     expect(summaries).toHaveLength(1);
     expect(summaries[0].companyId).toBe("2");
     expect(summaries[0].relatedDeals).toHaveLength(1);
@@ -93,7 +93,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: "2026-03-01",
       }),
     ];
-    const { summaries } = buildSampleSummaries(companies, deals);
+    const { summaries } = buildSampleSummaries(companies, deals, []);
     expect(summaries).toHaveLength(1);
     expect(summaries[0].grades).toEqual([{ productFamily: "Золь", value: "СКСГ" }]);
     expect(summaries[0].sentDates).toEqual(["2026-03-01"]);
@@ -107,7 +107,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
       makeDeal("104A", "4", { [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: "2026-01-10" }),
       makeDeal("104B", "4", { [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: "2026-02-20" }),
     ];
-    const { summaries } = buildSampleSummaries(companies, deals);
+    const { summaries } = buildSampleSummaries(companies, deals, []);
     expect(summaries).toHaveLength(1);
     expect(summaries[0].relatedDeals).toHaveLength(2);
     expect(summaries[0].sentDates).toEqual(["2026-01-10", "2026-02-20"]);
@@ -120,7 +120,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [COMPANY_SAMPLES_DATE_MULTI_FIELD_ID]: ["2026-01-01", "2026-01-15"],
       }),
     ];
-    const { summaries } = buildSampleSummaries(companies, []);
+    const { summaries } = buildSampleSummaries(companies, [], []);
     expect(summaries[0].sentDates).toEqual(["2026-01-01", "2026-01-15"]);
     expect(summaries[0].latestRelevantDate).toBe("2026-01-15");
   });
@@ -137,7 +137,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: "2026-05-10",
       }),
     ];
-    const { summaries } = buildSampleSummaries(companies, deals);
+    const { summaries } = buildSampleSummaries(companies, deals, []);
     // Unique list: 2026-05-10 appears once
     expect(summaries[0].sentDates).toEqual(["2026-05-10"]);
   });
@@ -153,7 +153,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [COMPANY_TEST_RESULT_FIELD_ID]: "Положительный",
       }),
     ];
-    const { summaries } = buildSampleSummaries(companies, []);
+    const { summaries } = buildSampleSummaries(companies, [], []);
     const s = summaries[0];
     expect(s.grades).toHaveLength(3);
     expect(s.quantities).toHaveLength(2);
@@ -163,21 +163,21 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
   // Scenario 8: Positive result
   it("Scenario 8: Positive result", () => {
     const companies = [makeCompany("8", { [COMPANY_TEST_RESULT_FIELD_ID]: "Тест пройден успешно" })];
-    const { summaries } = buildSampleSummaries(companies, []);
+    const { summaries } = buildSampleSummaries(companies, [], []);
     expect(summaries[0].normalizedResult).toBe("positive");
   });
 
   // Scenario 9: Negative result
   it("Scenario 9: Negative result", () => {
     const companies = [makeCompany("9", { [COMPANY_TEST_RESULT_FIELD_ID]: "Отрицательный результат" })];
-    const { summaries } = buildSampleSummaries(companies, []);
+    const { summaries } = buildSampleSummaries(companies, [], []);
     expect(summaries[0].normalizedResult).toBe("negative");
   });
 
   // Scenario 10: Rework result
   it("Scenario 10: Rework result", () => {
     const companies = [makeCompany("10", { [COMPANY_TEST_RESULT_FIELD_ID]: "Требуется доработка образца" })];
-    const { summaries } = buildSampleSummaries(companies, []);
+    const { summaries } = buildSampleSummaries(companies, [], []);
     expect(summaries[0].normalizedResult).toBe("rework");
   });
 
@@ -189,7 +189,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID]: "2026-02-01",
       }),
     ];
-    const { summaries } = buildSampleSummaries(companies, []);
+    const { summaries } = buildSampleSummaries(companies, [], []);
     expect(summaries[0].sentDates).toEqual(["2026-01-01", "2026-02-01"]);
     expect(summaries[0].dataIssues).toContain("dates_conflict_between_fields");
   });
@@ -199,7 +199,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
     const deals = [
       makeDeal("999", "0", { [DEAL_SAMPLE_TRANSFER_FIELD_ID]: "Переданы" }),
     ];
-    const { summaries, orphanDeals } = buildSampleSummaries([], deals);
+    const { summaries, orphanDeals } = buildSampleSummaries([], deals, []);
     expect(summaries).toHaveLength(0);
     expect(orphanDeals).toHaveLength(1);
     expect(orphanDeals[0].ID).toBe("999");
@@ -213,7 +213,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [COMPANY_TEST_RESULT_FIELD_ID]: "Положительный",
       }),
     ];
-    const { summaries } = buildSampleSummaries(companies, []);
+    const { summaries } = buildSampleSummaries(companies, [], []);
     expect(summaries[0].companyTitle).toBe("Без названия");
     expect(summaries[0].dataIssues).toContain("missing_title");
   });
@@ -221,7 +221,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
   // Scenario 14: Company with no sample evidence
   it("Scenario 14: Company with no sample evidence excluded", () => {
     const companies = [makeCompany("14", { INDUSTRY: "IT" })];
-    const { summaries } = buildSampleSummaries(companies, []);
+    const { summaries } = buildSampleSummaries(companies, [], []);
     expect(summaries).toHaveLength(0);
   });
 
@@ -234,7 +234,7 @@ describe("Samples Domain Characterization — 15 Scenarios", () => {
         [DEAL_SAMPLE_TESTING_FIELD_ID]: ["Тестирование образцов"],
       }),
     ];
-    const { summaries } = buildSampleSummaries(companies, deals);
+    const { summaries } = buildSampleSummaries(companies, deals, []);
     expect(summaries).toHaveLength(1);
     expect(summaries[0].companyId).toBe("15");
     expect(summaries[0].relatedDeals).toHaveLength(1);

@@ -39,7 +39,8 @@ describe("buildSampleSummaries — grain and identity", () => {
   it("one company with sample activity produces exactly one summary", () => {
     const { summaries } = buildSampleSummaries(
       [company({ [F.result]: "Положительный" })],
-      []
+      [],
+      [],
     );
     expect(summaries).toHaveLength(1);
     expect(summaries[0].companyId).toBe("42");
@@ -52,7 +53,8 @@ describe("buildSampleSummaries — grain and identity", () => {
         company({ [F.result]: "Положительный" }),
         company({ ID: "42", TITLE: "ООО «Тест» дубль", [F.result]: "Отрицательный" }),
       ],
-      []
+      [],
+      [],
     );
     expect(summaries).toHaveLength(1);
     expect(summaries[0].rawTestResult).toBe("Положительный");
@@ -61,6 +63,7 @@ describe("buildSampleSummaries — grain and identity", () => {
   it("companies without sample activity are excluded", () => {
     const { summaries } = buildSampleSummaries(
       [company({ INDUSTRY: "IT" }), company({ ID: "43", TITLE: "Нет образцов" })],
+      [],
       []
     );
     expect(summaries).toHaveLength(0);
@@ -78,7 +81,8 @@ describe("buildSampleSummaries — grain and identity", () => {
   it("scenario 19: missing title → fallback, never company ID, issue flagged", () => {
     const { summaries } = buildSampleSummaries(
       [company({ TITLE: "", [F.result]: "Положительный" })],
-      []
+      [],
+      [],
     );
     expect(summaries[0].companyTitle).toBe("Без названия");
     expect(summaries[0].companyTitle).not.toBe("42");
@@ -96,7 +100,8 @@ describe("buildSampleSummaries — multiplicity preservation", () => {
           [F.result]: "Положительный",
         }),
       ],
-      []
+      [],
+      [],
     );
     const s = summaries[0];
     expect(s.grades).toHaveLength(3);
@@ -108,7 +113,8 @@ describe("buildSampleSummaries — multiplicity preservation", () => {
   it("scenario 4: Gel and Sol quantities keep distinct units, never summed", () => {
     const { summaries } = buildSampleSummaries(
       [company({ [F.qtyGel]: "2.5", [F.qtySol]: "1" })],
-      []
+      [],
+      [],
     );
     const q = summaries[0].quantities;
     expect(q).toHaveLength(2);
@@ -129,7 +135,8 @@ describe("buildSampleSummaries — multiplicity preservation", () => {
           [F.dSent]: "2026-03-10",
           [F.dTransfer]: "Переданы",
         },
-      ]
+      ],
+      [],
     );
     expect(summaries[0].sentDates).toEqual([
       "2026-01-15",
@@ -142,7 +149,8 @@ describe("buildSampleSummaries — multiplicity preservation", () => {
   it("scenario 7: conflicting two date fields — all dates kept + issue", () => {
     const { summaries } = buildSampleSummaries(
       [company({ [F.dateMulti]: ["2026-03-01"], [F.dateSingle]: "2026-04-10" })],
-      []
+      [],
+      [],
     );
     const s = summaries[0];
     expect(s.sentDates).toEqual(["2026-03-01", "2026-04-10"]);
@@ -152,7 +160,8 @@ describe("buildSampleSummaries — multiplicity preservation", () => {
   it("scenario 18: duplicate dates across fields deduplicate without issue", () => {
     const { summaries } = buildSampleSummaries(
       [company({ [F.dateMulti]: ["2026-03-01"], [F.dateSingle]: "2026-03-01" })],
-      []
+      [],
+      [],
     );
     const s = summaries[0];
     expect(s.sentDates).toEqual(["2026-03-01"]);
@@ -172,7 +181,8 @@ describe("buildSampleSummaries — deals as nested context", () => {
   it("scenario 5: marker-only deal testing field does not contribute analytical result (intentional correctness fix)", () => {
     const { summaries } = buildSampleSummaries(
       [company({})],
-      [gelPositiveSolPendingDeal]
+      [gelPositiveSolPendingDeal],
+      [],
     );
     const s = summaries[0];
     // Under Phase B confirmed business rules, UF_CRM_1779394379 is MARKER_ONLY.
@@ -193,7 +203,8 @@ describe("buildSampleSummaries — deals as nested context", () => {
         { ID: "101", TITLE: "Сделка 1", COMPANY_ID: "42", [F.dTransfer]: "Переданы" },
         { ID: "102", TITLE: "Сделка 2", COMPANY_ID: "42", [F.dTesting]: ["Испытание"] },
         { ID: "103", TITLE: "Сделка 3", COMPANY_ID: "42", [F.dSent]: "2026-02-02" },
-      ]
+      ],
+      [],
     );
     expect(summaries[0].relatedDeals.map((d) => d.id)).toEqual([
       "101",
@@ -205,7 +216,8 @@ describe("buildSampleSummaries — deals as nested context", () => {
   it("scenario 12: company sample activity with no deal data → relatedDeals empty", () => {
     const { summaries } = buildSampleSummaries(
       [company({ [F.result]: "Положительный" })],
-      []
+      [],
+      [],
     );
     expect(summaries[0].relatedDeals).toEqual([]);
   });
@@ -213,7 +225,8 @@ describe("buildSampleSummaries — deals as nested context", () => {
   it("scenario 13: deal sample status present while company fields incomplete", () => {
     const { summaries } = buildSampleSummaries(
       [company({})],
-      [{ ID: "101", TITLE: "Сделка", COMPANY_ID: "42", [F.dTransfer]: "Переданы" }]
+      [{ ID: "101", TITLE: "Сделка", COMPANY_ID: "42", [F.dTransfer]: "Переданы" }],
+      [],
     );
     const s = summaries[0];
     expect(s.relatedDeals[0].sampleTransferStatus).toBe("Переданы");
@@ -223,7 +236,8 @@ describe("buildSampleSummaries — deals as nested context", () => {
   it("scenario 14: company sample fields present while deal fields absent", () => {
     const { summaries } = buildSampleSummaries(
       [company({ [F.result]: "Положительный", [F.dateSingle]: "2026-01-05" })],
-      [{ ID: "101", TITLE: "Сделка без образцов", COMPANY_ID: "42" }]
+      [{ ID: "101", TITLE: "Сделка без образцов", COMPANY_ID: "42" }],
+      [],
     );
     const s = summaries[0];
     expect(s.rawTestResult).toBe("Положительный");
@@ -241,7 +255,8 @@ describe("buildSampleSummaries — deals as nested context", () => {
   it("orphan deals (no company) are reported, not silently dropped", () => {
     const { summaries, orphanDeals } = buildSampleSummaries(
       [company({})],
-      [{ ID: "999", TITLE: "Сирота", [F.dTransfer]: "Переданы" }]
+      [{ ID: "999", TITLE: "Сирота", [F.dTransfer]: "Переданы" }],
+      [],
     );
     // Company without any sample evidence anywhere is not in the dataset.
     expect(summaries).toHaveLength(0);
@@ -255,7 +270,8 @@ describe("buildSampleSummaries — deals as nested context", () => {
         company({ TITLE: "ООО «А»", [F.result]: "Положительный" }),
         company({ ID: "43", TITLE: "ООО «А»" }),
       ],
-      [{ ID: "101", TITLE: "Сделка", COMPANY_ID: "43", [F.dTransfer]: "Переданы" }]
+      [{ ID: "101", TITLE: "Сделка", COMPANY_ID: "43", [F.dTransfer]: "Переданы" }],
+      [],
     );
     // Both companies appear: one via own activity, one via deal activity.
     const target = summaries.find((s) => s.companyId === "43");
@@ -271,7 +287,8 @@ describe("buildSampleSummaries — result normalization and quality", () => {
   it("scenario 16: missing product but known sample status → issue + statuses kept", () => {
     const { summaries } = buildSampleSummaries(
       [company({ [F.samples]: ["Образцы отправлены"] })],
-      []
+      [],
+      [],
     );
     const s = summaries[0];
     expect(s.sampleIndicators).toEqual(["Образцы отправлены"]);
@@ -290,7 +307,8 @@ describe("buildSampleSummaries — result normalization and quality", () => {
           [F.result]: "Положительный",
         }),
       ],
-      []
+      [],
+      [],
     );
     const s = summaries[0];
     expect(s.dataIssues).toContain("dates_conflict_between_fields");
@@ -315,6 +333,7 @@ describe("buildSampleSummaries — result normalization and quality", () => {
         }),
       ],
       [],
+      [],
       { labelResolver: resolve }
     );
     const s = summaries[0];
@@ -332,7 +351,8 @@ describe("buildSampleSummaries — result normalization and quality", () => {
           "UF_CRM_69257337B8025": "Строительство",
         }),
       ],
-      []
+      [],
+      [],
     );
     const s = summaries[0];
     expect(s.application).toBe("Керамика");
