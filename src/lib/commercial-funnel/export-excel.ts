@@ -152,9 +152,11 @@ export async function createCommercialFunnelWorkbook(
     userNames
   );
   const funnelView = computeFunnelView(filteredCompanies, boundaries);
-  const segmentIndustry = computeSegmentBreakdown(filteredCompanies, boundaries, "industry");
-  const segmentDirection = computeSegmentBreakdown(filteredCompanies, boundaries, "direction");
-  const segmentProduct = computeSegmentBreakdown(filteredCompanies, boundaries, "product");
+  // Segment matrices are ACTIVE-FILTER AWARE and consume the EXACT same
+  // filters object as the UI (Segments UI == Segments Excel invariant).
+  const segmentIndustry = computeSegmentBreakdown(filteredCompanies, boundaries, "industry", filters);
+  const segmentDirection = computeSegmentBreakdown(filteredCompanies, boundaries, "direction", filters);
+  const segmentProduct = computeSegmentBreakdown(filteredCompanies, boundaries, "product", filters);
   const sampleSnapshot = buildSampleTestingSnapshot(filteredCompanies, now);
   const attentionSummary = computeAttentionSummary(filteredCompanies, now);
   const commercial = funnelView.commercial;

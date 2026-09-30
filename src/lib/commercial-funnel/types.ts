@@ -210,7 +210,16 @@ export interface ManagerScorecardRow {
   bottlenecksCount: number;
   companyIds: string[];
   // ── Portfolio / Load group (current state, never date-filtered) ──
-  /** Unique companies with ≥1 active (non-terminal) deal. */
+  /**
+   * «Компании в текущем контуре» — unique companies attributable to this
+   * manager through a REAL current sample state (DEAL → sampleResponsibleId;
+   * COMPANY → company owner when companyFactsIncluded !== false; NONE/blank/
+   * "—" never counted) UNION companies with ≥1 active (non-terminal) Deal
+   * owned by this manager. One company counts once per manager even when the
+   * same manager owns both the sample cycle and the active Deal; it may
+   * legitimately appear under two managers when the sample cycle and the
+   * commercial Deal have different owners.
+   */
   activeCompanies: number;
   activeCompaniesIds: string[];
   /** Unique companies with a deal awaiting payment (INVOICE_SENT statuses). */

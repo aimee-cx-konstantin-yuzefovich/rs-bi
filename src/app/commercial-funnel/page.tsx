@@ -161,17 +161,21 @@ function CommercialFunnelContent() {
     [filteredCompanies, boundaries]
   );
 
+  // Segment matrices are ACTIVE-FILTER AWARE: when the global filter is
+  // active for the SAME dimension, rows may contain only the selected value
+  // (no contradiction with the user's slice). Cross-dimension rows stay
+  // fully analytical. The SAME filters object feeds the Excel export.
   const segmentIndustry = useMemo(
-    () => computeSegmentBreakdown(filteredCompanies, boundaries, "industry"),
-    [filteredCompanies, boundaries]
+    () => computeSegmentBreakdown(filteredCompanies, boundaries, "industry", filters),
+    [filteredCompanies, boundaries, filters]
   );
   const segmentDirection = useMemo(
-    () => computeSegmentBreakdown(filteredCompanies, boundaries, "direction"),
-    [filteredCompanies, boundaries]
+    () => computeSegmentBreakdown(filteredCompanies, boundaries, "direction", filters),
+    [filteredCompanies, boundaries, filters]
   );
   const segmentProduct = useMemo(
-    () => computeSegmentBreakdown(filteredCompanies, boundaries, "product"),
-    [filteredCompanies, boundaries]
+    () => computeSegmentBreakdown(filteredCompanies, boundaries, "product", filters),
+    [filteredCompanies, boundaries, filters]
   );
 
   const actionPlan = useMemo(

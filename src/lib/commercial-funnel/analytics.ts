@@ -36,6 +36,7 @@ import type {
   ActionPlanRow,
   BottleneckItem,
   CommercialCompany,
+  CommercialFilters,
   CountedPopulation,
   FunnelCommercialView,
   FunnelContinuationLink,
@@ -292,24 +293,71 @@ export function getAnalyticalSegmentValues(
 }
 
 /**
+ * Resolves the ACTIVE same-dimension global filter value for a segment
+ * dimension, or undefined when that dimension is not filtered.
+ * A filter is active when it is defined and !== "all".
+ */
+function activeFilterValueFor(
+  filters: CommercialFilters | undefined,
+  dimension: SegmentDimension
+): string | undefined {
+  if (!filters) return undefined;
+  const raw =
+    dimension === "product"
+      ? filters.productType
+      : dimension === "direction"
+      ? filters.direction
+      : filters.industry;
+  if (!raw || raw === "all") return undefined;
+  return raw;
+}
+
+/**
  * Builds the segment matrix for one dimension.
  * Missing values become "Не указано" (never silently omitted).
  * Every cell carries the exact underlying company IDs.
  * Итого = union of unique company IDs (NOT the sum of row counts).
  * boundaries: the EXACT canonical PeriodBoundaries used by Overview/Funnel/
  * Excel — never a synthetic adapter (Defect B fix: one time authority).
+ *
+ * ACTIVE-FILTER AWARENESS (filtered-segments correctness fix):
+ * When the global filter is active for the SAME dimension, the segment rows
+ * for that dimension may contain ONLY the selected value — a Company can
+ * never appear under a value the user's active global filter excluded.
+ * The constraint is applied AFTER provenance derivation (getAnalyticalSegmentValues)
+ * and NEVER mutates factual Company fields. Other dimensions remain fully
+ * analytical: a Product filter does not collapse Industry/Direction rows.
+ * A company whose values were entirely removed by the constraint is NOT
+ * moved to "Не указано" — that label means genuinely missing dimension data,
+ * not "did not match the selected value" (the company stays in the unique
+ * grand total). In canonical filtered slices this branch is unreachable:
+ * filterCompaniesByDimensions retains a company only when the company itself
+ * or a surviving Deal matched the filter value.
+ * filters is optional; omitting it (tests, unfiltered views) is equivalent
+ * to "all" for every dimension.
  */
 export function computeSegmentBreakdown(
   companies: CommercialCompany[],
   boundaries: PeriodBoundaries,
-  dimension: SegmentDimension
+  dimension: SegmentDimension,
+  filters?: CommercialFilters
 ): SegmentBreakdown {
+  const activeFilterValue = activeFilterValueFor(filters, dimension);
+
   // Group companies by dimension value (multi-valued dims → multiple rows)
   const byValue = new Map<string, CommercialCompany[]>();
   const missing: CommercialCompany[] = [];
 
   for (const c of companies) {
-    const values = getAnalyticalSegmentValues(c, dimension);
+    let values = getAnalyticalSegmentValues(c, dimension);
+    if (activeFilterValue !== undefined) {
+      // Same-dimension constraint: intersect with the selected filter value.
+      values = values.filter((v) => v === activeFilterValue);
+      if (values.length === 0) {
+        // Filter-excluded, not missing: never invent "Не указано" for it.
+        continue;
+      }
+    }
     if (values.length === 0) {
       missing.push(c);
       continue;

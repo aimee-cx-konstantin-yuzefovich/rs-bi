@@ -733,7 +733,19 @@ export function computeManagerScorecard(
   // Attribution mirrors the provenance rules above: active-deal companies go
   // to each manager owning an active deal; awaiting-payment likewise;
   // no-next-step requires activityDataKnown === true (factual data gap only).
+  //
+  // «Компании в текущем контуре» (activeCompanies/Ids) = UNION of
+  //   A. companies with a real current sample state (same rule as the
+  //      Segments-side isActivePortfolioCompany sample predicate), attributed
+  //      by the sample provenance rules (DEAL → sampleResponsibleId;
+  //      COMPANY → company owner when companyFactsIncluded !== false), and
+  //   B. companies with ≥1 active commercial Deal, attributed to
+  //      deal.responsibleId (existing factual fallback).
+  // A company counts ONCE per manager (Set union) and MAY appear under two
+  // different managers when the sample cycle and the commercial Deal have
+  // different owners — two real manager relationships.
   const activeDealsByManager = new Map<string, Set<string>>();
+  const sampleCurrentByManager = new Map<string, Set<string>>();
   const awaitingPaymentByManager = new Map<string, Set<string>>();
   const noNextStepByManager = new Map<string, Set<string>>();
 
@@ -768,7 +780,39 @@ export function computeManagerScorecard(
     }
   }
 
-  for (const [respId, ids] of activeDealsByManager) {
+  // A. Current sample state → manager attribution (mirrors sampleWipMgrId
+  // provenance below: DEAL → sampleResponsibleId; COMPANY → company owner
+  // when companyFactsIncluded !== false). Only a REAL current sample state
+  // counts: NONE / blank / "—" are excluded — exact parity with the
+  // Segments-side sample predicate of isActivePortfolioCompany.
+  for (const c of companies) {
+    if (!c.sampleStatus || c.sampleStatus === "—" || c.sampleStatusSource === "NONE") continue;
+    const sampleMgrId =
+      c.sampleStatusSource === "DEAL"
+        ? c.sampleResponsibleId
+        : c.sampleStatusSource === "COMPANY" && c.companyFactsIncluded !== false
+        ? c.responsibleId
+        : undefined;
+    if (!sampleMgrId) continue;
+    let set = sampleCurrentByManager.get(sampleMgrId);
+    if (!set) {
+      set = new Set();
+      sampleCurrentByManager.set(sampleMgrId, set);
+    }
+    set.add(c.id);
+  }
+
+  // B+C. Merge active-Deal companies with current-sample companies per
+  // manager: unique union, one company counts once per manager.
+  for (const [respId, dealIds] of activeDealsByManager) {
+    const row = getOrCreate(respId);
+    const sampleIds = sampleCurrentByManager.get(respId);
+    const union = sampleIds ? new Set([...dealIds, ...sampleIds]) : dealIds;
+    row.activeCompanies = union.size;
+    row.activeCompaniesIds = Array.from(union);
+  }
+  for (const [respId, ids] of sampleCurrentByManager) {
+    if (activeDealsByManager.has(respId)) continue; // already merged above
     const row = getOrCreate(respId);
     row.activeCompanies = ids.size;
     row.activeCompaniesIds = Array.from(ids);
