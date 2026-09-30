@@ -190,4 +190,66 @@ describe("Samples Session Cache (C1 .. C8)", () => {
     clearSamplesCache();
     expect(getCachedSamples("user-1")).toBeNull();
   });
+
+  // ─── Phase A closure: empty successful dataset is a valid snapshot ───
+
+  it("CACHE-EMPTY-1: successful response with samples: [] creates a complete cache entry", async () => {
+    expect(getCachedSamples("user-1")).toBeNull();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ success: true, samples: [], orphanDealCount: 0 }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    const res = await fetchSamplesWithDeduplication("user-1");
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.samples).toEqual([]);
+    }
+
+    // The empty successful dataset IS a complete snapshot — cache hit.
+    const cached = getCachedSamples("user-1");
+    expect(cached).not.toBeNull();
+    expect(cached?.samples).toEqual([]);
+  });
+
+  it("CACHE-EMPTY-2: revisit with cached empty dataset returns it immediately (no cold state)", async () => {
+    setCachedSamples("user-1", {
+      samples: [],
+      meta: null,
+      orphanDealCount: 0,
+    });
+
+    // Cache hit must be non-null so the hook renders the empty registry
+    // immediately and starts a warm refresh instead of a cold spinner.
+    const cached = getCachedSamples("user-1");
+    expect(cached).not.toBeNull();
+    expect(cached?.samples).toEqual([]);
+  });
+
+  it("CACHE-EMPTY-3: failed refresh preserves the cached empty successful snapshot", async () => {
+    setCachedSamples("user-1", {
+      samples: [],
+      meta: null,
+      orphanDealCount: 0,
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false, error: "SP down" }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    const res = await fetchSamplesWithDeduplication("user-1");
+    expect(res.success).toBe(false);
+
+    // The empty successful snapshot remains authoritative — never
+    // treated as "no cache" and never replaced by the failure.
+    const cached = getCachedSamples("user-1");
+    expect(cached).not.toBeNull();
+    expect(cached?.samples).toEqual([]);
+  });
 });

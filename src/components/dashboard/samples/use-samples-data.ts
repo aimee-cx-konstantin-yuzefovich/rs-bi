@@ -86,7 +86,11 @@ export function useSamplesData(): SamplesLoadState {
     previousPrincipalRef.current = principal;
 
     const cached = getCachedSamples(principal);
-    const hasCachedData = Boolean(cached && cached.samples.length > 0);
+    // Cache hit = a stored snapshot exists, regardless of sample count.
+    // A fully successful authoritative response containing samples: []
+    // is a valid complete snapshot and must render immediately with a
+    // warm background refresh (never a cold spinner).
+    const hasCachedData = cached !== null;
 
     if (hasCachedData && cached) {
       setSamples(cached.samples);
