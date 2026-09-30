@@ -17,7 +17,10 @@
     "qa:benchmark": "node scripts/benchmark-commercial-funnel.mjs",
     "qa:standalone-smoke": "node scripts/qa-standalone-smoke.mjs",
     "qa:e2e": "playwright test",
-    "release:manifest": "node scripts/release-manifest.mjs"
+    "release:manifest": "node scripts/release-manifest.mjs",
+    "build:deploy": "DEPLOY_ARCH=x64 bash build-deploy.sh",
+    "build:deploy:docker": "bash scripts/build-deploy-docker.sh",
+    "deploy:verify": "sh scripts/verify-deploy-artifact.sh"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

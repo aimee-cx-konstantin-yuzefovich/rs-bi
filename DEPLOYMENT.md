@@ -9,10 +9,12 @@ performed by the development validation commands below.
 Use the committed npm lockfile. Do not copy a macOS `node_modules` or standalone
 build onto Linux: Next.js, Sharp and Prisma contain native binaries.
 
-For the PM2 host, run `DEPLOY_ARCH=x64 bash build-deploy.sh` on Debian-compatible
-Linux with OpenSSL 3, Node 20.19+ and zip installed. Use `DEPLOY_ARCH=arm64` only
-when both the builder and production host are arm64. Confirm the host with
-`node -p process.arch`; the build runner must match. Set `DEPLOY_ARCH` in
+For the PM2 host, run `npm run build:deploy` (or `DEPLOY_ARCH=x64 bash build-deploy.sh`)
+on Debian-compatible Linux with OpenSSL 3, Node 20.19+ and zip installed.
+On macOS workstations, run `npm run build:deploy:docker` (via `scripts/build-deploy-docker.sh`),
+which builds the Linux x64 artifact inside an official Debian Bookworm Docker container.
+Use `DEPLOY_ARCH=arm64` only when both the builder and production host are arm64.
+Confirm the host with `node -p process.arch`; the build runner must match. Set `DEPLOY_ARCH` in
 CI environment variables. The recommended Linux build image is Debian Bookworm; Docker uses matching
 Alpine build/runtime stages instead. Do not treat locally validated macOS artifacts
 as Linux production artifacts.
@@ -111,8 +113,20 @@ unzip -q deploy-prod.zip -d deploy-staging
 sh deploy-staging/scripts/verify-deploy-artifact.sh deploy-staging
 ```
 
-Only after those checks pass, deploy the staged files while preserving `.env*` and
-the existing database. From the application directory run:
+Only after those checks pass, synchronize the staged files while strictly preserving
+`.env*` and the existing database:
+
+```sh
+rsync -av --delete \
+  --exclude='.env*' \
+  --exclude='db/' \
+  --exclude='prisma/db/' \
+  --exclude='*.db*' \
+  --exclude='*.sqlite*' \
+  deploy-staging/ /var/www/bi-terminal/
+```
+
+Then from the application directory run the safe migration gate and restart:
 
 ```sh
 NODE_ENV=production node scripts/migrate-deploy.mjs && pm2 restart bi-terminal --update-env

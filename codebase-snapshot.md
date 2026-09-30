@@ -1,5 +1,21 @@
 # Снимок кодовой базы: Анализ функционала Russilica BI Analytics
 
+> [!WARNING]
+> **LEGACY SNAPSHOT — NOT A CURRENT SOURCE OF TRUTH**
+>
+> This document is a historical functional snapshot and does not describe
+> the complete current repository.
+>
+> For current work use:
+> - `AGENTS.md` for operational agent rules;
+> - `CLAUDE.md` for current architecture;
+> - `DEPLOYMENT.md` for production/deployment/database rules;
+> - current source code and tests for implemented behavior.
+>
+> In particular, this snapshot predates the current Commercial Funnel
+> management architecture and must not be used as the source of truth
+> for that subsystem.
+
 На основе анализа исходного кода (в частности, `src/store/dashboard-store.ts`, `src/components/dashboard/data-table.tsx`, `src/components/dashboard/column-selector.tsx`, `src/components/dashboard/active-filters.tsx`, `src/components/dashboard/date-filter.tsx`, `src/components/dashboard/pipeline-filter.tsx`, `src/components/dashboard/responsible-filter.tsx`, `src/components/dashboard/saved-views.tsx`, `src/components/dashboard/global-search.tsx`, `src/components/dashboard/entity-drawer.tsx` и `src/hooks/use-table-state.ts`) был составлен исчерпывающий обзор реализованного функционала системы.
 
 Функционал разделен на логические направления для удобства восприятия.

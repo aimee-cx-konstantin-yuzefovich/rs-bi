@@ -4,17 +4,16 @@ import { Suspense, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useLoginRedirect } from "@/hooks/use-login-redirect";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { CompanyBrowser } from "@/components/dashboard/company-browser";
 import { SectionNav } from "@/components/dashboard/section-nav";
 import { ProductFooter } from "@/components/dashboard/footer";
-import { BarChart3, X } from "lucide-react";
+import { TerminalBrand } from "@/components/dashboard/terminal-brand";
+import { X } from "lucide-react";
 
 function CompaniesContent() {
   const { data: session, status } = useSession();
   const rawSearchParams = useSearchParams();
-  const [demoDismissed, setDemoDismissed] = useState(false);
   const {
     fields,
     fetchFields,
@@ -25,6 +24,8 @@ function CompaniesContent() {
     setCompanyBrowserResponsibleId,
     companyResponsibleCounts,
     fetchCompanyResponsibleCounts,
+    dismissedBannerIds,
+    dismissBanner,
   } = useDashboardStore();
   const [appliedUrlResponsible, setAppliedUrlResponsible] = useState(false);
 
@@ -61,14 +62,11 @@ function CompaniesContent() {
   if (status !== "authenticated") return null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <header className="z-30 header-gradient border-b border-white/10">
+    <div className="h-dvh flex flex-col bg-background overflow-hidden">
+      <header className="z-30 header-gradient border-b border-white/10 shrink-0">
         <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
           <div className="flex items-center gap-3 min-w-0">
-            <Link href="/" className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer">
-              <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
-              <span className="text-sm font-semibold tracking-wide text-white">RusSilica</span>
-            </Link>
+            <TerminalBrand />
 
             {/* Сделки | Компании | Образцы */}
             <div className="hidden sm:block">
@@ -83,8 +81,8 @@ function CompaniesContent() {
       </header>
 
       <main className="flex-1 flex flex-col min-h-0">
-        {isDemoMode && !demoDismissed && (
-          <div className="px-4 sm:px-6 pt-3 animate-fade-in">
+        {isDemoMode && !dismissedBannerIds.includes("demo-mode") && (
+          <div className="px-4 sm:px-6 pt-3 animate-fade-in shrink-0">
             <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
               <div className="flex items-center gap-2">
                 <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
@@ -94,7 +92,7 @@ function CompaniesContent() {
               </div>
               <button
                 type="button"
-                onClick={() => setDemoDismissed(true)}
+                onClick={() => dismissBanner("demo-mode")}
                 aria-label="Закрыть"
                 title="Закрыть"
                 className="text-amber-700/70 hover:text-amber-900 dark:text-amber-400/70 dark:hover:text-amber-200 p-1"
@@ -106,7 +104,7 @@ function CompaniesContent() {
         )}
         <CompanyBrowser />
       </main>
-      <ProductFooter />
+      <ProductFooter className="shrink-0" />
     </div>
   );
 }

@@ -22,10 +22,8 @@ const DEFAULT_BASE: SamplesFilters = {
   productFamily: "all",
   grade: "all",
   industry: "all",
-  application: "all",
   status: "all",
   result: "all",
-  hasDeals: "all",
 };
 
 // Fixed "now": 2026-09-26 12:00 UTC (15:00 Moscow) — well inside the day.

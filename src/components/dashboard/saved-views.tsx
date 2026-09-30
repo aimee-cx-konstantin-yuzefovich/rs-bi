@@ -86,15 +86,15 @@ export function SavedViews() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="h-7 gap-1.5 rounded text-xs text-white/70 hover:text-white hover:bg-white/10"
+          className="h-8 gap-1.5 text-xs shrink-0"
           title="Сохранённые виды таблицы"
         >
-          <Bookmark className="h-3.5 w-3.5" />
+          <Bookmark className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="hidden sm:inline">Виды</span>
           {savedViews.length > 0 && (
-            <span className="ml-0.5 rounded-full bg-white/25 px-1.5 py-0.2 text-[10px] font-semibold leading-none text-white">
+            <span className="ml-0.5 rounded-full bg-muted border border-border px-1.5 py-0.5 text-[10px] font-semibold leading-none text-foreground">
               {savedViews.length}
             </span>
           )}

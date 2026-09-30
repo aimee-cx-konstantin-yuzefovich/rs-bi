@@ -169,15 +169,21 @@ describe("buildSampleSummaries — deals as nested context", () => {
     [F.dTesting]: ["Испытание Гель пройден", "Золь на испытании"],
   };
 
-  it("scenario 5: Gel positive + Sol testing via deals → mixed, never one fake global result", () => {
+  it("scenario 5: marker-only deal testing field does not contribute analytical result (intentional correctness fix)", () => {
     const { summaries } = buildSampleSummaries(
       [company({})],
       [gelPositiveSolPendingDeal]
     );
     const s = summaries[0];
-    expect(s.normalizedResult).toBe("mixed");
-    expect(s.sourceQuality).toBe("ambiguous");
+    // Under Phase B confirmed business rules, UF_CRM_1779394379 is MARKER_ONLY.
+    // It preserves discoverability and is visible on relatedDeals for preview,
+    // but does NOT contribute to normalizedResult or analytical status.
+    expect(s.normalizedResult).toBe("unknown");
     expect(s.rawTestResult).toBeUndefined();
+    expect(s.relatedDeals[0].sampleTestingStatus).toEqual([
+      "Испытание Гель пройден",
+      "Золь на испытании",
+    ]);
   });
 
   it("scenario 11: multiple related deals all preserved, never just the first", () => {

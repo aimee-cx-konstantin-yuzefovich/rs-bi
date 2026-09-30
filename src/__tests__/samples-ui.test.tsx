@@ -113,6 +113,12 @@ describe("Samples UI Remediation (SMP-UI-1 .. SMP-UI-7)", () => {
     // Header has №
     const headers = screen.getAllByRole("columnheader");
     expect(headers[0].textContent).toBe("№");
+    expect(screen.getByTestId("samples-header-index")).toHaveTextContent("№");
+
+    // Table has data-table class and scroll container
+    const tableScroll = screen.getByTestId("samples-table-scroll");
+    expect(tableScroll).toBeInTheDocument();
+    expect(tableScroll.querySelector("table.data-table")).not.toBeNull();
 
     // Rows show 1 and 2 (NOT company IDs 101/102)
     const rows = screen.getAllByRole("row");
@@ -131,7 +137,7 @@ describe("Samples UI Remediation (SMP-UI-1 .. SMP-UI-7)", () => {
     expect(screen.queryByText("Устаревшие")).toBeNull();
   });
 
-  it("SMP-UI-3: SamplesFilterBar has NO 'Качество данных' filter", () => {
+  it("SMP-UI-3: SamplesFilterBar has NO 'Качество данных', NO 'Применение', and NO 'Сделки: любые' filters", () => {
     render(
       <SamplesFilterBar
         filters={DEFAULT_SAMPLES_FILTERS}
@@ -140,13 +146,16 @@ describe("Samples UI Remediation (SMP-UI-1 .. SMP-UI-7)", () => {
         productFamilyOptions={["Гель", "Золь"]}
         gradeOptions={["КСМГ-5"]}
         industryOptions={["Химия"]}
-        applicationOptions={["Катализаторы"]}
         statusOptions={["Переданы"]}
       />
     );
 
     expect(screen.queryByText("Качество данных")).toBeNull();
     expect(screen.queryByText("Любое качество")).toBeNull();
+    expect(screen.queryByText("Все применения")).toBeNull();
+    expect(screen.queryByText("Применение")).toBeNull();
+    expect(screen.queryByText("Сделки: любые")).toBeNull();
+    expect(screen.queryByText("Связанные сделки")).toBeNull();
   });
 
   it("SMP-UI-4: Top popup result/quality badges ('Доработка', 'Структурированные') are removed", () => {

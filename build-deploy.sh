@@ -27,6 +27,7 @@ mkdir -p "$work_dir/source/prisma" "$work_dir/source/scripts"
 for source in src public package.json package-lock.json next.config.ts tsconfig.json postcss.config.mjs tailwind.config.ts; do
   cp -R "$source" "$work_dir/source/"
 done
+rm -rf "$work_dir/source/src/__tests__"
 cp prisma/schema.prisma "$work_dir/source/prisma/"
 cp -R prisma/migrations "$work_dir/source/prisma/"
 cp scripts/package-standalone.mjs scripts/migrate-deploy.mjs scripts/runtime-env.mjs scripts/healthcheck.cjs scripts/verify-deploy-artifact.sh "$work_dir/source/scripts/"

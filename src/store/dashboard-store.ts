@@ -201,6 +201,11 @@ interface DashboardState {
   activitiesCoverage: DatasetCoverage | null;
   companiesDataCoverage: DatasetCoverage | null;
 
+  // ─── Ephemeral Session State (excluded from partialize) ───
+  dismissedBannerIds: string[];
+  dismissBanner: (bannerId: string) => void;
+  resetDismissedBanners: () => void;
+
   // ─── Actions ───
   checkConfig: () => Promise<void>;
   fetchFields: () => Promise<void>;
@@ -394,6 +399,19 @@ export const useDashboardStore = create<DashboardState>()(
       fieldsCoverage: null,
       activitiesCoverage: null,
       companiesDataCoverage: null,
+
+      // Session banner dismissal (ephemeral, not persisted)
+      dismissedBannerIds: [],
+      dismissBanner: (bannerId: string) => {
+        set((state) => ({
+          dismissedBannerIds: state.dismissedBannerIds.includes(bannerId)
+            ? state.dismissedBannerIds
+            : [...state.dismissedBannerIds, bannerId],
+        }));
+      },
+      resetDismissedBanners: () => {
+        set({ dismissedBannerIds: [] });
+      },
 
       // ─── Actions ───
       checkConfig: async () => {
@@ -1108,31 +1126,38 @@ export const useDashboardStore = create<DashboardState>()(
             if (successfulBatchCount === 0) {
               console.warn("[Dashboard] All company batches failed");
               const total = uniqueIds.length;
+              const currentFetchedAt = get().companiesDataFetchedAt;
               const currentCompanies = get().companiesData;
-              const fetched = uniqueIds.filter(id => Boolean(currentCompanies[id]?.TITLE || currentCompanies[id]?.ID)).length;
-              const unresolved = total - fetched;
+              const fetched = uniqueIds.filter(id => Boolean(currentFetchedAt[id] || (currentCompanies[id]?.TITLE && currentCompanies[id]?.TITLE !== "Без названия"))).length;
+              const unresolved = Math.max(0, total - fetched);
               set({
                 companiesDataLoading: false,
                 companiesDataCoverage: {
                   status: "PARTIAL",
                   fetched,
                   total,
-                  warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
+                  warning: unresolved > 0
+                    ? `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`
+                    : `Не удалось обновить данные компаний из CRM.`,
                 },
               });
               return;
             }
 
             set((state) => {
+              const successfulIdsSet = new Set(allSuccessfulIds);
               // Deep merge to preserve previously fetched fields
               const newCompaniesData = { ...state.companiesData };
               for (const [id, companyData] of Object.entries(mergedNormalizedCompanies)) {
-                const title = String(companyData?.TITLE || "").trim() || "Без названия";
-                newCompaniesData[id] = {
-                  ...(newCompaniesData[id] || {}),
-                  ...companyData,
-                  TITLE: title,
-                };
+                const rawTitle = String(companyData?.TITLE || "").trim();
+                const title = rawTitle || (successfulIdsSet.has(id) ? "Без названия" : "");
+                if (title) {
+                  newCompaniesData[id] = {
+                    ...(newCompaniesData[id] || {}),
+                    ...companyData,
+                    TITLE: title,
+                  };
+                }
               }
               const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
               const fetchTimestamp = Date.now();
@@ -1151,9 +1176,9 @@ export const useDashboardStore = create<DashboardState>()(
               }
 
               const total = uniqueIds.length;
-              const fetched = uniqueIds.filter(id => Boolean(newCompaniesData[id]?.TITLE || newCompaniesData[id]?.ID)).length;
-              const unresolved = total - fetched;
-              const isPartial = unresolved > 0 || anyBatchFailed;
+              const fetched = uniqueIds.filter(id => Boolean(newCompaniesDataFetchedAt[id] || (newCompaniesData[id]?.TITLE && newCompaniesData[id]?.TITLE !== "Без названия"))).length;
+              const unresolved = Math.max(0, total - fetched);
+              const isPartial = unresolved > 0;
 
               return {
                 companiesData: newCompaniesData,
@@ -1176,16 +1201,19 @@ export const useDashboardStore = create<DashboardState>()(
           } catch {
             console.warn("[Dashboard] Failed to fetch companies data");
             const total = uniqueIds.length;
+            const currentFetchedAt = get().companiesDataFetchedAt;
             const currentCompanies = get().companiesData;
-            const fetched = uniqueIds.filter(id => Boolean(currentCompanies[id]?.TITLE || currentCompanies[id]?.ID)).length;
-            const unresolved = total - fetched;
+            const fetched = uniqueIds.filter(id => Boolean(currentFetchedAt[id] || (currentCompanies[id]?.TITLE && currentCompanies[id]?.TITLE !== "Без названия"))).length;
+            const unresolved = Math.max(0, total - fetched);
             set({
               companiesDataLoading: false,
               companiesDataCoverage: {
                 status: "PARTIAL",
                 fetched,
                 total,
-                warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
+                warning: unresolved > 0
+                  ? `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`
+                  : `Не удалось обновить данные компаний из CRM.`,
               },
             });
           } finally {

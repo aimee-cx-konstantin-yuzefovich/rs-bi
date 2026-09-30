@@ -13,11 +13,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Building2, ExternalLink, FlaskConical } from "lucide-react";
+import { Building2, Download, ExternalLink, FlaskConical, Loader2 } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { getDealStageDisplayLabel } from "@/lib/crm-constants";
-import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
-import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
+import { buildDealPreviewModel } from "@/lib/deal-preview";
+import { exportDealToExcel } from "@/lib/export-utils";
 
 type PreviewState =
   | { status: "loading" }
@@ -44,6 +43,7 @@ export function DealPreview({
 }: DealPreviewProps) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
 
   const { userNames, fields, activitiesData, usersCoverage } = useDashboardStore();
 
@@ -104,46 +104,38 @@ export function DealPreview({
     return () => controller.abort();
   }, [id, attempt]);
 
-  const dealTitle =
+  const model =
     state.status === "success"
-      ? String(state.deal.TITLE || "").trim() || "Без названия"
-      : "Сделка";
+      ? buildDealPreviewModel(state.deal, {
+          fields,
+          userNames: userNames || {},
+          usersCoverage,
+          activity: activitiesData[id]?.last,
+          lastTouchTimestamp: null,
+          bitrixUrl: state.bitrixUrl,
+          companyBitrixUrl: state.companyBitrixUrl,
+        })
+      : null;
 
-  const renderFieldValue = (val: unknown, isBoolean?: boolean): string => {
-    if (val === null || val === undefined || val === "") return "–";
-    if (isBoolean) {
-      if (val === true || String(val).toLowerCase() === "true" || val === "Y" || val === "1") return "Да";
-      if (val === false || String(val).toLowerCase() === "false" || val === "N" || val === "0") return "Нет";
-    } else {
-      if (val === false || String(val).trim().toLowerCase() === "false" || String(val).trim().toLowerCase() === "null" || String(val).trim().toLowerCase() === "undefined") {
-        return "–";
-      }
-    }
-    if (val === true) return "Да";
-    if (typeof val === "object") {
-      if (Array.isArray(val)) return val.map((v) => renderFieldValue(v, isBoolean)).join(", ");
-      return JSON.stringify(val);
-    }
-    const str = String(val).trim();
-    if (!str || str === "—" || str === "–" || str === "null" || str === "undefined") return "–";
-    const upper = str.toUpperCase();
-    if (upper === "TRUE") return "Да";
-    if (upper === "UNKNOWN") return "Не классифицировано";
-    return str;
-  };
+  const dealTitle = model ? model.dealTitle : "Сделка";
 
-  const formatDate = (isoStr: unknown): string => {
-    if (!isoStr || typeof isoStr !== "string") return "";
-    // Strict parsing: impossible dates (2026-02-31, 25:00) never roll over.
-    const d = parseStrictDate(isoStr, { mode: "DATETIME_BUSINESS_TIMEZONE" });
-    if (!d) return String(isoStr);
-    return d.toLocaleDateString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  const handleExport = async () => {
+    if (state.status !== "success" || !model) return;
+    try {
+      setIsExporting(true);
+      await exportDealToExcel({
+        deal: state.deal,
+        fields,
+        userNames: userNames || {},
+        usersCoverage,
+        activity: activitiesData[id]?.last,
+        dealModel: model,
+      });
+    } catch (err) {
+      console.error("Failed to export deal to Excel", err);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -191,86 +183,69 @@ export function DealPreview({
             </div>
           )}
 
-          {state.status === "success" && (
+          {state.status === "success" && model && (
             <dl className="space-y-4 pb-6 text-sm divide-y divide-border/60">
-              {/* Main Attributes */}
+              {/* MAIN Attributes (1 to 4) */}
               <div className="pt-2 space-y-3">
-                {/* Stage */}
-                {state.deal.STAGE_ID ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Стадия</dt>
-                    <dd className="mt-1">
-                      <Badge variant="outline" className="text-xs font-normal">
-                        {getDealStageDisplayLabel(String(state.deal.STAGE_ID))}
-                      </Badge>
-                    </dd>
-                  </div>
-                ) : null}
-
-                {/* Amount / Currency — strict parsing: malformed amounts never
-                    display as numbers; they show the truthful raw text. */}
-                {state.deal.OPPORTUNITY !== undefined &&
-                state.deal.OPPORTUNITY !== null &&
-                state.deal.OPPORTUNITY !== "" ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Сумма</dt>
-                    <dd className="mt-1 font-mono text-sm font-semibold tabular-nums">
-                      {parseStrictNumber(state.deal.OPPORTUNITY) !== undefined
-                        ? parseStrictNumber(state.deal.OPPORTUNITY)!.toLocaleString("ru-RU", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
-                        : String(state.deal.OPPORTUNITY)}{" "}
-                      <span className="text-muted-foreground text-xs font-normal">
-                        {(() => {
-                          const cur = String(state.deal.CURRENCY_ID ?? "").trim();
-                          return cur && cur.toUpperCase() !== "UNKNOWN" ? cur : "валюта не указана";
-                        })()}
-                      </span>
-                    </dd>
-                  </div>
-                ) : null}
-
-                {/* Responsible */}
+                {/* 1. Стадия */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Ответственный</dt>
-                  <dd className="mt-1 font-medium">
-                    {state.deal.ASSIGNED_BY_ID
-                      ? resolveResponsibleDisplay(
-                          String(state.deal.ASSIGNED_BY_ID),
-                          userNames || {},
-                          usersCoverage
-                        )
-                      : "–"}
+                  <dt className="text-xs text-muted-foreground">Стадия</dt>
+                  <dd className="mt-1">
+                    <Badge variant="outline" className="text-xs font-normal">
+                      {model.mainFields[0].value}
+                    </Badge>
                   </dd>
                 </div>
 
-                {/* Company Link / Invariant */}
+                {/* 2. Сумма */}
+                <div>
+                  <dt className="text-xs text-muted-foreground">Сумма</dt>
+                  <dd className="mt-1 font-mono text-sm font-semibold tabular-nums">
+                    {model.mainFields[1].formattedAmount !== undefined && model.mainFields[1].formattedAmount !== "–" ? (
+                      <>
+                        {model.mainFields[1].formattedAmount}{" "}
+                        <span className="text-muted-foreground text-xs font-normal">
+                          {model.mainFields[1].currencyLabel}
+                        </span>
+                      </>
+                    ) : (
+                      model.mainFields[1].value
+                    )}
+                  </dd>
+                </div>
+
+                {/* 3. Ответственный */}
+                <div>
+                  <dt className="text-xs text-muted-foreground">Ответственный</dt>
+                  <dd className="mt-1 font-medium">
+                    {model.mainFields[2].value}
+                  </dd>
+                </div>
+
+                {/* 4. Компания */}
                 <div>
                   <dt className="text-xs text-muted-foreground">Компания</dt>
                   <dd className="mt-1">
-                    {state.deal.COMPANY_ID ? (
+                    {model.companyId ? (
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           {onOpenCompanyPreview ? (
                             <button
                               type="button"
-                              data-company-link={state.deal.COMPANY_ID}
-                              onClick={() =>
-                                onOpenCompanyPreview(String(state.deal.COMPANY_ID))
-                              }
+                              data-company-link={model.companyId}
+                              onClick={() => onOpenCompanyPreview(model.companyId)}
                               className="font-medium text-primary hover:underline flex items-center gap-1.5 text-left"
                             >
                               <Building2 className="h-3.5 w-3.5 shrink-0" />
                               <span className="break-words">
-                                {String(state.deal.COMPANY_TITLE || "Без названия")}
+                                {model.companyTitle}
                               </span>
                             </button>
                           ) : (
                             <span className="font-medium flex items-center gap-1.5">
                               <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                               <span className="break-words">
-                                {String(state.deal.COMPANY_TITLE || "Без названия")}
+                                {model.companyTitle}
                               </span>
                             </span>
                           )}
@@ -286,11 +261,8 @@ export function DealPreview({
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         )}
-                        {/* Cross-nav to the company's Samples view (Samples v1).
-                            Deliberately neutral wording: company-level samples,
-                            not «samples of this deal». */}
                         <Link
-                          href={`/samples?company=${encodeURIComponent(String(state.deal.COMPANY_ID))}`}
+                          href={`/samples?company=${encodeURIComponent(model.companyId)}`}
                           className="text-xs text-primary hover:underline inline-flex items-center gap-1"
                           data-samples-link
                         >
@@ -305,120 +277,67 @@ export function DealPreview({
                 </div>
               </div>
 
-              {/* Dates */}
+              {/* TIMELINE Attributes (5 to 6) */}
               <div className="pt-3 space-y-2">
-                {state.deal.DATE_CREATE ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Дата создания</dt>
-                    <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                      {formatDate(state.deal.DATE_CREATE)}
-                    </dd>
-                  </div>
-                ) : null}
-                {state.deal.DATE_MODIFY ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Дата изменения</dt>
-                    <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                      {formatDate(state.deal.DATE_MODIFY)}
-                    </dd>
-                  </div>
-                ) : null}
-                {state.deal.BEGINDATE ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Дата начала</dt>
-                    <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                      {formatDate(state.deal.BEGINDATE)}
-                    </dd>
-                  </div>
-                ) : null}
-                {state.deal.CLOSEDATE ? (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Дата завершения</dt>
-                    <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                      {formatDate(state.deal.CLOSEDATE)}
-                    </dd>
-                  </div>
-                ) : null}
-              </div>
-
-              {/* Activities if available */}
-              {activitiesData[id] && (
-                <div className="pt-3 space-y-2">
-                  {activitiesData[id].last && (
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Последняя активность</dt>
-                      <dd className="mt-0.5 text-xs">
-                        {activitiesData[id].last.SUBJECT}
-                      </dd>
-                    </div>
-                  )}
-                  {activitiesData[id].next && (
-                    <div>
-                      <dt className="text-xs text-muted-foreground">Следующая активность</dt>
-                      <dd className="mt-0.5 text-xs">
-                        {activitiesData[id].next.SUBJECT}
-                      </dd>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Custom UF Fields */}
-              {(() => {
-                const fieldMap = new Map(fields.map((f) => [f.id, f]));
-                const ufEntries = Object.entries(state.deal).filter(
-                  ([k, v]) => {
-                    if (!k.startsWith("UF_CRM_") || v === null || v === "" || v === undefined) return false;
-                    const fieldMeta = fieldMap.get(k);
-                    const isBool = fieldMeta?.type === "boolean" || fieldMeta?.type === "char";
-                    if (!isBool) {
-                      const s = String(v).trim().toLowerCase();
-                      if (v === false || s === "false" || s === "null" || s === "undefined") return false;
-                    }
-                    return true;
-                  }
-                );
-                if (ufEntries.length === 0) return null;
-                return (
-                  <div className="pt-3 space-y-3">
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Дополнительные поля
-                    </h4>
-                    {ufEntries.map(([ufKey, ufVal]) => {
-                      const fieldMeta = fieldMap.get(ufKey);
-                      const isBool = fieldMeta?.type === "boolean" || fieldMeta?.type === "char";
-                      const label = fieldMeta?.title || ufKey;
-                      return (
-                        <div key={ufKey}>
-                          <dt className="text-xs text-muted-foreground">{label}</dt>
-                          <dd className="mt-1 whitespace-pre-wrap break-words text-xs">
-                            {renderFieldValue(ufVal, isBool)}
-                          </dd>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-
-              {/* Comments */}
-              {state.deal.COMMENTS ? (
-                <div className="pt-3">
-                  <dt className="text-xs text-muted-foreground">Комментарий</dt>
-                  <dd className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">
-                    {String(state.deal.COMMENTS)}
+                <div>
+                  <dt className="text-xs text-muted-foreground">Дата создания сделки</dt>
+                  <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                    {model.timelineFields[0].value}
                   </dd>
                 </div>
-              ) : null}
+                <div>
+                  <dt className="text-xs text-muted-foreground">Последнее касание</dt>
+                  <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                    {model.timelineFields[1].value}
+                  </dd>
+                </div>
+              </div>
+
+              {/* ACTIVITY Attribute (7) */}
+              <div className="pt-3 space-y-2">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Последняя активность</dt>
+                  <dd className="mt-0.5 text-xs">
+                    {model.activityField.value}
+                  </dd>
+                </div>
+              </div>
+
+              {/* CURRENT DEAL CARD FIELDS (8 to 16) */}
+              <div className="pt-3 space-y-3">
+                {model.cardFields.map((field) => (
+                  <div key={field.id}>
+                    <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words text-xs">
+                      {field.value}
+                    </dd>
+                  </div>
+                ))}
+              </div>
             </dl>
           )}
         </div>
 
-        <SheetFooter className="border-t pt-3">
+        <SheetFooter className="border-t pt-3 flex flex-col sm:flex-row gap-2">
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={isExporting || state.status !== "success"}
+            className="w-full sm:w-auto"
+          >
+            {isExporting ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            Экспорт
+          </Button>
+
           {state.status === "success" && state.bitrixUrl ? (
             <Button asChild className="w-full sm:w-auto">
               <a href={state.bitrixUrl} target="_blank" rel="noopener noreferrer">
                 Открыть сделку в Bitrix24
+                <ExternalLink className="h-3 w-3 ml-1.5" />
               </a>
             </Button>
           ) : (
@@ -426,8 +345,9 @@ export function DealPreview({
               Открыть сделку в Bitrix24
             </Button>
           )}
+
           {state.status === "success" && !state.bitrixUrl && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground w-full">
               Ссылка на портал Bitrix24 не настроена.
             </p>
           )}

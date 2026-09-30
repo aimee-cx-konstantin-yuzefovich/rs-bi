@@ -35,10 +35,8 @@ export interface SamplesFilters {
   productFamily: string; // "all" | family
   grade: string; // "all" | grade value
   industry: string; // "all" | value
-  application: string; // "all" | value
   status: string; // "all" | observed indicator/status label
   result: string; // "all" | NormalizedResult
-  hasDeals: string; // "all" | "yes" | "no"
 }
 
 export const DEFAULT_SAMPLES_FILTERS: SamplesFilters = {
@@ -48,10 +46,8 @@ export const DEFAULT_SAMPLES_FILTERS: SamplesFilters = {
   productFamily: "all",
   grade: "all",
   industry: "all",
-  application: "all",
   status: "all",
   result: "all",
-  hasDeals: "all",
 };
 
 const PERIOD_OPTIONS: Array<{ value: SamplesPeriodPreset; label: string }> = [
@@ -167,7 +163,6 @@ export function SamplesFilterBar({
   productFamilyOptions,
   gradeOptions,
   industryOptions,
-  applicationOptions,
   statusOptions,
   showKpis,
   onToggleKpis,
@@ -181,7 +176,6 @@ export function SamplesFilterBar({
   productFamilyOptions: string[];
   gradeOptions: string[];
   industryOptions: string[];
-  applicationOptions: string[];
   statusOptions: string[];
   showKpis?: boolean;
   onToggleKpis?: () => void;
@@ -275,16 +269,6 @@ export function SamplesFilterBar({
       />
 
       <SelectFilter
-        value={filters.application}
-        onChange={(v) => set({ application: v })}
-        placeholder="Применение"
-        options={[
-          { value: "all", label: "Все применения" },
-          ...applicationOptions.map((a) => ({ value: a, label: a })),
-        ]}
-      />
-
-      <SelectFilter
         value={filters.status}
         onChange={(v) => set({ status: v })}
         placeholder="Статус"
@@ -303,17 +287,6 @@ export function SamplesFilterBar({
           ...(["positive", "negative", "rework", "pending", "mixed", "unknown"] as NormalizedResult[]).map(
             (r) => ({ value: r, label: NORMALIZED_RESULT_LABELS[r] ?? r })
           ),
-        ]}
-      />
-
-      <SelectFilter
-        value={filters.hasDeals}
-        onChange={(v) => set({ hasDeals: v })}
-        placeholder="Связанные сделки"
-        options={[
-          { value: "all", label: "Сделки: любые" },
-          { value: "yes", label: "Есть связанные сделки" },
-          { value: "no", label: "Без связанных сделок" },
         ]}
       />
 

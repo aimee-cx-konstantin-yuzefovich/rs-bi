@@ -101,21 +101,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Metadata first: label resolution for enums/statuses.
-    // Non-fatal: on failure the resolver passes raw values through.
-    const { labels } = await fetchFieldLabelMaps();
-    const labelResolver = makeLabelResolver(labels);
-
-    const [companies, deals] = await Promise.all([
+    // Fetch metadata, companies, and deals concurrently:
+    // Independent until normalization/aggregation.
+    // Metadata failure remains non-fatal; Company/Deal fetch remains fail-closed.
+    const [fieldMetadata, companies, deals] = await Promise.all([
+      fetchFieldLabelMaps(),
       fetchSampleCompanies(scope),
       fetchSampleDeals(scope),
     ]);
+    const labelResolver = makeLabelResolver(fieldMetadata.labels);
 
     const { summaries, orphanDeals } = buildSampleSummaries(companies, deals, {
       labelResolver,
     });
 
-    const meta: SamplesResponseMeta = { statusLabels: labels };
+    const meta: SamplesResponseMeta = { statusLabels: fieldMetadata.labels };
 
     return respond({
       success: true,

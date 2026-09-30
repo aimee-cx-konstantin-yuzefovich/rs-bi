@@ -23,6 +23,7 @@ import {
   formatCurrencyToRussian,
   formatHeaderToRussian,
   formatReportDateForFilename,
+  formatReportDateTime,
   formatStageToRussian,
   getMoneyNumFmt,
   mapBusinessStatusToSemantic,
@@ -50,6 +51,11 @@ import {
 } from "./dataset-coverage";
 import { resolveResponsibleDisplay } from "./enrichment-coverage";
 import type { SampleSummary, NormalizedResult } from "./samples/types";
+import {
+  buildDealPreviewModel,
+  type DealPreviewModel,
+  type DealPreviewResolvedField,
+} from "./deal-preview";
 
 export interface WysiwygExportOptions {
   sheetName?: string;
@@ -894,6 +900,200 @@ export async function exportCompanyToExcel(options: ExportCompanyOptions): Promi
   const dateStr = formatReportDateForFilename(now);
   const prefix = safeTitle ? `РусСилика_Компания_${safeTitle}` : "РусСилика_Компания";
   a.download = options.fileName || `${prefix}_${dateStr}.xlsx`;
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}
+
+export interface ExportDealOptions {
+  deal: Record<string, unknown>;
+  fields?: Array<{ id: string; title?: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }>;
+  userNames?: Record<string, string>;
+  usersCoverage?: DatasetCoverage | null;
+  activity?: { SUBJECT?: string; CREATED?: string; DEADLINE?: string } | null;
+  lastTouchTimestamp?: string | null;
+  currentDate?: Date;
+  fileName?: string;
+  logoImageId?: number | null;
+  workbook?: ExcelJS.Workbook;
+  dealModel?: DealPreviewModel;
+}
+
+/**
+ * Creates an ExcelJS Workbook representing a full branded Single Deal Report,
+ * mirroring the Deal Preview drawer sections and exact field contract.
+ */
+export function createDealExcelWorkbook(options: ExportDealOptions): ExcelJS.Workbook {
+  const model =
+    options.dealModel ||
+    buildDealPreviewModel(options.deal, {
+      fields: options.fields,
+      userNames: options.userNames,
+      usersCoverage: options.usersCoverage,
+      activity: options.activity,
+      lastTouchTimestamp: options.lastTouchTimestamp,
+    });
+
+  const workbook = options.workbook || new ExcelJS.Workbook();
+  workbook.creator = RS_SYSTEM_TITLE;
+  workbook.lastModifiedBy = RS_SYSTEM_TITLE;
+  const now = options.currentDate || new Date();
+  workbook.created = now;
+  workbook.modified = now;
+
+  const worksheet = workbook.addWorksheet("Отчёт по сделке", {
+    views: [{ showGridLines: true }],
+  });
+
+  // Register / Add logo on this workbook instance
+  let imageId = (workbook as any).__russilica_logo_id__ ?? options.logoImageId ?? null;
+  if (imageId === null && typeof process !== "undefined" && Boolean(process.versions?.node)) {
+    try {
+      const nodeRequire = (globalThis as any).__non_webpack_require__ ?? eval("require");
+      const fs = nodeRequire("fs");
+      const path = nodeRequire("path");
+      const logoPath = path.join(process.cwd(), "public", "brand", "russilica-logo.png");
+      if (fs.existsSync(logoPath)) {
+        const buf = fs.readFileSync(logoPath);
+        imageId = workbook.addImage({ buffer: buf, extension: "png" });
+        (workbook as any).__russilica_logo_id__ = imageId;
+      }
+    } catch {}
+  }
+
+  // Find responsible name for header
+  const respField = model.mainFields.find((f) => f.id === "ASSIGNED_BY_ID");
+  const responsibleName = respField?.value !== "–" ? respField?.value : undefined;
+
+  // Header via addAccountHeader
+  addAccountHeader(worksheet, imageId, {
+    companyTitle: model.dealTitle,
+    companyId: model.dealId || "—",
+    responsibleName,
+    generatedAt: now,
+    colCount: 5,
+  });
+
+  // Overwrite Row 1 title to "ОТЧЁТ ПО СДЕЛКЕ"
+  const row1 = worksheet.getRow(1);
+  const titleCell = row1.getCell(2);
+  titleCell.value = "ОТЧЁТ ПО СДЕЛКЕ";
+
+  // Format Row 3 metadata specifically for Deal context
+  const row3 = worksheet.getRow(3);
+  const metaCell = row3.getCell(2);
+  const idStr = model.dealId ? `ID сделки: ${model.dealId}   |   ` : "";
+  const respStr = responsibleName ? `Ответственный: ${responsibleName}   |   ` : "";
+  const reportDateTimeStr = formatReportDateTime(now);
+  metaCell.value = `${idStr}${respStr}Дата формирования: ${reportDateTimeStr} (Москва, UTC+3)`;
+
+  // Helper to render field rows into a section
+  const renderFieldRows = (fields: DealPreviewResolvedField[]) => {
+    for (const field of fields) {
+      const cleanLabel = formatHeaderToRussian(field.label, { preserveProvenance: false });
+      let cellValue: unknown = field.excelValue ?? field.value ?? "–";
+      if (cellValue === null || cellValue === undefined || cellValue === "") {
+        cellValue = "–";
+      }
+
+      const row = worksheet.addRow([cleanLabel, cellValue]);
+      row.height = 20;
+      worksheet.mergeCells(row.number, 2, row.number, 5);
+
+      const labelCell = row.getCell(1);
+      labelCell.font = FONT_METADATA_LABEL;
+      labelCell.fill = FILL_SECTION_HEADER_SOFT;
+      labelCell.alignment = { vertical: "middle", indent: 1 };
+
+      const valueCell = row.getCell(2);
+      if (cellValue instanceof Date) {
+        valueCell.font = FONT_DATA;
+        valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+        valueCell.numFmt = field.excelNumFmt || NUMFMT.DATE;
+      } else if (typeof cellValue === "number") {
+        valueCell.font = FONT_DATA;
+        valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+        if (field.excelNumFmt) {
+          valueCell.numFmt = field.excelNumFmt;
+        }
+      } else {
+        const valStr = String(cellValue).trim();
+        const semantic = mapBusinessStatusToSemantic(valStr);
+        if (
+          field.id === "STAGE_ID" &&
+          (semantic === "SUCCESS" || semantic === "ATTENTION" || semantic === "NEGATIVE")
+        ) {
+          applyStatusCell(valueCell, valStr);
+        } else {
+          valueCell.font = FONT_DATA;
+          valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
+        }
+      }
+
+      applyRowBorders(row, 1, 5);
+    }
+  };
+
+  // Section 1: ОСНОВНАЯ ИНФОРМАЦИЯ
+  addSectionHeader(worksheet, "Основная информация", 5);
+  renderFieldRows(model.mainFields);
+  worksheet.addRow([]);
+
+  // Section 2: ХРОНОЛОГИЯ
+  addSectionHeader(worksheet, "Хронология", 5);
+  renderFieldRows([...model.timelineFields, model.activityField]);
+  worksheet.addRow([]);
+
+  // Section 3: ДАННЫЕ СДЕЛКИ
+  addSectionHeader(worksheet, "Данные сделки", 5);
+  renderFieldRows(model.cardFields);
+
+  // Column Widths
+  worksheet.getColumn(1).width = 38;
+  worksheet.getColumn(2).width = 44;
+  worksheet.getColumn(3).width = 24;
+  worksheet.getColumn(4).width = 18;
+  worksheet.getColumn(5).width = 12;
+
+  // Print Setup & Corporate Footer
+  configureWorksheetPrint(worksheet, {
+    orientation: "portrait",
+    fitToWidth: 1,
+    fitToHeight: 0,
+  });
+  addCorporateFooter(worksheet);
+
+  return workbook;
+}
+
+/**
+ * Downloads an Excel (.xlsx) file with full branded deal report.
+ */
+export async function exportDealToExcel(options: ExportDealOptions): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  const logoImageId = await registerBrandLogo(workbook);
+  createDealExcelWorkbook({ ...options, workbook, logoImageId });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+
+  const now = options.currentDate || new Date();
+  const dateStr = formatReportDateForFilename(now);
+  const rawDealId = String(options.deal?.ID || options.deal?.id || options.dealModel?.dealId || "").trim();
+  const safeDealId = rawDealId ? rawDealId.replace(/[^a-zA-Z0-9_-]/g, "") : "";
+  a.download = options.fileName || `РусСилика_Сделка_${safeDealId || "Без_ID"}_${dateStr}.xlsx`;
 
   document.body.appendChild(a);
   a.click();

@@ -141,9 +141,9 @@ export function ActiveFilters() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="flex items-center gap-1.5 h-7 px-2 rounded-md bg-brand-orange/20 border border-brand-orange/30 hover:bg-brand-orange/30 transition-colors filter-badge-pulse">
-          <Filter className="h-3 w-3 text-brand-orange" />
-          <span className="text-[11px] font-medium text-brand-orange tabular-nums">
+        <button className="flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-brand-orange/20 border border-brand-orange/30 hover:bg-brand-orange/30 transition-colors filter-badge-pulse shrink-0 cursor-pointer">
+          <Filter className="h-3.5 w-3.5 text-brand-orange" />
+          <span className="text-xs font-medium text-brand-orange tabular-nums">
             {filters.length}
           </span>
         </button>
