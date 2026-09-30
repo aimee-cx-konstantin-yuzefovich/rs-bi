@@ -752,13 +752,6 @@ export function computeManagerScorecard(
   for (const c of companies) {
     for (const d of c.deals) {
       const dealRespId = d.responsibleId || c.responsibleId;
-      if (!isDealActiveStage(d.stageId)) continue;
-      let set = activeDealsByManager.get(dealRespId);
-      if (!set) {
-        set = new Set();
-        activeDealsByManager.set(dealRespId, set);
-      }
-      set.add(c.id);
 
       if (d.paymentStatus && INVOICE_SENT_STATUS_CODES.has(d.paymentStatus)) {
         let paySet = awaitingPaymentByManager.get(dealRespId);
@@ -768,6 +761,14 @@ export function computeManagerScorecard(
         }
         paySet.add(c.id);
       }
+
+      if (!isDealActiveStage(d.stageId)) continue;
+      let set = activeDealsByManager.get(dealRespId);
+      if (!set) {
+        set = new Set();
+        activeDealsByManager.set(dealRespId, set);
+      }
+      set.add(c.id);
 
       if (d.activityDataKnown && !d.activityNext) {
         let stepSet = noNextStepByManager.get(dealRespId);
