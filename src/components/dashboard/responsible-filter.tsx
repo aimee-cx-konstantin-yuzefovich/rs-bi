@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { UserCircle, ChevronDown, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useMemo } from "react";
 import { useQueryState } from "nuqs";
 import { searchParams } from "@/lib/search-params";
@@ -59,8 +60,8 @@ export function ResponsibleFilter() {
   // Simplified version if no responsible persons in data
   if (responsibleOptions.length === 0) {
     return (
-      <div className="h-7 px-2 flex items-center gap-1.5 rounded bg-white/5 border border-white/10 text-[11px] text-white/50">
-        <UserCircle className="h-3.5 w-3.5" />
+      <div className="h-8 px-2.5 flex items-center gap-1.5 rounded-md border border-border bg-background text-xs text-muted-foreground shrink-0">
+        <UserCircle className="h-3.5 w-3.5 opacity-60" />
         <span>Все</span>
       </div>
     );
@@ -80,11 +81,15 @@ export function ResponsibleFilter() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="h-7 px-2 flex items-center gap-1.5 rounded bg-white/5 border border-white/10 text-[11px] text-white/60 hover:text-white/80 hover:bg-white/10 transition-colors cursor-pointer">
-          <UserCircle className="h-3.5 w-3.5" />
-          <span className="max-w-[100px] truncate">{activeName}</span>
-          <ChevronDown className="h-3 w-3 opacity-50" />
-        </button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs shrink-0 max-w-[200px]"
+        >
+          <UserCircle className="h-3.5 w-3.5 opacity-60 shrink-0" />
+          <span className="truncate">{activeName}</span>
+          <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
         <DropdownMenuLabel className="text-[11px] text-muted-foreground">

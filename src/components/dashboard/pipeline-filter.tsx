@@ -40,28 +40,29 @@ export function PipelineFilter() {
   };
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 shrink-0">
       {PIPELINE_TABS.map((tab) => {
         const isActive = pipelineFilter === tab.key;
         return (
           <button
             key={tab.key}
+            type="button"
             onClick={() => handleFilterChange(tab.key)}
             className={`
-              h-7 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer
-              flex items-center gap-1 border
+              h-8 px-2.5 rounded-md text-xs font-medium transition-colors cursor-pointer
+              flex items-center gap-1.5 border shrink-0
               ${
                 isActive
-                  ? "bg-white/15 text-white border-white/20"
-                  : "bg-white/5 text-white/50 border-white/10 hover:text-white/70 hover:bg-white/10"
+                  ? "bg-muted border-border text-foreground font-semibold shadow-2xs"
+                  : "bg-background border-border text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               }
             `}
           >
             {tab.label}
             <span
               className={`
-                text-[9px] font-bold tabular-nums leading-none
-                ${isActive ? "text-white/70" : "text-white/30"}
+                text-[10px] font-semibold tabular-nums leading-none
+                ${isActive ? "text-foreground/80" : "text-muted-foreground/70"}
               `}
             >
               {counts[tab.key]}

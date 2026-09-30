@@ -15,7 +15,6 @@ import { useLoginRedirect } from "@/hooks/use-login-redirect";
 import { useDashboardStore } from "@/store/dashboard-store";
 import {
   AlertTriangle,
-  BarChart3,
   Filter,
   LayoutDashboard,
   PieChart,
@@ -23,6 +22,7 @@ import {
   Users,
 } from "lucide-react";
 import { SectionNav } from "@/components/dashboard/section-nav";
+import { TerminalBrand } from "@/components/dashboard/terminal-brand";
 import { ProductFooter } from "@/components/dashboard/footer";
 import { CompanyPreview } from "@/components/dashboard/company-preview";
 import { DealPreview } from "@/components/dashboard/deal-preview";
@@ -234,13 +234,7 @@ function CommercialFunnelContent() {
       <header className="z-30 header-gradient border-b border-white/10 shrink-0">
         <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
           <div className="flex items-center gap-3 min-w-0">
-            <Link
-              href="/"
-              className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer"
-            >
-              <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
-              <span className="text-sm font-semibold tracking-wide text-white">RusSilica</span>
-            </Link>
+            <TerminalBrand />
 
             {/* Top-level Navigation */}
             <div className="hidden sm:block">

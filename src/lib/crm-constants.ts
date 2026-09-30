@@ -216,3 +216,14 @@ export const USERS_DIRECTORY_PAGE_SIZE = 50;
 export const USERS_DIRECTORY_MAX_ITERATIONS = 50;
 export const USERS_DIRECTORY_CAP =
   USERS_DIRECTORY_PAGE_SIZE * USERS_DIRECTORY_MAX_ITERATIONS; // 2500
+
+// Delivery fields for Deal Card
+export const DEAL_DELIVERY_TYPE_FIELD_ID = "UF_CRM_1584459858509";
+export const DEAL_DELIVERY_COST_FIELD_ID = "UF_CRM_1584463812262";
+export const DEAL_DELIVERY_ADDRESS_FIELD_ID = "UF_CRM_1763542027";
+
+export const DELIVERY_TYPE_ENUM_SEMANTICS: Record<string, string> = {
+  "91": "Самовывоз",
+  "93": "Доставка курьерской службой",
+  "95": "Доставка логистической системой компании",
+};

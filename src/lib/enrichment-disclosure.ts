@@ -106,9 +106,15 @@ export function buildEnrichmentExtraWarnings(
     const cov = input.companiesDataCoverage;
     if (cov && typeof cov.total === "number" && typeof cov.fetched === "number") {
       const unresolved = Math.max(0, cov.total - cov.fetched);
-      warnings.push(
-        `ВНИМАНИЕ: данные компаний загружены частично. Не удалось получить данные ${unresolved} из ${cov.total} компаний из CRM.`
-      );
+      if (cov.status === "CAPPED") {
+        warnings.push(
+          `ВНИМАНИЕ: данные компаний загружены частично. ${cov.warning || `Достигнут лимит выборки CRM. Загружено ${cov.fetched} из ${cov.total}.`}`
+        );
+      } else if (unresolved > 0) {
+        warnings.push(
+          `ВНИМАНИЕ: данные компаний загружены частично. Не удалось получить данные ${unresolved} из ${cov.total} компаний из CRM.`
+        );
+      }
     } else {
       warnings.push(WARNING_COMPANIES_PARTIAL);
     }

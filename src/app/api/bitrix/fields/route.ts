@@ -180,6 +180,40 @@ export async function GET() {
       missingSources.push("crm.company.fields");
     }
 
+    const dealStageEntityIds: string[] = ["DEAL_STAGE"];
+
+    // Ensure STAGE_ID is included so its listValues can be resolved authoritatively
+    if (!cleanFields.some((f) => f.id === "STAGE_ID")) {
+      cleanFields.push({
+        id: "STAGE_ID",
+        title: "Стадия",
+        type: "crm_status",
+        isMultiple: false,
+        isSortable: true,
+      });
+      pendingStatusFields.push({ index: cleanFields.length - 1, entityId: "DEAL_STAGE" });
+      statusEntityIds.add("DEAL_STAGE");
+    }
+
+    // Also collect deal category stage entities if categories exist
+    try {
+      const categoryData = await bitrixGet<{ result?: { categories?: Array<{ id: number }> } }>(
+        "crm.category.list",
+        { entityTypeId: 2 }
+      );
+      if (categoryData?.result?.categories && Array.isArray(categoryData.result.categories)) {
+        for (const cat of categoryData.result.categories) {
+          if (cat.id > 0) {
+            const catEntityId = `DEAL_STAGE_${cat.id}`;
+            dealStageEntityIds.push(catEntityId);
+            statusEntityIds.add(catEntityId);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal: default DEAL_STAGE remains
+    }
+
     // Resolve crm_status fields (e.g. company INDUSTRY/COMPANY_TYPE) to real
     // labels via crm.status.list — must happen before the sort below, while
     // `index` still refers to the current (pre-sort) array positions.
@@ -190,9 +224,28 @@ export async function GET() {
         missingSources.push(...failedEntities.map((e) => `crm.status.list:${e}`));
       }
       for (const { index, entityId } of pendingStatusFields) {
-        const values = statusValuesByEntity.get(entityId);
-        if (values && values.length > 0) {
-          cleanFields[index].listValues = values;
+        if (cleanFields[index]?.id === "STAGE_ID") {
+          const combinedStages: Array<{ ID: string; VALUE: string }> = [];
+          const seenIds = new Set<string>();
+          for (const sId of dealStageEntityIds) {
+            const stages = statusValuesByEntity.get(sId);
+            if (stages && Array.isArray(stages)) {
+              for (const s of stages) {
+                if (!seenIds.has(s.ID)) {
+                  seenIds.add(s.ID);
+                  combinedStages.push(s);
+                }
+              }
+            }
+          }
+          if (combinedStages.length > 0) {
+            cleanFields[index].listValues = combinedStages;
+          }
+        } else {
+          const values = statusValuesByEntity.get(entityId);
+          if (values && values.length > 0) {
+            cleanFields[index].listValues = values;
+          }
         }
       }
     }

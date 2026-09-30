@@ -511,4 +511,39 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
     expect(resultWithDict.TECHNICAL_STATUS).toBe("PASS");
     expect(resultWithDict.FINAL_STATUS).toBe("PASS");
   });
+
+  it("SMP-PHASE-A-FLT: application and hasDeals are removed from filter contract while data is intact", () => {
+    // 1. Verify DEFAULT_SAMPLES_FILTERS contract
+    expect((DEFAULT_SAMPLES_FILTERS as any).application).toBeUndefined();
+    expect((DEFAULT_SAMPLES_FILTERS as any).hasDeals).toBeUndefined();
+
+    // 2. Verify SampleSummary data retains relatedDeals and application
+    const rawCompany: BitrixRow = {
+      ID: "50",
+      TITLE: "Инновации Плюс",
+      [COMPANY_SAMPLES_FIELD_ID]: ["Переданы"],
+      [COMPANY_APPLICATION_NEW_FIELD_ID]: "Катализаторы",
+      INDUSTRY: "Химия",
+    };
+    const rawDeal: BitrixRow = {
+      ID: "101",
+      COMPANY_ID: "50",
+      TITLE: "Сделка по катализаторам",
+      [DEAL_SAMPLE_TRANSFER_FIELD_ID]: "Y",
+    };
+
+    const { summaries } = buildSampleSummaries([rawCompany], [rawDeal]);
+    expect(summaries.length).toBe(1);
+    const summary = summaries[0];
+
+    // relatedDeals data MUST remain intact
+    expect(summary.relatedDeals.length).toBe(1);
+    expect(summary.relatedDeals[0].id).toBe("101");
+
+    // Legacy application data MUST remain intact on SampleSummary
+    expect(summary.application).toBe("Катализаторы");
+
+    // Industry data MUST remain intact
+    expect(summary.industry).toBe("Химия");
+  });
 });

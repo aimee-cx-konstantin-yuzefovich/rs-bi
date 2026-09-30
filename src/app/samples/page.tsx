@@ -7,13 +7,13 @@
 // (Bitrix Companies + Deals → SampleSummary), not from the deals store.
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { BarChart3, X } from "lucide-react";
+import { AlertTriangle, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionNav } from "@/components/dashboard/section-nav";
+import { TerminalBrand } from "@/components/dashboard/terminal-brand";
 import { ProductFooter } from "@/components/dashboard/footer";
 import { CompanyPreview } from "@/components/dashboard/company-preview";
 import { DealPreview } from "@/components/dashboard/deal-preview";
@@ -41,13 +41,22 @@ function SamplesContent() {
   const { userNames, fetchUserNames, usersCoverage, isDemoMode, checkConfig } =
     useDashboardStore();
 
-  const { samples, meta, orphanDealCount, loading, error, reload } =
-    useSamplesData();
+  const {
+    samples,
+    meta,
+    orphanDealCount,
+    loading,
+    refreshing,
+    error,
+    refreshError,
+    reload,
+  } = useSamplesData();
 
   const [filters, setFilters] = useState<SamplesFilters>(DEFAULT_SAMPLES_FILTERS);
   const [showKpis, setShowKpis] = useState(true);
   const [demoDismissed, setDemoDismissed] = useState(false);
   const [errorDismissed, setErrorDismissed] = useState(false);
+  const [refreshErrorDismissed, setRefreshErrorDismissed] = useState(false);
   const [orphanDismissed, setOrphanDismissed] = useState(false);
   const [selected, setSelected] = useState<SampleSummary | null>(null);
   const [companyPreviewId, setCompanyPreviewId] = useState<string | null>(null);
@@ -113,16 +122,6 @@ function SamplesContent() {
     [samples]
   );
 
-  const applicationOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          samples.map((s) => s.application).filter((v): v is string => Boolean(v))
-        )
-      ).sort((a, b) => a.localeCompare(b, "ru")),
-    [samples]
-  );
-
   const statusOptions = useMemo(() => {
     const observed = new Set<string>();
     for (const s of samples) {
@@ -164,8 +163,6 @@ function SamplesContent() {
         return false;
       if (filters.industry !== "all" && s.industry !== filters.industry)
         return false;
-      if (filters.application !== "all" && s.application !== filters.application)
-        return false;
       if (
         filters.status !== "all" &&
         !s.sampleIndicators.includes(filters.status) &&
@@ -174,8 +171,6 @@ function SamplesContent() {
         return false;
       if (filters.result !== "all" && s.normalizedResult !== filters.result)
         return false;
-      if (filters.hasDeals === "yes" && s.relatedDeals.length === 0) return false;
-      if (filters.hasDeals === "no" && s.relatedDeals.length > 0) return false;
       return true;
     });
   }, [samples, filters, companyPreselect]);
@@ -186,19 +181,11 @@ function SamplesContent() {
   if (status !== "authenticated") return null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <header className="z-30 header-gradient border-b border-white/10">
+    <div className="h-dvh flex flex-col bg-background overflow-hidden">
+      <header className="z-30 header-gradient border-b border-white/10 shrink-0">
         <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
           <div className="flex items-center gap-3 min-w-0">
-            <Link
-              href="/"
-              className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer"
-            >
-              <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
-              <span className="text-sm font-semibold tracking-wide text-white">
-                RusSilica
-              </span>
-            </Link>
+            <TerminalBrand />
 
             {/* Сделки | Компании | Образцы */}
             <div className="hidden sm:block">
@@ -207,6 +194,12 @@ function SamplesContent() {
           </div>
 
           <div className="flex items-center gap-3">
+            {refreshing && (
+              <div className="flex items-center gap-1.5 text-xs text-white/70 animate-pulse">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-white/70" />
+                <span>Обновление...</span>
+              </div>
+            )}
             <span className="hidden md:inline text-xs font-normal text-white/40">
               Образцы · аналитика испытаний
             </span>
@@ -214,9 +207,9 @@ function SamplesContent() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col min-h-0 gap-3 px-4 sm:px-6 py-4 overflow-y-auto">
+      <main className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-3 gap-2 overflow-hidden">
         {(isDemoMode || (error && error.includes("not configured"))) && !demoDismissed && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
+          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300 shrink-0">
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
               <span>Демо-режим: подключение к Bitrix24 не настроено – данные образцов недоступны.</span>
@@ -234,7 +227,7 @@ function SamplesContent() {
         )}
 
         {error && !error.includes("not configured") && !errorDismissed && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-800 dark:text-red-300">
+          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-800 dark:text-red-300 shrink-0">
             <div className="flex flex-wrap items-center gap-2">
               <span>{error}</span>
               <button
@@ -257,8 +250,33 @@ function SamplesContent() {
           </div>
         )}
 
+        {refreshError && !refreshErrorDismissed && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 shrink-0">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>Не удалось обновить данные: {refreshError}. Отображаются данные предыдущего сеанса.</span>
+              <button
+                type="button"
+                onClick={reload}
+                className="underline underline-offset-2 hover:no-underline font-medium ml-1"
+              >
+                Повторить
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRefreshErrorDismissed(true)}
+              aria-label="Закрыть"
+              title="Закрыть"
+              className="text-amber-700/60 hover:text-amber-900 dark:text-amber-400/60 dark:hover:text-amber-200 p-0.5"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
         {orphanDealCount > 0 && !orphanDismissed && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-300">
+          <div className="flex items-center justify-between px-3 py-2 rounded-md bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-300 shrink-0">
             <div>
               Примечание: {orphanDealCount} сделок с данными по образцам не привязаны ни к одной компании и не отображаются в реестре (зернистость – компания).
             </div>
@@ -274,52 +292,58 @@ function SamplesContent() {
           </div>
         )}
 
-        {showKpis && <SamplesKpiCards kpis={kpis} loading={loading} />}
+        {showKpis && (
+          <div className="shrink-0">
+            <SamplesKpiCards kpis={kpis} loading={loading} />
+          </div>
+        )}
 
         {!loading && (
-          <SamplesFilterBar
-            filters={filters}
-            onChange={(f) => {
-              setFilters(f);
-              // Manual company search cancels the URL preselect.
-              if (companyPreselect) setCompanyPreselect(null);
-            }}
-            responsibleOptions={responsibleOptions}
-            productFamilyOptions={productFamilyOptions}
-            gradeOptions={gradeOptions}
-            industryOptions={industryOptions}
-            applicationOptions={applicationOptions}
-            statusOptions={statusOptions}
-            showKpis={showKpis}
-            onToggleKpis={() => setShowKpis((v) => !v)}
-            onExport={() =>
-              exportSamplesToExcel({
-                summaries: filtered,
-                userNames,
-                usersCoverage,
-              })
-            }
-            exportDisabled={filtered.length === 0}
-            totalCount={filtered.length}
-          />
+          <div className="shrink-0">
+            <SamplesFilterBar
+              filters={filters}
+              onChange={(f) => {
+                setFilters(f);
+                // Manual company search cancels the URL preselect.
+                if (companyPreselect) setCompanyPreselect(null);
+              }}
+              responsibleOptions={responsibleOptions}
+              productFamilyOptions={productFamilyOptions}
+              gradeOptions={gradeOptions}
+              industryOptions={industryOptions}
+              statusOptions={statusOptions}
+              showKpis={showKpis}
+              onToggleKpis={() => setShowKpis((v) => !v)}
+              onExport={() =>
+                exportSamplesToExcel({
+                  summaries: filtered,
+                  userNames,
+                  usersCoverage,
+                })
+              }
+              exportDisabled={filtered.length === 0}
+              totalCount={filtered.length}
+            />
+          </div>
         )}
 
         {loading ? (
-          <div className="rounded-md border py-16 text-center text-sm text-muted-foreground">
-            Загрузка данных по образцам из Bitrix24…
+          <div className="flex-1 flex flex-col items-center justify-center py-20 gap-3">
+            <div className="h-7 w-7 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            <span className="text-xs text-muted-foreground">Загрузка данных по образцам...</span>
           </div>
         ) : (
           <SamplesRegistry summaries={filtered} onSelect={setSelected} />
         )}
 
-        <p className="text-[10px] text-muted-foreground pb-2">
+        <p className="shrink-0 text-[10px] text-muted-foreground pt-1 pb-1">
           Зернистость реестра – компания: одна компания с активностью по образцам = одна
           строка. Несколько марок, дат и сделок сохраняются и видны в карточке.
           KPI считается по компаниям в текущем отборе и не является количеством физических
           образцов.
         </p>
       </main>
-      <ProductFooter />
+      <ProductFooter className="shrink-0" />
 
       {selected && (
         <SamplePreview

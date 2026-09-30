@@ -29,13 +29,11 @@ function DashboardContent() {
   const { data: session, status } = useSession();
   const rawSearchParams = useSearchParams();
   const [urlState] = useQueryStates(searchParams);
-  const { checkConfig, fetchFields, fetchDeals, isDemoMode, appLoaded, dealsError, syncData, syncUrlState } = useDashboardStore();
+  const { checkConfig, fetchFields, fetchDeals, isDemoMode, appLoaded, dealsError, syncData, syncUrlState, dismissedBannerIds, dismissBanner } = useDashboardStore();
   const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
   const [startupTimedOut, setStartupTimedOut] = useState(false);
   const [isUrlSynced, setIsUrlSynced] = useState(false);
   const [startup, setStartup] = useState<StartupState>(INITIAL_STARTUP);
-  const [errorDismissed, setErrorDismissed] = useState(false);
-  const [demoDismissed, setDemoDismissed] = useState(false);
 
   useLoginRedirect(status, session?.error);
 
@@ -169,7 +167,7 @@ function DashboardContent() {
         <DealsToolbar />
         <main className="flex-1 flex flex-col min-h-0">
           <ConfigBanner />
-          {dealsError && !errorDismissed && (
+          {dealsError && !dismissedBannerIds.includes("deals-error") && (
             <div className="px-4 sm:px-6 pt-3 animate-fade-in">
               <div className="flex items-center justify-between px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
                 <div className="flex items-center gap-3">
@@ -189,7 +187,7 @@ function DashboardContent() {
                   </Button>
                   <button
                     type="button"
-                    onClick={() => setErrorDismissed(true)}
+                    onClick={() => dismissBanner("deals-error")}
                     aria-label="Закрыть"
                     title="Закрыть"
                     className="text-red-600/70 hover:text-red-800 dark:text-red-400/70 dark:hover:text-red-300 p-1"
@@ -200,7 +198,7 @@ function DashboardContent() {
               </div>
             </div>
           )}
-          {isDemoMode && !demoDismissed && (
+          {isDemoMode && !dismissedBannerIds.includes("demo-mode") && (
             <div className="px-4 sm:px-6 pt-3 animate-fade-in">
               <div className="flex items-center justify-between px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
                 <div className="flex items-center gap-2">
@@ -211,7 +209,7 @@ function DashboardContent() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setDemoDismissed(true)}
+                  onClick={() => dismissBanner("demo-mode")}
                   aria-label="Закрыть"
                   title="Закрыть"
                   className="text-amber-700/70 hover:text-amber-900 dark:text-amber-400/70 dark:hover:text-amber-200 p-1"

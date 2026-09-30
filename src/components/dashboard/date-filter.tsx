@@ -60,17 +60,17 @@ export function DateFilter() {
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 shrink-0">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            className="h-7 gap-1.5 rounded-md text-white/80 hover:text-white hover:bg-white/10 text-[11px] font-medium border border-white/10"
+            className="h-8 gap-1.5 text-xs shrink-0"
           >
-            <Calendar className="h-3 w-3 text-white/60" />
+            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
             <span>{currentLabel}</span>
-            <ChevronDown className="h-2.5 w-2.5 text-white/50" />
+            <ChevronDown className="h-3 w-3 opacity-50" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-52 rounded-md">

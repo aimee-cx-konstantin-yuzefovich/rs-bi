@@ -11,6 +11,16 @@
 // from authoritative Bitrix Company + Deal data.
 // ─────────────────────────────────────────────────────────────────────
 
+export type {
+  SampleSource,
+  SampleSourceGranularity,
+  SampleSentEvidence,
+  SampleEvidenceUnit,
+  CurrentStateResolutionQuality,
+  CurrentStateResolution,
+  CanonicalCompanySample,
+} from "./model";
+
 export type SampleQuality = "structured" | "partial" | "legacy" | "ambiguous";
 
 export type NormalizedResult =

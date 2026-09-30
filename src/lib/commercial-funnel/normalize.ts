@@ -42,11 +42,16 @@ import {
   COMPANY_SAMPLES_QTY_SOL_FIELD_ID,
   COMPANY_TEST_RESULT_FIELD_ID,
   DEAL_DIRECTION_FIELD_ID,
+  DEAL_INDUSTRY_FIELD_ID,
+  DEAL_PAYMENT_DATE_FIELD_ID,
+  DEAL_PRODUCT_TYPE_FIELD_ID,
+  DEAL_REGION_FIELD_ID,
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
   DEAL_SAMPLE_TESTING_FIELD_ID,
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
+  DEAL_SHIPMENT_DATE_FIELD_ID,
   PAYMENT_STATUS_FIELD_ID,
 } from "@/lib/crm-constants";
 import type { DealActivityEntry } from "@/lib/bitrix-activities";
@@ -280,8 +285,8 @@ export function normalizeDeals(
   const { userNames = {}, statusLabels = {} } = options;
   const dealLabels = statusLabels[DEAL_SAMPLE_TRANSFER_FIELD_ID] || {};
   const testingLabels = statusLabels[DEAL_SAMPLE_TESTING_FIELD_ID] || {};
-  const dealProductLabels = statusLabels["UF_CRM_69257BBACD471"] || {};
-  const dealIndustryLabels = statusLabels["UF_CRM_6915D8C2C31D0"] || {};
+  const dealProductLabels = statusLabels[DEAL_PRODUCT_TYPE_FIELD_ID] || {};
+  const dealIndustryLabels = statusLabels[DEAL_INDUSTRY_FIELD_ID] || {};
   const dealDirectionLabels = statusLabels[DEAL_DIRECTION_FIELD_ID] || {};
 
   return rawDeals.map((row) => {
@@ -332,21 +337,21 @@ export function normalizeDeals(
 
     const rawPaymentStatus = cleanCrmClassificationString(row[PAYMENT_STATUS_FIELD_ID]);
     const paymentStatusLabel = rawPaymentStatus ? PAYMENT_STATUS_LABELS[rawPaymentStatus] || rawPaymentStatus : undefined;
-    const paymentDates = extractIsoDates(row["UF_CRM_1584460062014"]);
+    const paymentDates = extractIsoDates(row[DEAL_PAYMENT_DATE_FIELD_ID]);
     const paymentDate = paymentDates[0];
-    const shipmentDates = extractIsoDates(row["UF_CRM_1584459666824"]);
+    const shipmentDates = extractIsoDates(row[DEAL_SHIPMENT_DATE_FIELD_ID]);
     const shipmentDate = shipmentDates[0];
 
-    const productTypeRaw = toStringArray(row["UF_CRM_69257BBACD471"]);
+    const productTypeRaw = toStringArray(row[DEAL_PRODUCT_TYPE_FIELD_ID]);
     const productType = productTypeRaw.map((v) => dealProductLabels[v] || v);
 
-    const industryRaw = toStringArray(row["UF_CRM_6915D8C2C31D0"]);
+    const industryRaw = toStringArray(row[DEAL_INDUSTRY_FIELD_ID]);
     const industry = industryRaw.map((v) => dealIndustryLabels[v] || v);
 
     const directionRaw = toStringArray(row[DEAL_DIRECTION_FIELD_ID]);
     const direction = directionRaw.map((v) => dealDirectionLabels[v] || v);
 
-    const region = cleanCrmClassificationString(row["UF_CRM_69259C45EC14B"]);
+    const region = cleanCrmClassificationString(row[DEAL_REGION_FIELD_ID]);
     let activityLast: string | undefined;
     let activityNext: string | undefined;
     let activityNextDate: string | undefined;
@@ -824,7 +829,7 @@ export function normalizeCompanies(
     const directionRaw = toStringArray(row[COMPANY_DIRECTION_FIELD_ID]);
     const direction = directionRaw.map((v) => companyDirectionLabels[v] || v);
 
-    const region = cleanCrmClassificationString(row["UF_CRM_69259C45EC14B"]);
+    const region = cleanCrmClassificationString(row[DEAL_REGION_FIELD_ID]);
 
     const productTypeRaw = toStringArray(row[COMPANY_PRODUCT_TYPE_FIELD_ID]);
     const productType = productTypeRaw.map((v) => companyProductLabels[v] || v);

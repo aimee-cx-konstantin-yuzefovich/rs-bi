@@ -3,15 +3,14 @@
 import { useSession, signOut } from "next-auth/react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { Button } from "@/components/ui/button";
+import { TerminalBrand } from "./terminal-brand";
 import { ThemeToggle } from "./theme-toggle";
 import { LastSync } from "./last-sync";
 import { AlertsBell } from "./alerts-bell";
 import { ConnectionHealth } from "./connection-health";
 import { SectionNav } from "./section-nav";
-import { RefreshCw, BarChart3, LogOut, User } from "lucide-react";
-import { PRODUCT_UI_DESCRIPTOR } from "@/lib/product-identity";
+import { RefreshCw, LogOut, User } from "lucide-react";
 import { IS_PRODUCTION, WP_LOGIN_URL_CLIENT } from "@/lib/config";
-import Link from "next/link";
 import { motion } from "framer-motion";
 
 export function Header() {
@@ -43,18 +42,9 @@ export function Header() {
       <div className="flex items-center justify-between px-3 sm:px-5 h-12 gap-2">
         {/* Left: Brand + section tabs */}
         <div className="flex items-center gap-3 min-w-0">
-          <Link
-            href="/"
-            className="flex items-center gap-2.5 shrink-0 hover:opacity-80 transition-opacity cursor-pointer"
-          >
-            <BarChart3 className="h-5 w-5 text-white/80 shrink-0" />
-            <span className="text-sm font-semibold tracking-wide text-white">
-              RusSilica
-            </span>
-            <span className="hidden md:inline text-xs font-normal text-white/40">
-              {PRODUCT_UI_DESCRIPTOR}
-            </span>
-          </Link>
+          <TerminalBrand />
+
+          {/* Сделки | Компании | Образцы */}
 
           {/* Сделки | Компании | Образцы */}
           <div className="hidden sm:block">

@@ -8,14 +8,6 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { NormalizedResult, SampleSummary } from "@/lib/samples/types";
 import { useDashboardStore } from "@/store/dashboard-store";
@@ -110,120 +102,132 @@ export function SamplesRegistry({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 rounded-md border border-border bg-card shadow-sm overflow-hidden">
-      <Table containerClassName="flex-1 min-h-0 overflow-auto custom-scrollbar">
-        <TableHeader>
-          <TableRow>
-            <TableHead className="text-xs w-10 min-w-[40px] text-center sticky top-0 left-0 z-30 bg-card border-r border-b border-border">№</TableHead>
-            <TableHead className="text-xs min-w-[200px] sticky top-0 z-20 bg-card border-b border-border shadow-sm">Компания</TableHead>
-            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Ответственный</TableHead>
-            <TableHead className="text-xs min-w-[160px] sticky top-0 z-20 bg-card border-b border-border shadow-sm">Отрасль / применение</TableHead>
-            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Продукт</TableHead>
-            <TableHead className="text-xs min-w-[140px] sticky top-0 z-20 bg-card border-b border-border shadow-sm">Марка</TableHead>
-            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Количество</TableHead>
-            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Дата передачи</TableHead>
-            <TableHead className="text-xs min-w-[140px] sticky top-0 z-20 bg-card border-b border-border shadow-sm">Статус</TableHead>
-            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Результат</TableHead>
-            <TableHead className="text-xs sticky top-0 z-20 bg-card border-b border-border shadow-sm">Сделки</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {pageItems.map((s, idx) => (
-            <TableRow
-              key={s.companyId}
-              data-company-id={s.companyId}
-              className="cursor-pointer hover:bg-muted/50"
-              onClick={() => onSelect(s)}
-            >
-              <TableCell className="text-xs font-mono tabular-nums text-muted-foreground text-center sticky left-0 z-10 bg-card border-r border-border">
-                {startIndex + idx + 1}
-              </TableCell>
-              <TableCell className="text-sm font-medium">
-                <span className="block max-w-[260px] truncate" title={s.companyTitle}>
-                  {s.companyTitle}
-                </span>
-                {s.dataIssues.length > 0 && (
-                  <span
-                    className="text-[10px] text-amber-600 dark:text-amber-400"
-                    title={s.dataIssues.join("; ")}
-                  >
-                    ⚠ {s.dataIssues.length}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {s.responsibleId
-                  ? resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
-                  : s.responsibleName ?? "–"}
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                <span className="block max-w-[180px] truncate">
-                  {[s.industry, s.application].filter(Boolean).join(" · ") || "–"}
-                </span>
-              </TableCell>
-              <TableCell>
-                <Badges items={s.productFamilies} />
-              </TableCell>
-              <TableCell>
-                <Badges items={s.grades.map((g) => g.value)} />
-              </TableCell>
-              <TableCell className="text-xs tabular-nums">
-                {s.quantities.length > 0 ? (
-                  <Badges items={s.quantities.map(formatQuantity)} />
-                ) : (
-                  <span className="text-muted-foreground">–</span>
-                )}
-              </TableCell>
-              <TableCell className="text-xs tabular-nums">
-                {s.sentDates.length > 0 ? (
-                  <Badges items={s.sentDates.map(formatDateRu)} max={2} />
-                ) : (
-                  <span className="text-muted-foreground">–</span>
-                )}
-              </TableCell>
-              <TableCell>
-                <Badges items={[...s.sampleIndicators, ...s.processStatuses]} />
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-col gap-1">
-                  <Badge
-                    className={`text-[10px] px-1.5 py-0 font-normal ${RESULT_BADGE_CLASS[s.normalizedResult]}`}
-                  >
-                    {NORMALIZED_RESULT_LABELS[s.normalizedResult] ?? s.normalizedResult}
-                  </Badge>
-                  {s.rawTestResult && s.normalizedResult !== "unknown" && (
-                    <span
-                      className="max-w-[160px] truncate text-[10px] text-muted-foreground"
-                      title={s.rawTestResult}
-                    >
-                      «{s.rawTestResult}»
+      <div data-testid="samples-table-scroll" className="flex-1 min-h-0 overflow-auto custom-scrollbar">
+        <div className="min-w-full relative">
+          <table className="data-table w-full border-separate border-spacing-0">
+            <thead className="bg-card shadow-sm">
+              <tr>
+                <th
+                  data-testid="samples-header-index"
+                  className="text-center sticky top-0 left-0 z-30 bg-card border-r border-b border-border w-10 min-w-[40px] px-2 py-2 text-xs font-medium text-muted-foreground"
+                >
+                  №
+                </th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[200px]">Компания</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Ответственный</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[160px]">Отрасль / применение</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Продукт</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[140px]">Марка</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Количество</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Дата передачи</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[140px]">Статус</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Результат</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Сделки</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageItems.map((s, idx) => (
+                <tr
+                  key={s.companyId}
+                  data-company-id={s.companyId}
+                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => onSelect(s)}
+                >
+                  <td className="text-xs font-mono tabular-nums text-muted-foreground text-center sticky left-0 z-10 bg-card border-r border-b border-border/60 py-1.5 px-2">
+                    {startIndex + idx + 1}
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2 text-xs font-medium">
+                    <span className="block max-w-[260px] truncate" title={s.companyTitle}>
+                      {s.companyTitle}
                     </span>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell className="text-xs tabular-nums">
-                {s.relatedDeals.length > 0 ? (
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
-                    {s.relatedDeals.length}
-                  </Badge>
-                ) : (
-                  <span className="text-muted-foreground">–</span>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+                    {s.dataIssues.length > 0 && (
+                      <span
+                        className="text-[10px] text-amber-600 dark:text-amber-400"
+                        title={s.dataIssues.join("; ")}
+                      >
+                        ⚠ {s.dataIssues.length}
+                      </span>
+                    )}
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2 text-xs text-muted-foreground">
+                    {s.responsibleId
+                      ? resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
+                      : s.responsibleName ?? "–"}
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2 text-xs text-muted-foreground">
+                    <span className="block max-w-[180px] truncate">
+                      {[s.industry, s.application].filter(Boolean).join(" · ") || "–"}
+                    </span>
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2">
+                    <Badges items={s.productFamilies} />
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2">
+                    <Badges items={s.grades.map((g) => g.value)} />
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2 text-xs tabular-nums">
+                    {s.quantities.length > 0 ? (
+                      <Badges items={s.quantities.map(formatQuantity)} />
+                    ) : (
+                      <span className="text-muted-foreground">–</span>
+                    )}
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2 text-xs tabular-nums">
+                    {s.sentDates.length > 0 ? (
+                      <Badges items={s.sentDates.map(formatDateRu)} max={2} />
+                    ) : (
+                      <span className="text-muted-foreground">–</span>
+                    )}
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2">
+                    <Badges items={[...s.sampleIndicators, ...s.processStatuses]} />
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2">
+                    <div className="flex flex-col gap-1">
+                      <Badge
+                        className={`text-[10px] px-1.5 py-0 font-normal ${RESULT_BADGE_CLASS[s.normalizedResult]}`}
+                      >
+                        {NORMALIZED_RESULT_LABELS[s.normalizedResult] ?? s.normalizedResult}
+                      </Badge>
+                      {s.rawTestResult && s.normalizedResult !== "unknown" && (
+                        <span
+                          className="max-w-[160px] truncate text-[10px] text-muted-foreground"
+                          title={s.rawTestResult}
+                        >
+                          «{s.rawTestResult}»
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2 text-xs tabular-nums">
+                    {s.relatedDeals.length > 0 ? (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                        {s.relatedDeals.length}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">–</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* Pagination footer */}
-      <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex items-center gap-4">
+      <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between">
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
           <span className="tabular-nums">
             {summaries.length > 0
               ? `${startIndex + 1}–${Math.min(startIndex + pageSize, summaries.length)} из ${summaries.length}`
               : "0 из 0"}
           </span>
+        </div>
+
+        <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <span>Строк:</span>
+            <span className="text-[10px] text-muted-foreground hidden sm:inline">Строк:</span>
             <select
               aria-label="Строк на странице"
               value={pageSize}
@@ -231,7 +235,7 @@ export function SamplesRegistry({
                 setPageSize(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="h-6 rounded border border-border bg-background px-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="h-7 rounded-sm border-0 bg-muted/80 text-[11px] px-1.5 py-0 focus:ring-1 cursor-pointer"
             >
               {PAGE_SIZES.map((size) => (
                 <option key={size} value={size}>
@@ -240,32 +244,32 @@ export function SamplesRegistry({
               ))}
             </select>
           </div>
-        </div>
 
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 rounded-sm"
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-            disabled={activePage <= 1}
-            aria-label="Предыдущая страница"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </Button>
-          <span className="text-[11px] text-muted-foreground min-w-[50px] text-center tabular-nums">
-            {activePage} / {totalPages}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 rounded-sm"
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-            disabled={activePage >= totalPages}
-            aria-label="Следующая страница"
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-sm"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={activePage <= 1}
+              aria-label="Предыдущая страница"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <span className="text-[11px] text-muted-foreground min-w-[50px] text-center tabular-nums">
+              {activePage} / {totalPages}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-sm"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={activePage >= totalPages}
+              aria-label="Следующая страница"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>

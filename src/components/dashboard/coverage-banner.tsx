@@ -8,15 +8,17 @@
 // carries its own message (never a generic "Показаны первые N").
 // ─────────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { AlertTriangle, Info, X } from "lucide-react";
 
+export const DEALS_COVERAGE_BANNER_ID = "deals-coverage-warning";
+
 export function CoverageBanner() {
   const dealsCoverage = useDashboardStore((s) => s.dealsCoverage);
-  const [dismissed, setDismissed] = useState(false);
+  const isDismissed = useDashboardStore((s) => s.dismissedBannerIds.includes(DEALS_COVERAGE_BANNER_ID));
+  const dismissBanner = useDashboardStore((s) => s.dismissBanner);
 
-  if (dismissed || !dealsCoverage || dealsCoverage.status === "COMPLETE") return null;
+  if (isDismissed || !dealsCoverage || dealsCoverage.status === "COMPLETE") return null;
 
   const isPartial = dealsCoverage.status === "PARTIAL";
 
@@ -45,7 +47,7 @@ export function CoverageBanner() {
         </div>
         <button
           type="button"
-          onClick={() => setDismissed(true)}
+          onClick={() => dismissBanner(DEALS_COVERAGE_BANNER_ID)}
           aria-label="Закрыть"
           title="Закрыть"
           className={

@@ -34,14 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertCircle,
   AlertTriangle,
@@ -652,9 +645,9 @@ export function CompanyBrowser() {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 px-4 sm:px-6 py-4 gap-3">
+    <div className="flex-1 flex flex-col min-h-0 px-4 sm:px-6 py-3 gap-3">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap shrink-0">
         <CompanyDateFilter
           value={companyDateFilter}
           onChange={(filter) => {
@@ -771,7 +764,7 @@ export function CompanyBrowser() {
       </div>
 
       {companyBrowserError && !errorDismissed && (
-        <Alert variant="destructive" className="py-2 flex items-center justify-between">
+        <Alert variant="destructive" className="py-2 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="text-xs">{companyBrowserError}</AlertDescription>
@@ -792,8 +785,8 @@ export function CompanyBrowser() {
         <Alert
           className={
             companyBrowserPartial
-              ? "py-2 border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 flex items-center justify-between"
-              : "py-2 border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 flex items-center justify-between"
+              ? "py-2 border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 flex items-center justify-between shrink-0"
+              : "py-2 border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 flex items-center justify-between shrink-0"
           }
         >
           <div className="flex items-center gap-2">
@@ -819,159 +812,208 @@ export function CompanyBrowser() {
       )}
 
       <div className="flex-1 flex flex-col min-h-0 rounded-md border border-border bg-card shadow-sm overflow-hidden">
-        <Table containerClassName="flex-1 min-h-0 overflow-auto custom-scrollbar">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-xs whitespace-nowrap w-10 sticky top-0 left-0 z-30 bg-card border-r border-b border-border text-center">№</TableHead>
-              {columns.map((colId) => {
-                const field = getField(colId);
-                const isSorted = columnSort.columnId === colId;
-                const hasFilter = columnFilters.some((f) => f.columnId === colId && f.value.trim());
-                const isFilterActive = activeFilterCol === colId;
-                const isNumeric = field?.type === "double" || field?.type === "integer" || field?.type === "money";
-                const isDate = field?.type === "date" || field?.type === "datetime";
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <div data-testid="companies-table-scroll" className="h-full overflow-auto custom-scrollbar">
+            <div className="min-w-full relative">
+              <table className="data-table w-full border-separate border-spacing-0">
+                <thead className="bg-card shadow-sm">
+                  <tr>
+                    <th
+                      data-testid="companies-header-index"
+                      className="text-center sticky top-0 left-0 z-30 bg-card border-r border-b border-border w-10 min-w-[40px] px-2"
+                    >
+                      №
+                    </th>
+                    {columns.map((colId) => {
+                      const field = getField(colId);
+                      const isSorted = columnSort.columnId === colId;
+                      const hasFilter = columnFilters.some((f) => f.columnId === colId && f.value.trim());
+                      const isFilterActive = activeFilterCol === colId;
+                      const isNumeric = field?.type === "double" || field?.type === "integer" || field?.type === "money";
+                      const isDate = field?.type === "date" || field?.type === "datetime";
 
-                return (
-                  <TableHead
-                    key={colId}
-                    className="text-xs whitespace-nowrap group relative"
-                    style={{
-                      width: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
-                      minWidth: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
-                      maxWidth: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
-                    }}
-                  >
-                    <div className="flex items-start gap-1">
-                      <button
-                        onClick={() => toggleColumnSort(colId)}
-                        className="flex items-start gap-1 hover:text-foreground transition-colors cursor-pointer text-left"
-                        title={
-                          isNumeric
-                            ? "Сортировка по числам"
-                            : isDate
-                            ? "Сортировка по датам"
-                            : "Сортировка по алфавиту"
-                        }
-                      >
-                        <span className="whitespace-normal break-words leading-tight">{columnTitle(colId)}</span>
-                        {isSorted && columnSort.direction === "asc" && <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0 mt-0.5" />}
-                        {isSorted && columnSort.direction === "desc" && <ArrowDown className="h-3 w-3 text-brand-blue flex-shrink-0 mt-0.5" />}
-                        {!isSorted && <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity flex-shrink-0 mt-0.5" />}
-                      </button>
-
-                      <button
-                        onClick={() => setActiveFilterCol(isFilterActive ? null : colId)}
-                        className={`p-0.5 rounded transition-all mt-0.5 ${
-                          hasFilter ? "text-brand-orange" : "opacity-0 group-hover:opacity-40 hover:!opacity-70"
-                        }`}
-                        title="Фильтр по столбцу"
-                      >
-                        <Filter className="h-2.5 w-2.5" />
-                      </button>
-                    </div>
-
-                    {isFilterActive && (
-                      <div className="mt-1.5">
-                        <div className="relative">
-                          <Input
-                            ref={filterInputRef}
-                            placeholder="Фильтр..."
-                            value={columnFilters.find((f) => f.columnId === colId)?.value || ""}
-                            onChange={(e) => setColumnFilter(colId, e.target.value)}
-                            className="h-6 text-[11px] rounded-sm pr-6 bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-1"
-                          />
-                          {(columnFilters.find((f) => f.columnId === colId)?.value || "") && (
+                      return (
+                        <th
+                          key={colId}
+                          data-testid="companies-header-column"
+                          className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2"
+                          style={{
+                            width: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
+                            minWidth: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
+                            maxWidth: companyColumnWidths[colId] ? `${companyColumnWidths[colId]}px` : undefined,
+                          }}
+                        >
+                          <div className="flex items-start gap-1">
                             <button
-                              onClick={() => clearColumnFilter(colId)}
-                              className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              onClick={() => toggleColumnSort(colId)}
+                              className="flex items-start gap-1 hover:text-foreground transition-colors cursor-pointer text-left"
+                              title={
+                                isNumeric
+                                  ? isSorted
+                                    ? columnSort.direction === "asc"
+                                      ? "По возрастанию чисел (нажмите для убывания)"
+                                      : "По убыванию чисел (нажмите для сброса)"
+                                    : "Сортировка по числам"
+                                  : isDate
+                                  ? isSorted
+                                    ? columnSort.direction === "asc"
+                                      ? "По возрастанию дат (нажмите для убывания)"
+                                      : "По убыванию дат (нажмите для сброса)"
+                                    : "Сортировка по датам"
+                                  : isSorted
+                                  ? columnSort.direction === "asc"
+                                    ? "По алфавиту А→Я (нажмите для Я→А)"
+                                    : "По алфавиту Я→А (нажмите для сброса)"
+                                  : "Сортировка по алфавиту"
+                              }
                             >
-                              <X className="h-2.5 w-2.5" />
+                              <span className="whitespace-normal break-words leading-tight">{columnTitle(colId)}</span>
+                              {isSorted && columnSort.direction === "asc" && <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter mt-0.5" />}
+                              {isSorted && columnSort.direction === "desc" && <ArrowDown className="h-3 w-3 text-brand-blue flex-shrink-0 sort-icon-enter mt-0.5" />}
+                              {!isSorted && <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity flex-shrink-0 mt-0.5" />}
                             </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
 
-                    <div
-                      className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-blue/50 ${activeResizingCol === colId ? "bg-brand-blue" : ""}`}
-                      onPointerDown={(e) => handlePointerDown(e, colId, e.currentTarget.parentElement as HTMLTableCellElement)}
-                      onPointerMove={handlePointerMove}
-                      onPointerUp={handlePointerUp}
-                      onPointerCancel={handlePointerUp}
-                    />
-                  </TableHead>
-                );
-              })}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {companyBrowserLoading && companyBrowserItems.length === 0 ? (
-              Array.from({ length: 8 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell className="sticky left-0 z-10 bg-card border-r border-border text-center"><Skeleton className="h-4 w-6 mx-auto" /></TableCell>
-                  {columns.map((colId) => (
-                    <TableCell key={colId}>
-                      <Skeleton className="h-4 w-24" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : companyBrowserError ? null : pageItems.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length + 1} className="text-center text-xs text-muted-foreground py-8">
-                  Компании не найдены
-                </TableCell>
-              </TableRow>
-            ) : (
-              pageItems.map((company, idx) => (
-                <TableRow
-                  key={String(company.ID)}
-                  onClick={(event) => {
-                    if (resizingState.current.colId || (event.target as HTMLElement).closest(
-                      "button, a, input, select, textarea, label, [role='checkbox'], [role='button'], [contenteditable='true']"
-                    )) return;
-                    openPreview(String(company.ID), event.currentTarget);
-                  }}
-                  className={highlightSamples && hasSamplesInfo(company) ? "cursor-pointer bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40" : "cursor-pointer"}
-                >
-                  <TableCell className={`text-xs text-muted-foreground tabular-nums sticky left-0 z-10 border-r border-border text-center ${highlightSamples && hasSamplesInfo(company) ? "bg-amber-100 dark:bg-amber-950" : "bg-card group-hover:bg-muted transition-colors"}`}>
-                    {(currentPage - 1) * pageSize + idx + 1}
-                  </TableCell>
-                  {columns.map((colId) => {
-                    const field = getField(colId);
-                    return (
-                      <TableCell key={colId} className="text-xs whitespace-nowrap max-w-[280px] truncate">
-                        {colId === "TITLE" ? (
-                          <button
-                            type="button"
-                            data-company-preview
-                            className="max-w-full truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-                            onClick={(event) => openPreview(String(company.ID), event.currentTarget.closest("tr"))}
+                            <button
+                              onClick={() => setActiveFilterCol(isFilterActive ? null : colId)}
+                              className={`p-0.5 rounded transition-all mt-0.5 ${
+                                hasFilter ? "text-brand-orange" : "opacity-0 group-hover:opacity-40 hover:!opacity-70"
+                              }`}
+                              title="Фильтр по столбцу"
+                            >
+                              <Filter className="h-2.5 w-2.5" />
+                            </button>
+                          </div>
+
+                          {isFilterActive && (
+                            <div className="mt-1.5 animate-fade-in">
+                              <div className="relative">
+                                <Input
+                                  ref={filterInputRef}
+                                  placeholder="Фильтр..."
+                                  value={columnFilters.find((f) => f.columnId === colId)?.value || ""}
+                                  onChange={(e) => setColumnFilter(colId, e.target.value)}
+                                  className="h-6 text-[11px] rounded-sm pr-6 bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-1"
+                                />
+                                {(columnFilters.find((f) => f.columnId === colId)?.value || "") && (
+                                  <button
+                                    onClick={() => clearColumnFilter(colId)}
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                  >
+                                    <X className="h-2.5 w-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          <div
+                            className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-blue/50 ${activeResizingCol === colId ? "bg-brand-blue" : ""}`}
+                            onPointerDown={(e) => handlePointerDown(e, colId, e.currentTarget.parentElement as HTMLTableCellElement)}
+                            onPointerMove={handlePointerMove}
+                            onPointerUp={handlePointerUp}
+                            onPointerCancel={handlePointerUp}
+                          />
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {companyBrowserLoading && companyBrowserItems.length === 0 ? (
+                    Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={i}>
+                        <td className="sticky left-0 z-10 bg-card border-r border-border text-center px-2">
+                          <Skeleton className="h-4 w-6 mx-auto" />
+                        </td>
+                        {columns.map((colId) => (
+                          <td key={colId}>
+                            <Skeleton className="h-4 w-24" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : companyBrowserError ? null : pageItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={columns.length + 1} className="text-center text-xs text-muted-foreground py-8">
+                        Компании не найдены
+                      </td>
+                    </tr>
+                  ) : (
+                    pageItems.map((company, idx) => {
+                      const isSampleHighlighted = highlightSamples && hasSamplesInfo(company);
+                      return (
+                        <tr
+                          key={String(company.ID)}
+                          onClick={(event) => {
+                            if (resizingState.current.colId || (event.target as HTMLElement).closest(
+                              "button, a, input, select, textarea, label, [role='checkbox'], [role='button'], [contenteditable='true']"
+                            )) return;
+                            openPreview(String(company.ID), event.currentTarget);
+                          }}
+                          className={`group transition-colors cursor-pointer ${
+                            isSampleHighlighted
+                              ? "bg-amber-100 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-950/40"
+                              : "hover:bg-muted/30"
+                          }`}
+                        >
+                          <td
+                            className={`sticky left-0 z-10 border-r border-border text-center px-2 ${
+                              isSampleHighlighted
+                                ? "bg-amber-100 dark:bg-amber-950"
+                                : "bg-card group-hover:bg-muted transition-colors"
+                            }`}
                           >
-                            {resolveCompanyValue(company, colId, userNames, field) || "–"}
-                          </button>
-                        ) : (
-                          resolveCompanyValue(company, colId, userNames, field) || "–"
-                        )}
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+                            <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
+                              {(currentPage - 1) * pageSize + idx + 1}
+                            </span>
+                          </td>
+                          {columns.map((colId) => {
+                            const field = getField(colId);
+                            const resolved = resolveCompanyValue(company, colId, userNames, field) || "–";
+                            return (
+                              <td key={colId} title={resolved}>
+                                {colId === "TITLE" ? (
+                                  <button
+                                    type="button"
+                                    data-company-preview
+                                    className="max-w-full truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                                    onClick={(event) => openPreview(String(company.ID), event.currentTarget.closest("tr"))}
+                                  >
+                                    {resolved}
+                                  </button>
+                                ) : (
+                                  resolved
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
 
         {/* Pagination (client-side, over the filtered/sorted set) */}
-        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-4">
+        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between">
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="tabular-nums">
               {sortedItems.length > 0
                 ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, sortedItems.length)} из ${sortedItems.length}`
                 : "0 из 0"}
             </span>
+            {companyBrowserTotal > sortedItems.length && (
+              <Badge variant="outline" className="text-[10px] h-5 font-normal cursor-help">
+                из {companyBrowserTotal}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <span>Строк:</span>
+              <span className="text-[10px] text-muted-foreground hidden sm:inline">Строк:</span>
               <select
                 aria-label="Строк на странице"
                 value={pageSize}
@@ -979,7 +1021,7 @@ export function CompanyBrowser() {
                   setPageSize(Number(e.target.value));
                   setCurrentPage(1);
                 }}
-                className="h-6 rounded border border-border bg-background px-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-7 rounded-sm border-0 bg-muted/80 text-[11px] px-1.5 py-0 focus:ring-1 cursor-pointer"
               >
                 {COMPANY_PAGE_SIZES.map((size) => (
                   <option key={size} value={size}>
@@ -988,31 +1030,31 @@ export function CompanyBrowser() {
                 ))}
               </select>
             </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 rounded-sm"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage <= 1}
-              aria-label="Предыдущая страница"
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
-            <span className="tabular-nums text-[11px] min-w-[50px] text-center">
-              {currentPage} / {Math.max(1, totalPages)}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 rounded-sm"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage >= totalPages}
-              aria-label="Следующая страница"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-sm"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                aria-label="Предыдущая страница"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="tabular-nums text-[11px] min-w-[50px] text-center">
+                {currentPage} / {Math.max(1, totalPages)}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-sm"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                aria-label="Следующая страница"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>

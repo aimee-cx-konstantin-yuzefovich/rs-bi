@@ -430,4 +430,49 @@ describe("POST /api/bitrix/samples — security invariants", () => {
     const response = await request();
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
+
+  it("starts metadata, company, and deal fetches concurrently without serial blocking", async () => {
+    const calledEndpoints: string[] = [];
+    let resolveMetadata: ((res: Response) => void) | null = null;
+    const metadataPromise = new Promise<Response>((resolve) => {
+      resolveMetadata = resolve;
+    });
+
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("crm.company.fields")) {
+        calledEndpoints.push("crm.company.fields");
+        return metadataPromise;
+      }
+      if (url.endsWith("crm.deal.fields")) {
+        calledEndpoints.push("crm.deal.fields");
+        return Promise.resolve(emptyFieldsMeta());
+      }
+      if (url.endsWith("crm.company.list")) {
+        calledEndpoints.push("crm.company.list");
+        return Promise.resolve(listPage([], { total: 0 }));
+      }
+      if (url.endsWith("crm.deal.list")) {
+        calledEndpoints.push("crm.deal.list");
+        return Promise.resolve(listPage([], { total: 0 }));
+      }
+      return Promise.resolve(listPage([], { total: 0 }));
+    });
+
+    // Start request without resolving metadata yet
+    const reqPromise = request();
+
+    // Give microtasks time to execute so all concurrent operations begin
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Both crm.company.list and crm.deal.list must have been initiated
+    // even though crm.company.fields has NOT resolved yet!
+    expect(calledEndpoints).toContain("crm.company.fields");
+    expect(calledEndpoints).toContain("crm.company.list");
+    expect(calledEndpoints).toContain("crm.deal.list");
+
+    // Now resolve metadata to let request finish
+    resolveMetadata!(emptyFieldsMeta());
+    const response = await reqPromise;
+    expect(response.status).toBe(200);
+  });
 });

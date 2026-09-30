@@ -29,15 +29,15 @@ export function GlobalSearch() {
 
   // Search input component (shared between desktop and mobile)
   const searchInput = (
-    <div className="relative flex items-center">
-      <Search className="absolute left-2 h-3.5 w-3.5 text-white/30 pointer-events-none" />
+    <div className="relative flex items-center w-full">
+      <Search className="absolute left-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
       <input
         ref={inputRef}
         type="text"
         value={localQuery}
         onChange={(e) => setLocalQuery(e.target.value)}
         placeholder="Поиск по всем полям..."
-        className="h-7 w-full sm:w-56 lg:w-64 rounded-md bg-white/[0.07] border border-white/10 text-white/80 placeholder:text-white/30 text-xs pl-7 pr-6 outline-none focus-visible:border-white/25 focus-visible:ring-1 focus-visible:ring-white/20 transition-all"
+        className="h-8 w-full rounded-md bg-background border border-input text-foreground placeholder:text-muted-foreground text-xs pl-8 pr-7 outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring transition-all"
         onBlur={() => {
           if (localQuery === "" && window.innerWidth < 768) {
             setMobileExpanded(false);
@@ -47,7 +47,7 @@ export function GlobalSearch() {
       {localQuery && (
         <button
           onClick={handleClear}
-          className="absolute right-1.5 flex items-center justify-center h-4 w-4 rounded-sm text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors"
+          className="absolute right-2 flex items-center justify-center h-4 w-4 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
           aria-label="Очистить поиск"
         >
           <X className="h-3 w-3" />
@@ -66,7 +66,7 @@ export function GlobalSearch() {
             setMobileExpanded(true);
             setTimeout(() => inputRef.current?.focus(), 50);
           }}
-          className="sm:hidden flex items-center justify-center h-7 w-7 rounded-md text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+          className="sm:hidden flex items-center justify-center h-8 w-8 rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
           aria-label="Поиск"
         >
           <Search className="h-3.5 w-3.5" />
