@@ -7,15 +7,21 @@
 //
 // Invariants:
 // 1. Emits the exact existing SampleSummary contract.
-// 2. Sent dates deduplicated into a clean unique ISO list.
-// 3. Related deals preserved as nested context.
+// 2. Sent dates deduplicated into a clean unique ISO list (same Company +
+//    same calendar date collapses across Company/Deal/Smart Process
+//    sources; internal provenance is retained on the canonical model).
+// 3. Related deals preserved as nested context. Smart Process items are
+//    NEVER emitted as fake deals — SP facts surface through current
+//    status/result/responsible and SP-sourced sent dates.
 // 4. Deal testing marker (UF_CRM_1779394379) isolated: preserved on
 //    RelatedDealSampleInfo.sampleTestingStatus for raw preview inspection,
 //    but strictly decoupled from processStatuses, normalizedResult,
 //    and inTesting KPI.
+// 5. Current status/result/responsible come from the canonical current
+//    resolution (SMART_PROCESS → DEAL_LEGACY → COMPANY_LEGACY → NONE).
 // ─────────────────────────────────────────────────────────────────────
 
-import type { CanonicalCompanySample } from "./model";
+import type { CanonicalCompanySample, SampleEvidenceUnit } from "./model";
 import type { RelatedDealSampleInfo, SampleSummary } from "./types";
 import { dedupe, isSentIndicator, isTestingStatus } from "./normalize";
 
@@ -55,6 +61,17 @@ export function projectCanonicalCompanyToSummary(
   // Deduplicate historical sent dates across all sources into unique list
   const sentDates = dedupe(canonical.historicalSentDates.map((s) => s.date));
 
+  // ── Canonical current-state facts ──
+  // SP current item wins current status/result/responsible where it
+  // provides the fact; legacy never overrides it.
+  const spCurrentUnit: SampleEvidenceUnit | undefined =
+    canonical.currentState.source === "SMART_PROCESS" &&
+    canonical.currentState.quality === "RESOLVED"
+      ? canonical.evidenceUnits.find(
+          (u) => u.source === "SMART_PROCESS" && u.processItemId === canonical.currentState.processItemId
+        )
+      : undefined;
+
   // Partition company statuses into indicators vs process statuses
   const companyStatuses = companyUnit?.statusEvidence ?? [];
   const sampleIndicators: string[] = [];
@@ -77,22 +94,33 @@ export function projectCanonicalCompanyToSummary(
       ? sentDates.reduce((a, b) => (a > b ? a : b))
       : undefined;
 
-  const responsibleName = canonical.companyResponsibleId
-    ? userNames?.[canonical.companyResponsibleId]
+  // Responsible: SP current item's own ASSIGNED_BY_ID wins (SP event
+  // attribution never goes to the Company owner); else company owner.
+  const currentResponsibleId = spCurrentUnit?.responsibleId ?? canonical.companyResponsibleId;
+  const responsibleName = currentResponsibleId
+    ? userNames?.[currentResponsibleId]
     : undefined;
+
+  // Current status values: SP current item's stage label(s) when SP
+  // resolved; otherwise legacy status evidence. Multiple-active SP
+  // surfaces the joined distinct active labels (truthful ambiguity).
+  const currentStatusValues =
+    canonical.currentState.source === "SMART_PROCESS" && canonical.currentState.statusValues.length > 0
+      ? canonical.currentState.statusValues
+      : dedupe([...companyProcessStatuses, ...dealStatuses]);
 
   return {
     companyId: canonical.companyId,
     companyTitle: canonical.companyTitle,
-    responsibleId: canonical.companyResponsibleId,
+    responsibleId: currentResponsibleId,
     responsibleName,
     productFamilies: companyUnit?.productFamilies ?? [],
-    grades: companyUnit?.grades ?? [],
+    grades: spCurrentUnit?.grades.length ? spCurrentUnit.grades : (companyUnit?.grades ?? []),
     quantities: companyUnit?.quantities ?? [],
     sentDates,
     sampleIndicators: dedupe(sampleIndicators),
-    processStatuses,
-    rawTestResult: companyUnit?.rawTestResult,
+    processStatuses: currentStatusValues,
+    rawTestResult: spCurrentUnit?.rawTestResult ?? companyUnit?.rawTestResult,
     normalizedResult: canonical.currentState.normalizedResult,
     industry: companyUnit?.industry,
     application: companyUnit?.application,

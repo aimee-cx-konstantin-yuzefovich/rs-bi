@@ -1,23 +1,31 @@
 // src/lib/samples/aggregate.ts
 // ─────────────────────────────────────────────────────────────────────
-// Samples Domain Orchestration (Phase B)
+// Samples Domain Orchestration (Phase B + Phase C)
+//
+// ONE CANONICAL SAMPLE ENGINE for Samples / Commercial Funnel / Managers
+// / Excel. Commercial Funnel consumes this domain; it must not keep a
+// second parser.
 //
 // Pipeline:
 // 1. Adapt Bitrix Companies via adaptLegacyCompanySampleEvidence
 // 2. Adapt Bitrix Deals via adaptLegacyDealSampleEvidence
-// 3. Separate orphan deals (missing/zero COMPANY_ID)
-// 4. Group evidence units by authoritative Company ID
-// 5. Reconcile evidence via reconcileCompanySample (history preservation,
-//    current-state resolution, marker isolation)
-// 6. Project to SampleSummary via projectCanonicalCompanyToSummary
+// 3. Adapt Smart Process items via adaptSmartProcessSampleEvidence
+// 4. Separate orphan deals / orphan SP items (missing/zero COMPANY_ID)
+// 5. Group evidence units by authoritative Company ID
+// 6. Reconcile evidence via reconcileCompanySample (history preservation,
+//    current-state resolution SMART_PROCESS→DEAL→COMPANY→NONE,
+//    marker isolation)
+// 7. Project to SampleSummary via projectCanonicalCompanyToSummary
 //
-// Invariants (Samples Phase B):
-// - 1 Company ⇒ at most 1 primary SampleSummary (deals are nested context);
+// Invariants:
+// - 1 Company ⇒ at most 1 primary SampleSummary (deals/items nested);
 // - multiplicity preserved: products, grades, quantities, dates, deals;
 // - no fake physical cycle synthesis from parallel arrays;
 // - Deal testing marker (UF_CRM_1779394379) isolated as navigation marker;
+// - Smart Process is authoritative for new/current sample cycles;
+// - SP-only companies appear even without legacy sample fields;
 // - source provenance and granularity explicit;
-// - backward-compatible external contract.
+// - aggregate data-quality counts are sanitized (no customer names).
 // ─────────────────────────────────────────────────────────────────────
 
 import type {
@@ -26,6 +34,7 @@ import type {
   SampleEvidenceUnit,
   SampleSummary,
 } from "./types";
+import type { CanonicalCompanySample } from "./model";
 import {
   adaptLegacyCompanySampleEvidence,
   hasCompanySampleActivity,
@@ -34,6 +43,7 @@ import {
   adaptLegacyDealSampleEvidence,
   dealHasSampleData,
 } from "./adapters/deal-legacy";
+import { adaptSmartProcessSampleEvidence } from "./adapters/smart-process";
 import { reconcileCompanySample } from "./reconcile";
 import { projectCanonicalCompanyToSummary } from "./project";
 import { identityLabelResolver, isSentinelValue, isTestingStatus } from "./normalize";
@@ -45,6 +55,31 @@ export interface AggregateOptions {
   userNames?: Record<string, string>;
   /** Field-metadata label resolver (raw enum ID → RU label). */
   labelResolver?: LabelResolver;
+}
+
+/** Sanitized aggregate data-quality counts for the Smart Process source. */
+export interface SmartProcessQualityCounts {
+  /** SP items without any company relation. */
+  orphanSmartProcessItemCount: number;
+  /** SP items whose direct Company relation conflicts with the linked Deal's COMPANY_ID. */
+  relationConflictCount: number;
+  /** SP items in sent-or-later stages without a manual «Дата отправки». */
+  sentStageWithoutDateCount: number;
+  /** Companies with more than one active SP item. */
+  multipleActiveCount: number;
+  /** SP items whose terminal stage conflicts with the explicit result. */
+  stageResultConflictCount: number;
+}
+
+/** The one canonical sample domain consumed by all surfaces. */
+export interface CanonicalSampleDomain {
+  /** Canonical per-company aggregate keyed by Company ID. */
+  canonicalByCompany: Map<string, CanonicalCompanySample>;
+  /** Raw orphan deals (sample data, no valid company). */
+  orphanDeals: BitrixRow[];
+  /** Raw orphan SP items (no valid company relation). */
+  orphanSmartProcessItems: BitrixRow[];
+  qualityCounts: SmartProcessQualityCounts;
 }
 
 function firstString(value: unknown): string | undefined {
@@ -59,19 +94,32 @@ function rowString(row: BitrixRow, key: string): string | undefined {
 }
 
 /**
- * Pure orchestration: Bitrix Company rows + sample-active Deal rows
- *   → SampleSummary[] joined by Company ID (authoritative identity).
- * Deals without a valid company are returned as orphanDeals (never dropped).
+ * ONE canonical sample domain builder:
+ * Bitrix Company rows + sample-active Deal rows + Smart Process 1032 items
+ * → per-company CanonicalCompanySample map + sanitized quality counts.
+ *
+ * Commercial Funnel, Managers, Excel and the Samples UI all consume this
+ * same domain. No surface re-parses raw fields for current state.
  */
-export function buildSampleSummaries(
+export function buildCanonicalSampleDomain(
   companies: BitrixRow[],
   deals: BitrixRow[],
-  options: AggregateOptions & { labelResolver?: LabelResolver } = {}
-): { summaries: SampleSummary[]; orphanDeals: BitrixRow[] } {
+  smartProcessItems: BitrixRow[],
+  options: AggregateOptions = {}
+): CanonicalSampleDomain {
   const resolve = options.labelResolver ?? identityLabelResolver;
-  const userNames = options.userNames ?? {};
 
-  // 1. Adapt and partition deals
+  // 1. Deal → COMPANY_ID map for SP relation verification (no N+1).
+  const dealCompanyById = new Map<string, string>();
+  for (const deal of deals) {
+    const dealId = rowString(deal, "ID");
+    const companyId = rowString(deal, "COMPANY_ID");
+    if (dealId && companyId && companyId !== "0") {
+      dealCompanyById.set(dealId, companyId);
+    }
+  }
+
+  // 2. Adapt and partition deals
   const dealsByCompany = new Map<string, SampleEvidenceUnit[]>();
   const orphanDeals: BitrixRow[] = [];
 
@@ -95,45 +143,138 @@ export function buildSampleSummaries(
     }
   }
 
-  // 2. Reconcile and project each company
-  const summaries: SampleSummary[] = [];
-  const seenCompanyIds = new Set<string>();
+  // 3. Adapt and partition Smart Process items
+  const spByCompany = new Map<string, SampleEvidenceUnit[]>();
+  const orphanSmartProcessItems: BitrixRow[] = [];
+  const qualityCounts: SmartProcessQualityCounts = {
+    orphanSmartProcessItemCount: 0,
+    relationConflictCount: 0,
+    sentStageWithoutDateCount: 0,
+    multipleActiveCount: 0,
+    stageResultConflictCount: 0,
+  };
 
+  for (const item of smartProcessItems) {
+    const adapted = adaptSmartProcessSampleEvidence(item, resolve, { dealCompanyById });
+    if (!adapted) continue;
+
+    // Sanitized aggregate issue counting (no customer names anywhere).
+    for (const issue of adapted.issues) {
+      if (issue === "smart_process_orphan_item") qualityCounts.orphanSmartProcessItemCount++;
+      else if (issue === "smart_process_relation_conflict") qualityCounts.relationConflictCount++;
+      else if (issue === "smart_process_missing_sent_date") qualityCounts.sentStageWithoutDateCount++;
+      else if (issue === "smart_process_stage_result_conflict") qualityCounts.stageResultConflictCount++;
+    }
+
+    if (!adapted.companyId) {
+      orphanSmartProcessItems.push(item);
+      continue;
+    }
+
+    const existing = spByCompany.get(adapted.companyId);
+    if (existing) {
+      existing.push(adapted);
+    } else {
+      spByCompany.set(adapted.companyId, [adapted]);
+    }
+  }
+
+  // 4. Company ID → raw row map (for SP-only company discovery)
+  const companyRowById = new Map<string, BitrixRow>();
+  for (const company of companies) {
+    const id = rowString(company, "ID");
+    if (id && !companyRowById.has(id)) companyRowById.set(id, company);
+  }
+
+  // 5. Reconcile per company (all companies with any evidence, including SP-only)
+  const canonicalByCompany = new Map<string, CanonicalCompanySample>();
+
+  const reconcileOne = (
+    companyId: string,
+    companyRow: BitrixRow | undefined
+  ): CanonicalCompanySample => {
+    const companyDeals = dealsByCompany.get(companyId) ?? [];
+    const companySp = spByCompany.get(companyId) ?? [];
+    const hasOwnActivity = companyRow ? hasCompanySampleActivity(companyRow) : false;
+    const companyEvidence = companyRow && hasOwnActivity
+      ? adaptLegacyCompanySampleEvidence(companyRow, resolve)
+      : null;
+
+    const canonical = reconcileCompanySample({
+      companyId,
+      companyTitle: (companyRow ? rowString(companyRow, "TITLE") : undefined) ?? "Без названия",
+      companyResponsibleId: companyRow ? rowString(companyRow, "ASSIGNED_BY_ID") : undefined,
+      companyEvidence,
+      dealEvidences: companyDeals,
+      smartProcessEvidences: companySp,
+    });
+
+    if (canonical.currentState.quality === "AMBIGUOUS_MULTIPLE_ACTIVE") {
+      qualityCounts.multipleActiveCount++;
+    }
+
+    return canonical;
+  };
+
+  // 5a. All known companies with legacy and/or SP evidence.
   for (const company of companies) {
     const rawCompanyId = rowString(company, "ID");
     if (!rawCompanyId) continue;
+    if (canonicalByCompany.has(rawCompanyId)) continue; // authoritative first row wins
 
-    // Company-level deduplication: authoritative ID wins; first row kept
-    if (seenCompanyIds.has(rawCompanyId)) continue;
-
-    const companyDeals = dealsByCompany.get(rawCompanyId) ?? [];
     const hasOwnActivity = hasCompanySampleActivity(company);
+    const companyDeals = dealsByCompany.get(rawCompanyId) ?? [];
+    const companySp = spByCompany.get(rawCompanyId) ?? [];
 
-    // Company enters dataset if it has sample activity OR any of its deals has sample data
-    if (!hasOwnActivity && companyDeals.length === 0) continue;
-    seenCompanyIds.add(rawCompanyId);
+    // Company enters dataset if it has sample activity, sample deals,
+    // or Smart Process items (SP-only companies MUST appear).
+    if (!hasOwnActivity && companyDeals.length === 0 && companySp.length === 0) continue;
 
-    const companyEvidence = hasOwnActivity
-      ? adaptLegacyCompanySampleEvidence(company, resolve)
-      : null;
-
-    const rawTitle = rowString(company, "TITLE");
-    const companyTitle = rawTitle ?? "Без названия";
-    const companyResponsibleId = rowString(company, "ASSIGNED_BY_ID");
-
-    const canonical = reconcileCompanySample({
-      companyId: rawCompanyId,
-      companyTitle,
-      companyResponsibleId,
-      companyEvidence,
-      dealEvidences: companyDeals,
-    });
-
-    const summary = projectCanonicalCompanyToSummary(canonical, userNames);
-    summaries.push(summary);
+    canonicalByCompany.set(rawCompanyId, reconcileOne(rawCompanyId, company));
   }
 
-  return { summaries, orphanDeals };
+  // 5b. SP-only companies not present in the Company fetch scope
+  // (defensive: normally SP companyId ⊆ companies; if a company row is
+  // missing, the SP evidence still surfaces with the known ID).
+  for (const [companyId, spUnits] of spByCompany) {
+    if (canonicalByCompany.has(companyId)) continue;
+    canonicalByCompany.set(companyId, reconcileOne(companyId, companyRowById.get(companyId)));
+  }
+
+  return {
+    canonicalByCompany,
+    orphanDeals,
+    orphanSmartProcessItems,
+    qualityCounts,
+  };
+}
+
+/**
+ * Backward-compatible orchestrator (Phase B contract): returns summaries
+ * projected from the canonical domain. Samples UI / API / Excel consume
+ * this; no separate parsing anywhere.
+ */
+export function buildSampleSummaries(
+  companies: BitrixRow[],
+  deals: BitrixRow[],
+  options: AggregateOptions & { labelResolver?: LabelResolver } = {}
+): { summaries: SampleSummary[]; orphanDeals: BitrixRow[] } {
+  const domain = buildCanonicalSampleDomain(companies, deals, [], options);
+
+  const summaries: SampleSummary[] = [];
+  for (const canonical of domain.canonicalByCompany.values()) {
+    summaries.push(projectCanonicalCompanyToSummary(canonical, options.userNames));
+  }
+
+  // Deterministic ordering by company ID (numeric-aware).
+  summaries.sort((a, b) => {
+    const na = Number(a.companyId);
+    const nb = Number(b.companyId);
+    if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+    return a.companyId.localeCompare(b.companyId);
+  });
+
+  return { summaries, orphanDeals: domain.orphanDeals };
 }
 
 /**
