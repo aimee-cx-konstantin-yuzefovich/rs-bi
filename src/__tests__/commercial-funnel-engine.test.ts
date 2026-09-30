@@ -296,6 +296,12 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
   });
 
   it("computeManagerScorecard calculates manager metrics without ranking", () => {
+    // Q20 fixture correction: DEAL-sourced sample state requires a real
+    // source Deal. The previous fixture was semantically impossible
+    // (sampleStatusSource "DEAL" + sampleResponsibleId, but deals: [] with
+    // Company-fallback transfer dates supplying the event provenance).
+    // Option A (deal-sourced): C1's deal D1 carries sampleSentDate and
+    // responsibility; no Company fallback dates are needed.
     const companies: CommercialCompany[] = [
       {
         id: "1",
@@ -306,10 +312,33 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
         productType: [],
         sampleStatus: "На испытании",
         sampleStatusSource: "DEAL",
+        sampleResponsibleId: "user-1",
+        sampleResponsibleDealId: "D1",
+        sampleShipmentDate: "2026-09-10",
         sampleAllDates: ["2026-09-10"],
         gradeGel: [],
         gradeSol: [],
-        deals: [],
+        deals: [
+          {
+            id: "D1",
+            title: "Сделка D1",
+            companyId: "1",
+            responsibleId: "user-1",
+            stageId: "NEW",
+            categoryId: "0",
+            opportunity: 100000,
+            opportunityQuality: "VALID",
+            currencyId: "RUB",
+            dateCreate: "2026-09-10",
+            sampleSentDate: "2026-09-10",
+            sampleTransferStatus: "На испытании",
+            sampleTestingStatus: [],
+            sampleTestingStatusRaw: [],
+            productType: [],
+            industry: [],
+            direction: [],
+          },
+        ],
         hasAttention: false,
         attentionReasons: [],
       },
@@ -322,14 +351,76 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
         productType: [],
         sampleStatus: "Подошли",
         sampleStatusSource: "DEAL",
+        sampleResponsibleId: "user-2",
+        sampleResponsibleDealId: "D2",
+        sampleShipmentDate: "2026-09-12",
         sampleAllDates: [],
         gradeGel: [],
         gradeSol: [],
-        deals: [],
+        deals: [
+          {
+            id: "D2",
+            title: "Сделка D2",
+            companyId: "2",
+            responsibleId: "user-2",
+            stageId: "NEW",
+            categoryId: "0",
+            opportunity: 200000,
+            opportunityQuality: "VALID",
+            currencyId: "RUB",
+            dateCreate: "2026-09-12",
+            sampleSentDate: "2026-09-12",
+            sampleTransferStatus: "Подошли",
+            sampleTestingStatus: [],
+            sampleTestingStatusRaw: [],
+            productType: [],
+            industry: [],
+            direction: [],
+          },
+        ],
         hasAttention: false,
         attentionReasons: [],
       },
     ];
+
+    // Q20: the corrected fixture must be producible through normalizeCompanies.
+    const normalized = normalizeCompanies(
+      [
+        { ID: "1", TITLE: "C1", ASSIGNED_BY_ID: "user-1", DATE_CREATE: "2026-09-10" },
+        { ID: "2", TITLE: "C2", ASSIGNED_BY_ID: "user-2", DATE_CREATE: "2026-09-12" },
+      ],
+      normalizeDeals([
+        {
+          ID: "D1",
+          TITLE: "Сделка D1",
+          COMPANY_ID: "1",
+          ASSIGNED_BY_ID: "user-1",
+          STAGE_ID: "NEW",
+          OPPORTUNITY: "100000",
+          CURRENCY_ID: "RUB",
+          DATE_CREATE: "2026-09-10",
+          UF_CRM_1779386185: "DT1032_15:CLIENT", // Передача образцов: "На испытании"
+          UF_CRM_1774879952785: "2026-09-10",
+        },
+        {
+          ID: "D2",
+          TITLE: "Сделка D2",
+          COMPANY_ID: "2",
+          ASSIGNED_BY_ID: "user-2",
+          STAGE_ID: "NEW",
+          OPPORTUNITY: "200000",
+          CURRENCY_ID: "RUB",
+          DATE_CREATE: "2026-09-12",
+          UF_CRM_1779386185: "DT1032_15:SUCCESS", // "Подошли"
+          UF_CRM_1774879952785: "2026-09-12",
+        },
+      ]),
+      { now: fixedNow }
+    );
+    expect(normalized[0].sampleStatusSource).toBe("DEAL");
+    expect(normalized[0].sampleResponsibleDealId).toBe("D1");
+    expect(normalized[1].sampleStatusSource).toBe("DEAL");
+    expect(normalized[1].sampleResponsibleDealId).toBe("D2");
 
     const scorecard = computeManagerScorecard(
       companies,

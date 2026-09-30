@@ -71,6 +71,14 @@ export function CommercialManagersTab({
     ...scorecard.map((r) => r.paymentAmountsQualityByCurrency)
   );
 
+  // Portfolio totals: unique companies across managers (NOT sum of per-manager counts,
+  // because one company may have deals owned by different managers).
+  const uniqueCompanyCount = (key: "activeCompaniesIds" | "awaitingPaymentIds" | "noNextStepIds") => {
+    const ids = new Set<string>();
+    for (const row of scorecard) for (const id of row[key]) ids.add(id);
+    return ids.size;
+  };
+
   const totalCurrencyBreakdown: Record<
     string,
     { amount: number | null; quality: AggregateAmountQuality }
@@ -139,21 +147,28 @@ export function CommercialManagersTab({
           Нет данных по менеджерам для выбранных фильтров
         </div>
       ) : (
-        <div className="rounded-lg border bg-card overflow-hidden">
+          <div className="rounded-lg border bg-card overflow-hidden">
           <Table containerClassName="max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto">
             <TableHeader>
+              {/* Group header row: Поток | Результат | Портфель (current) */}
+              <TableRow className="bg-muted/70">
+                <TableHead className="text-xs font-semibold" rowSpan={2}>Менеджер</TableHead>
+                <TableHead colSpan={2} className="text-xs font-semibold text-center border-l border-border/60">Поток (за период)</TableHead>
+                <TableHead colSpan={5} className="text-xs font-semibold text-center border-l border-border/60">Результат</TableHead>
+                <TableHead colSpan={3} className="text-xs font-semibold text-center border-l border-border/60">Портфель (сейчас)</TableHead>
+                <TableHead className="text-xs font-semibold text-center border-l border-border/60" rowSpan={2} title="Записи, требующие внимания">Внимание</TableHead>
+              </TableRow>
               <TableRow className="bg-muted">
-                  <TableHead className="text-xs font-semibold">Менеджер</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Новые компании</TableHead>
+                  <TableHead className="text-xs font-semibold text-right border-l border-border/40">Новые компании</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Образцы отправлены</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">На испытании</TableHead>
+                  <TableHead className="text-xs font-semibold text-right border-l border-border/40">На испытании</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Подошли</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Не подошли</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Доработка</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Создано сделок</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Получено оплат</TableHead>
-                  <TableHead className="text-xs font-semibold text-right" title="Сумма сделок с полученной оплатой">Сумма сделок с получ. оплатой</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Требуют внимания</TableHead>
+                  <TableHead className="text-xs font-semibold text-right" title="Сумма сделок с полученной оплатой (по валютам)">Сумма сделок с получ. оплатой</TableHead>
+                  <TableHead className="text-xs font-semibold text-right border-l border-border/40">Компании в текущем контуре</TableHead>
+                  <TableHead className="text-xs font-semibold text-right">Ожидают оплаты</TableHead>
+                  <TableHead className="text-xs font-semibold text-right" title="Активные сделки без указанного следующего шага (известные данные активностей)">Без след. шага</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -189,12 +204,6 @@ export function CommercialManagersTab({
                     </TableCell>
                     <TableCell className="text-xs text-right text-amber-600 dark:text-amber-400 font-medium">
                       {row.sampleRework || "—"}
-                    </TableCell>
-                    <TableCell className="text-xs text-right font-medium">
-                      {row.dealsCreated || "—"}
-                    </TableCell>
-                    <TableCell className="text-xs text-right font-medium">
-                      {row.paymentsReceived || "—"}
                     </TableCell>
                     <TableCell className="text-xs text-right font-semibold whitespace-nowrap">
                       {(() => {
@@ -262,6 +271,16 @@ export function CommercialManagersTab({
                         return "—";
                       })()}
                     </TableCell>
+                    {/* Портфель (сейчас) */}
+                    <TableCell className="text-xs text-right font-medium border-l border-border/40">
+                      {row.activeCompanies || "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-right font-medium">
+                      {row.awaitingPayment || "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-right font-medium">
+                      {row.noNextStep || "—"}
+                    </TableCell>
                     <TableCell className="text-xs text-right">
                       {row.bottlenecksCount > 0 ? (
                         <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
@@ -289,8 +308,6 @@ export function CommercialManagersTab({
                   <TableCell className="text-xs text-right font-bold text-amber-600 dark:text-amber-400">
                     {totals.sampleRework}
                   </TableCell>
-                  <TableCell className="text-xs text-right font-bold">{totals.dealsCreated}</TableCell>
-                  <TableCell className="text-xs text-right font-bold">{totals.paymentsReceived}</TableCell>
                   <TableCell className="text-xs text-right font-bold whitespace-nowrap">
                     {allManagerCurrencies.length > 0 ? (
                       <div className="flex flex-col gap-0.5 items-end">
@@ -326,6 +343,16 @@ export function CommercialManagersTab({
                     ) : (
                       "—"
                     )}
+                  </TableCell>
+                  {/* Портфель totals: unique company unions across managers */}
+                  <TableCell className="text-xs text-right font-bold border-l border-border/40">
+                    {uniqueCompanyCount("activeCompaniesIds")}
+                  </TableCell>
+                  <TableCell className="text-xs text-right font-bold">
+                    {uniqueCompanyCount("awaitingPaymentIds")}
+                  </TableCell>
+                  <TableCell className="text-xs text-right font-bold">
+                    {uniqueCompanyCount("noNextStepIds")}
                   </TableCell>
                   <TableCell className="text-xs text-right font-bold">
                     {totals.bottlenecksCount > 0 ? (

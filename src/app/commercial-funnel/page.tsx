@@ -2,8 +2,11 @@
 
 // src/app/commercial-funnel/page.tsx
 // Top-level Commercial Funnel section: Коммерческая воронка.
-// 5 views: Обзор | Образцы | Менеджеры | Компании | Требуют внимания.
-// Single source of truth analytics, exact drill-down, 5-sheet Excel report.
+// Management system for the Commercial Director.
+// 5 views: Обзор | Воронка | Сегменты | Менеджеры | Требуют внимания.
+// ONE global analytical slice feeds every tab AND the Excel report.
+// Entity registries (Образцы/Компании) live in their top-level Terminal
+// sections; this section reaches them via drill-down / preview / deep links.
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -13,10 +16,10 @@ import { useDashboardStore } from "@/store/dashboard-store";
 import {
   AlertTriangle,
   BarChart3,
-  Building2,
-  Calendar,
-  FlaskConical,
+  Filter,
   LayoutDashboard,
+  PieChart,
+  TrendingUp,
   Users,
 } from "lucide-react";
 import { SectionNav } from "@/components/dashboard/section-nav";
@@ -28,25 +31,47 @@ import { isDealId } from "@/lib/deal-preview";
 import { useCommercialFunnelData } from "@/components/commercial-funnel/use-commercial-funnel-data";
 import { CommercialFilterBar } from "@/components/commercial-funnel/filter-bar";
 import { CommercialOverviewTab } from "@/components/commercial-funnel/overview-tab";
-import { CommercialSamplesTab } from "@/components/commercial-funnel/samples-tab";
+import { CommercialFunnelTab } from "@/components/commercial-funnel/funnel-tab";
+import { CommercialSegmentsTab } from "@/components/commercial-funnel/segments-tab";
 import { CommercialManagersTab } from "@/components/commercial-funnel/managers-tab";
-import { CommercialCompaniesTab } from "@/components/commercial-funnel/companies-tab";
 import { CommercialBottlenecksTab } from "@/components/commercial-funnel/bottlenecks-tab";
 import { CommercialDrillDownSheet } from "@/components/commercial-funnel/drill-down-sheet";
 import { DEFAULT_COMMERCIAL_FILTERS } from "@/lib/commercial-funnel/constants";
 import {
-  buildSampleRegister,
   computeBottlenecks,
   computeManagerScorecard,
   computePeriodMetrics,
-  computeWipMetrics,
   filterCompaniesByDimensions,
 } from "@/lib/commercial-funnel/engine";
+import {
+  computeActionPlan,
+  computeFunnelView,
+  computeManagementSignals,
+  computeSegmentBreakdown,
+} from "@/lib/commercial-funnel/analytics";
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
 import { downloadCommercialFunnelExcel } from "@/lib/commercial-funnel/export-excel";
+import { buildExcelExtraWarnings } from "@/lib/commercial-funnel/disclosure";
 import type { CommercialFilters } from "@/lib/commercial-funnel/types";
 
-type ActiveTab = "overview" | "samples" | "managers" | "companies" | "bottlenecks";
+export type ActiveTab = "overview" | "funnel" | "segments" | "managers" | "bottlenecks";
+
+/** Final tab contract (T01): exactly these five, in this order. */
+export const COMMERCIAL_FUNNEL_TABS: Array<{ id: ActiveTab; label: string }> = [
+  { id: "overview", label: "Обзор" },
+  { id: "funnel", label: "Воронка" },
+  { id: "segments", label: "Сегменты" },
+  { id: "managers", label: "Менеджеры" },
+  { id: "bottlenecks", label: "Требуют внимания" },
+];
+
+const TAB_ICONS: Record<ActiveTab, React.ComponentType<{ className?: string }>> = {
+  overview: LayoutDashboard,
+  funnel: TrendingUp,
+  segments: PieChart,
+  managers: Users,
+  bottlenecks: AlertTriangle,
+};
 
 function CommercialFunnelContent() {
   const { data: session, status } = useSession();
@@ -91,10 +116,24 @@ function CommercialFunnelContent() {
   // Excel export state
   const [exportingExcel, setExportingExcel] = useState(false);
 
-  // Analytics engine computations
+  // ─── ONE ANALYSIS CLOCK (Defect C fix) ───
+  // analysisNow is the frozen analytical timestamp for the current view.
+  // It refreshes ONLY when a fresh analytical view lands (initial load or
+  // reload completion) — never per render, never ticking. UI boundaries,
+  // bottleneck day-counts, action plan and the Excel export all consume the
+  // SAME instant, so "what I see is what I export" holds even across a
+  // calendar-day / quarter / midnight boundary.
+  const [analysisNow, setAnalysisNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    if (!loading) setAnalysisNow(new Date());
+  }, [loading]);
+
+  // ─── ONE GLOBAL ANALYTICAL SLICE ───
+  // Every tab and the Excel export consume the SAME filtered population and
+  // boundaries. No tab may introduce hidden business filters.
   const boundaries = useMemo(
-    () => computePeriodBoundaries(filters),
-    [filters]
+    () => computePeriodBoundaries(filters, analysisNow),
+    [filters, analysisNow]
   );
 
   const filteredCompanies = useMemo(
@@ -107,14 +146,9 @@ function CommercialFunnelContent() {
     [filteredCompanies, boundaries]
   );
 
-  const wipKpis = useMemo(
-    () => computeWipMetrics(filteredCompanies),
-    [filteredCompanies]
-  );
-
   const bottlenecks = useMemo(
-    () => computeBottlenecks(filteredCompanies),
-    [filteredCompanies]
+    () => computeBottlenecks(filteredCompanies, analysisNow),
+    [filteredCompanies, analysisNow]
   );
 
   const managerScorecard = useMemo(
@@ -122,10 +156,48 @@ function CommercialFunnelContent() {
     [filteredCompanies, boundaries, bottlenecks, userNames]
   );
 
-  const sampleRegister = useMemo(
-    () => buildSampleRegister(filteredCompanies),
-    [filteredCompanies]
+  const funnelView = useMemo(
+    () => computeFunnelView(filteredCompanies, boundaries),
+    [filteredCompanies, boundaries]
   );
+
+  // Segment matrices are ACTIVE-FILTER AWARE: when the global filter is
+  // active for the SAME dimension, rows may contain only the selected value
+  // (no contradiction with the user's slice). Cross-dimension rows stay
+  // fully analytical. The SAME filters object feeds the Excel export.
+  const segmentIndustry = useMemo(
+    () => computeSegmentBreakdown(filteredCompanies, boundaries, "industry", filters),
+    [filteredCompanies, boundaries, filters]
+  );
+  const segmentDirection = useMemo(
+    () => computeSegmentBreakdown(filteredCompanies, boundaries, "direction", filters),
+    [filteredCompanies, boundaries, filters]
+  );
+  const segmentProduct = useMemo(
+    () => computeSegmentBreakdown(filteredCompanies, boundaries, "product", filters),
+    [filteredCompanies, boundaries, filters]
+  );
+
+  const actionPlan = useMemo(
+    () => computeActionPlan(filteredCompanies, analysisNow),
+    [filteredCompanies, analysisNow]
+  );
+
+  const managementSignals = useMemo(
+    () => computeManagementSignals(filteredCompanies, analysisNow),
+    [filteredCompanies, analysisNow]
+  );
+
+  // HE contract: ONE shared disclosure rule for every surface whose values
+  // depend on incomplete data (UI banners + Excel extraWarnings).
+  const extraWarnings = useMemo(() => {
+    const paymentKpi = datedKpis.find((k) => k.id === "payment_amount");
+    return buildExcelExtraWarnings({
+      activityPartial,
+      activityWarning,
+      financialQualitiesByCurrency: paymentKpi?.currencyBreakdownQuality?.current,
+    });
+  }, [datedKpis, activityPartial, activityWarning]);
 
   const handleOpenDrillDown = (title: string, subtitle: string, companyIds: string[]) => {
     setDrillDownTitle(title);
@@ -144,8 +216,8 @@ function CommercialFunnelContent() {
         deals,
         filters,
         userNames,
-        extraWarnings:
-          activityPartial && activityWarning ? [activityWarning] : [],
+        now: analysisNow, // ONE ANALYSIS CLOCK: same instant as the UI view
+        extraWarnings,
       });
     } catch (err) {
       console.error("[Excel Export Error]", err);
@@ -177,7 +249,7 @@ function CommercialFunnelContent() {
           </div>
 
           <span className="hidden md:inline text-xs font-normal text-white/40">
-            Коммерческая воронка · аналитика активности
+            Коммерческая воронка · управление портфелем
           </span>
         </div>
       </header>
@@ -223,85 +295,43 @@ function CommercialFunnelContent() {
         />
 
         {/* ─── VIEW TABS ─── */}
-        <div className="flex items-center border-b border-border/80 gap-1 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab("overview")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === "overview"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            }`}
-          >
-            <LayoutDashboard className="h-3.5 w-3.5" />
-            Обзор
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("samples")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === "samples"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            }`}
-          >
-            <FlaskConical className="h-3.5 w-3.5" />
-            Образцы
-            <span className="rounded-full bg-muted px-1.5 py-0.2 text-[10px]">
-              {sampleRegister.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("managers")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === "managers"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            }`}
-          >
-            <Users className="h-3.5 w-3.5" />
-            Менеджеры
-            <span className="rounded-full bg-muted px-1.5 py-0.2 text-[10px]">
-              {managerScorecard.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("companies")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === "companies"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            }`}
-          >
-            <Building2 className="h-3.5 w-3.5" />
-            Компании
-            <span className="rounded-full bg-muted px-1.5 py-0.2 text-[10px]">
-              {filteredCompanies.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("bottlenecks")}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-              activeTab === "bottlenecks"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-            }`}
-          >
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Требуют внимания
-            {bottlenecks.length > 0 && (
-              <span className="rounded-full bg-rose-500 text-white px-1.5 py-0.2 text-[10px] font-semibold">
-                {bottlenecks.length}
-              </span>
-            )}
-          </button>
+        <div className="flex items-center border-b border-border/80 gap-1 overflow-x-auto" data-testid="funnel-tabs">
+          {COMMERCIAL_FUNNEL_TABS.map(({ id, label }) => {
+            const Icon = TAB_ICONS[id];
+            const badge =
+              id === "managers"
+                ? managerScorecard.length
+                : id === "bottlenecks"
+                ? bottlenecks.length
+                : id === "segments"
+                ? filteredCompanies.length
+                : undefined;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setActiveTab(id)}
+                data-testid={`funnel-tab-${id}`}
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
+                  activeTab === id
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+                {badge !== undefined && badge > 0 && (
+                  <span
+                    className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                      id === "bottlenecks" ? "bg-rose-500 text-white font-semibold" : "bg-muted"
+                    }`}
+                  >
+                    {badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Error message */}
@@ -322,19 +352,27 @@ function CommercialFunnelContent() {
             {activeTab === "overview" && (
               <CommercialOverviewTab
                 datedKpis={datedKpis}
-                wipKpis={wipKpis}
+                funnelView={funnelView}
+                boundaries={boundaries}
+                managementSignals={managementSignals}
+                onOpenDrillDown={handleOpenDrillDown}
+              />
+            )}
+
+            {activeTab === "funnel" && (
+              <CommercialFunnelTab
+                funnelView={funnelView}
                 boundaries={boundaries}
                 onOpenDrillDown={handleOpenDrillDown}
               />
             )}
 
-            {activeTab === "samples" && (
-              <CommercialSamplesTab
-                wipKpis={wipKpis}
-                sampleRows={sampleRegister}
+            {activeTab === "segments" && (
+              <CommercialSegmentsTab
+                industryBreakdown={segmentIndustry}
+                directionBreakdown={segmentDirection}
+                productBreakdown={segmentProduct}
                 onOpenDrillDown={handleOpenDrillDown}
-                onSelectCompany={setCompanyPreviewId}
-                onSelectDeal={setDealPreviewId}
               />
             )}
 
@@ -345,19 +383,13 @@ function CommercialFunnelContent() {
               />
             )}
 
-            {activeTab === "companies" && (
-              <CommercialCompaniesTab
-                companies={filteredCompanies}
-                onSelectCompany={setCompanyPreviewId}
-                onSelectDeal={setDealPreviewId}
-              />
-            )}
-
             {activeTab === "bottlenecks" && (
               <CommercialBottlenecksTab
-                bottlenecks={bottlenecks}
+                actionPlan={actionPlan}
+                activityPartial={Boolean(activityPartial)}
                 onSelectCompany={setCompanyPreviewId}
                 onSelectDeal={setDealPreviewId}
+                onOpenDrillDown={handleOpenDrillDown}
               />
             )}
           </>

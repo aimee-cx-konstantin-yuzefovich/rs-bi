@@ -688,8 +688,8 @@ describe("RS-BI Global Adversarial Reconciliation Master Suite", () => {
       INDEPENDENT_EXPECTED_LEDGER.excel.managersSheet.mgr2UsdCell
     );
 
-    // Sheet 5: Bottlenecks
-    const bottlenecksSheet = reloaded.getWorksheet("Bottlenecks")!;
+    // Sheet 6: Action Plan (re-grained view of computeBottlenecks)
+    const bottlenecksSheet = reloaded.getWorksheet("Action Plan")!;
     let comp11Row: ExcelJS.Row | undefined;
     let d110Row: ExcelJS.Row | undefined;
 
@@ -702,12 +702,12 @@ describe("RS-BI Global Adversarial Reconciliation Master Suite", () => {
 
     expect(comp11Row).toBeDefined();
     // Days waiting for COMP_11 (missing shipment date) MUST be "—", never numeric 0!
-    expect(comp11Row!.getCell(6).value).toBe(
+    expect(comp11Row!.getCell(5).value).toBe(
       INDEPENDENT_EXPECTED_LEDGER.excel.bottlenecksSheet.comp11DaysWaitingDisplay
     );
 
     expect(d110Row).toBeDefined();
-    expect(d110Row!.getCell(6).value).toBe(
+    expect(d110Row!.getCell(5).value).toBe(
       INDEPENDENT_EXPECTED_LEDGER.excel.bottlenecksSheet.d110DaysWaitingDisplay
     );
   });

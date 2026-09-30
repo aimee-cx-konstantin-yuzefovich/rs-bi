@@ -21,6 +21,7 @@ import {
 } from "./date-utils";
 import { normalizeCurrencyCode, reprojectCompanyForFilteredGrain } from "./normalize";
 import { getCurrencyUniverse } from "./currency";
+import { compareCompanyIds } from "./analytics-helpers";
 
 export { getCurrencyUniverse } from "./currency";
 import { isDealActiveStage, isProgressedCommercialStage } from "./stage-utils";
@@ -287,7 +288,9 @@ export function computePeriodMetrics(
       previousValue: isComparisonAvailable ? prev : null,
       delta,
       deltaPercent,
-      companyIds,
+      // Deterministic ID ordering (HB contract): business output never
+      // depends on Set/Map insertion order.
+      companyIds: [...companyIds].sort(compareCompanyIds),
       isCurrency,
       comparisonAvailable: compAvail,
       ...extra,
@@ -523,7 +526,7 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
       label: key,
       companyCount: entry.companyIds.size,
       dealCount: entry.dealCount,
-      companyIds: Array.from(entry.companyIds),
+      companyIds: Array.from(entry.companyIds).sort(compareCompanyIds),
     };
   });
 
@@ -532,7 +535,7 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
     label: "Ожидает оплаты",
     companyCount: awaitingPaymentCompanyIds.size,
     dealCount: awaitingPaymentDealCount,
-    companyIds: Array.from(awaitingPaymentCompanyIds),
+    companyIds: Array.from(awaitingPaymentCompanyIds).sort(compareCompanyIds),
   });
 
   return kpis;
@@ -540,6 +543,14 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
 
 /**
  * Calculate actionable bottlenecks strictly derived from reliable date + current state.
+ *
+ * Sample bottleneck Deal provenance (Defect D fix): when the current sample
+ * state is sourced from a Deal (sampleStatusSource === "DEAL"), the exact
+ * sample Deal identified by sampleResponsibleDealId is used for all Deal
+ * fields — NEVER the representative primaryDeal, which may be an unrelated
+ * commercial Deal. When the state comes from the Company fallback, there is
+ * no authoritative sample Deal: Deal fields stay undefined (no borrowed
+ * representative Deal merely to fill columns).
  */
 export function computeBottlenecks(
   companies: CommercialCompany[],
@@ -548,6 +559,12 @@ export function computeBottlenecks(
   const items: BottleneckItem[] = [];
 
   for (const c of companies) {
+    // Resolve the authoritative current-cycle sample Deal (Defect D provenance).
+    const sampleDeal =
+      c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
+        ? c.deals.find((d) => d.id === c.sampleResponsibleDealId)
+        : undefined;
+
     // 1. Sample testing stalled (> 14 days)
     if (c.sampleStatus === "На испытании" && c.sampleShipmentDate) {
       const days = calculateDaysWaiting(c.sampleShipmentDate, now);
@@ -571,12 +588,12 @@ export function computeBottlenecks(
           currentState: `На испытании (${days} дн.)`,
           relevantDate: c.sampleShipmentDate,
           daysWaiting: days,
-          dealId: c.primaryDealId,
-          dealTitle: c.primaryDealTitle,
-          amount: c.primaryDealOpportunity,
-          amountQuality: c.primaryDealOpportunityQuality,
-          currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
-          nextAction: c.primaryDealActivityNext || undefined,
+          dealId: sampleDeal?.id,
+          dealTitle: sampleDeal?.title,
+          amount: sampleDeal?.opportunity,
+          amountQuality: sampleDeal?.opportunityQuality,
+          currencyId: sampleDeal?.currencyId,
+          nextAction: sampleDeal?.activityNext || undefined,
         });
       }
     }
@@ -607,12 +624,12 @@ export function computeBottlenecks(
           currentState: "Образец одобрен",
           relevantDate: refDate,
           daysWaiting: days,
-          dealId: c.primaryDealId,
-          dealTitle: c.primaryDealTitle,
-          amount: c.primaryDealOpportunity,
-          amountQuality: c.primaryDealOpportunityQuality,
-          currencyId: c.primaryDealCurrencyId || (c.primaryDealId ? c.deals.find((d) => d.id === c.primaryDealId)?.currencyId : undefined),
-          nextAction: c.primaryDealActivityNext || undefined,
+          dealId: sampleDeal?.id,
+          dealTitle: sampleDeal?.title,
+          amount: sampleDeal?.opportunity,
+          amountQuality: sampleDeal?.opportunityQuality,
+          currencyId: sampleDeal?.currencyId,
+          nextAction: sampleDeal?.activityNext || undefined,
         });
       }
     }
@@ -700,11 +717,116 @@ export function computeManagerScorecard(
         paymentAmountsByCurrency: {},
         bottlenecksCount: 0,
         companyIds: [],
+        activeCompanies: 0,
+        activeCompaniesIds: [],
+        awaitingPayment: 0,
+        awaitingPaymentIds: [],
+        noNextStep: 0,
+        noNextStepIds: [],
       };
       managerMap.set(respId, row);
     }
     return row;
   };
+
+  // Portfolio / Load group (current state, never date-filtered).
+  // Attribution mirrors the provenance rules above: active-deal companies go
+  // to each manager owning an active deal; awaiting-payment likewise;
+  // no-next-step requires activityDataKnown === true (factual data gap only).
+  //
+  // «Компании в текущем контуре» (activeCompanies/Ids) = UNION of
+  //   A. companies with a real current sample state (same rule as the
+  //      Segments-side isActivePortfolioCompany sample predicate), attributed
+  //      by the sample provenance rules (DEAL → sampleResponsibleId;
+  //      COMPANY → company owner when companyFactsIncluded !== false), and
+  //   B. companies with ≥1 active commercial Deal, attributed to
+  //      deal.responsibleId (existing factual fallback).
+  // A company counts ONCE per manager (Set union) and MAY appear under two
+  // different managers when the sample cycle and the commercial Deal have
+  // different owners — two real manager relationships.
+  const activeDealsByManager = new Map<string, Set<string>>();
+  const sampleCurrentByManager = new Map<string, Set<string>>();
+  const awaitingPaymentByManager = new Map<string, Set<string>>();
+  const noNextStepByManager = new Map<string, Set<string>>();
+
+  for (const c of companies) {
+    for (const d of c.deals) {
+      const dealRespId = d.responsibleId || c.responsibleId;
+      if (!isDealActiveStage(d.stageId)) continue;
+      let set = activeDealsByManager.get(dealRespId);
+      if (!set) {
+        set = new Set();
+        activeDealsByManager.set(dealRespId, set);
+      }
+      set.add(c.id);
+
+      if (d.paymentStatus && INVOICE_SENT_STATUS_CODES.has(d.paymentStatus)) {
+        let paySet = awaitingPaymentByManager.get(dealRespId);
+        if (!paySet) {
+          paySet = new Set();
+          awaitingPaymentByManager.set(dealRespId, paySet);
+        }
+        paySet.add(c.id);
+      }
+
+      if (d.activityDataKnown && !d.activityNext) {
+        let stepSet = noNextStepByManager.get(dealRespId);
+        if (!stepSet) {
+          stepSet = new Set();
+          noNextStepByManager.set(dealRespId, stepSet);
+        }
+        stepSet.add(c.id);
+      }
+    }
+  }
+
+  // A. Current sample state → manager attribution (mirrors sampleWipMgrId
+  // provenance below: DEAL → sampleResponsibleId; COMPANY → company owner
+  // when companyFactsIncluded !== false). Only a REAL current sample state
+  // counts: NONE / blank / "—" are excluded — exact parity with the
+  // Segments-side sample predicate of isActivePortfolioCompany.
+  for (const c of companies) {
+    if (!c.sampleStatus || c.sampleStatus === "—" || c.sampleStatusSource === "NONE") continue;
+    const sampleMgrId =
+      c.sampleStatusSource === "DEAL"
+        ? c.sampleResponsibleId
+        : c.sampleStatusSource === "COMPANY" && c.companyFactsIncluded !== false
+        ? c.responsibleId
+        : undefined;
+    if (!sampleMgrId) continue;
+    let set = sampleCurrentByManager.get(sampleMgrId);
+    if (!set) {
+      set = new Set();
+      sampleCurrentByManager.set(sampleMgrId, set);
+    }
+    set.add(c.id);
+  }
+
+  // B+C. Merge active-Deal companies with current-sample companies per
+  // manager: unique union, one company counts once per manager.
+  for (const [respId, dealIds] of activeDealsByManager) {
+    const row = getOrCreate(respId);
+    const sampleIds = sampleCurrentByManager.get(respId);
+    const union = sampleIds ? new Set([...dealIds, ...sampleIds]) : dealIds;
+    row.activeCompanies = union.size;
+    row.activeCompaniesIds = Array.from(union);
+  }
+  for (const [respId, ids] of sampleCurrentByManager) {
+    if (activeDealsByManager.has(respId)) continue; // already merged above
+    const row = getOrCreate(respId);
+    row.activeCompanies = ids.size;
+    row.activeCompaniesIds = Array.from(ids);
+  }
+  for (const [respId, ids] of awaitingPaymentByManager) {
+    const row = getOrCreate(respId);
+    row.awaitingPayment = ids.size;
+    row.awaitingPaymentIds = Array.from(ids);
+  }
+  for (const [respId, ids] of noNextStepByManager) {
+    const row = getOrCreate(respId);
+    row.noNextStep = ids.size;
+    row.noNextStepIds = Array.from(ids);
+  }
 
   for (const c of companies) {
     // Dated: new company in period (factual Company owner ONLY when companyFactsIncluded !== false)
@@ -862,6 +984,14 @@ export function computeManagerScorecard(
     } else {
       row.paymentAmount = null; // Mixed currencies: scalar sum forbidden
     }
+  }
+
+  // Deterministic ID ordering for scorecard populations (HB contract)
+  for (const row of managerMap.values()) {
+    row.companyIds.sort(compareCompanyIds);
+    row.activeCompaniesIds.sort(compareCompanyIds);
+    row.awaitingPaymentIds.sort(compareCompanyIds);
+    row.noNextStepIds.sort(compareCompanyIds);
   }
 
   // Return rows sorted alphabetically by name (no best/worst ranking)

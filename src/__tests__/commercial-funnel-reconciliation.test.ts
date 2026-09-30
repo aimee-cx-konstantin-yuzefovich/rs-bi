@@ -87,15 +87,12 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
       now: fixedNow,
     });
 
-    // 3. Verify Companies sheet matches filtered companies count exactly
-    const companiesSheet = workbook.getWorksheet("Companies")!;
-    expect(companiesSheet.rowCount - 6).toBe(filtered.length);
+    // 3. Verify Action Plan sheet matches UI bottleneck count exactly
+    // (Action Plan is the re-grained view of computeBottlenecks — same items.)
+    const actionPlanSheet = workbook.getWorksheet("Action Plan")!;
+    expect(actionPlanSheet.rowCount - 6).toBe(uiBottlenecks.length);
 
-    // 4. Verify Bottlenecks sheet matches UI bottlenecks count exactly
-    const bottlenecksSheet = workbook.getWorksheet("Bottlenecks")!;
-    expect(bottlenecksSheet.rowCount - 6).toBe(uiBottlenecks.length);
-
-    // 5. Verify Managers sheet matches UI managers scorecard count exactly
+    // 4. Verify Managers sheet matches UI managers scorecard count exactly
     const managersSheet = workbook.getWorksheet("Managers")!;
     expect(managersSheet.rowCount - 6).toBe(uiManagers.length);
 

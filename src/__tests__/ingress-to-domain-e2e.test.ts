@@ -227,46 +227,37 @@ describe("Ingress-to-Domain End-to-End Pipeline Fixture", () => {
     const reloaded = new ExcelJS.Workbook();
     await reloaded.xlsx.load(buffer);
 
-    // Verify all 5 sheets
+    // Verify all 6 sheets
     expect(reloaded.worksheets.map((w) => w.name)).toEqual([
       "Executive Summary",
-      "Companies",
-      "Samples",
+      "Funnel",
+      "Segments",
+      "Sample Testing",
       "Managers",
-      "Bottlenecks",
+      "Action Plan",
     ]);
 
-    // Inspect Companies sheet cell values
-    const compSheet = reloaded.getWorksheet("Companies")!;
-    let c1Row: ExcelJS.Row | undefined;
-    let c2Row: ExcelJS.Row | undefined;
-
-    compSheet.eachRow((r, num) => {
-      if (num === 1) return;
-      if (r.getCell(1).value === "C1") c1Row = r;
-      if (r.getCell(1).value === "C2") c2Row = r;
-    });
-
-    expect(c1Row).toBeDefined();
-    // Primary deal for C1: active deal 1002 (EXECUTING) takes deterministic priority over closed deal 1001 (WON)
-    expect(c1Row!.getCell(14).value).toBe(200000);
-
-    expect(c2Row).toBeDefined();
-    // Primary deal for C2: active deal 1003 (NEW) takes precedence over closed deal 1004 (WON).
-    // Deal 1003 has invalid opportunity ("1000rub"), exported faithfully as "Неверная сумма"
-    expect(c2Row!.getCell(14).value).toBe("Неверная сумма");
-
-    // Inspect Samples sheet
-    const sampleSheet = reloaded.getWorksheet("Samples")!;
+    // Inspect Sample Testing sheet (management snapshot with native dates).
+    // Defect E: the dead "Плановая / фактическая дата испытаний" column was
+    // removed — Сделка is now column 11.
+    const sampleSheet = reloaded.getWorksheet("Sample Testing")!;
     let sampleRow: ExcelJS.Row | undefined;
     sampleSheet.eachRow((r) => {
-      const dealTitleVal = String(r.getCell(3).value || "");
+      const dealTitleVal = String(r.getCell(11).value || "");
       if (dealTitleVal.includes("1005")) sampleRow = r;
     });
     expect(sampleRow).toBeDefined();
-    expect(sampleRow!.getCell(5).value).toBe("Образцы отправлены");
+    expect(sampleRow!.getCell(8).value).toBe("Образцы отправлены");
     const shipmentCellVal = sampleRow!.getCell(7).value;
     expect(shipmentCellVal).toBeInstanceOf(Date);
-    expect((shipmentCellVal as Date).toISOString()).toContain("2026-02-22");
+    // HD contract: Excel dates carry the business-timezone (Europe/Moscow)
+    // calendar date — 2026-02-22 00:00 MSK.
+    const mskDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(shipmentCellVal as Date);
+    expect(mskDate).toBe("2026-02-22");
   });
 });

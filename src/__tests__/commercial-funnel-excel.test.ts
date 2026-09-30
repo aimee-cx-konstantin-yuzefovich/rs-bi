@@ -1,16 +1,18 @@
 // @vitest-environment node
 // src/__tests__/commercial-funnel-excel.test.ts
-// Unit tests for the 5-sheet Commercial Funnel Excel export.
+// Unit tests for the 6-sheet Commercial Funnel Excel export.
+// Contract: Executive Summary | Funnel | Segments | Sample Testing | Managers | Action Plan.
 
 import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
 import { createCommercialFunnelWorkbook } from "@/lib/commercial-funnel/export-excel";
 import { generateDemoCommercialDataset } from "@/lib/commercial-funnel/demo-data";
-import { computeBottlenecks, computeManagerScorecard, computePeriodMetrics, computeWipMetrics } from "@/lib/commercial-funnel/engine";
+import { computeBottlenecks, computeManagerScorecard, computePeriodMetrics } from "@/lib/commercial-funnel/engine";
+import { computeActionPlan, computeFunnelView } from "@/lib/commercial-funnel/analytics";
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
 import type { CommercialCompany, CommercialDeal, CommercialFilters } from "@/lib/commercial-funnel/types";
 
-describe("Commercial Funnel — Excel Export", () => {
+describe("Commercial Funnel — Excel Export (6-sheet management workbook)", () => {
   const demoData = generateDemoCommercialDataset();
   const filters: CommercialFilters = {
     periodPreset: "30days",
@@ -22,7 +24,7 @@ describe("Commercial Funnel — Excel Export", () => {
   };
   const fixedNow = new Date(2026, 8, 24, 12, 0, 0);
 
-  it("creates exactly the 5 required management sheets", async () => {
+  it("T12: creates exactly the 6 required management sheets in order", async () => {
     const workbook = await createCommercialFunnelWorkbook({
       companies: demoData.companies,
       deals: demoData.deals,
@@ -34,11 +36,26 @@ describe("Commercial Funnel — Excel Export", () => {
     const sheetNames = workbook.worksheets.map((s) => s.name);
     expect(sheetNames).toEqual([
       "Executive Summary",
-      "Companies",
-      "Samples",
+      "Funnel",
+      "Segments",
+      "Sample Testing",
       "Managers",
-      "Bottlenecks",
+      "Action Plan",
     ]);
+  });
+
+  it("T13: old management sheets (Companies/Samples/Bottlenecks) do not exist", async () => {
+    const workbook = await createCommercialFunnelWorkbook({
+      companies: demoData.companies,
+      deals: demoData.deals,
+      filters,
+      userNames: demoData.userNames,
+      now: fixedNow,
+    });
+
+    expect(workbook.getWorksheet("Companies")).toBeUndefined();
+    expect(workbook.getWorksheet("Samples")).toBeUndefined();
+    expect(workbook.getWorksheet("Bottlenecks")).toBeUndefined();
   });
 
   it("reconciles metric counts between engine and Excel sheets", async () => {
@@ -50,17 +67,14 @@ describe("Commercial Funnel — Excel Export", () => {
       now: fixedNow,
     });
 
-    const companiesSheet = workbook.getWorksheet("Companies")!;
-    // Rows 1-5 are operational header, row 6 is table header, data rows start at row 7
-    const excelCompanyRowCount = companiesSheet.rowCount - 6;
-    expect(excelCompanyRowCount).toBe(demoData.companies.length);
-
-    const bottlenecksSheet = workbook.getWorksheet("Bottlenecks")!;
+    const actionPlanSheet = workbook.getWorksheet("Action Plan")!;
     const engineBottlenecks = computeBottlenecks(demoData.companies, fixedNow);
-    const excelBottlenecksRowCount = bottlenecksSheet.rowCount - 6;
-    expect(excelBottlenecksRowCount).toBe(engineBottlenecks.length);
-
     const bounds = computePeriodBoundaries(filters, fixedNow);
+    const engineActionPlan = computeActionPlan(demoData.companies, fixedNow);
+    expect(engineActionPlan.length).toBe(engineBottlenecks.length);
+    // Rows 1-5 operational header, row 6 table header, data rows from 7
+    expect(actionPlanSheet.rowCount - 6).toBe(engineActionPlan.length);
+
     const engineManagers = computeManagerScorecard(
       demoData.companies,
       bounds,
@@ -68,8 +82,19 @@ describe("Commercial Funnel — Excel Export", () => {
       demoData.userNames
     );
     const managersSheet = workbook.getWorksheet("Managers")!;
-    const excelManagersRowCount = managersSheet.rowCount - 6;
-    expect(excelManagersRowCount).toBe(engineManagers.length);
+    expect(managersSheet.rowCount - 6).toBe(engineManagers.length);
+
+    // Funnel sheet: 8 sample/testing stages + continuation row + spacer + commercial rows
+    const bounds2 = computePeriodBoundaries(filters, fixedNow);
+    const engineFunnel = computeFunnelView(demoData.companies, bounds2);
+    const funnelSheet = workbook.getWorksheet("Funnel")!;
+    let stageRows = 0;
+    funnelSheet.eachRow((row, rowNumber) => {
+      if (rowNumber <= 6) return;
+      const section = String(row.getCell(1).value || "");
+      if (section === "Образцы и испытания") stageRows++;
+    });
+    expect(stageRows).toBe(engineFunnel.sampleTestingStages.length);
   });
 
   it("produces valid binary xlsx buffer without error", async () => {
@@ -86,55 +111,78 @@ describe("Commercial Funnel — Excel Export", () => {
     expect(buffer.byteLength).toBeGreaterThan(1000);
   });
 
-  it("exports dates as native Excel Date objects with dd.mm.yyyy numFmt and nulls for absent dates", async () => {
+  it("T16/T25: Sample Testing sheet keeps active testing rows with old send dates; dates are native Excel dates", async () => {
+    const testingCompany: CommercialCompany = {
+      id: "c-old-test",
+      title: "Компания Старое Испытание",
+      responsibleId: "u1",
+      responsibleName: "Менеджер Тестовый",
+      dateCreate: "2026-05-01",
+      direction: [],
+      productType: ["Гель"],
+      sampleStatus: "На испытании",
+      sampleStatusSource: "DEAL",
+      sampleResponsibleId: "u1",
+      sampleResponsibleName: "Менеджер Тестовый",
+      sampleShipmentDate: "2026-07-01", // far outside 30-day period
+      sampleAllDates: ["2026-07-01"],
+      gradeGel: [],
+      gradeSol: [],
+      deals: [
+        {
+          id: "d-old-test",
+          title: "Сделка Старое Испытание",
+          companyId: "c-old-test",
+          responsibleId: "u1",
+          stageId: "EXECUTING",
+          categoryId: "0",
+          opportunity: 100000,
+          currencyId: "RUB",
+          dateCreate: "2026-06-25",
+          sampleSentDate: "2026-07-01",
+          sampleTransferStatus: "На испытании",
+          sampleTestingStatus: ["На испытании"],
+          sampleTestingStatusRaw: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+      ],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
     const workbook = await createCommercialFunnelWorkbook({
-      companies: demoData.companies,
-      deals: demoData.deals,
+      companies: [testingCompany],
+      deals: testingCompany.deals,
       filters,
-      userNames: demoData.userNames,
+      userNames: { u1: "Менеджер Тестовый" },
       now: fixedNow,
     });
 
-    const companiesSheet = workbook.getWorksheet("Companies")!;
-    let verifiedDateCreate = false;
-    let verifiedNullDate = false;
-
-    // Iterate data rows (row 7 onwards, after branded header rows 1-6)
-    companiesSheet.eachRow((row, rowNumber) => {
+    const stSheet = workbook.getWorksheet("Sample Testing")!;
+    let foundOldActiveRow = false;
+    stSheet.eachRow((row, rowNumber) => {
       if (rowNumber <= 6) return;
-      // Col 4: dateCreate
-      const dateCreateCell = row.getCell(4);
-      if (dateCreateCell.value !== null) {
-        expect(dateCreateCell.value).toBeInstanceOf(Date);
-        expect(dateCreateCell.numFmt).toBe("dd.mm.yyyy");
-        verifiedDateCreate = true;
-      }
-      // Col 10: sampleDate
-      const sampleDateCell = row.getCell(10);
-      if (sampleDateCell.value !== null) {
-        expect(sampleDateCell.value).toBeInstanceOf(Date);
-        expect(sampleDateCell.numFmt).toBe("dd.mm.yyyy");
-      } else {
-        expect(sampleDateCell.value).toBeNull();
-        verifiedNullDate = true;
-      }
-    });
-
-    expect(verifiedDateCreate).toBe(true);
-    expect(verifiedNullDate).toBe(true);
-
-    const samplesSheet = workbook.getWorksheet("Samples")!;
-    samplesSheet.eachRow((row, rowNumber) => {
-      if (rowNumber <= 6) return;
-      // Col 7: shipmentDate
-      const shipmentCell = row.getCell(7);
-      if (shipmentCell.value !== null) {
+      const title = String(row.getCell(2).value || "");
+      if (title === "Компания Старое Испытание") {
+        foundOldActiveRow = true;
+        // Col 7: shipment date must be a native Date with dd.mm.yyyy.
+        // HD contract: the Date carries the Europe/Moscow calendar date
+        // (2026-07-01 00:00 MSK), independent of host timezone.
+        const shipmentCell = row.getCell(7);
         expect(shipmentCell.value).toBeInstanceOf(Date);
+        const mskParts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Europe/Moscow",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(shipmentCell.value as Date);
+        expect(mskParts).toBe("2026-07-01");
         expect(shipmentCell.numFmt).toBe("dd.mm.yyyy");
-      } else {
-        expect(shipmentCell.value).toBeNull();
       }
     });
+    expect(foundOldActiveRow).toBe(true);
   });
 
   it("includes full filter disclosures and truthful payment KPI label in Executive Summary", async () => {
@@ -282,7 +330,7 @@ describe("Commercial Funnel — Excel Export", () => {
       now: fixedNow,
     });
 
-    // 1. Executive Summary: Section 1 should have per-currency payment rows
+    // 1. Executive Summary: per-currency payment rows with isolated numFmts
     const summarySheet = workbook.getWorksheet("Executive Summary")!;
     let foundRubRow = false;
     let foundUsdRow = false;
@@ -305,20 +353,24 @@ describe("Commercial Funnel — Excel Export", () => {
     expect(foundRubRow).toBe(true);
     expect(foundUsdRow).toBe(true);
 
-    // 2. Companies Sheet: Headers must NOT have hardcoded (₽)
-    const compSheet = workbook.getWorksheet("Companies")!;
-    const compHeaderRow = compSheet.getRow(6);
-    expect(compHeaderRow.getCell(14).value).toBe("Сумма");
-
-    // Row 7 is c-rub, Row 8 is c-usd
-    const rubCompRow = compSheet.getRow(7);
-    expect(rubCompRow.getCell(14).value).toBe(1_500_000);
-    expect(rubCompRow.getCell(14).numFmt).toContain("₽");
-
-    const usdCompRow = compSheet.getRow(8);
-    expect(usdCompRow.getCell(14).value).toBe(25_000);
-    expect(usdCompRow.getCell(14).numFmt).toContain("$");
-    expect(usdCompRow.getCell(14).numFmt).not.toContain("₽");
+    // 2. Funnel sheet: per-currency payment rows
+    const funnelSheet = workbook.getWorksheet("Funnel")!;
+    let funnelRub = false;
+    let funnelUsd = false;
+    funnelSheet.eachRow((row) => {
+      const lbl = String(row.getCell(2).value || "");
+      if (lbl.includes("Сумма сделок с полученной оплатой (RUB)")) {
+        funnelRub = true;
+        expect(row.getCell(3).numFmt).toContain("₽");
+      }
+      if (lbl.includes("Сумма сделок с полученной оплатой (USD)")) {
+        funnelUsd = true;
+        expect(row.getCell(3).numFmt).toContain("$");
+        expect(row.getCell(3).numFmt).not.toContain("₽");
+      }
+    });
+    expect(funnelRub).toBe(true);
+    expect(funnelUsd).toBe(true);
 
     // 3. Managers Sheet: Per-currency payment columns
     const mgrSheet = workbook.getWorksheet("Managers")!;
@@ -326,15 +378,6 @@ describe("Commercial Funnel — Excel Export", () => {
     const mgrHeaders = (mgrHeaderRow.values as string[]).slice(1);
     expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (RUB)");
     expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (USD)");
-
-    // 4. Bottlenecks Sheet: Header is "Сумма", formatted with USD for usd deal
-    const botSheet = workbook.getWorksheet("Bottlenecks")!;
-    const botHeaderRow = botSheet.getRow(6);
-    expect(botHeaderRow.getCell(8).value).toBe("Сумма");
-    const botRow = botSheet.getRow(7);
-    expect(botRow.getCell(8).value).toBe(25_000);
-    expect(botRow.getCell(8).numFmt).toContain("$");
-    expect(botRow.getCell(8).numFmt).not.toContain("₽");
   });
 
   it("preserves neutral format #,##0 for deals without currency in Excel export (never coerces to RUB)", async () => {
@@ -386,17 +429,24 @@ describe("Commercial Funnel — Excel Export", () => {
       now: fixedNow,
     });
 
-    // Companies sheet: primaryDealOpportunity numFmt must NOT contain ₽ or $ or €
-    const compSheet = workbook.getWorksheet("Companies")!;
-    const compRow = compSheet.getRow(7);
-    expect(compRow.getCell(14).value).toBe(50_000);
-    expect(compRow.getCell(14).numFmt).toBe("#,##0");
-    expect(compRow.getCell(14).numFmt).not.toContain("₽");
-    expect(compRow.getCell(14).numFmt).not.toContain("$");
-    expect(compRow.getCell(14).numFmt).not.toContain("€");
+    // Funnel sheet: payment amount row for "валюта не указана" uses neutral numFmt
+    const funnelSheet = workbook.getWorksheet("Funnel")!;
+    let neutralRowFound = false;
+    funnelSheet.eachRow((row) => {
+      const lbl = String(row.getCell(2).value || "");
+      if (lbl.includes("Сумма сделок с полученной оплатой (валюта не указана)")) {
+        neutralRowFound = true;
+        expect(row.getCell(3).value).toBe(50_000);
+        expect(row.getCell(3).numFmt).toBe("#,##0");
+        expect(row.getCell(3).numFmt).not.toContain("₽");
+        expect(row.getCell(3).numFmt).not.toContain("$");
+        expect(row.getCell(3).numFmt).not.toContain("€");
+      }
+    });
+    expect(neutralRowFound).toBe(true);
   });
 
-  it("OpenXML Round-Trip: preserves per-currency formats, UNKNOWN neutral format, and explicit labels after XLSX reload", async () => {
+  it("T27: OpenXML Round-Trip preserves sheet order, per-currency formats, UNKNOWN neutral format, and explicit labels after XLSX reload", async () => {
     const dealRub: CommercialDeal = {
       id: "d-rub",
       title: "Сделка RUB",
@@ -490,6 +540,16 @@ describe("Commercial Funnel — Excel Export", () => {
     const reloadedWb = new ExcelJS.Workbook();
     await reloadedWb.xlsx.load(buffer as any);
 
+    // 0. Sheet names and order survive the round trip
+    expect(reloadedWb.worksheets.map((s) => s.name)).toEqual([
+      "Executive Summary",
+      "Funnel",
+      "Segments",
+      "Sample Testing",
+      "Managers",
+      "Action Plan",
+    ]);
+
     // 1. Executive Summary: Check Section 1 currency rows
     const summarySheet = reloadedWb.getWorksheet("Executive Summary")!;
     const rowLabels: string[] = [];
@@ -518,11 +578,23 @@ describe("Commercial Funnel — Excel Export", () => {
     expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (USD)");
     expect(mgrHeaders).toContain("Сумма сделок с полученной оплатой (валюта не указана)");
 
-    // 3. Companies sheet: Check row numFmts
-    const compSheet = reloadedWb.getWorksheet("Companies")!;
-    expect(compSheet.getRow(7).getCell(14).numFmt).toContain("₽");
-    expect(compSheet.getRow(8).getCell(14).numFmt).toContain("$");
-    expect(compSheet.getRow(9).getCell(14).numFmt).toBe("#,##0");
+    // 3. Funnel sheet: per-currency rows survive with correct numFmts
+    const funnelSheet = reloadedWb.getWorksheet("Funnel")!;
+    const funnelLabels: string[] = [];
+    const funnelNumFmts: Record<string, string | undefined> = {};
+    funnelSheet.eachRow((row) => {
+      const lbl = String(row.getCell(2).value || "");
+      if (lbl) {
+        funnelLabels.push(lbl);
+        funnelNumFmts[lbl] = row.getCell(3).numFmt;
+      }
+    });
+    expect(funnelLabels).toContain("Сумма сделок с полученной оплатой (RUB)");
+    expect(funnelLabels).toContain("Сумма сделок с полученной оплатой (USD)");
+    expect(funnelLabels).toContain("Сумма сделок с полученной оплатой (валюта не указана)");
+    expect(funnelNumFmts["Сумма сделок с полученной оплатой (RUB)"]).toContain("₽");
+    expect(funnelNumFmts["Сумма сделок с полученной оплатой (USD)"]).toContain("$");
+    expect(funnelNumFmts["Сумма сделок с полученной оплатой (валюта не указана)"]).toBe("#,##0");
   });
 
   it("exports zero payment amounts with neutral numFmt without false RUB symbol", async () => {
@@ -577,5 +649,35 @@ describe("Commercial Funnel — Excel Export", () => {
     expect(paymentNumFmt).not.toContain("₽");
     expect(paymentNumFmt).not.toContain("$");
     expect(paymentNumFmt).not.toContain("€");
+  });
+
+  it("T15: local UI state (active tab/page/sort) cannot exist in workbook input — export is deterministic for same filters", async () => {
+    const build = () =>
+      createCommercialFunnelWorkbook({
+        companies: demoData.companies,
+        deals: demoData.deals,
+        filters,
+        userNames: demoData.userNames,
+        now: fixedNow,
+      });
+
+    const wb1 = await build();
+    const wb2 = await build();
+
+    const snapshot = (wb: ExcelJS.Workbook) => {
+      const parts: string[] = [];
+      for (const sheet of wb.worksheets) {
+        parts.push(`#${sheet.name}`);
+        sheet.eachRow((row) => {
+          const vals: any[] = [];
+          row.eachCell((cell) => vals.push(cell.value));
+          parts.push(JSON.stringify(vals));
+        });
+      }
+      return parts.join("\n");
+    };
+
+    // Two builds with identical global filters produce identical analytical content.
+    expect(snapshot(wb2)).toBe(snapshot(wb1));
   });
 });

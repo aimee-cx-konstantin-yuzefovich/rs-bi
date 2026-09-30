@@ -1,184 +1,132 @@
 "use client";
 
 // src/components/commercial-funnel/bottlenecks-tab.tsx
-// Actionable bottlenecks & items requiring attention (Section 18).
-// Derived strictly from reliable event date + current state.
+// Tab 5 — Требуют внимания: ACTION CENTER.
+// "Что конкретно нужно сделать сейчас?"
+// Columns per management contract; authoritative data only:
+// - Следующий шаг: activityNext only; absent → "Следующий шаг не указан"
+//   (never invented — 58a0dfb contract).
+// - Последняя активность: activityLast when activityDataKnown; otherwise an
+//   explicit "данные активности недоступны" disclosure.
+// - No Приоритет column: no deterministic priority rule exists in source.
 
-import { useState, useMemo, useEffect } from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, ExternalLink } from "lucide-react";
-import type { BottleneckItem } from "@/lib/commercial-funnel/types";
-import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
-import { CommercialTablePagination } from "./table-pagination";
+import { ExternalLink } from "lucide-react";
+import { NEXT_ACTION_MISSING_LABEL } from "@/lib/commercial-funnel/analytics";
+import { ACTIVITY_PARTIAL_DISCLOSURE } from "@/lib/commercial-funnel/disclosure";
+import type { ActionPlanRow } from "@/lib/commercial-funnel/types";
 
 interface BottlenecksTabProps {
-  bottlenecks: BottleneckItem[];
+  actionPlan: ActionPlanRow[];
+  activityPartial: boolean;
   onSelectCompany: (companyId: string) => void;
   onSelectDeal: (dealId: string) => void;
+  onOpenDrillDown: (title: string, subtitle: string, companyIds: string[]) => void;
+}
+
+function formatDate(value?: string): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function formatDays(days: number | null): string {
+  return days === null ? "—" : `${days} дн.`;
 }
 
 export function CommercialBottlenecksTab({
-  bottlenecks,
+  actionPlan,
+  activityPartial,
   onSelectCompany,
   onSelectDeal,
+  onOpenDrillDown,
 }: BottlenecksTabProps) {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-
-  useEffect(() => {
-    setPage(1);
-  }, [bottlenecks.length]);
-
-  const pagedBottlenecks = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return bottlenecks.slice(start, start + pageSize);
-  }, [bottlenecks, page, pageSize]);
-  const getBadgeClass = (type: BottleneckItem["type"]) => {
-    switch (type) {
-      case "sample_testing_stalled":
-        return "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700";
-      case "payment_overdue":
-        return "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border-rose-300 dark:border-rose-700";
-      case "sample_success_no_deal":
-        return "bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300 border-sky-300 dark:border-sky-700";
-      case "stalled_deal":
-        return "bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border-purple-300 dark:border-purple-700";
-      default:
-        return "";
-    }
-  };
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold tracking-tight text-foreground flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            Узкие места и точки внимания ({bottlenecks.length})
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Компании и сделки, требующие оперативного вмешательства руководителя (задержки испытаний, счетов, отсутствие следующих шагов)
+    <div className="space-y-3" data-testid="attention-tab">
+      {/* Truthful activity-data disclosure */}
+      {activityPartial && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+          <span className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+            {ACTIVITY_PARTIAL_DISCLOSURE}
+          </span>
+        </div>
+      )}
+
+      {actionPlan.length === 0 ? (
+        <div className="rounded-xl border bg-card/60 p-8 text-center">
+          <p className="text-sm font-medium">Записей не найдено</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            По текущим объективным правилам ни одна запись не требует вмешательства.
           </p>
         </div>
-      </div>
-
-      {bottlenecks.length === 0 ? (
-        <div className="py-12 text-center text-sm text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20">
-          Зависших процессов и критических задержек не обнаружено
-        </div>
       ) : (
-        <div className="rounded-lg border bg-card overflow-hidden">
-          <Table containerClassName="max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto">
-            <TableHeader>
-              <TableRow className="bg-muted">
-                  <TableHead className="text-xs font-semibold">Компания</TableHead>
-                  <TableHead className="text-xs font-semibold">Менеджер</TableHead>
-                  <TableHead className="text-xs font-semibold">Проблема</TableHead>
-                  <TableHead className="text-xs font-semibold">Текущее состояние</TableHead>
-                  <TableHead className="text-xs font-semibold">Дата события</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Дней ожидания</TableHead>
-                  <TableHead className="text-xs font-semibold">Сделка</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Сумма</TableHead>
-                  <TableHead className="text-xs font-semibold">Следующий шаг</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pagedBottlenecks.map((item) => (
-                  <TableRow key={item.id} className="hover:bg-muted/30">
-                    {/* Компания */}
-                    <TableCell className="text-xs font-medium">
+        <div className="rounded-xl border bg-card/60 shadow-2xs overflow-x-auto">
+          <table className="w-full text-xs" data-testid="action-plan-table">
+            <thead>
+              <tr className="border-b bg-muted/40 text-left">
+                <th className="font-semibold px-3 py-2 min-w-[180px]">Компания</th>
+                <th className="font-semibold px-3 py-2">Менеджер</th>
+                <th className="font-semibold px-3 py-2">Где зависло</th>
+                <th className="font-semibold px-3 py-2">Текущее состояние</th>
+                <th className="font-semibold px-3 py-2 whitespace-nowrap">Дней ожидания</th>
+                <th className="font-semibold px-3 py-2 whitespace-nowrap">Последняя активность</th>
+                <th className="font-semibold px-3 py-2 min-w-[200px]">Следующий шаг</th>
+                <th className="font-semibold px-3 py-2 whitespace-nowrap">Срок следующего шага</th>
+                <th className="font-semibold px-3 py-2">Сделка</th>
+              </tr>
+            </thead>
+            <tbody>
+              {actionPlan.map((row) => (
+                <tr key={row.id} className="border-b border-border/40 hover:bg-accent/30 align-top">
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => onSelectCompany(row.companyId)}
+                      className="font-medium text-primary hover:underline cursor-pointer text-left"
+                    >
+                      {row.companyTitle}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">{row.responsibleName}</td>
+                  <td className="px-3 py-2">{row.stuckAt}</td>
+                  <td className="px-3 py-2">{row.currentState}</td>
+                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">{formatDays(row.daysWaiting)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {row.lastActivityKnown ? (
+                      formatDate(row.lastActivity)
+                    ) : (
+                      <span className="italic text-muted-foreground" title="Данные активностей недоступны">
+                        данные активности недоступны
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {row.nextAction ? (
+                      <span className="whitespace-normal">{row.nextAction}</span>
+                    ) : (
+                      <span className="italic text-muted-foreground">{NEXT_ACTION_MISSING_LABEL}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">{formatDate(row.nextActionDate)}</td>
+                  <td className="px-3 py-2">
+                    {row.dealId && row.dealTitle ? (
                       <button
                         type="button"
-                        onClick={() => onSelectCompany(item.companyId)}
-                        className="text-left font-medium text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                        onClick={() => onSelectDeal(row.dealId!)}
+                        className="inline-flex items-center gap-1 text-primary hover:underline cursor-pointer text-left"
                       >
-                        <span className="truncate max-w-[170px]">{item.companyTitle}</span>
-                        <ExternalLink className="h-3 w-3 opacity-60 shrink-0" />
+                        {row.dealTitle}
+                        <ExternalLink className="h-3 w-3 shrink-0" />
                       </button>
-                    </TableCell>
-
-                    {/* Менеджер */}
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {item.responsibleName}
-                    </TableCell>
-
-                    {/* Проблема */}
-                    <TableCell className="text-xs whitespace-nowrap">
-                      <Badge variant="outline" className={`text-[10px] font-medium ${getBadgeClass(item.type)}`}>
-                        {item.issueLabel}
-                      </Badge>
-                    </TableCell>
-
-                    {/* Текущее состояние */}
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {item.currentState}
-                    </TableCell>
-
-                    {/* Дата */}
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {item.relevantDate || "—"}
-                    </TableCell>
-
-                    {/* Дней ожидания */}
-                    <TableCell className="text-xs text-right whitespace-nowrap">
-                      <span className="font-semibold text-amber-600 dark:text-amber-400">
-                        {item.daysWaiting !== null && item.daysWaiting !== undefined ? `${item.daysWaiting} дн.` : "—"}
-                      </span>
-                    </TableCell>
-
-                    {/* Сделка */}
-                    <TableCell className="text-xs text-muted-foreground">
-                      {item.dealId ? (
-                        <button
-                          type="button"
-                          onClick={() => onSelectDeal(item.dealId!)}
-                          className="text-left hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <span className="truncate max-w-[140px]">{item.dealTitle}</span>
-                          <ExternalLink className="h-3 w-3 opacity-60 shrink-0" />
-                        </button>
-                      ) : (
-                        <span className="text-muted-foreground/60">—</span>
-                      )}
-                    </TableCell>
-
-                    {/* Сумма */}
-                    <TableCell className="text-xs text-right font-medium whitespace-nowrap">
-                      {item.amountQuality === "INVALID" ? (
-                        <span className="text-destructive font-mono text-[11px]" title="Некорректная сумма в Bitrix24">
-                          Неверная сумма
-                        </span>
-                      ) : typeof item.amount === "number" ? (
-                        formatCurrencyAmount(item.amount, item.currencyId)
-                      ) : (
-                        "—"
-                      )}
-                    </TableCell>
-
-                    {/* Следующий шаг */}
-                    <TableCell className="text-xs max-w-[240px] truncate text-muted-foreground" title={item.nextAction || "Следующий шаг не указан"}>
-                      {item.nextAction || "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <CommercialTablePagination
-              page={page}
-              pageSize={pageSize}
-              totalItems={bottlenecks.length}
-              onPageChange={setPage}
-              onPageSizeChange={setPageSize}
-            />
-          </div>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

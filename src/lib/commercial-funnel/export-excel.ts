@@ -1,8 +1,9 @@
 // src/lib/commercial-funnel/export-excel.ts
 // ─────────────────────────────────────────────────────────────────────
-// Structured 5-sheet RusSilica Management Excel report generator.
+// Structured 6-sheet RusSilica Management Excel report generator.
 // Consumes the EXACT same analytical dataset and engine metrics as the UI.
-// Sheets: Executive Summary, Companies, Samples, Managers, Bottlenecks.
+// Sheets: Executive Summary, Funnel, Segments, Sample Testing, Managers,
+// Action Plan.
 // ─────────────────────────────────────────────────────────────────────
 
 import ExcelJS from "exceljs";
@@ -12,15 +13,23 @@ import {
   PAYMENT_AMOUNT_LABEL,
 } from "./constants";
 import {
-  buildSampleRegister,
   computeBottlenecks,
   computeManagerScorecard,
   computePeriodMetrics,
-  computeWipMetrics,
   filterCompaniesByDimensions,
 } from "./engine";
 import {
+  buildSampleTestingSnapshot,
+  computeActionPlan,
+  computeAttentionSummary,
+  computeFunnelView,
+  computeSegmentBreakdown,
+  NEXT_ACTION_MISSING_LABEL,
+} from "./analytics";
+import {
   computePeriodBoundaries,
+  createZonedDate,
+  getZonedCalendarParts,
   isDateInPeriod,
   safeDeltaPercent,
 } from "./date-utils";
@@ -70,9 +79,19 @@ import {
 /**
  * Convert ISO date or datetime string to native Date object for Excel.
  * Returns null if missing or invalid, ensuring empty cells stay blank.
+ *
+ * Business-timezone integrity (HD contract): the Date is normalized to the
+ * calendar date it represents in Europe/Moscow (00:00:00 MSK), so a UTC
+ * late-evening datetime (e.g. 22:30Z = next day 01:30 MSK) displays the
+ * MSK calendar date, not the UTC one. Date-only strings are already parsed
+ * as 00:00 UTC by parseStrictDate; MSK normalization keeps them on the same
+ * intended business date (00:00 UTC = 03:00 MSK, same calendar day).
  */
 function toExcelDate(dateStr?: string | null): Date | null {
-  return parseStrictDate(dateStr);
+  const parsed = parseStrictDate(dateStr);
+  if (!parsed) return null;
+  const p = getZonedCalendarParts(parsed, COMMERCIAL_TIMEZONE);
+  return createZonedDate(p.year, p.monthIndex, p.day, 0, 0, 0, 0, COMMERCIAL_TIMEZONE);
 }
 function sanitizeExcelValue(val: any): any {
   if (typeof val === "string" && /^[=\-+\@]/.test(val)) {
@@ -104,7 +123,9 @@ export interface BuildExcelOptions {
 }
 
 /**
- * Builds the authoritative branded 5-sheet RusSilica Commercial Funnel workbook.
+ * Builds the authoritative branded 6-sheet RusSilica Commercial Funnel workbook.
+ * Sheets (fixed order): Executive Summary, Funnel, Segments, Sample Testing,
+ * Managers, Action Plan.
  */
 export async function createCommercialFunnelWorkbook(
   options: BuildExcelOptions
@@ -123,7 +144,6 @@ export async function createCommercialFunnelWorkbook(
   const filteredCompanies = filterCompaniesByDimensions(companies, filters);
 
   const datedKpis = computePeriodMetrics(filteredCompanies, boundaries);
-  const wipKpis = computeWipMetrics(filteredCompanies);
   const bottlenecks = computeBottlenecks(filteredCompanies, now);
   const managerScorecard = computeManagerScorecard(
     filteredCompanies,
@@ -131,7 +151,20 @@ export async function createCommercialFunnelWorkbook(
     bottlenecks,
     userNames
   );
-  const sampleRegister = buildSampleRegister(filteredCompanies, now);
+  const funnelView = computeFunnelView(filteredCompanies, boundaries);
+  // Segment matrices are ACTIVE-FILTER AWARE and consume the EXACT same
+  // filters object as the UI (Segments UI == Segments Excel invariant).
+  const segmentIndustry = computeSegmentBreakdown(filteredCompanies, boundaries, "industry", filters);
+  const segmentDirection = computeSegmentBreakdown(filteredCompanies, boundaries, "direction", filters);
+  const segmentProduct = computeSegmentBreakdown(filteredCompanies, boundaries, "product", filters);
+  const sampleSnapshot = buildSampleTestingSnapshot(filteredCompanies, now);
+  const attentionSummary = computeAttentionSummary(filteredCompanies, now);
+  const commercial = funnelView.commercial;
+  const funnelCurrencies = getCurrencyUniverse(
+    commercial.period.paymentAmountsByCurrency,
+    commercial.period.paymentAmountQualityByCurrency
+  );
+  const actionPlan = computeActionPlan(filteredCompanies, now);
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = RS_SYSTEM_TITLE;
@@ -139,7 +172,7 @@ export async function createCommercialFunnelWorkbook(
   workbook.created = now;
   workbook.modified = now;
 
-  // Register logo once on workbook; reused across all 5 sheets
+  // Register logo once on workbook; reused across all 6 sheets
   const logoImageId = await registerBrandLogo(workbook);
 
   // Monkey-patch addRow for formula injection prevention
@@ -714,19 +747,19 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   summarySheet.addRow([]); // Spacer
 
-  // Section 2: WIP Table
-  addSectionHeader(summarySheet, "ТЕКУЩИЙ ПОРТФЕЛЬ / СЕЙЧАС В РАБОТЕ", 6);
+  // Section 2: Current portfolio — Table A (Образцы и испытания) + Table B (Коммерциализация)
+  addSectionHeader(summarySheet, "ТЕКУЩИЙ ПОРТФЕЛЬ (СОСТОЯНИЕ «СЕЙЧАС»)", 6);
 
   const wipTableHeader = summarySheet.addRow([
-    "Статус / Этап",
-    "Уникальных компаний",
-    "Связанных сделок",
+    "Состояние",
+    "Компаний",
+    "Сделок",
   ]);
   styleTableHeader(wipTableHeader, { colCount: 3 });
 
   const startWipRow = summarySheet.rowCount + 1;
-  for (const w of wipKpis) {
-    const row = summarySheet.addRow([w.label, w.companyCount, w.dealCount]);
+  for (const stage of funnelView.sampleTestingStages) {
+    const row = summarySheet.addRow([stage.label, stage.companyCount, stage.dealCount]);
     row.height = 20;
     row.getCell(2).numFmt = NUMFMT.INTEGER;
     row.getCell(3).numFmt = NUMFMT.INTEGER;
@@ -736,10 +769,55 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   summarySheet.addRow([]); // Spacer
 
-  // Section 3: Attention / Bottlenecks summary
-  addSectionHeader(summarySheet, "ТРЕБУЮТ ВНИМАНИЯ (УЗКИЕ МЕСТА)", 6);
+  addSectionHeader(summarySheet, "КОММЕРЦИАЛИЗАЦИЯ (ТЕКУЩЕЕ СОСТОЯНИЕ И СОБЫТИЯ ПЕРИОДА)", 6);
+  const commHeader = summarySheet.addRow([
+    "Показатель",
+    "Значение",
+    "Примечание",
+  ]);
+  styleTableHeader(commHeader, { colCount: 3 });
 
-  if (bottlenecks.length === 0) {
+  const commRows: Array<[string, number | string, string]> = [
+    ["Активные коммерческие сделки (компаний)", commercial.current.activeDeals.count, "сейчас"],
+    ["— из них сделок", commercial.current.dealCount, "сейчас"],
+    ["Ожидают оплаты (компаний)", commercial.current.awaitingPayment.count, "сейчас"],
+    ["— из них сделок", commercial.current.awaitingPaymentDealCount, "сейчас"],
+    ["Создано сделок (компаний)", commercial.period.dealsCreated.count, "за период"],
+    ["Получена оплата (компаний)", commercial.period.paymentsReceived.count, "за период"],
+    ["Отгрузки (компаний)", commercial.period.shipments.count, "за период"],
+  ];
+  const startCommRow = summarySheet.rowCount + 1;
+  for (const [label, value, note] of commRows) {
+    const row = summarySheet.addRow([label, value, note]);
+    row.height = 20;
+    row.getCell(2).numFmt = NUMFMT.INTEGER;
+  }
+  for (const cur of funnelCurrencies) {
+    const q = commercial.period.paymentAmountQualityByCurrency?.[cur] || "COMPLETE";
+    const amt = commercial.period.paymentAmountsByCurrency?.[cur];
+    let val: number | string;
+    if (q === "INVALID_ONLY") val = "Ошибка данных";
+    else if (q === "UNKNOWN") val = "Нет данных";
+    else val = typeof amt === "number" ? amt : 0;
+    const curLabel = cur === "UNKNOWN" ? "валюта не указана" : cur;
+    const suffix = q === "PARTIAL" ? " (неполные данные)" : "";
+    const row = summarySheet.addRow([
+      `Сумма сделок с полученной оплатой (${curLabel})${suffix}`,
+      val,
+      "за период",
+    ]);
+    row.height = 20;
+    if (typeof val === "number") row.getCell(2).numFmt = getMoneyNumFmt(cur);
+  }
+  const endCommRow = summarySheet.rowCount;
+  styleDataRows(summarySheet, startCommRow, endCommRow, 3);
+
+  summarySheet.addRow([]); // Spacer
+
+  // Section 3: Attention summary (signal → count; items total labeled explicitly)
+  addSectionHeader(summarySheet, "ТРЕБУЮТ ВНИМАНИЯ (СИГНАЛЫ)", 6);
+
+  if (attentionSummary.signals.length === 0) {
     const emptyRow = summarySheet.addRow([
       "Узких мест и зависших процессов не обнаружено. Все процессы выполняются штатно.",
     ]);
@@ -750,65 +828,33 @@ function formatPeriodPresetToRussian(preset: string): string {
     cell.alignment = { vertical: "middle", indent: 1 };
   } else {
     const attentionHeader = summarySheet.addRow([
-      "Компания",
-      "Менеджер",
-      "Причина внимания",
-      "Текущее состояние",
-      "Дней ожидания",
-      "Сумма",
+      "Сигнал",
+      "Количество",
     ]);
-    styleTableHeader(attentionHeader, { colCount: 6 });
+    styleTableHeader(attentionHeader, { colCount: 2 });
 
     const startAttentionRow = summarySheet.rowCount + 1;
-    const topBottlenecks = bottlenecks.slice(0, 5);
-
-    for (const b of topBottlenecks) {
-      let botAmtVal: number | string = "—";
-      if (b.amountQuality === "INVALID") {
-        botAmtVal = "Неверная сумма";
-      } else if (typeof b.amount === "number") {
-        botAmtVal = b.amount;
-      }
-
-      const daysWaitingVal = typeof b.daysWaiting === "number" ? b.daysWaiting : "—";
-      const row = summarySheet.addRow([
-        b.companyTitle,
-        b.responsibleName,
-        b.issueLabel,
-        b.currentState,
-        daysWaitingVal,
-        botAmtVal,
-      ]);
+    for (const signal of attentionSummary.signals) {
+      const row = summarySheet.addRow([signal.label, signal.companyCount]);
       row.height = 20;
-
-      for (let c = 1; c <= 6; c++) {
+      for (let c = 1; c <= 2; c++) {
         const cell = row.getCell(c);
         cell.border = THIN_BORDER;
         cell.font = FONT_DATA;
       }
-
-      if (typeof b.daysWaiting === "number") row.getCell(5).numFmt = NUMFMT.INTEGER;
-      if (typeof botAmtVal === "number") {
-        const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : undefined;
-        row.getCell(6).numFmt = getMoneyNumFmt(botCur);
-      }
-
-      applyStatusCell(row.getCell(3), "Внимание");
-      row.getCell(3).value = b.issueLabel;
+      row.getCell(2).numFmt = NUMFMT.INTEGER;
     }
     const endAttentionRow = summarySheet.rowCount;
-    styleDataRows(summarySheet, startAttentionRow, endAttentionRow, 6);
+    styleDataRows(summarySheet, startAttentionRow, endAttentionRow, 2);
 
-    if (bottlenecks.length > 5) {
-      const moreRow = summarySheet.addRow([
-        `Показано 5 из ${bottlenecks.length} узких мест. Полный реестр доступен на листе «Bottlenecks».`,
-      ]);
-      moreRow.height = 18;
-      summarySheet.mergeCells(moreRow.number, 1, moreRow.number, 6);
-      const moreCell = moreRow.getCell(1);
-      moreCell.font = { name: RS_FONT_FAMILY, size: 9, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
-      moreCell.alignment = { vertical: "middle", indent: 1 };
-    }
+    // Explicit unambiguous total: ATTENTION ITEMS (bottleneck rows), not companies.
+    const totalRow = summarySheet.addRow([
+      "Всего требуют внимания (записей, требующих действий; компания может входить в несколько записей)",
+      attentionSummary.totalItems,
+    ]);
+    totalRow.height = 22;
+    totalRow.font = { name: RS_FONT_FAMILY, size: 10, bold: true };
+    totalRow.getCell(2).numFmt = NUMFMT.INTEGER;
   }
 
   // Auto-fit summary sheet columns
@@ -827,226 +873,323 @@ function formatPeriodPresetToRussian(preset: string): string {
   addCorporateFooter(summarySheet);
 
   // ═══════════════════════════════════════════════════════════════════
-  // SHEET 2: Companies (One row = one Company)
+  // SHEET 2: Funnel (two tracks: Samples & Testing + Commercial)
   // ═══════════════════════════════════════════════════════════════════
-  const companiesSheet = workbook.addWorksheet("Companies", {
+  const funnelSheet = workbook.addWorksheet("Funnel", {
     views: [{ showGridLines: true }],
   });
 
-  const companiesColumns = [
-    "ID компании",
-    "Название компании",
-    "Ответственный",
-    "Дата создания",
-    "Отрасль",
-    "Регион",
-    "Продукт",
-    "Статус образцов",
-    "Источник статуса",
-    "Дата передачи / отправки",
-    "Результат испытаний",
-    "Текущая сделка",
-    "Коммерческий этап",
-    "Сумма",
-    "Статус оплаты",
-    "Дата оплаты",
-    "Следующий шаг",
-    "Требует внимания",
-    "Причина внимания",
+  const funnelColumns = [
+    "Раздел",
+    "Этап / Показатель",
+    "Сейчас компаний",
+    "Сейчас сделок",
+    "Событий за выбранный период",
   ];
 
-  const compHeaderRowIndex = addOperationalHeader(companiesSheet, logoImageId, {
-    title: "Коммерческая воронка: Компании",
+  const funnelHeaderRowIndex = addOperationalHeader(funnelSheet, logoImageId, {
+    title: "Коммерческая воронка: Воронка",
     period: periodLabel,
     generatedAt: now,
     recordCount: filteredCompanies.length,
     filtersText: filtersSummaryText,
-    colCount: companiesColumns.length,
+    colCount: funnelColumns.length,
+    disclosureLines: [
+      "Текущее состояние портфеля. Диапазон дат применяется к событийным показателям и не ограничивает текущий WIP.",
+      ...extraWarnings,
+    ],
   });
 
-  const companiesHeader = companiesSheet.getRow(compHeaderRowIndex);
-  companiesHeader.values = companiesColumns;
-  styleTableHeader(companiesHeader, { colCount: companiesColumns.length });
+  const funnelHeader = funnelSheet.getRow(funnelHeaderRowIndex);
+  funnelHeader.values = funnelColumns;
+  styleTableHeader(funnelHeader, { colCount: funnelColumns.length });
 
-  companiesSheet.views = [
-    { state: "frozen", ySplit: compHeaderRowIndex, showGridLines: true },
+  funnelSheet.views = [
+    { state: "frozen", ySplit: funnelHeaderRowIndex, showGridLines: true },
   ];
-  companiesSheet.autoFilter = {
-    from: { row: compHeaderRowIndex, column: 1 },
-    to: { row: compHeaderRowIndex, column: companiesColumns.length },
+  funnelSheet.autoFilter = {
+    from: { row: funnelHeaderRowIndex, column: 1 },
+    to: { row: funnelHeaderRowIndex, column: funnelColumns.length },
   };
 
-  const startCompRow = compHeaderRowIndex + 1;
-  for (const c of filteredCompanies) {
-    const dateCreateVal = toExcelDate(c.dateCreate);
-    const sampleDateVal = toExcelDate(c.sampleShipmentDate);
-    const paymentDateVal = toExcelDate(c.primaryDealPaymentDate);
-    const sampleStatusDisplay =
-      c.sampleStatuses && c.sampleStatuses.length > 0
-        ? c.sampleStatuses.join(", ")
-        : c.sampleStatus;
-
-    let oppVal: number | string = "—";
-    if (c.primaryDealOpportunityQuality === "INVALID") {
-      oppVal = "Неверная сумма";
-    } else if (typeof c.primaryDealOpportunity === "number") {
-      oppVal = c.primaryDealOpportunity;
-    }
-
-    const row = companiesSheet.addRow([
-      c.id,
-      c.title,
-      c.responsibleName || c.responsibleId,
-      dateCreateVal,
-      c.industry || "—",
-      c.region || "—",
-      (Array.isArray(c.productType) ? c.productType.join(", ") : c.productType) || "—",
-      sampleStatusDisplay,
-      c.sampleStatusSource,
-      sampleDateVal,
-      c.sampleTestResult || "—",
-      c.primaryDealTitle || "—",
-      c.primaryDealStageName || formatStageToRussian(c.primaryDealStageId),
-      oppVal,
-      formatPaymentStatusToRussian(c.primaryDealPaymentStatus),
-      paymentDateVal,
-      c.primaryDealActivityNext || "—",
-      c.hasAttention ? "Да" : "Нет",
-      (Array.isArray(c.attentionReasons) ? c.attentionReasons.join("; ") : c.attentionReasons) || "—",
+  const startFunnelRow = funnelHeaderRowIndex + 1;
+  // Section A: Samples & Testing
+  for (const stage of funnelView.sampleTestingStages) {
+    const row = funnelSheet.addRow([
+      "Образцы и испытания",
+      stage.label,
+      stage.companyCount,
+      stage.dealCount,
+      stage.periodEventCount === null ? "–" : stage.periodEventCount,
     ]);
     row.height = 20;
-
-    // Native Date formats
-    if (dateCreateVal) row.getCell(4).numFmt = NUMFMT.DATE;
-    if (sampleDateVal) row.getCell(10).numFmt = NUMFMT.DATE;
-    if (paymentDateVal) row.getCell(16).numFmt = NUMFMT.DATE;
-
-    // Currency format
-    if (typeof oppVal === "number") {
-      const dealCur = c.primaryDealCurrencyId ? normalizeCurrencyCode(c.primaryDealCurrencyId) : undefined;
-      row.getCell(14).numFmt = getMoneyNumFmt(dealCur);
-    }
-
-    // Status styling
-    if (sampleStatusDisplay && sampleStatusDisplay !== "—") {
-      applyStatusCell(row.getCell(8), sampleStatusDisplay);
-    }
-    if (c.primaryDealPaymentStatus && c.primaryDealPaymentStatus !== "—") {
-      applyStatusCell(row.getCell(15), c.primaryDealPaymentStatus);
-    }
-    if (c.hasAttention) {
-      applyStatusCell(row.getCell(18), "Да");
-    }
+    row.getCell(3).numFmt = NUMFMT.INTEGER;
+    row.getCell(4).numFmt = NUMFMT.INTEGER;
+    if (stage.periodEventCount !== null) row.getCell(5).numFmt = NUMFMT.INTEGER;
+    applyStatusCell(row.getCell(2), stage.label);
+    row.getCell(2).value = stage.label;
   }
-  const endCompRow = startCompRow + filteredCompanies.length - 1;
-  if (filteredCompanies.length > 0) {
-    styleDataRows(companiesSheet, startCompRow, endCompRow, companiesColumns.length, {
-      headerRowIndex: compHeaderRowIndex,
-    });
+  // Continuation evidence (NOT conversion — no percentage)
+  const contRow = funnelSheet.addRow([
+    "Связка треков",
+    "Положительный результат → коммерческое продолжение (компаний с «Подошли» и продвинутой сделкой)",
+    funnelView.continuation.positiveResult.count,
+    "—",
+    funnelView.continuation.withCommercialContinuation.count,
+  ]);
+  contRow.height = 26;
+  contRow.getCell(3).numFmt = NUMFMT.INTEGER;
+  contRow.getCell(5).numFmt = NUMFMT.INTEGER;
+  const contNote = funnelSheet.addRow([
+    "Связка показывает количество компаний с продолжением из числа «Подошли»; это свидетельство, а не историческая конверсия — процент не вычисляется.",
+  ]);
+  contNote.height = 18;
+  funnelSheet.mergeCells(contNote.number, 1, contNote.number, 5);
+  contNote.getCell(1).font = { name: RS_FONT_FAMILY, size: 9, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+  contNote.getCell(1).alignment = { vertical: "middle", indent: 1 };
+
+  funnelSheet.addRow([]);
+  // Section B: Commercial
+  const commercialRows: Array<[string, string, number | string]> = [
+    ["Коммерциализация — СЕЙЧАС", "Активные коммерческие сделки (компаний)", commercial.current.activeDeals.count],
+    ["Коммерциализация — СЕЙЧАС", "— из них сделок", commercial.current.dealCount],
+    ["Коммерциализация — СЕЙЧАС", "Ожидают оплаты (компаний)", commercial.current.awaitingPayment.count],
+    ["Коммерциализация — СЕЙЧАС", "— из них сделок", commercial.current.awaitingPaymentDealCount],
+    ["Коммерциализация — ЗА ПЕРИОД", "Создано сделок (компаний)", commercial.period.dealsCreated.count],
+    ["Коммерциализация — ЗА ПЕРИОД", "Получена оплата (компаний)", commercial.period.paymentsReceived.count],
+    ["Коммерциализация — ЗА ПЕРИОД", "Отгрузки (компаний)", commercial.period.shipments.count],
+  ];
+  for (const [section, label, value] of commercialRows) {
+    const row = funnelSheet.addRow([section, label, value, "—", "—"]);
+    row.height = 20;
+    if (typeof value === "number") row.getCell(3).numFmt = NUMFMT.INTEGER;
   }
-  autoFitColumns(companiesSheet);
-  configureWorksheetPrint(companiesSheet, {
+  // Payment amounts by currency (isolated; never cross-summed)
+  for (const cur of funnelCurrencies) {
+    const q = commercial.period.paymentAmountQualityByCurrency?.[cur] || "COMPLETE";
+    const amt = commercial.period.paymentAmountsByCurrency?.[cur];
+    let val: number | string;
+    if (q === "INVALID_ONLY") val = "Ошибка данных";
+    else if (q === "UNKNOWN") val = "Нет данных";
+    else val = typeof amt === "number" ? amt : 0;
+    const curLabel = cur === "UNKNOWN" ? "валюта не указана" : cur;
+    const suffix = q === "PARTIAL" ? " (неполные данные)" : "";
+    const row = funnelSheet.addRow([
+      "Коммерциализация — ЗА ПЕРИОД",
+      `Сумма сделок с полученной оплатой (${curLabel})${suffix}`,
+      val,
+      "—",
+      "—",
+    ]);
+    row.height = 20;
+    if (typeof val === "number") row.getCell(3).numFmt = getMoneyNumFmt(cur);
+  }
+
+  autoFitColumns(funnelSheet);
+  configureWorksheetPrint(funnelSheet, {
     orientation: "landscape",
     fitToWidth: 1,
     fitToHeight: 0,
-    printTitlesRow: `${compHeaderRowIndex}:${compHeaderRowIndex}`,
+    printTitlesRow: `${funnelHeaderRowIndex}:${funnelHeaderRowIndex}`,
   });
-  addCorporateFooter(companiesSheet);
+  addCorporateFooter(funnelSheet);
 
   // ═══════════════════════════════════════════════════════════════════
-  // SHEET 3: Samples (Granular sample register)
+  // SHEET 3: Segments (three sections: industries / directions / products)
   // ═══════════════════════════════════════════════════════════════════
-  const samplesSheet = workbook.addWorksheet("Samples", {
+  const segmentsSheet = workbook.addWorksheet("Segments", {
     views: [{ showGridLines: true }],
   });
 
-  const samplesColumns = [
-    "Компания",
-    "Ответственный",
-    "Сделка",
-    "Тип продукта",
-    "Статус образцов",
-    "Источник статуса",
-    "Дата отправки / передачи",
-    "Дней с отправки",
-    "Результат испытаний",
-    "Марка ГЕЛЬ",
-    "Марка ЗОЛЬ",
-    "Количество ГЕЛЬ",
-    "Количество ЗОЛЬ",
-    "Следующий шаг",
+  const segmentCurrentCols = [
+    "Компании в текущем контуре",
+    "Требуются образцы",
+    "Отправлены",
+    "На испытаниях",
+    "Подошли",
+    "Не подошли",
+    "Доработка",
+    "Активные сделки",
+    "Ожидают оплаты",
+    "Требуют внимания",
   ];
+  const segmentPeriodCols = [
+    "Новые компании",
+    "Компании с отправл. образцами",
+    "Компании с созд. сделками",
+    "Компании с оплатой",
+    "Компании с отгрузками",
+  ];
+  const segmentsColumns = ["Сегмент", ...segmentCurrentCols, ...segmentPeriodCols];
 
-  const samplesHeaderRowIndex = addOperationalHeader(samplesSheet, logoImageId, {
-    title: "Коммерческая воронка: Регистр образцов",
+  const segmentsHeaderRowIndex = addOperationalHeader(segmentsSheet, logoImageId, {
+    title: "Коммерческая воронка: Сегменты",
     period: periodLabel,
     generatedAt: now,
-    recordCount: sampleRegister.length,
+    recordCount: filteredCompanies.length,
     filtersText: filtersSummaryText,
-    colCount: samplesColumns.length,
+    colCount: segmentsColumns.length,
+    disclosureLines: [
+      "Текущее состояние портфеля. Диапазон дат применяется к событийным показателям и не ограничивает текущий WIP.",
+      "Компания может относиться к нескольким значениям измерения (Направления / Продукты); сумма строк может превышать число уникальных компаний. Итого считается по уникальным компаниям.",
+      ...extraWarnings,
+    ],
   });
 
-  const samplesHeader = samplesSheet.getRow(samplesHeaderRowIndex);
-  samplesHeader.values = samplesColumns;
-  styleTableHeader(samplesHeader, { colCount: samplesColumns.length });
+  const segmentsHeader = segmentsSheet.getRow(segmentsHeaderRowIndex);
+  segmentsHeader.values = segmentsColumns;
+  styleTableHeader(segmentsHeader, { colCount: segmentsColumns.length });
 
-  samplesSheet.views = [
-    { state: "frozen", ySplit: samplesHeaderRowIndex, showGridLines: true },
+  segmentsSheet.views = [
+    { state: "frozen", ySplit: segmentsHeaderRowIndex, showGridLines: true },
   ];
-  samplesSheet.autoFilter = {
-    from: { row: samplesHeaderRowIndex, column: 1 },
-    to: { row: samplesHeaderRowIndex, column: samplesColumns.length },
+  segmentsSheet.autoFilter = {
+    from: { row: segmentsHeaderRowIndex, column: 1 },
+    to: { row: segmentsHeaderRowIndex, column: segmentsColumns.length },
   };
 
-  const startSamplesRow = samplesHeaderRowIndex + 1;
-  for (const s of sampleRegister) {
-    const shipmentDateVal = toExcelDate(s.shipmentDate);
-    const row = samplesSheet.addRow([
-      s.companyTitle,
-      s.responsibleName,
-      s.dealTitle || "—",
-      s.productType,
-      s.status,
-      s.statusSource,
-      shipmentDateVal,
-      s.daysSinceSent !== undefined ? s.daysSinceSent : "—",
-      s.testResult || "—",
-      s.gradeGel || "—",
-      s.gradeSol || "—",
-      s.qtyGel || "—",
-      s.qtySol || "—",
-      s.nextAction || "—",
+  const writeSegmentSection = (title: string, breakdown: ReturnType<typeof computeSegmentBreakdown>) => {
+    const sectionRow = segmentsSheet.addRow([title]);
+    sectionRow.height = 22;
+    segmentsSheet.mergeCells(sectionRow.number, 1, sectionRow.number, segmentsColumns.length);
+    const secCell = sectionRow.getCell(1);
+    secCell.font = { name: RS_FONT_FAMILY, size: 11, bold: true, color: { argb: `FF${RS_BLUE_PRIMARY}` } };
+    secCell.alignment = { vertical: "middle", indent: 1 };
+
+    for (const rowDef of breakdown.rows) {
+      const r = segmentsSheet.addRow([
+        rowDef.label,
+        rowDef.current.activeCompanies.count,
+        rowDef.current.requireSamples.count,
+        rowDef.current.samplesSent.count,
+        rowDef.current.inTesting.count,
+        rowDef.current.passed.count,
+        rowDef.current.failed.count,
+        rowDef.current.rework.count,
+        rowDef.current.activeDeals.count,
+        rowDef.current.awaitingPayment.count,
+        rowDef.current.requireAttention.count,
+        rowDef.period.newCompanies.count,
+        rowDef.period.samplesSent.count,
+        rowDef.period.dealsCreated.count,
+        rowDef.period.paymentsReceived.count,
+        rowDef.period.shipments.count,
+      ]);
+      r.height = 20;
+      for (let c = 2; c <= segmentsColumns.length; c++) {
+        r.getCell(c).numFmt = NUMFMT.INTEGER;
+      }
+    }
+    // Итого по уникальным компаниям (NOT the sum of row counts)
+    const totalRow = segmentsSheet.addRow([
+      "Итого по уникальным компаниям",
+      breakdown.totalUniqueCompanyIds.length,
+      ...Array.from({ length: segmentsColumns.length - 2 }, () => "—"),
     ]);
-    row.height = 20;
+    totalRow.height = 20;
+    totalRow.font = { name: RS_FONT_FAMILY, size: 10, bold: true };
+    totalRow.getCell(2).numFmt = NUMFMT.INTEGER;
+  };
 
-    if (shipmentDateVal) row.getCell(7).numFmt = NUMFMT.DATE;
-    if (typeof s.daysSinceSent === "number") row.getCell(8).numFmt = NUMFMT.INTEGER;
+  writeSegmentSection("По отраслям", segmentIndustry);
+  writeSegmentSection("По направлениям", segmentDirection);
+  writeSegmentSection("По продуктам", segmentProduct);
 
-    // Status styling
-    if (s.status && s.status !== "—") {
-      applyStatusCell(row.getCell(5), s.status);
-    }
-    if (s.testResult && s.testResult !== "—") {
-      applyStatusCell(row.getCell(9), s.testResult);
-    }
-  }
-  const endSamplesRow = startSamplesRow + sampleRegister.length - 1;
-  if (sampleRegister.length > 0) {
-    styleDataRows(samplesSheet, startSamplesRow, endSamplesRow, samplesColumns.length, {
-      headerRowIndex: samplesHeaderRowIndex,
-    });
-  }
-  autoFitColumns(samplesSheet);
-  configureWorksheetPrint(samplesSheet, {
+  autoFitColumns(segmentsSheet);
+  configureWorksheetPrint(segmentsSheet, {
     orientation: "landscape",
     fitToWidth: 1,
     fitToHeight: 0,
-    printTitlesRow: `${samplesHeaderRowIndex}:${samplesHeaderRowIndex}`,
+    printTitlesRow: `${segmentsHeaderRowIndex}:${segmentsHeaderRowIndex}`,
   });
-  addCorporateFooter(samplesSheet);
+  addCorporateFooter(segmentsSheet);
 
   // ═══════════════════════════════════════════════════════════════════
-  // SHEET 4: Managers (Scorecard per responsible)
+  // SHEET 4: Sample Testing (management snapshot, NOT the raw registry)
+  // ═══════════════════════════════════════════════════════════════════
+  const sampleTestingSheet = workbook.addWorksheet("Sample Testing", {
+    views: [{ showGridLines: true }],
+  });
+
+  const sampleTestingColumns = [
+    "№",
+    "Компания",
+    "Менеджер",
+    "Продукт",
+    "Отрасль / направление",
+    "Марка / партия",
+    "Дата отправки",
+    "Статус испытаний",
+    "Результат",
+    "Следующий шаг / актуальный комментарий",
+    "Сделка",
+  ];
+
+  const stHeaderRowIndex = addOperationalHeader(sampleTestingSheet, logoImageId, {
+    title: "Коммерческая воронка: Испытания образцов (управленческий срез)",
+    period: periodLabel,
+    generatedAt: now,
+    recordCount: sampleSnapshot.length,
+    filtersText: filtersSummaryText,
+    colCount: sampleTestingColumns.length,
+    disclosureLines: [
+      "Текущее состояние портфеля. Диапазон дат применяется к событийным показателям и не ограничивает текущий WIP: активные испытания остаются в срезе независимо от даты отправки.",
+      ...extraWarnings,
+    ],
+  });
+
+  const stHeader = sampleTestingSheet.getRow(stHeaderRowIndex);
+  stHeader.values = sampleTestingColumns;
+  styleTableHeader(stHeader, { colCount: sampleTestingColumns.length });
+
+  sampleTestingSheet.views = [
+    { state: "frozen", ySplit: stHeaderRowIndex, showGridLines: true },
+  ];
+  sampleTestingSheet.autoFilter = {
+    from: { row: stHeaderRowIndex, column: 1 },
+    to: { row: stHeaderRowIndex, column: sampleTestingColumns.length },
+  };
+
+  const startStRow = stHeaderRowIndex + 1;
+  sampleSnapshot.forEach((s, idx) => {
+    const shipmentDateVal = toExcelDate(s.shipmentDate);
+    const row = sampleTestingSheet.addRow([
+      idx + 1,
+      s.companyTitle,
+      s.responsibleName,
+      s.productType || "—",
+      s.industry === s.direction ? s.industry : `${s.industry} / ${s.direction}`,
+      s.markOrBatch,
+      shipmentDateVal,
+      s.testingStatus,
+      s.testResult,
+      s.nextActionOrComment,
+      s.dealTitle || "—",
+    ]);
+    row.height = 30;
+    row.alignment = { vertical: "top", wrapText: true };
+    row.getCell(1).numFmt = NUMFMT.INTEGER;
+    if (shipmentDateVal) row.getCell(7).numFmt = NUMFMT.DATE;
+    applyStatusCell(row.getCell(8), s.testingStatus);
+    row.getCell(8).value = s.testingStatus;
+  });
+  const endStRow = startStRow + sampleSnapshot.length - 1;
+  if (sampleSnapshot.length > 0) {
+    styleDataRows(sampleTestingSheet, startStRow, endStRow, sampleTestingColumns.length, {
+      headerRowIndex: stHeaderRowIndex,
+    });
+  }
+  autoFitColumns(sampleTestingSheet);
+  configureWorksheetPrint(sampleTestingSheet, {
+    orientation: "landscape",
+    fitToWidth: 1,
+    fitToHeight: 0,
+    printTitlesRow: `${stHeaderRowIndex}:${stHeaderRowIndex}`,
+  });
+  addCorporateFooter(sampleTestingSheet);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // SHEET 5: Managers (Scorecard per responsible; grouped columns; no ranking)
   // ═══════════════════════════════════════════════════════════════════
   const managersSheet = workbook.addWorksheet("Managers", {
     views: [{ showGridLines: true }],
@@ -1059,22 +1202,46 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   const isMultiManagerCurrencies = allManagerCurrencies.length > 1;
 
+  // Period shipments per manager (unique companies; Deal manager authoritative,
+  // company owner fallback — mirrors engine provenance rules).
+  const shipmentsByManager = new Map<string, number>();
+  for (const c of filteredCompanies) {
+    const dealSenders = new Set<string>();
+    for (const d of c.deals) {
+      if (
+        d.shipmentDate &&
+        isDateInPeriod(d.shipmentDate, boundaries.currentStart, boundaries.currentEnd)
+      ) {
+        dealSenders.add(d.responsibleId || c.responsibleId);
+      }
+    }
+    for (const mgr of dealSenders) {
+      shipmentsByManager.set(mgr, (shipmentsByManager.get(mgr) || 0) + 1);
+    }
+  }
+
   const managersColumns = [
     "Менеджер",
+    // PORTFOLIO (current)
+    "Компании в текущем контуре (сейчас)",
+    "На испытании (сейчас)",
+    "Ожидают оплаты (сейчас)",
+    "Без следующего шага (сейчас)",
+    "Требуют внимания (сейчас)",
+    // PERIOD FLOW
     "Новые компании (период)",
     "Образцы отправлены (период)",
-    "Сейчас на испытании",
+    // RESULT
     "Подошли",
     "Не подошли",
     "Требуют доработки",
-    "Создано сделок (период)",
     "Получено оплат (период)",
     ...(isMultiManagerCurrencies
       ? allManagerCurrencies.map((cur) => `${PAYMENT_AMOUNT_LABEL} (${cur === "UNKNOWN" ? "валюта не указана" : cur})`)
       : allManagerCurrencies.length === 1
       ? [`${PAYMENT_AMOUNT_LABEL} (${allManagerCurrencies[0] === "UNKNOWN" ? "валюта не указана" : allManagerCurrencies[0]})`]
       : [PAYMENT_AMOUNT_LABEL]),
-    "Требуют внимания",
+    "Компании с отгрузками (период)",
   ];
 
   const managersHeaderRowIndex = addOperationalHeader(managersSheet, logoImageId, {
@@ -1122,27 +1289,34 @@ function formatPeriodPresetToRussian(preset: string): string {
 
     const row = managersSheet.addRow([
       m.name,
+      // PORTFOLIO (current)
+      m.activeCompanies,
+      m.inTesting,
+      m.awaitingPayment,
+      m.noNextStep,
+      m.bottlenecksCount,
+      // PERIOD FLOW
       m.newCompanies,
       m.samplesSent,
-      m.inTesting,
+      // RESULT
       m.sampleSuccess,
       m.sampleFail,
       m.sampleRework,
-      m.dealsCreated,
       m.paymentsReceived,
       ...payAmounts,
-      m.bottlenecksCount,
+      shipmentsByManager.get(m.responsibleId) ?? 0,
     ]);
     row.height = 20;
 
-    for (let c = 2; c <= 9; c++) {
+    for (let c = 2; c <= managersColumns.length; c++) {
       row.getCell(c).numFmt = NUMFMT.INTEGER;
     }
 
+    const moneyColStart = 13;
     if (isMultiManagerCurrencies) {
       for (let i = 0; i < allManagerCurrencies.length; i++) {
         const cur = allManagerCurrencies[i];
-        const cell = row.getCell(10 + i);
+        const cell = row.getCell(moneyColStart + i);
         if (typeof payAmounts[i] === "number") {
           cell.numFmt = getMoneyNumFmt(cur);
         }
@@ -1150,16 +1324,9 @@ function formatPeriodPresetToRussian(preset: string): string {
           cell.note = "Неполные данные: присутствуют сделки с некорректной суммой";
         }
       }
-      const attentionCol = 10 + allManagerCurrencies.length;
-      row.getCell(attentionCol).numFmt = NUMFMT.INTEGER;
-
-      if (m.bottlenecksCount > 0) {
-        applyStatusCell(row.getCell(attentionCol), "Внимание");
-        row.getCell(attentionCol).value = m.bottlenecksCount;
-      }
     } else {
       const singleCur = allManagerCurrencies[0];
-      const cell = row.getCell(10);
+      const cell = row.getCell(moneyColStart);
       if (typeof payAmounts[0] === "number") {
         cell.numFmt = getMoneyNumFmt(singleCur);
       }
@@ -1168,12 +1335,6 @@ function formatPeriodPresetToRussian(preset: string): string {
         (singleCur && m.paymentAmountsQualityByCurrency?.[singleCur] === "PARTIAL")
       ) {
         cell.note = "Неполные данные: присутствуют сделки с некорректной суммой";
-      }
-      row.getCell(11).numFmt = NUMFMT.INTEGER;
-
-      if (m.bottlenecksCount > 0) {
-        applyStatusCell(row.getCell(11), "Внимание");
-        row.getCell(11).value = m.bottlenecksCount;
       }
     }
   }
@@ -1193,29 +1354,29 @@ function formatPeriodPresetToRussian(preset: string): string {
   addCorporateFooter(managersSheet);
 
   // ═══════════════════════════════════════════════════════════════════
-  // SHEET 5: Bottlenecks (Actionable items requiring attention)
+  // SHEET 6: Action Plan (operationally usable in a management meeting)
   // ═══════════════════════════════════════════════════════════════════
-  const bottlenecksSheet = workbook.addWorksheet("Bottlenecks", {
+  const bottlenecksSheet = workbook.addWorksheet("Action Plan", {
     views: [{ showGridLines: true }],
   });
 
   const bottlenecksColumns = [
     "Компания",
     "Менеджер",
-    "Проблема / Причина",
+    "Где зависло",
     "Текущее состояние",
-    "Дата события",
     "Дней ожидания",
-    "Сделка",
-    "Сумма",
+    "Последняя активность",
     "Следующий шаг",
+    "Срок",
+    "Сделка",
   ];
 
   const botHeaderRowIndex = addOperationalHeader(bottlenecksSheet, logoImageId, {
-    title: "Коммерческая воронка: Узкие места",
+    title: "Коммерческая воронка: План действий",
     period: periodLabel,
     generatedAt: now,
-    recordCount: bottlenecks.length,
+    recordCount: actionPlan.length,
     filtersText: filtersSummaryText,
     colCount: bottlenecksColumns.length,
     disclosureLines: extraWarnings,
@@ -1234,42 +1395,32 @@ function formatPeriodPresetToRussian(preset: string): string {
   };
 
   const startBotRow = botHeaderRowIndex + 1;
-  for (const b of bottlenecks) {
-    const relevantDateVal = toExcelDate(b.relevantDate);
-    let botAmtVal: number | string = "—";
-    if (b.amountQuality === "INVALID") {
-      botAmtVal = "Неверная сумма";
-    } else if (typeof b.amount === "number") {
-      botAmtVal = b.amount;
-    }
-
-    const daysWaitingVal = typeof b.daysWaiting === "number" ? b.daysWaiting : "—";
+  for (const a of actionPlan) {
+    const lastActivityVal = toExcelDate(a.lastActivity);
+    const nextDateVal = toExcelDate(a.nextActionDate);
     const row = bottlenecksSheet.addRow([
-      b.companyTitle,
-      b.responsibleName,
-      b.issueLabel,
-      b.currentState,
-      relevantDateVal,
-      daysWaitingVal,
-      b.dealTitle || "—",
-      botAmtVal,
-      b.nextAction || "—",
+      a.companyTitle,
+      a.responsibleName,
+      a.stuckAt,
+      a.currentState,
+      typeof a.daysWaiting === "number" ? a.daysWaiting : "—",
+      a.lastActivityKnown ? (lastActivityVal || a.lastActivity || "—") : "данные активности недоступны",
+      a.nextAction || NEXT_ACTION_MISSING_LABEL,
+      nextDateVal || (a.nextActionDate || "—"),
+      a.dealTitle || "—",
     ]);
-    row.height = 20;
+    row.height = 24;
+    row.alignment = { vertical: "top", wrapText: true };
 
-    if (relevantDateVal) row.getCell(5).numFmt = NUMFMT.DATE;
-    if (typeof b.daysWaiting === "number") row.getCell(6).numFmt = NUMFMT.INTEGER;
-    if (typeof botAmtVal === "number") {
-      const botCur = b.currencyId ? normalizeCurrencyCode(b.currencyId) : undefined;
-      row.getCell(8).numFmt = getMoneyNumFmt(botCur);
-    }
+    if (typeof a.daysWaiting === "number") row.getCell(5).numFmt = NUMFMT.INTEGER;
+    if (lastActivityVal) row.getCell(6).numFmt = NUMFMT.DATE;
+    if (nextDateVal) row.getCell(8).numFmt = NUMFMT.DATE;
 
-    // Attention styling
     applyStatusCell(row.getCell(3), "Внимание");
-    row.getCell(3).value = b.issueLabel;
+    row.getCell(3).value = a.stuckAt;
   }
-  const endBotRow = startBotRow + bottlenecks.length - 1;
-  if (bottlenecks.length > 0) {
+  const endBotRow = startBotRow + actionPlan.length - 1;
+  if (actionPlan.length > 0) {
     styleDataRows(bottlenecksSheet, startBotRow, endBotRow, bottlenecksColumns.length, {
       headerRowIndex: botHeaderRowIndex,
     });

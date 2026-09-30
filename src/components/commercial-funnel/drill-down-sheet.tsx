@@ -2,7 +2,8 @@
 
 // src/components/commercial-funnel/drill-down-sheet.tsx
 // Displays the exact list of unique companies behind any KPI card.
-// Reconciles with card number and allows opening CompanyPreview.
+// Reconciles with card number and allows opening CompanyPreview,
+// plus a deep link into the top-level Samples section (/samples?company=<id>).
 
 import {
   Sheet,
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Building2, ExternalLink } from "lucide-react";
+import { Building2, ExternalLink, FlaskConical } from "lucide-react";
 import type { CommercialCompany } from "@/lib/commercial-funnel/types";
 import { formatCurrencyAmount } from "@/lib/commercial-funnel/normalize";
 
@@ -72,8 +73,10 @@ export function CommercialDrillDownSheet({
                   <TableRow className="bg-muted">
                     <TableHead className="text-xs">Компания</TableHead>
                     <TableHead className="text-xs">Ответственный</TableHead>
+                    <TableHead className="text-xs">Продукт</TableHead>
                     <TableHead className="text-xs">Статус образцов</TableHead>
                     <TableHead className="text-xs">Этап сделки</TableHead>
+                    <TableHead className="text-xs">Следующий шаг</TableHead>
                     <TableHead className="text-xs text-right">Сумма</TableHead>
                     <TableHead className="text-xs w-10"></TableHead>
                   </TableRow>
@@ -98,13 +101,21 @@ export function CommercialDrillDownSheet({
                       <TableCell className="text-xs text-muted-foreground">
                         {c.responsibleName || c.responsibleId}
                       </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" title={c.productType.join(", ")}>
+                        {c.productType.length > 0 ? c.productType.join(", ") : "—"}
+                      </TableCell>
                       <TableCell className="text-xs">
                         <Badge variant="outline" className="text-[10px]">
-                          {c.sampleStatus}
+                          {c.sampleStatus || "—"}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {c.primaryDealStageName || c.primaryDealStageId || "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate" title={c.primaryDealActivityNext}>
+                        {c.primaryDealActivityDataKnown
+                          ? c.primaryDealActivityNext || "не указан"
+                          : "данные недоступны"}
                       </TableCell>
                       <TableCell className="text-xs text-right font-medium">
                         {c.primaryDealOpportunityQuality === "INVALID" ? (
@@ -124,18 +135,34 @@ export function CommercialDrillDownSheet({
                         )}
                       </TableCell>
                       <TableCell className="text-xs">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectCompany(c.id);
-                          }}
-                          title="Открыть карточку компании"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex items-center gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectCompany(c.id);
+                            }}
+                            title="Открыть карточку компании"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            asChild
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <a
+                              href={`/samples?company=${encodeURIComponent(c.id)}`}
+                              title="Открыть в разделе Образцы"
+                            >
+                              <FlaskConical className="h-3.5 w-3.5" />
+                            </a>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

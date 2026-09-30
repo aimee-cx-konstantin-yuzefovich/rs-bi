@@ -41,7 +41,12 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
 
     sheet.eachRow((row) => {
       const label = String(row.getCell(1).value || "");
-      if (label.includes("Сумма сделок с полученной оплатой")) {
+      // KPI table rows (Section 1) carry the unique-company count in col 6;
+      // this disambiguates from the Commercialization snapshot section rows.
+      if (
+        label.includes("Сумма сделок с полученной оплатой") &&
+        typeof row.getCell(6).value === "number"
+      ) {
         targetRow = row;
       }
     });
