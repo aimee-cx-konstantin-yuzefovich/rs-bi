@@ -12,7 +12,7 @@ RusSilica BI Terminal — a Next.js dashboard that displays Bitrix24 CRM deals/c
 2. **`AGENTS.md`** for operational hard rules, invariant constraints, and quality gates
 3. **`CLAUDE.md`** for architecture, subsystem design, and data flow specifications
 4. **`DEPLOYMENT.md`** for production deployment, production database safety, and artifact packaging rules
-5. **Historical plans and snapshots** (`codebase-snapshot.md` is legacy historical context)
+5. **Historical plans, working briefs, and snapshots**: Files matching `plan.md`, `*-plan.md`, historical implementation briefs, audit reports, and `codebase-snapshot.md` are historical working artifacts unless they explicitly declare themselves current normative documentation. They must never override levels 1–4.
 
 If code and documentation ever appear to contradict a documented business contract, do not silently rewrite the documentation. Halt and report `DOCUMENTATION_CONTRACT_CONFLICT`.
 
@@ -322,3 +322,10 @@ The following concepts are deliberately **NOT** implemented in the Commercial Fu
 - UI is shadcn/ui components (`src/components/ui/*`, configured via `components.json`) + Tailwind v4 + Radix
   primitives. Don't hand-roll a component that already exists under `src/components/ui/`.
 - Tests use Vitest + Testing Library + jsdom (`vitest.config.mts`); test files live in `src/__tests__/`.
+
+### Documentation maintenance & durability contract
+
+- **Update in the same change**: Update `AGENTS.md` / `CLAUDE.md` in the same patch when materially changing Commercial Funnel business semantics, analytical grain/provenance, global filter semantics, manager attribution, CRM field/status mappings, permanent UI tab / workbook contracts, auth/security architecture, Zustand store schema, DB migrations, or canonical QA workflows.
+- **No churn for refactors**: Do not edit documentation for internal implementation refactors when the documented contract remains unchanged.
+- **No transient state**: Never write commit SHAs, branch names, PR numbers, CI IDs, test counts, benchmark timings, or preview URLs into long-lived documentation.
+- **Invariants over algorithms**: Describe invariants, ownership, provenance rules, and subsystem responsibilities alongside the canonical function/module. Do not duplicate complete procedural algorithms or decision trees into Markdown. Executable code and tests remain the authority for low-level computational details.

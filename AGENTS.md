@@ -12,7 +12,7 @@ When reasoning about system behavior, follow this strict precedence:
 2. **`AGENTS.md`** for operational hard rules, invariant constraints, and guardrails
 3. **`CLAUDE.md`** for detailed architecture and subsystem design explanations
 4. **`DEPLOYMENT.md`** for production deployment, production database safety, and artifact rules
-5. **Historical plans and snapshots** (`codebase-snapshot.md` is legacy documentation)
+5. **Historical plans, working briefs, and snapshots**: Files matching `plan.md`, `*-plan.md`, historical implementation briefs, audit reports, and `codebase-snapshot.md` are historical working artifacts unless they explicitly declare themselves current normative documentation. They must **never** take precedence over levels 1–4.
 
 > [!CAUTION]
 > **DOCUMENTATION_CONTRACT_CONFLICT**
@@ -21,6 +21,52 @@ When reasoning about system behavior, follow this strict precedence:
 > - Code location
 > - Documentation location
 > - Why the conflict matters
+
+## Documentation maintenance & durability contract
+
+### When documentation MUST be updated
+Update `AGENTS.md` / `CLAUDE.md` in the same change when a patch materially changes:
+- Commercial Funnel business semantics;
+- analytical grain or provenance;
+- global filter semantics;
+- Manager attribution;
+- CRM field/status mappings;
+- permanent UI tab / Excel workbook contracts;
+- authentication/security architecture;
+- persisted Zustand schema;
+- production database/migration contract;
+- canonical QA/release workflow.
+
+Do **NOT** require documentation churn for implementation-only refactors when the documented contract remains unchanged.
+
+### No transient state in long-lived docs
+Do not hard-code ephemeral execution state into `AGENTS.md` or `CLAUDE.md`:
+- commit SHAs;
+- branch names;
+- PR numbers;
+- CI run IDs;
+- current test counts;
+- benchmark timings;
+- preview URLs;
+- temporary deployment state.
+
+Document contracts, operational commands, and stable business mappings (with references to canonical constants such as `INVOICE_SENT_STATUS_CODES` in `src/lib/commercial-funnel/constants.ts`) — not ephemeral task execution results.
+
+### Invariants over executable algorithms (No second engine in Markdown)
+Documentation must describe:
+- invariants;
+- ownership;
+- provenance;
+- subsystem responsibilities;
+- safety rules.
+
+Do not duplicate complete executable algorithms, formulas, loops, or long decision trees in Markdown when the canonical implementation already exists. Prefer:
+> `"invariant + canonical function/module"` (e.g. `computeManagerScorecard` attributes awaiting payment independently of active-stage status)
+
+over:
+> `"a prose copy of the implementation"`.
+
+Executable code and tests remain authoritative for low-level calculation details.
 
 ## Hard operational rules
 
@@ -97,7 +143,7 @@ The Commercial Funnel (`/commercial-funnel`) is a **management analytics layer**
 - **Deduplication**: One company counts once per manager (Set union). A company may legitimately appear under two different managers when the sample cycle and active commercial deal belong to different employees.
 
 ### Awaiting payment invariant
-- A deal is awaiting payment if and only if: `paymentStatus ∈ INVOICE_SENT_STATUS_CODES`.
+- A deal is awaiting payment if and only if: `paymentStatus ∈ INVOICE_SENT_STATUS_CODES` (defined in `src/lib/commercial-funnel/constants.ts`).
 - Current configured business values: `105` ("Выставлен счет") and `107` ("Ожидает подтверждения").
 - **`103` ("Не оплачен") is NOT awaiting payment**.
 - **Critical invariant**: Awaiting payment does **NOT** depend on `isDealActiveStage(...)`. A deal in a terminal stage (e.g. `WON` or `C1:LOSE`) with payment status `105`/`107` truthfully remains awaiting payment. Never gate awaiting-payment classification behind active-stage filtering.
