@@ -23,6 +23,9 @@ export {
   COMPANY_DIRECTION_FIELD_ID,
   COMPANY_INDUSTRY_FIELD_ID,
   COMPANY_INDUSTRY_FIELD_TITLE,
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_INDUSTRY_DEPRECATED_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TESTING_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
@@ -50,6 +53,20 @@ export const SAMPLE_DATA_ISSUE_LABELS: Record<SampleDataIssue, string> = {
   application_fields_differ:
     "Старое и новое поля «Область применения» содержат разные значения",
   deal_without_company: "Сделка с данными по образцам без привязки к компании",
+  smart_process_stage_result_conflict:
+    "Этап смарт-процесса противоречит указанному результату тестирования",
+  smart_process_relation_conflict:
+    "Связь смарт-процесса с компанией и сделкой противоречива",
+  smart_process_orphan_item:
+    "Элемент смарт-процесса без подтверждённой связи с компанией",
+  smart_process_multiple_active:
+    "У компании несколько активных элементов смарт-процесса",
+  smart_process_missing_sent_date:
+    "Этап отправки/испытания без заполненной даты отправки",
+  smart_process_unknown_stage:
+    "Неизвестный этап смарт-процесса (не классифицирован)",
+  smart_process_unknown_result:
+    "Неизвестное значение результата тестирования смарт-процесса",
 };
 
 export const NORMALIZED_RESULT_LABELS: Record<string, string> = {

@@ -76,6 +76,39 @@ export const DEAL_INDUSTRY_FIELD_ID = "UF_CRM_6915D8C2C31D0";
 // Deal "Регион" (string)
 export const DEAL_REGION_FIELD_ID = "UF_CRM_69259C45EC14B";
 
+// ─── Smart Process 1032 contract (re-exported from samples contract) ──
+// All Smart Process IDs (entity/category/stages/UF fields) live in
+// src/lib/samples/smart-process-contract.ts — the single source. Re-export
+// the constants the verifier and CRM config consumers need here so CRM
+// configuration changes still touch ONLY this file's import chain.
+export {
+  SMART_PROCESS_ENTITY_TYPE_ID,
+  SMART_PROCESS_CATEGORY_ID,
+  SMART_PROCESS_STAGE_STATUS_ENTITY_ID,
+  SMART_PROCESS_SENT_DATE_FIELD_ID,
+  SMART_PROCESS_DEAL_FIELD_ID,
+  SMART_PROCESS_GRADE_GEL_FIELD_ID,
+  SMART_PROCESS_GRADE_SOL_FIELD_ID,
+  SMART_PROCESS_TEST_RESULT_FIELD_ID,
+  SMART_PROCESS_COMPANY_FIELD_ID,
+  SMART_PROCESS_HAS_DISCOVERED_CONTRACT,
+} from "./samples/smart-process-contract";
+
+// ─── Current Company-card classification (user-approved 2026 fields) ──
+// «Отрасль (согл.список)» — authoritative CURRENT industry for the Samples
+// registry filter/projection. Legacy INDUSTRY (crm_status) and the retired
+// «Отрасль (не использовать)» (UF_CRM_6915D8C0C6814) must never override it.
+export const COMPANY_INDUSTRY_CURRENT_FIELD_ID = "UF_CRM_1784195884554";
+export const COMPANY_INDUSTRY_CURRENT_FIELD_TITLE = "Отрасль (согл.список)";
+/** Retired classification field — must never be used as current industry. */
+export const COMPANY_INDUSTRY_DEPRECATED_FIELD_ID = "UF_CRM_6915D8C0C6814";
+
+// «Направление (согл.список)» — authoritative CURRENT direction for the
+// Samples/current sample context. The legacy multi-enum «Направление»
+// (UF_CRM_69259C45D3399) stays for historical Commercial Funnel dimensions.
+export const COMPANY_DIRECTION_CURRENT_FIELD_ID = "UF_CRM_1784200275341";
+export const COMPANY_DIRECTION_CURRENT_FIELD_TITLE = "Направление (согл.список)";
+
 export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "COMPANY_TITLE",
   // NEW — guaranteed defaults for the Companies browser (required fields:

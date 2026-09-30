@@ -187,6 +187,73 @@ export const SAMPLES_FIELD_SPECS = [
     expectedTypes: ["enumeration"],
     acceptedTitles: ["Направление"],
   },
+
+  // Smart Process 1032 fields — configured IDs live in
+  // src/lib/samples/smart-process-contract.ts (null until live discovery
+  // via scripts/discover-smart-process-contract.mjs has committed them).
+  // Durable verification: run this script after discovery to re-prove the
+  // committed IDs against the live CRM schema.
+  ...(crm.SMART_PROCESS_SENT_DATE_FIELD_ID
+    ? [
+        {
+          role: "SP: Дата отправки",
+          entity: "SmartProcess",
+          configuredId: crm.SMART_PROCESS_SENT_DATE_FIELD_ID,
+          expectedTypes: ["date"],
+          acceptedTitles: ["Дата отправки", "Дата отправки образцов"],
+        },
+      ]
+    : []),
+  ...(crm.SMART_PROCESS_DEAL_FIELD_ID
+    ? [
+        {
+          role: "SP: Сделка",
+          entity: "SmartProcess",
+          configuredId: crm.SMART_PROCESS_DEAL_FIELD_ID,
+          expectedTypes: ["integer"],
+          acceptedTitles: ["Сделка"],
+        },
+      ]
+    : []),
+  ...(crm.SMART_PROCESS_GRADE_GEL_FIELD_ID
+    ? [
+        {
+          role: "SP: Марка предоставленных образцов (ГЕЛЬ)",
+          entity: "SmartProcess",
+          configuredId: crm.SMART_PROCESS_GRADE_GEL_FIELD_ID,
+          expectedTypes: ["enumeration", "string"],
+          acceptedTitles: [
+            "Марка предоставленных образцов (ГЕЛЬ)",
+            "Марка образца (ГЕЛЬ)",
+          ],
+        },
+      ]
+    : []),
+  ...(crm.SMART_PROCESS_GRADE_SOL_FIELD_ID
+    ? [
+        {
+          role: "SP: Марка предоставленных образцов (ЗОЛЬ)",
+          entity: "SmartProcess",
+          configuredId: crm.SMART_PROCESS_GRADE_SOL_FIELD_ID,
+          expectedTypes: ["enumeration", "string"],
+          acceptedTitles: [
+            "Марка предоставленных образцов (ЗОЛЬ)",
+            "Марка образца (ЗОЛЬ)",
+          ],
+        },
+      ]
+    : []),
+  ...(crm.SMART_PROCESS_TEST_RESULT_FIELD_ID
+    ? [
+        {
+          role: "SP: Результат тестирования",
+          entity: "SmartProcess",
+          configuredId: crm.SMART_PROCESS_TEST_RESULT_FIELD_ID,
+          expectedTypes: ["enumeration", "string"],
+          acceptedTitles: ["Результат тестирования"],
+        },
+      ]
+    : []),
 ];
 
 // Detect BITRIX_WEBHOOK_URL from environment or standard env files only
@@ -332,6 +399,20 @@ async function main() {
   console.log("Querying read-only metadata from CRM...");
 
   try {
+    // Smart Process fields are fetched only when the contract has been
+    // discovered (IDs committed); otherwise the SP section is skipped.
+    let smartProcessFields = null;
+    if (crm.SMART_PROCESS_ENTITY_TYPE_ID && crm.SMART_PROCESS_HAS_DISCOVERED_CONTRACT) {
+      try {
+        smartProcessFields = await callBitrixReadOnly(webhookUrl, "crm.item.fields", {
+          entityTypeId: crm.SMART_PROCESS_ENTITY_TYPE_ID,
+          useOriginalUfNames: "Y",
+        });
+      } catch {
+        smartProcessFields = null;
+      }
+    }
+
     const [companyFields, dealFields, statusList] = await Promise.all([
       callBitrixReadOnly(webhookUrl, "crm.company.fields"),
       callBitrixReadOnly(webhookUrl, "crm.deal.fields"),
@@ -342,7 +423,12 @@ async function main() {
     let hasFailure = false;
 
     for (const spec of SAMPLES_FIELD_SPECS) {
-      const fieldRepo = spec.entity === "Company" ? companyFields : dealFields;
+      const fieldRepo =
+        spec.entity === "Company"
+          ? companyFields
+          : spec.entity === "Deal"
+          ? dealFields
+          : smartProcessFields;
       const liveField = fieldRepo ? fieldRepo[spec.configuredId] : undefined;
       const row = evaluateFieldSpec(spec, liveField, statusList);
       results.push(row);

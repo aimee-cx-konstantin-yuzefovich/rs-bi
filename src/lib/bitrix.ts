@@ -18,6 +18,7 @@ const ALLOWED_METHODS = new Set([
   "crm.company.fields",
   "crm.company.list",
   "crm.company.get",
+  "crm.item.fields",
   "crm.item.get",
   "crm.item.list",
   "crm.activity.list",
