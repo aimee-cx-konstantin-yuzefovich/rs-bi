@@ -730,9 +730,11 @@ export function computeManagerScorecard(
   };
 
   // Portfolio / Load group (current state, never date-filtered).
-  // Attribution mirrors the provenance rules above: active-deal companies go
-  // to each manager owning an active deal; awaiting-payment likewise;
-  // no-next-step requires activityDataKnown === true (factual data gap only).
+  // Attribution mirrors the provenance rules:
+  // - awaiting-payment is evaluated strictly from paymentStatus (INVOICE_SENT_STATUS_CODES),
+  //   independent of deal active/terminal stage.
+  // - active-deal companies go to each manager owning an active deal.
+  // - no-next-step requires an active deal and activityDataKnown === true (factual data gap only).
   //
   // «Компании в текущем контуре» (activeCompanies/Ids) = UNION of
   //   A. companies with a real current sample state (same rule as the
@@ -752,13 +754,6 @@ export function computeManagerScorecard(
   for (const c of companies) {
     for (const d of c.deals) {
       const dealRespId = d.responsibleId || c.responsibleId;
-      if (!isDealActiveStage(d.stageId)) continue;
-      let set = activeDealsByManager.get(dealRespId);
-      if (!set) {
-        set = new Set();
-        activeDealsByManager.set(dealRespId, set);
-      }
-      set.add(c.id);
 
       if (d.paymentStatus && INVOICE_SENT_STATUS_CODES.has(d.paymentStatus)) {
         let paySet = awaitingPaymentByManager.get(dealRespId);
@@ -768,6 +763,14 @@ export function computeManagerScorecard(
         }
         paySet.add(c.id);
       }
+
+      if (!isDealActiveStage(d.stageId)) continue;
+      let set = activeDealsByManager.get(dealRespId);
+      if (!set) {
+        set = new Set();
+        activeDealsByManager.set(dealRespId, set);
+      }
+      set.add(c.id);
 
       if (d.activityDataKnown && !d.activityNext) {
         let stepSet = noNextStepByManager.get(dealRespId);
