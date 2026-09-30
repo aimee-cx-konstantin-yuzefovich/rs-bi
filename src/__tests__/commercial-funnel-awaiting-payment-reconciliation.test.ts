@@ -1,13 +1,16 @@
 // src/__tests__/commercial-funnel-awaiting-payment-reconciliation.test.ts
 // Tests A through G, Direct Reconciliation, and Surface Parity for Manager Awaiting-Payment Attribution.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import React from "react";
+import { render, screen, cleanup } from "@testing-library/react";
 import {
   computeManagerScorecard,
   computeWipMetrics,
 } from "@/lib/commercial-funnel/engine";
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
 import { createCommercialFunnelWorkbook } from "@/lib/commercial-funnel/export-excel";
+import { CommercialManagersTab } from "@/components/commercial-funnel/managers-tab";
 import { INVOICE_SENT_STATUS_CODES } from "@/lib/commercial-funnel/constants";
 import type { CommercialCompany, CommercialDeal } from "@/lib/commercial-funnel/types";
 
@@ -362,5 +365,50 @@ describe("Commercial Funnel — Awaiting Payment Manager Reconciliation", () => 
     });
 
     expect(foundManagerRow).toBe(true);
+  });
+
+  it("SURFACE RECONCILIATION — CommercialManagersTab UI renders updated awaiting-payment in table row and footer", () => {
+    const c1 = buildCompany({
+      id: "C1",
+      responsibleId: "M1",
+      deals: [
+        buildDeal({
+          id: "D1",
+          companyId: "C1",
+          responsibleId: "M1",
+          stageId: "WON",
+          paymentStatus: "105",
+        }),
+      ],
+    });
+
+    const userNames = { M1: "Иван Менеджер" };
+    const scorecard = computeManagerScorecard([c1], bounds, [], userNames);
+
+    render(
+      React.createElement(CommercialManagersTab, {
+        scorecard,
+        onOpenDrillDown: vi.fn(),
+      })
+    );
+
+    // Verify manager name is in document
+    expect(screen.getByText("Иван Менеджер")).toBeInTheDocument();
+
+    // Verify column header exists
+    expect(screen.getByText("Ожидают оплаты")).toBeInTheDocument();
+
+    // Verify manager row cell for awaitingPayment
+    const managerRow = screen.getByText("Иван Менеджер").closest("tr")!;
+    const cells = managerRow.querySelectorAll("td");
+    // Column 9: awaitingPayment
+    expect(cells[9].textContent).toBe("1");
+
+    // Verify footer row uniqueCompanyCount for awaitingPaymentIds
+    const footer = screen.getByText("ИТОГО").closest("tr")!;
+    const footerCells = footer.querySelectorAll("td");
+    expect(footerCells[9].textContent).toBe("1");
+
+    cleanup();
   });
 });
