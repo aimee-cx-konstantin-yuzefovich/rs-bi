@@ -315,21 +315,23 @@ export function CompanyPreview({
                     <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value, field.type === "boolean" || field.type === "char")}</dd>
                   </div>
                 ))}
-                {/* Date Created / Date Modified — retained per current-card contract */}
-                {resolvedModel?.createdAt && (
+                {/* Date Created / Date Modified — retained per current-card
+                    contract; rendered from the resolved model only when the
+                    model drives the card (no fieldsFor override). */}
+                {!fieldsFor && resolvedModel?.createdAt && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Дата создания</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.createdAt}</dd>
                   </div>
                 )}
-                {resolvedModel?.modifiedAt && (
+                {!fieldsFor && resolvedModel?.modifiedAt && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Дата изменения</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.modifiedAt}</dd>
                   </div>
                 )}
                 {/* General Company comments — retained per current-card contract */}
-                {resolvedModel?.comments && (
+                {!fieldsFor && resolvedModel?.comments && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Комментарий</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.comments}</dd>

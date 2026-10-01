@@ -201,7 +201,7 @@ function resolveDateRaw(
   if (d && !isNaN(d.getTime())) {
     const isDateTime = (meta?.type ?? "").toLowerCase() === "datetime" || /[T ]\d{2}:\d{2}/.test(s);
     const display = isDateTime
-      ? d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })
+      ? `${d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })} ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })}`
       : d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
     return { display, excel: d };
   }
@@ -508,8 +508,10 @@ export function buildCompanyPreviewModel(
   const commentsRaw = resolveStringRaw(company.COMMENTS, true);
 
   // Date Created / Date Modified — retained per user requirement.
-  const created = resolveDateRaw(company.DATE_CREATE, { id: "DATE_CREATE", type: "datetime" });
-  const modified = resolveDateRaw(company.DATE_MODIFY, { id: "DATE_MODIFY", type: "datetime" });
+  // Contract: DATE_CREATE/DATE_MODIFY display as DATE ONLY in the card
+  // (existing regression contract: "formats Дата изменения as date only").
+  const created = resolveDateRaw(company.DATE_CREATE, { id: "DATE_CREATE", type: "date" });
+  const modified = resolveDateRaw(company.DATE_MODIFY, { id: "DATE_MODIFY", type: "date" });
 
   return {
     title: String(company.TITLE ?? "").trim() || "Без названия",

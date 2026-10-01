@@ -1,0 +1,304 @@
+// @vitest-environment node
+// src/__tests__/company-preview-current-card.test.ts
+// ─────────────────────────────────────────────────────────────────────
+// Phase D — Company Preview Current-Card Contract tests:
+// - exact ordered whitelist (no generic UF dump);
+// - human-readable enum resolution (no raw classification IDs);
+// - approved-industry regression (UF_CRM_1784195884554 wins);
+// - legacy sample fields removed from card UI (kept in raw input);
+// - HTML entity decoding in comments;
+// - UI ↔ Excel golden parity.
+// ─────────────────────────────────────────────────────────────────────
+
+import { describe, it, expect } from "vitest";
+import ExcelJS from "exceljs";
+import {
+  buildCompanyPreviewModel,
+  COMPANY_PREVIEW_CURRENT_FIELDS,
+  decodeHtmlEntities,
+} from "@/lib/company-preview";
+import { createCompanyExcelWorkbook } from "@/lib/export-utils";
+import {
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
+  COMPANY_PRODUCT_TYPE_FIELD_ID,
+  COMPANY_MARK_GEL_FIELD_ID,
+  COMPANY_MARK_SOL_FIELD_ID,
+  COMPANY_COMMENTS_PRODUCT_FIELD_ID,
+  COMPANY_INN_FIELD_ID,
+  COMPANY_REGION_FIELD_ID,
+  // Legacy sample fields (§9) — present in raw input, absent from card:
+  COMPANY_SAMPLES_FIELD_ID,
+  COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
+  COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
+  COMPANY_SAMPLES_GRADE_GEL_FIELD_ID,
+  COMPANY_SAMPLES_GRADE_SOL_FIELD_ID,
+  COMPANY_SAMPLES_QTY_GEL_FIELD_ID,
+  COMPANY_SAMPLES_QTY_SOL_FIELD_ID,
+  COMPANY_TEST_RESULT_FIELD_ID,
+} from "@/lib/crm-constants";
+
+/** The exact expected current-card field ORDER (approved card mirror). */
+const EXPECTED_FIELD_ORDER = [
+  "ASSIGNED_BY_ID",
+  "PHONE",
+  "WEB",
+  "REVENUE",
+  COMPANY_INN_FIELD_ID,
+  COMPANY_REGION_FIELD_ID,
+  "COMPANY_TYPE",
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
+  COMPANY_PRODUCT_TYPE_FIELD_ID,
+  COMPANY_MARK_GEL_FIELD_ID,
+  COMPANY_MARK_SOL_FIELD_ID,
+  COMPANY_COMMENTS_PRODUCT_FIELD_ID,
+] as const;
+
+/** Adversarial fixture: current fields + ALL legacy sample fields + obsolete fields + one unknown UF. */
+function adversarialCompany(): Record<string, unknown> {
+  return {
+    ID: "42",
+    TITLE: "ООО РусСилика Тест",
+    ASSIGNED_BY_ID: "7",
+    PHONE: "+7 900 000-00-00",
+    WEB: "https://russilica.example",
+    REVENUE: "5000000|RUB",
+    [COMPANY_INN_FIELD_ID]: "7701234567",
+    [COMPANY_REGION_FIELD_ID]: "Москва",
+    COMPANY_TYPE: "2",
+    [COMPANY_INDUSTRY_CURRENT_FIELD_ID]: "1739",
+    [COMPANY_DIRECTION_CURRENT_FIELD_ID]: "42",
+    [COMPANY_PRODUCT_TYPE_FIELD_ID]: ["101", "102"],
+    [COMPANY_MARK_GEL_FIELD_ID]: ["201", "202"],
+    [COMPANY_MARK_SOL_FIELD_ID]: ["301"],
+    [COMPANY_COMMENTS_PRODUCT_FIELD_ID]: "11.03.2025 Испытания образцов &quot;ComposiTherm&quot; — успешно",
+    COMMENTS: "Общий комментарий &quot;по клиенту&quot;",
+
+    // ─── Legacy sample fields (§9) — MUST NOT appear as card rows ───
+    [COMPANY_SAMPLES_FIELD_ID]: ["261"],
+    [COMPANY_SAMPLES_DATE_MULTI_FIELD_ID]: ["2026-06-20"],
+    [COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID]: "2026-06-20",
+    [COMPANY_SAMPLES_GRADE_GEL_FIELD_ID]: "Гель-А",
+    [COMPANY_SAMPLES_GRADE_SOL_FIELD_ID]: "Золь-Б",
+    [COMPANY_SAMPLES_QTY_GEL_FIELD_ID]: "150",
+    [COMPANY_SAMPLES_QTY_SOL_FIELD_ID]: "200",
+    [COMPANY_TEST_RESULT_FIELD_ID]: "Успешно",
+
+    // ─── Obsolete/unknown fields — MUST NOT appear ───
+    "UF_CRM_6915D8C0C6814": "obsolete-industry",
+    INDUSTRY: "old-standard-industry",
+    "UF_CRM_UNKNOWN123": "Неизвестное поле",
+  };
+}
+
+const FIELDS_META = [
+  { id: "COMPANY_TYPE", title: "Тип компании", type: "crm_status", listValues: [{ ID: "2", VALUE: "Конкурент" }] },
+  { id: COMPANY_INDUSTRY_CURRENT_FIELD_ID, title: "Отрасль (согл.список)", type: "enumeration", listValues: [{ ID: "1739", VALUE: "ЛКМ" }] },
+  { id: COMPANY_DIRECTION_CURRENT_FIELD_ID, title: "Направление (согл.список)", type: "enumeration", listValues: [{ ID: "42", VALUE: "Строительство" }] },
+  { id: COMPANY_PRODUCT_TYPE_FIELD_ID, title: "Тип продукта", type: "enumeration", listValues: [{ ID: "101", VALUE: "Гель" }, { ID: "102", VALUE: "Золь" }] },
+  { id: COMPANY_MARK_GEL_FIELD_ID, title: "Марка РусСилика (ГЕЛЬ)", type: "enumeration", listValues: [{ ID: "201", VALUE: "КСМГ-9" }, { ID: "202", VALUE: "КСМГ-12" }] },
+  { id: COMPANY_MARK_SOL_FIELD_ID, title: "Марка РусСилика (ЗОЛЬ)", type: "enumeration", listValues: [{ ID: "301", VALUE: "СКСГ-4" }] },
+];
+
+describe("Phase D — Company Preview current-card contract", () => {
+  it("renders ONLY the explicit current whitelist in the exact approved order", () => {
+    const model = buildCompanyPreviewModel(adversarialCompany(), {
+      fields: FIELDS_META,
+      userNames: { "7": "Анна Иванова" },
+    });
+
+    const ids = model.fields.map((f) => f.id);
+    expect(ids).toEqual(EXPECTED_FIELD_ORDER as unknown as string[]);
+
+    // No unknown/obsolete/legacy fields leaked.
+    expect(ids).not.toContain("UF_CRM_UNKNOWN123");
+    expect(ids).not.toContain("UF_CRM_6915D8C0C6814");
+    expect(ids).not.toContain("INDUSTRY");
+    expect(ids).not.toContain(COMPANY_SAMPLES_FIELD_ID);
+    expect(ids).not.toContain(COMPANY_SAMPLES_GRADE_GEL_FIELD_ID);
+    expect(ids).not.toContain(COMPANY_SAMPLES_GRADE_SOL_FIELD_ID);
+    expect(ids).not.toContain(COMPANY_SAMPLES_QTY_GEL_FIELD_ID);
+    expect(ids).not.toContain(COMPANY_SAMPLES_QTY_SOL_FIELD_ID);
+    expect(ids).not.toContain(COMPANY_SAMPLES_DATE_MULTI_FIELD_ID);
+    expect(ids).not.toContain(COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID);
+    expect(ids).not.toContain(COMPANY_TEST_RESULT_FIELD_ID);
+  });
+
+  it("resolves every enum to human labels; unknown IDs stay unclassified; no raw codes", () => {
+    const model = buildCompanyPreviewModel(adversarialCompany(), {
+      fields: FIELDS_META,
+      userNames: { "7": "Анна Иванова" },
+    });
+
+    const byId = new Map(model.fields.map((f) => [f.id, f]));
+
+    // Ответственный resolved to the human name.
+    expect(byId.get("ASSIGNED_BY_ID")!.value).toBe("Анна Иванова");
+    // Industry raw 1739 → live metadata label «ЛКМ».
+    expect(byId.get(COMPANY_INDUSTRY_CURRENT_FIELD_ID)!.value).toBe("ЛКМ");
+    // Direction raw 42 → «Строительство».
+    expect(byId.get(COMPANY_DIRECTION_CURRENT_FIELD_ID)!.value).toBe("Строительство");
+    // Company Type raw 2 → «Конкурент».
+    expect(byId.get("COMPANY_TYPE")!.value).toBe("Конкурент");
+    // Multi-enum Gel grades resolved element-wise.
+    expect(byId.get(COMPANY_MARK_GEL_FIELD_ID)!.value).toBe("КСМГ-9, КСМГ-12");
+    // Sol grades.
+    expect(byId.get(COMPANY_MARK_SOL_FIELD_ID)!.value).toBe("СКСГ-4");
+    // Product types.
+    expect(byId.get(COMPANY_PRODUCT_TYPE_FIELD_ID)!.value).toBe("Гель, Золь");
+
+    // No raw numeric classification codes anywhere in the card (ИНН is a
+    // legitimate numeric-looking string field — excluded explicitly).
+    for (const f of model.fields) {
+      if (f.id === COMPANY_INN_FIELD_ID) continue;
+      expect(f.value).not.toMatch(/^\d+$/);
+    }
+  });
+
+  it("unknown enum ID → «Не классифицировано (<id>)»", () => {
+    const company = adversarialCompany();
+    company[COMPANY_INDUSTRY_CURRENT_FIELD_ID] = "999999";
+    const model = buildCompanyPreviewModel(company, {
+      fields: FIELDS_META,
+      userNames: { "7": "Анна Иванова" },
+    });
+    const industry = model.fields.find((f) => f.id === COMPANY_INDUSTRY_CURRENT_FIELD_ID)!;
+    expect(industry.value).toBe("Не классифицировано (999999)");
+  });
+
+  it("approved-industry regression: current field wins over INDUSTRY and the retired field", () => {
+    const company = adversarialCompany();
+    // INDUSTRY = "old-standard-industry", UF_CRM_6915D8C0C6814 = "obsolete-industry",
+    // current field = raw 1739 → «ЛКМ». Neither old field may override.
+    const model = buildCompanyPreviewModel(company, {
+      fields: FIELDS_META,
+      userNames: { "7": "Анна Иванова" },
+    });
+    const industry = model.fields.find((f) => f.id === COMPANY_INDUSTRY_CURRENT_FIELD_ID)!;
+    expect(industry.value).toBe("ЛКМ");
+    expect(model.fields.some((f) => f.value === "old-standard-industry")).toBe(false);
+    expect(model.fields.some((f) => f.value === "obsolete-industry")).toBe(false);
+  });
+
+  it("absent current industry field is truthful absence (no legacy fallback)", () => {
+    const company = adversarialCompany();
+    delete company[COMPANY_INDUSTRY_CURRENT_FIELD_ID];
+    const model = buildCompanyPreviewModel(company, {
+      fields: FIELDS_META,
+      userNames: { "7": "Анна Иванова" },
+    });
+    expect(model.fields.some((f) => f.id === COMPANY_INDUSTRY_CURRENT_FIELD_ID)).toBe(false);
+    // And the legacy INDUSTRY value never sneaks in under any label.
+    expect(model.fields.some((f) => f.value === "old-standard-industry")).toBe(false);
+  });
+
+  it("comments decode HTML entities for plain-text display", () => {
+    expect(decodeHtmlEntities('11.03.2025 ... &quot;ComposiTherm&quot;')).toBe('11.03.2025 ... "ComposiTherm"');
+    expect(decodeHtmlEntities("A &amp; B &lt;tag&gt; &#171;К&#187;")).toBe('A & B <tag> «К»');
+    // Unknown entities stay untouched.
+    expect(decodeHtmlEntities("&nosuchentity;")).toBe("&nosuchentity;");
+
+    const model = buildCompanyPreviewModel(adversarialCompany(), {
+      fields: FIELDS_META,
+      userNames: { "7": "Анна Иванова" },
+    });
+    expect(model.comments).toBe('Общий комментарий "по клиенту"');
+    // The product comment field also decodes entities in the card fields.
+    const productComment = model.fields.find((f) => f.id === COMPANY_COMMENTS_PRODUCT_FIELD_ID)!;
+    expect(productComment.value).toBe('11.03.2025 Испытания образцов "ComposiTherm" — успешно');
+  });
+
+  it("Date Created and Date Modified are retained with RU formatting", () => {
+    const company = adversarialCompany();
+    company.DATE_CREATE = "2025-12-15T14:00:00Z";
+    company.DATE_MODIFY = "2026-07-01T11:59:00Z";
+    const model = buildCompanyPreviewModel(company, {
+      fields: FIELDS_META,
+      userNames: { "7": "Анна Иванова" },
+    });
+    expect(model.createdAt).toMatch(/^\d{2}\.\d{2}\.\d{4}/);
+    expect(model.modifiedAt).toMatch(/^\d{2}\.\d{2}\.\d{4}/);
+  });
+
+  it("UI ↔ Excel golden parity: same model feeds both; legacy fields absent from both", async () => {
+    const company = adversarialCompany();
+    company.DATE_CREATE = "2025-12-15T14:00:00Z";
+    company.DATE_MODIFY = "2026-07-01T11:59:00Z";
+    const model = buildCompanyPreviewModel(company, {
+      fields: FIELDS_META,
+      userNames: { "7": "Анна Иванова" },
+    });
+
+    // UI values = model field values.
+    const uiValues = new Map(model.fields.map((f) => [f.label, f.value]));
+
+    // Excel renders the SAME model.
+    const wb = createCompanyExcelWorkbook({
+      companyTitle: model.title,
+      companyId: model.companyId,
+      companyFields: model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type })),
+      sampleFields: [],
+      deals: [],
+      currentDate: new Date("2026-09-26T12:00:00Z"),
+      companyModel: {
+        fields: model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type })),
+        createdAt: model.createdAt,
+        modifiedAt: model.modifiedAt,
+        comments: model.comments,
+      },
+    });
+    const buffer = await wb.xlsx.writeBuffer();
+    const fresh = new ExcelJS.Workbook();
+    await fresh.xlsx.load(buffer as ArrayBuffer);
+    const ws = fresh.getWorksheet("Отчёт по компании")!;
+
+    const excelPairs = new Map<string, string | Date>();
+    ws.eachRow((row) => {
+      const label = String(row.getCell(1).value ?? "").trim();
+      const value = row.getCell(2).value;
+      if (label && value !== null && value !== undefined && String(value).trim() !== "") {
+        excelPairs.set(label, value as string | Date);
+      }
+    });
+
+    // Every UI field label/value appears in Excel with the SAME value.
+    // Exceptions (documented artifacts of the Excel writer):
+    //  - formula-injection guard prefixes values starting with =,+,-,@ with
+    //    an apostrophe (phone numbers);
+    //  - Date Created / Date Modified serialize as native Date cells (§27).
+    for (const [label, value] of uiValues) {
+      const expected = /^[=\-+\@]/.test(value) ? `'${value}` : value;
+      expect(excelPairs.get(label), `Excel parity for ${label}`).toBe(expected);
+    }
+
+    // Date Created / Date Modified present in Excel as native Date cells.
+    expect(excelPairs.get("Дата создания")).toBeInstanceOf(Date);
+    expect(excelPairs.get("Дата изменения")).toBeInstanceOf(Date);
+    // Comments present in Excel with decoded text.
+    expect(excelPairs.get("Комментарий")).toBe(model.comments);
+
+    // Legacy sample fields absent from the Excel current-card section.
+    const allExcelText: string[] = [];
+    ws.eachRow((row) => {
+      for (let c = 1; c <= row.cellCount; c++) {
+        const v = row.getCell(c).value;
+        if (typeof v === "string") allExcelText.push(v);
+      }
+    });
+    const joined = allExcelText.join("\n");
+    expect(joined).not.toContain("Марка предоставленных образцов");
+    expect(joined).not.toContain("Кол-во переданного образца");
+    expect(joined).not.toContain("Результат испытаний");
+    expect(joined).not.toContain("UF_CRM_");
+    expect(joined).not.toContain("obsolete-industry");
+    expect(joined).not.toContain("old-standard-industry");
+    expect(joined).not.toContain("Неизвестное поле");
+  });
+
+  it("whitelist definition is deterministic and matches the recorded order", () => {
+    expect(COMPANY_PREVIEW_CURRENT_FIELDS.map((f) => f.id)).toEqual(
+      EXPECTED_FIELD_ORDER as unknown as string[]
+    );
+  });
+});
