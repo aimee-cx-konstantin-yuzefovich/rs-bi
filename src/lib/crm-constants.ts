@@ -109,6 +109,32 @@ export const COMPANY_INDUSTRY_DEPRECATED_FIELD_ID = "UF_CRM_6915D8C0C6814";
 export const COMPANY_DIRECTION_CURRENT_FIELD_ID = "UF_CRM_1784200275341";
 export const COMPANY_DIRECTION_CURRENT_FIELD_TITLE = "Направление (согл.список)";
 
+// ─── Company Preview current-card contract (Phase D) ─────────────────
+// Company "Регион" — the same physical field the Commercial Funnel
+// analytics already consume via DEAL_REGION_FIELD_ID; the Company-scoped
+// semantic name is canonical for the preview whitelist. Live revalidation
+// is part of scripts/discover-smart-process-contract.mjs (PENDING until
+// executed against the portal).
+export const COMPANY_REGION_FIELD_ID = "UF_CRM_69259C45EC14B";
+
+// Company "Комментарий по используемым продуктам" (string)
+export const COMPANY_COMMENTS_PRODUCT_FIELD_ID = "UF_CRM_1753080295792";
+// Company "Марка РусСилика (ГЕЛЬ)" (multi-enum)
+export const COMPANY_MARK_GEL_FIELD_ID = "UF_CRM_1753335892314";
+// Company "Марка РусСилика (ЗОЛЬ)" (multi-enum)
+export const COMPANY_MARK_SOL_FIELD_ID = "UF_CRM_1753335841789";
+// Company "ИНН" (string)
+export const COMPANY_INN_FIELD_ID = "UF_CRM_1763116130490";
+
+/**
+ * Company "Тестирование образцов" operational marker — MARKER_ONLY.
+ * The exact UF ID is NOT centralized yet: it must be live-discovered via
+ * crm.company.fields (scripts/discover-smart-process-contract.mjs Company
+ * section) before it may appear in the preview whitelist. Never guess.
+ */
+export const COMPANY_TESTING_MARKER_FIELD_ID: string | null = null;
+export const COMPANY_HAS_DISCOVERED_CARD_CONTRACT = false;
+
 export const DEAL_TABLE_DEFAULT_COLUMNS = [
   "COMPANY_TITLE",
   // NEW — guaranteed defaults for the Companies browser (required fields:

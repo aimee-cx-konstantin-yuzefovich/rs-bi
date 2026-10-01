@@ -485,6 +485,17 @@ export interface ExportCompanyOptions {
   responsibleName?: string;
   workbook?: ExcelJS.Workbook;
   logoImageId?: number | null;
+  /**
+   * Phase D: the resolved Company Preview model (buildCompanyPreviewModel).
+   * When present, the current-card section renders the EXACT same resolved
+   * fields as the UI — no independent raw-field enumeration.
+   */
+  companyModel?: {
+    fields: Array<{ id: string; label: string; value: string; type?: string }>;
+    createdAt?: string | null;
+    modifiedAt?: string | null;
+    comments?: string | null;
+  };
 }
 
 /**
@@ -701,7 +712,25 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   // Section 1: Основная информация
   addSectionHeader(worksheet, "Основная информация", 5);
 
-  const fields = [...rawCompanyFields];
+  // Phase D: when the resolved Company Preview model is provided, render
+  // the EXACT same resolved fields as the UI (one source of truth), plus
+  // Date Created / Date Modified / Comments. Legacy/unknown UF fields can
+  // never leak into the current-card section.
+  const model = options.companyModel;
+
+  let fields: Array<{ id: string; label: string; value: string; type?: string }> = [...rawCompanyFields];
+  if (model) {
+    fields = model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type }));
+    if (model.createdAt) {
+      fields.push({ id: "DATE_CREATE", label: "Дата создания", value: model.createdAt, type: "datetime" });
+    }
+    if (model.modifiedAt) {
+      fields.push({ id: "DATE_MODIFY", label: "Дата изменения", value: model.modifiedAt, type: "datetime" });
+    }
+    if (model.comments) {
+      fields.push({ id: "COMMENTS", label: "Комментарий", value: model.comments, type: "string" });
+    }
+  }
   if (options.companyId && !fields.some((f) => f.id === "ID" || f.label?.toLowerCase().includes("id компании"))) {
     fields.unshift({ id: "ID", label: "ID компании", value: options.companyId });
   }

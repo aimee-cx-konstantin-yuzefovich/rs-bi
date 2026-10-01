@@ -166,7 +166,10 @@ it("displays Образцы section with 7 rows, excludes Последняя а�
   expect(screen.getByText("20.06.2026")).toBeInTheDocument();
   expect(screen.getByText("Результат испытаний")).toBeInTheDocument();
   expect(screen.getByText("Успешно")).toBeInTheDocument();
-  expect(screen.getByText("Тестовый комментарий")).toBeInTheDocument();
+  // COMMENTS appears in the legacy sample block (Комментарий row) AND the
+  // new general comment section — both are the same source value, so the
+  // text may legitimately appear twice. Assert presence, not count.
+  expect(screen.getAllByText("Тестовый комментарий").length).toBeGreaterThanOrEqual(1);
 });
 
 it("renders secondary outlined export button and triggers export with company title and sample fields", async () => {
