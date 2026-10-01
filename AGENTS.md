@@ -154,6 +154,21 @@ The Commercial Funnel (`/commercial-funnel`) is a **management analytics layer**
 - Sample bottlenecks and action items must reference the sample Deal, **never** an unrelated representative `primaryDeal`.
 - When sample state is Company fallback (`sampleStatusSource === "COMPANY"`), do not borrow an unrelated Deal to populate deal columns.
 
+### Samples canonical engine & Smart Process 1032 (authoritative)
+- ONE canonical sample engine lives in `src/lib/samples/` (`buildCanonicalSampleDomain`); Samples UI/KPI/Excel, Commercial Funnel, Managers, and the Commercial Funnel Excel all consume it. No surface may re-parse raw Company/Deal fields for current sample state.
+- Smart Process 1032 (`entityTypeId=1032`, `categoryId=15`, «Тестирование образца») is **authoritative for new/current sample cycles**. Legacy Deal fields (`UF_CRM_1779386185`, `UF_CRM_1774879952785`, …) and legacy Company fields (`UF_CRM_1753187313314`, `UF_CRM_1764156557536`, `UF_CRM_1783429999269`, …) remain historical/fallback evidence: never cleared, never overwritten, never used to fabricate physical cycles.
+- Current-state precedence: `SMART_PROCESS → DEAL_LEGACY → COMPANY_LEGACY → NONE` (current state only — historical evidence is never deleted or overridden).
+- Smart Process stage IDs (`DT1032_15:*`) are the stable key; stage semantics and ACTIVE/TERMINAL sets are canonical in `src/lib/samples/smart-process-contract.ts`. Unknown stage IDs and unknown result enum IDs stay unclassified (`Не классифицировано (<id>)`) — never mapped by wording.
+- **Smart Process custom UF field IDs are live-discovered only** (`scripts/discover-smart-process-contract.mjs`, `crm.item.fields` with `useOriginalUfNames="Y"`); the runtime is fail-closed (`assertSmartProcessContractReady`) until verified IDs are committed. Never guess a UF ID.
+- The **only** authoritative dated `samples_sent` event from Smart Process is the manual «Дата отправки» field. `createdTime`/`updatedTime`/`MOVED_TIME`/stage transitions are never substitutes. A sent-or-later stage without a manual date produces current state but NO dated event.
+- Multiple active Smart Process items for one company → `AMBIGUOUS_MULTIPLE_ACTIVE`: no arbitrary current cycle, no fabricated current manager.
+- Manager attribution: Smart Process events/states attribute to the item's own `ASSIGNED_BY_ID` — never to the Company owner. Period `samples_sent` manager flow attributes each dated event to its own source-entity responsible.
+- Deal field `UF_CRM_1779394379` («Тестирование образцов») is **MARKER_ONLY**: navigation/preview/display only. It must never contribute to sample status, result, `samples_sent`, KPIs, current contour membership, or manager attribution.
+
+### Current Company classification (Samples)
+- The visible Samples Industry filter and current sample projection use the current approved Company-card field `UF_CRM_1784195884554` («Отрасль (согл.список)»); direction uses `UF_CRM_1784200275341` («Направление (согл.список)»).
+- The legacy standard `INDUSTRY` and the retired `UF_CRM_6915D8C0C6814` («Отрасль (не использовать)») must never override the current approved fields. Absent current field = truthfully absent (no invented fallback).
+
 ### Segment semantics
 - All Commercial Funnel views and exports share one global analytical slice.
 - **Same-dimension filter constraint**: When a global filter is active on a dimension, the segment breakdown for that same dimension must contain only the selected filter value (e.g. Product = Gel must not emit Sol).
