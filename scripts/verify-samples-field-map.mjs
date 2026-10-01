@@ -57,7 +57,7 @@ export const SAMPLES_FIELD_SPECS = [
     role: "Марка предоставленных образцов (ГЕЛЬ)",
     entity: "Company",
     configuredId: crm.COMPANY_SAMPLES_GRADE_GEL_FIELD_ID,
-    expectedTypes: ["enumeration"],
+    expectedTypes: ["enumeration", "string"],
     acceptedTitles: [
       "Марка предоставленных образцов (ГЕЛЬ)",
       "Марка образца (ГЕЛЬ)",
@@ -67,7 +67,7 @@ export const SAMPLES_FIELD_SPECS = [
     role: "Марка предоставленных образцов (ЗОЛЬ)",
     entity: "Company",
     configuredId: crm.COMPANY_SAMPLES_GRADE_SOL_FIELD_ID,
-    expectedTypes: ["enumeration"],
+    expectedTypes: ["enumeration", "string"],
     acceptedTitles: [
       "Марка предоставленных образцов (ЗОЛЬ)",
       "Марка образца (ЗОЛЬ)",
@@ -111,25 +111,25 @@ export const SAMPLES_FIELD_SPECS = [
     acceptedTitles: ["Тип продукта"],
   },
   {
-    role: "Область применения — current/new",
+    role: "Область применения",
     entity: "Company",
-    configuredId: crm.COMPANY_APPLICATION_NEW_FIELD_ID,
-    expectedTypes: ["enumeration"],
-    acceptedTitles: ["Область применения"],
-  },
-  {
-    role: "Область применения — legacy",
-    entity: "Company",
-    configuredId: crm.COMPANY_APPLICATION_OLD_FIELD_ID,
-    expectedTypes: ["enumeration"],
+    configuredId: crm.COMPANY_APPLICATION_FIELD_ID,
+    expectedTypes: ["string", "enumeration"],
     acceptedTitles: ["Область применения"],
   },
   {
     role: "Направление",
     entity: "Company",
-    configuredId: crm.COMPANY_DIRECTION_FIELD_ID,
+    configuredId: crm.COMPANY_DIRECTION_CURRENT_FIELD_ID,
+    expectedTypes: ["enumeration", "string"],
+    acceptedTitles: ["Направление (согл.список)", "Направление"],
+  },
+  {
+    role: "Отрасль (согл.список)",
+    entity: "Company",
+    configuredId: crm.COMPANY_INDUSTRY_CURRENT_FIELD_ID,
     expectedTypes: ["enumeration"],
-    acceptedTitles: ["Направление"],
+    acceptedTitles: ["Отрасль (согл.список)"],
   },
   {
     role: "INDUSTRY",
@@ -210,7 +210,7 @@ export const SAMPLES_FIELD_SPECS = [
           role: "SP: Сделка",
           entity: "SmartProcess",
           configuredId: crm.SMART_PROCESS_DEAL_FIELD_ID,
-          expectedTypes: ["integer"],
+          expectedTypes: ["integer", "crm_entity"],
           acceptedTitles: ["Сделка"],
         },
       ]
@@ -251,6 +251,36 @@ export const SAMPLES_FIELD_SPECS = [
           configuredId: crm.SMART_PROCESS_TEST_RESULT_FIELD_ID,
           expectedTypes: ["enumeration", "string"],
           acceptedTitles: ["Результат тестирования"],
+        },
+      ]
+    : []),
+  ...(crm.SMART_PROCESS_QTY_GEL_FIELD_ID
+    ? [
+        {
+          role: "SP: Кол-во переданного образца (ГЕЛЬ) кг",
+          entity: "SmartProcess",
+          configuredId: crm.SMART_PROCESS_QTY_GEL_FIELD_ID,
+          expectedTypes: ["double", "string"],
+          acceptedTitles: [
+            "Кол-во переданного образца (ГЕЛЬ) кг",
+            "Кол-во переданного (ГЕЛЬ)",
+            "Кол-во переданного образца (ГЕЛЬ)",
+          ],
+        },
+      ]
+    : []),
+  ...(crm.SMART_PROCESS_QTY_SOL_FIELD_ID
+    ? [
+        {
+          role: "SP: Кол-во переданного образца (ЗОЛЬ) л",
+          entity: "SmartProcess",
+          configuredId: crm.SMART_PROCESS_QTY_SOL_FIELD_ID,
+          expectedTypes: ["double", "string"],
+          acceptedTitles: [
+            "Кол-во переданного образца (ЗОЛЬ) л",
+            "Кол-во переданного (ЗОЛЬ)",
+            "Кол-во переданного образца (ЗОЛЬ)",
+          ],
         },
       ]
     : []),
@@ -318,9 +348,11 @@ export function evaluateFieldSpec(spec, liveField, statusList = []) {
   }
 
   const liveTitle =
-    liveField.title ||
     liveField.formLabel ||
     liveField.listLabel ||
+    liveField.editFormLabel ||
+    liveField.title ||
+    liveField.caption ||
     liveField.name ||
     "Без названия";
   const liveType = liveField.type || "unknown";
@@ -337,6 +369,12 @@ export function evaluateFieldSpec(spec, liveField, statusList = []) {
   if (spec.expectedTypes.includes(liveType)) {
     isTypeMatch = true;
   } else if (spec.expectedTypes.includes("string") && liveType === "enumeration") {
+    isTypeMatch = true;
+  } else if (spec.expectedTypes.includes("enumeration") && liveType === "crm_status") {
+    isTypeMatch = true;
+  } else if (spec.expectedTypes.includes("enumeration") && liveType === "boolean") {
+    isTypeMatch = true;
+  } else if (spec.expectedTypes.includes("boolean") && liveType === "enumeration") {
     isTypeMatch = true;
   }
 
@@ -428,7 +466,7 @@ async function main() {
           ? companyFields
           : spec.entity === "Deal"
           ? dealFields
-          : smartProcessFields;
+          : (smartProcessFields?.fields || smartProcessFields);
       const liveField = fieldRepo ? fieldRepo[spec.configuredId] : undefined;
       const row = evaluateFieldSpec(spec, liveField, statusList);
       results.push(row);

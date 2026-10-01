@@ -7,6 +7,7 @@
 import {
   getDealStageDisplayLabel,
   DEAL_SAMPLE_TESTING_FIELD_ID,
+  DEAL_TESTING_MARKER_CURRENT_FIELD_ID,
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
   PAYMENT_STATUS_FIELD_ID,
   DEAL_PAYMENT_DATE_FIELD_ID,
@@ -190,34 +191,85 @@ export interface BuildDealPreviewModelOptions {
  */
 export function resolveDealStage(
   rawStage: unknown,
-  fields?: Array<{ id: string; listValues?: Array<{ ID: string; VALUE: string }> }>
+  fields?: Array<{ id: string; listValues?: Array<{ ID: string; VALUE: string }> }>,
+  categoryId?: string | number | null
 ): string {
   if (rawStage === undefined || rawStage === null || rawStage === "") return "–";
   const str = String(rawStage).trim();
   if (!str) return "–";
 
+  const normCat =
+    categoryId !== undefined && categoryId !== null && String(categoryId).trim() !== ""
+      ? String(categoryId).trim()
+      : undefined;
+
   // 1. Check authoritative stage metadata listValues
   const stageField = fields?.find((f) => f.id === "STAGE_ID");
   if (stageField?.listValues && stageField.listValues.length > 0) {
+    const listValues = stageField.listValues;
+
     // 1a. Exact match on raw ID (e.g. "C1:NEW", "10", "WON")
-    const directMatch = stageField.listValues.find((lv) => lv.ID === str);
+    const directMatch = listValues.find((lv) => lv.ID === str);
     if (directMatch) return directMatch.VALUE;
 
-    // 1b. If input has a category prefix (e.g. "C1:10"), try matching base ID without prefix
     const colonIdx = str.lastIndexOf(":");
+
+    // 1b. If input has a category prefix (e.g. "C1:10", "DT1032_15:NEW")
     if (colonIdx !== -1) {
+      const prefix = str.slice(0, colonIdx);
       const baseId = str.slice(colonIdx + 1);
-      const unprefixedMatch = stageField.listValues.find((lv) => lv.ID === baseId);
-      if (unprefixedMatch) return unprefixedMatch.VALUE;
-    } else {
-      // 1c. If input is unprefixed (e.g. "10"), look for an item with that base ID in default or category
-      const baseMatch = stageField.listValues.find((lv) => {
+      // Match candidate in that exact category prefix
+      const matchInPrefix = listValues.find((lv) => {
         const lvColon = lv.ID.lastIndexOf(":");
-        const lvBase = lvColon !== -1 ? lv.ID.slice(lvColon + 1) : lv.ID;
-        return lvBase === str;
+        if (lvColon === -1) return false;
+        return lv.ID.slice(0, lvColon) === prefix && lv.ID.slice(lvColon + 1) === baseId;
       });
-      if (baseMatch) return baseMatch.VALUE;
+      if (matchInPrefix) return matchInPrefix.VALUE;
+
+      // Fallback to unprefixed base ID (default category) if category-specific stage absent
+      const unprefixedMatch = listValues.find((lv) => lv.ID === baseId);
+      if (unprefixedMatch) return unprefixedMatch.VALUE;
     }
+
+    // 1c. If deal record provides categoryId context
+    if (normCat !== undefined) {
+      const targetPrefixes = normCat === "0" ? ["", "C0"] : [`C${normCat}`];
+      const matchWithCat = listValues.find((lv) => {
+        const lvColon = lv.ID.lastIndexOf(":");
+        const lvPrefix = lvColon !== -1 ? lv.ID.slice(0, lvColon) : "";
+        const lvBase = lvColon !== -1 ? lv.ID.slice(lvColon + 1) : lv.ID;
+        return targetPrefixes.includes(lvPrefix) && (lvBase === str || lv.ID === str);
+      });
+      if (matchWithCat) return matchWithCat.VALUE;
+    }
+
+    // 1d. Base-ID fallback (ignoring category prefix)
+    // Allowed ONLY when:
+    // - exactly ONE candidate in listValues matches the base ID across all categories;
+    // - OR category context disambiguates it.
+    const baseId = colonIdx !== -1 ? str.slice(colonIdx + 1) : str;
+    const baseCandidates = listValues.filter((lv) => {
+      const lvColon = lv.ID.lastIndexOf(":");
+      const lvBase = lvColon !== -1 ? lv.ID.slice(lvColon + 1) : lv.ID;
+      return lvBase === baseId;
+    });
+
+    if (baseCandidates.length === 1) {
+      return baseCandidates[0].VALUE;
+    } else if (baseCandidates.length > 1) {
+      // Ambiguous across multiple categories without category context:
+      // Do NOT pick the first matching category arbitrarily!
+      return `Не классифицировано (${str})`;
+    }
+  }
+
+  // 1e. Default Category 0 live names fallback
+  const colonIdx = str.lastIndexOf(":");
+  const prefix = colonIdx !== -1 ? str.slice(0, colonIdx) : "";
+  const baseId = colonIdx !== -1 ? str.slice(colonIdx + 1) : str;
+  const isCat0 = (normCat === "0" || normCat === undefined) && (prefix === "" || prefix === "C0");
+  if (isCat0 && CATEGORY_0_STAGE_DISPLAY_LABELS[baseId]) {
+    return CATEGORY_0_STAGE_DISPLAY_LABELS[baseId];
   }
 
   // 2. Check canonical stage display mapping (e.g. NEW, WON, LOSE, PREPARATION, etc.)
@@ -229,6 +281,31 @@ export function resolveDealStage(
   // 3. Fallback: truthful unknown classification (never naked internal ID like "10" or "999999")
   return `Не классифицировано (${str})`;
 }
+
+/**
+ * Verified Category 0 live stage names from Bitrix24 portal.
+ * Used when metadata listValues is absent and stage belongs to pipeline 0.
+ */
+export const CATEGORY_0_STAGE_DISPLAY_LABELS: Record<string, string> = {
+  NEW: "Предложение / Согласование цены",
+  EXECUTING: "Привлечение техподдержки",
+  UC_SP94UZ: "Тестирование образцов",
+  "8": "Согласование предложения с руководством",
+  PREPARATION: "Согласование / подписание договора",
+  "5": "Выставление счета",
+  "6": "Подписание спецификации",
+  "9": "Получение оплаты",
+  "10": "Производство",
+  "11": "Склад",
+  "7": "Отгрузка",
+  WON: "Сделка успешна",
+  LOSE: "Не устроила цена",
+  LOST: "Не устроила цена",
+  APOLOGY: "Не устроили сроки",
+  "1": "Не согласовали договор",
+  "2": "Не устроили параметры продукта",
+  "4": "Другое",
+};
 
 /**
  * Resolves an enum or status field using metadata listValues, fallback dictionaries,
@@ -405,7 +482,8 @@ export function buildDealPreviewModel(
 
   // 1. Стадия
   const rawStage = deal.STAGE_ID ?? deal.stageId;
-  const stageDisplay = resolveDealStage(rawStage, fields);
+  const rawCat = deal.CATEGORY_ID ?? deal.categoryId;
+  const stageDisplay = resolveDealStage(rawStage, fields, rawCat as string | number | null);
   const stageField: DealPreviewResolvedField = {
     id: "STAGE_ID",
     label: "Стадия",
@@ -546,11 +624,11 @@ export function buildDealPreviewModel(
     excelValue: typeDisplay,
   });
 
-  // 9. Тестирование образцов (UF_CRM_1779394379)
-  const rawTesting = deal[DEAL_SAMPLE_TESTING_FIELD_ID];
+  // 9. Тестирование образцов (UF_CRM_1790786438 current, fallback to legacy UF_CRM_1779394379)
+  const rawTesting = deal[DEAL_TESTING_MARKER_CURRENT_FIELD_ID] ?? deal[DEAL_SAMPLE_TESTING_FIELD_ID];
   const testingDisplay = resolveTestingMarker(rawTesting);
   cardFields.push({
-    id: DEAL_SAMPLE_TESTING_FIELD_ID,
+    id: DEAL_TESTING_MARKER_CURRENT_FIELD_ID,
     label: "Тестирование образцов",
     value: testingDisplay,
     rawValue: rawTesting,

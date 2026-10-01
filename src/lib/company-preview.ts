@@ -262,7 +262,7 @@ export function resolveAddressRaw(raw: unknown): string | null {
   return String(raw).trim() || null;
 }
 
-/** File field resolution: returns human-readable file title or link label. Never raw JSON. */
+/** File field resolution: returns human-readable file title or link label. Never raw JSON or ID. */
 export function resolveFileRaw(raw: unknown): string | null {
   if (isSentinel(raw)) return null;
   if (Array.isArray(raw)) {
@@ -271,14 +271,13 @@ export function resolveFileRaw(raw: unknown): string | null {
   }
   if (typeof raw === "object" && raw !== null) {
     const obj = raw as Record<string, unknown>;
-    if (obj.name && typeof obj.name === "string") return obj.name.trim();
-    if (obj.showUrl || obj.downloadUrl) return "Файл прикреплен";
-    if (obj.id) return `Файл #${obj.id}`;
+    if (obj.name && typeof obj.name === "string" && obj.name.trim() !== "") return obj.name.trim();
+    if (obj.showUrl || obj.downloadUrl || obj.id) return "Файл прикреплен";
     return null;
   }
   const str = String(raw).trim();
   if (!str) return null;
-  if (/^\d+$/.test(str)) return `Файл #${str}`;
+  if (/^\d+$/.test(str)) return "Файл прикреплен";
   return str;
 }
 
@@ -308,7 +307,7 @@ export function resolveConsumptionRaw(raw: unknown): { display: string; excel: n
   };
 }
 
-/** Contact display resolution: directory name > custom contact string > contact title. */
+/** Contact display resolution: directory name > custom contact string > contact title. Never naked CRM ID. */
 export function resolveContactRaw(
   company: Record<string, unknown>,
   ctx: CompanyPreviewResolveContext
@@ -324,7 +323,7 @@ export function resolveContactRaw(
       return ctx.contactNames[idStr];
     }
     if (/^\d+$/.test(idStr)) {
-      return `Контакт #${idStr}`;
+      return "Контакт не удалось загрузить";
     }
     return idStr;
   }
@@ -364,7 +363,8 @@ export function resolvePricesRaw(company: Record<string, unknown>): { display: s
 }
 
 // ─── THE strict current-card whitelist (ordered) ──────────────────────
-// Exact 24-point current-card sequence mirroring the approved Bitrix card:
+// Exact 23-point current-card sequence mirroring the approved Bitrix card layout
+// (Note: "Тип продукта" UF_CRM_69257BBAB86F6 exists in schema but is absent from the live card layout):
 // 1. Ответственный
 // 2. Контакт
 // 3. Сайт
@@ -378,17 +378,18 @@ export function resolvePricesRaw(company: Record<string, unknown>): { display: s
 // 11. Тип компании
 // 12. Отрасль
 // 13. Направление
-// 14. Тип продукта
-// 15. Используемая марка — ГЕЛЬ
-// 16. Потребление — ГЕЛЬ
-// 17. Используемая марка — ЗОЛЬ
-// 18. Потребление — ЗОЛЬ
-// 19. Фактические цены
-// 20. Комментарий по используемым продуктам
-// 21. Общие комментарии
-// 22. Тестирование образцов (marker, MARKER_ONLY)
-// 23. Дата создания
-// 24. Дата изменения
+// 14. Используемая марка — ГЕЛЬ
+// 15. Потребление — ГЕЛЬ
+// 16. Используемая марка — ЗОЛЬ
+// 17. Потребление — ЗОЛЬ
+// 18. Фактические цены
+// 19. Комментарий по используемым продуктам
+// 20. Общие комментарии
+// 21. Тестирование образцов (marker, MARKER_ONLY)
+// 22. Дата создания
+// 23. Дата изменения
+
+export const TOTAL_APPROVED_FIELDS = 23;
 
 export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] = [
   // 1. Ответственный
@@ -631,27 +632,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 14. Тип продукта
-  {
-    id: COMPANY_PRODUCT_TYPE_FIELD_ID,
-    label: "Тип продукта",
-    type: "enumeration",
-    resolve: (company, ctx) => {
-      const raw = company[COMPANY_PRODUCT_TYPE_FIELD_ID];
-      const display = resolveEnumRaw(raw, fieldMeta(COMPANY_PRODUCT_TYPE_FIELD_ID, ctx));
-      return display
-        ? {
-            id: COMPANY_PRODUCT_TYPE_FIELD_ID,
-            label: "Тип продукта",
-            value: display,
-            rawValue: raw,
-            type: "enumeration",
-            excelValue: display,
-          }
-        : null;
-    },
-  },
-  // 15. Используемая марка — ГЕЛЬ
+  // 14. Используемая марка — ГЕЛЬ
   {
     id: "UF_CRM_1781806326214",
     label: "Используемая марка — ГЕЛЬ",
@@ -676,7 +657,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 16. Потребление — ГЕЛЬ
+  // 15. Потребление — ГЕЛЬ
   {
     id: "UF_CRM_1781806269703",
     label: "Потребление — ГЕЛЬ",
@@ -696,7 +677,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 17. Используемая марка — ЗОЛЬ
+  // 16. Используемая марка — ЗОЛЬ
   {
     id: "UF_CRM_1781806285641",
     label: "Используемая марка — ЗОЛЬ",
@@ -721,7 +702,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 18. Потребление — ЗОЛЬ
+  // 17. Потребление — ЗОЛЬ
   {
     id: "UF_CRM_1781806301447",
     label: "Потребление — ЗОЛЬ",
@@ -741,7 +722,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 19. Фактические цены
+  // 18. Фактические цены
   {
     id: "UF_CRM_1782743261289",
     label: "Фактические цены",
@@ -760,7 +741,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 20. Комментарий по используемым продуктам
+  // 19. Комментарий по используемым продуктам
   {
     id: COMPANY_COMMENTS_PRODUCT_FIELD_ID,
     label: "Комментарий по используемым продуктам",
@@ -779,7 +760,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 21. Общие комментарии
+  // 20. Общие комментарии
   {
     id: "COMMENTS",
     label: "Комментарий",
@@ -798,7 +779,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 22. Тестирование образцов (marker, MARKER_ONLY)
+  // 21. Тестирование образцов (marker, MARKER_ONLY)
   {
     id: COMPANY_TESTING_MARKER_FIELD_ID,
     label: "Тестирование образцов",
@@ -818,7 +799,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 23. Дата создания
+  // 22. Дата создания
   {
     id: "DATE_CREATE",
     label: "Дата создания",
@@ -838,7 +819,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 24. Дата изменения
+  // 23. Дата изменения
   {
     id: "DATE_MODIFY",
     label: "Дата изменения",

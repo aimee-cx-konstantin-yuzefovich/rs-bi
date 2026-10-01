@@ -34,9 +34,12 @@ import {
   isTerminalStage,
 } from "./stage-utils";
 import {
-  COMPANY_APPLICATION_NEW_FIELD_ID,
+  COMPANY_APPLICATION_FIELD_ID,
   COMPANY_APPLICATION_OLD_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
   COMPANY_DIRECTION_FIELD_ID,
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_REGION_FIELD_ID,
   COMPANY_PRODUCT_TYPE_FIELD_ID,
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
@@ -1056,8 +1059,8 @@ export function normalizeCompanies(
 ): CommercialCompany[] {
   const { userNames = {}, statusLabels = {}, now = new Date() } = options;
   const companySampleLabels = statusLabels[COMPANY_SAMPLES_FIELD_ID] || {};
-  const companyIndustryLabels = statusLabels["INDUSTRY"] || {};
-  const companyDirectionLabels = statusLabels[COMPANY_DIRECTION_FIELD_ID] || {};
+  const companyIndustryLabels = statusLabels[COMPANY_INDUSTRY_CURRENT_FIELD_ID] || statusLabels["INDUSTRY"] || {};
+  const companyDirectionLabels = statusLabels[COMPANY_DIRECTION_CURRENT_FIELD_ID] || statusLabels[COMPANY_DIRECTION_FIELD_ID] || {};
   const companyProductLabels = statusLabels[COMPANY_PRODUCT_TYPE_FIELD_ID] || {};
 
   // Group deals by company ID
@@ -1082,20 +1085,20 @@ export function normalizeCompanies(
     const responsibleName = userNames[responsibleId] || (responsibleId ? `ID ${responsibleId}` : "Не назначен");
     const dateCreate = extractIsoDates(row.DATE_CREATE)[0];
 
-    const industryRaw = cleanCrmClassificationString(row.INDUSTRY);
+    const industryRaw = cleanCrmClassificationString(row[COMPANY_INDUSTRY_CURRENT_FIELD_ID]);
     const industry = (industryRaw && companyIndustryLabels[industryRaw]) ? companyIndustryLabels[industryRaw] : industryRaw;
 
-    const directionRaw = toStringArray(row[COMPANY_DIRECTION_FIELD_ID]);
+    const directionRaw = toStringArray(row[COMPANY_DIRECTION_CURRENT_FIELD_ID]);
     const direction = directionRaw.map((v) => companyDirectionLabels[v] || v);
 
-    const region = cleanCrmClassificationString(row[DEAL_REGION_FIELD_ID]);
+    const region = cleanCrmClassificationString(row[COMPANY_REGION_FIELD_ID]);
 
     const productTypeRaw = toStringArray(row[COMPANY_PRODUCT_TYPE_FIELD_ID]);
     const productType = productTypeRaw.map((v) => companyProductLabels[v] || v);
 
-    const appNew = cleanCrmClassificationString(row[COMPANY_APPLICATION_NEW_FIELD_ID]) || "";
-    const appOld = cleanCrmClassificationString(row[COMPANY_APPLICATION_OLD_FIELD_ID]) || "";
-    const application = appNew || appOld || undefined;
+    // Application: verified actual field UF_CRM_69257337B8025 (COMPANY_APPLICATION_FIELD_ID).
+    // Note: Gel grade UF_CRM_1781806326214 must NEVER populate application.
+    const application = cleanCrmClassificationString(row[COMPANY_APPLICATION_FIELD_ID]) || undefined;
 
     const gradeGel = toStringArray(row[COMPANY_SAMPLES_GRADE_GEL_FIELD_ID]);
     const gradeSol = toStringArray(row[COMPANY_SAMPLES_GRADE_SOL_FIELD_ID]);

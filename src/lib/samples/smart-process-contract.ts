@@ -83,6 +83,14 @@ export const SMART_PROCESS_GRADE_SOL_FIELD_ID: string = "UF_CRM_7_1766136511";
 /** «Результат тестирования» — free text / string. */
 export const SMART_PROCESS_TEST_RESULT_FIELD_ID: string = "UF_CRM_7_1763036405";
 
+/** «Кол-во переданного образца (ГЕЛЬ) кг» (double). */
+export const SMART_PROCESS_QTY_GEL_FIELD_ID: string = "UF_CRM_7_1766136470";
+export const SMART_PROCESS_QTY_GEL_UNIT: string = "кг";
+
+/** «Кол-во переданного образца (ЗОЛЬ) л» (double). */
+export const SMART_PROCESS_QTY_SOL_FIELD_ID: string = "UF_CRM_7_1766136546";
+export const SMART_PROCESS_QTY_SOL_UNIT: string = "л";
+
 /**
  * Native Smart Process → Company relation as returned by live metadata.
  */
@@ -100,6 +108,8 @@ const REQUIRED_SMART_PROCESS_FIELD_IDS: Array<string | null> = [
   SMART_PROCESS_GRADE_GEL_FIELD_ID,
   SMART_PROCESS_GRADE_SOL_FIELD_ID,
   SMART_PROCESS_TEST_RESULT_FIELD_ID,
+  SMART_PROCESS_QTY_GEL_FIELD_ID,
+  SMART_PROCESS_QTY_SOL_FIELD_ID,
 ];
 
 /**
@@ -131,6 +141,8 @@ const REQUIRED_SMART_PROCESS_FIELD_ROLE_NAMES = [
   "Марка (ГЕЛЬ)",
   "Марка (ЗОЛЬ)",
   "Результат тестирования",
+  "Кол-во (ГЕЛЬ) кг",
+  "Кол-во (ЗОЛЬ) л",
 ] as const;
 
 /** Stable semantic class for an arbitrary stage ID (unknown → undefined). */

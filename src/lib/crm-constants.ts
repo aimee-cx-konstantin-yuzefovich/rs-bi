@@ -42,11 +42,20 @@ export const COMPANY_TEST_RESULT_FIELD_ID = "UF_CRM_1764156593";
 // Company "Тип продукта" (multiple enum: Гель/Золь/…)
 export const COMPANY_PRODUCT_TYPE_FIELD_ID = "UF_CRM_69257BBAB86F6";
 
-// Company "Область применения" — newer field takes display priority
-export const COMPANY_APPLICATION_NEW_FIELD_ID = "UF_CRM_1781806326214";
+// Company "Область применения" — verified actual legacy field (UF_CRM_69257337B8025).
+// Note: UF_CRM_1781806326214 is "Используемая марка гель" and MUST NOT be used as Application.
+export const COMPANY_APPLICATION_FIELD_ID = "UF_CRM_69257337B8025";
 export const COMPANY_APPLICATION_OLD_FIELD_ID = "UF_CRM_69257337B8025";
-// Company "Направление" (multiple enum)
-export const COMPANY_DIRECTION_FIELD_ID = "UF_CRM_69259C45D3399";
+/** @deprecated Stale alias — points to genuine Application field; do not use for Gel grade */
+export const COMPANY_APPLICATION_NEW_FIELD_ID = "UF_CRM_69257337B8025";
+/** Verified live field for "Используемая марка гель" */
+export const COMPANY_GEL_GRADE_USED_FIELD_ID = "UF_CRM_1781806326214";
+
+// Company "Направление (согл.список)" — authoritative CURRENT direction (UF_CRM_1784200275341).
+// Region (UF_CRM_69259C45D3399) must NEVER be aliased as Direction.
+export const COMPANY_DIRECTION_CURRENT_FIELD_ID = "UF_CRM_1784200275341";
+export const COMPANY_DIRECTION_CURRENT_FIELD_TITLE = "Направление (согл.список)";
+export const COMPANY_DIRECTION_FIELD_ID = "UF_CRM_1784200275341";
 
 // Company "Сфера деятельности" (crm_status)
 export const COMPANY_INDUSTRY_FIELD_ID = "INDUSTRY";
@@ -54,8 +63,12 @@ export const COMPANY_INDUSTRY_FIELD_TITLE = "Сфера деятельности
 
 // Deal "Передача образцов" (enum)
 export const DEAL_SAMPLE_TRANSFER_FIELD_ID = "UF_CRM_1779386185";
-// Deal "Тестирование образцов" (enum, possibly multiple)
+// Deal "Тестирование образцов" (legacy enum marker, MARKER_ONLY)
 export const DEAL_SAMPLE_TESTING_FIELD_ID = "UF_CRM_1779394379";
+export const DEAL_SAMPLE_TESTING_LEGACY_FIELD_ID = "UF_CRM_1779394379";
+// Deal "Тестирование образцов" current visible checkbox (boolean)
+export const DEAL_TESTING_MARKER_CURRENT_FIELD_ID = "UF_CRM_1790786438";
+
 // Deal "Дата отправки образцов" (date)
 export const DEAL_SAMPLE_SENT_DATE_FIELD_ID = "UF_CRM_1774879952785";
 // Deal "Детали по образцам для ТВЛ" (string)
@@ -90,6 +103,10 @@ export {
   SMART_PROCESS_GRADE_GEL_FIELD_ID,
   SMART_PROCESS_GRADE_SOL_FIELD_ID,
   SMART_PROCESS_TEST_RESULT_FIELD_ID,
+  SMART_PROCESS_QTY_GEL_FIELD_ID,
+  SMART_PROCESS_QTY_GEL_UNIT,
+  SMART_PROCESS_QTY_SOL_FIELD_ID,
+  SMART_PROCESS_QTY_SOL_UNIT,
   SMART_PROCESS_COMPANY_FIELD_ID,
   SMART_PROCESS_HAS_DISCOVERED_CONTRACT,
 } from "./samples/smart-process-contract";
@@ -102,12 +119,6 @@ export const COMPANY_INDUSTRY_CURRENT_FIELD_ID = "UF_CRM_1784195884554";
 export const COMPANY_INDUSTRY_CURRENT_FIELD_TITLE = "Отрасль (согл.список)";
 /** Retired classification field — must never be used as current industry. */
 export const COMPANY_INDUSTRY_DEPRECATED_FIELD_ID = "UF_CRM_6915D8C0C6814";
-
-// «Направление (согл.список)» — authoritative CURRENT direction for the
-// Samples/current sample context. The legacy multi-enum «Направление»
-// (UF_CRM_69259C45D3399) stays for historical Commercial Funnel dimensions.
-export const COMPANY_DIRECTION_CURRENT_FIELD_ID = "UF_CRM_1784200275341";
-export const COMPANY_DIRECTION_CURRENT_FIELD_TITLE = "Направление (согл.список)";
 
 // ─── Company Preview current-card contract (Phase D) ─────────────────
 // Company "Регион" — verified live field UF_CRM_69259C45D3399 (string).
@@ -199,9 +210,9 @@ export const DEAL_STAGES = {
 } as const;
 
 /**
- * Approved Russian display labels for CRM deal stages.
- * Used exclusively for UI display and export formatting;
- * internal Bitrix CRM stage keys remain untouched.
+ * Approved Russian display labels for CRM deal stages (verified Category 0 fallback).
+ * Used exclusively as fallback for UI display and export formatting when live metadata
+ * is absent; internal Bitrix CRM stage keys remain untouched.
  */
 export const DEAL_STAGE_DISPLAY_LABELS: Record<string, string> = {
   WON: "Успешные",

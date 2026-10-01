@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "contractVersion": "1.0.0",
-  "generatedAt": "2026-10-01T08:26:00.000Z",
+  "contractVersion": "1.1.0",
+  "generatedAt": "2026-10-01T12:55:00.000Z",
   "smartProcess": {
     "entityTypeId": 1032,
     "categoryId": 15,
@@ -82,11 +82,40 @@
         "fieldId": "UF_CRM_7_1763036405",
         "type": "string",
         "multiple": false
+      },
+      "UF_CRM_7_1766136470": {
+        "concept": "Кол-во переданного образца (ГЕЛЬ) кг",
+        "fieldId": "UF_CRM_7_1766136470",
+        "type": "double",
+        "unit": "кг",
+        "multiple": false
+      },
+      "UF_CRM_7_1766136546": {
+        "concept": "Кол-во переданного образца (ЗОЛЬ) л",
+        "fieldId": "UF_CRM_7_1766136546",
+        "type": "double",
+        "unit": "л",
+        "multiple": false
       }
     }
   },
+  "dealMarkers": {
+    "currentCheckbox": {
+      "concept": "Тестирование образцов (текущий чекбокс карточки сделки)",
+      "fieldId": "UF_CRM_1790786438",
+      "type": "boolean",
+      "multiple": false
+    },
+    "legacyMarker": {
+      "concept": "Тестирование образцов (legacy маркер)",
+      "fieldId": "UF_CRM_1779394379",
+      "type": "enumeration",
+      "multiple": true,
+      "markerOnly": true
+    }
+  },
   "companyPreview": {
-    "totalApprovedFields": 24,
+    "totalApprovedFields": 23,
     "fields": [
       { "order": 1, "concept": "Ответственный", "fieldId": "ASSIGNED_BY_ID", "type": "user", "multiple": false },
       { "order": 2, "concept": "Контакт", "fieldId": "CONTACT", "type": "contact", "multiple": false },
@@ -101,17 +130,16 @@
       { "order": 11, "concept": "Тип компании", "fieldId": "COMPANY_TYPE", "type": "crm_status", "multiple": false },
       { "order": 12, "concept": "Отрасль", "fieldId": "UF_CRM_1784195884554", "type": "enumeration", "multiple": false },
       { "order": 13, "concept": "Направление", "fieldId": "UF_CRM_1784200275341", "type": "enumeration", "multiple": false },
-      { "order": 14, "concept": "Тип продукта", "fieldId": "UF_CRM_69257BBAB86F6", "type": "enumeration", "multiple": true },
-      { "order": 15, "concept": "Используемая марка — ГЕЛЬ", "fieldId": "UF_CRM_1781806326214", "type": "string", "multiple": false },
-      { "order": 16, "concept": "Потребление — ГЕЛЬ", "fieldId": "UF_CRM_1781806269703", "type": "double", "multiple": false },
-      { "order": 17, "concept": "Используемая марка — ЗОЛЬ", "fieldId": "UF_CRM_1781806285641", "type": "string", "multiple": false },
-      { "order": 18, "concept": "Потребление — ЗОЛЬ", "fieldId": "UF_CRM_1781806301447", "type": "double", "multiple": false },
-      { "order": 19, "concept": "Фактические цены", "fieldId": "UF_CRM_1782743261289", "type": "money", "multiple": false },
-      { "order": 20, "concept": "Комментарий по используемым продуктам", "fieldId": "UF_CRM_1753080295792", "type": "string", "multiple": false },
-      { "order": 21, "concept": "Комментарий", "fieldId": "COMMENTS", "type": "string", "multiple": false },
-      { "order": 22, "concept": "Тестирование образцов", "fieldId": "UF_CRM_1790787974", "type": "boolean", "multiple": false },
-      { "order": 23, "concept": "Дата создания", "fieldId": "DATE_CREATE", "type": "date", "multiple": false },
-      { "order": 24, "concept": "Дата изменения", "fieldId": "DATE_MODIFY", "type": "date", "multiple": false }
+      { "order": 14, "concept": "Используемая марка — ГЕЛЬ", "fieldId": "UF_CRM_1781806326214", "type": "string", "multiple": false },
+      { "order": 15, "concept": "Потребление — ГЕЛЬ", "fieldId": "UF_CRM_1781806269703", "type": "double", "multiple": false },
+      { "order": 16, "concept": "Используемая марка — ЗОЛЬ", "fieldId": "UF_CRM_1781806285641", "type": "string", "multiple": false },
+      { "order": 17, "concept": "Потребление — ЗОЛЬ", "fieldId": "UF_CRM_1781806301447", "type": "double", "multiple": false },
+      { "order": 18, "concept": "Фактические цены", "fieldId": "UF_CRM_1782743261289", "type": "money", "multiple": false },
+      { "order": 19, "concept": "Комментарий по используемым продуктам", "fieldId": "UF_CRM_1753080295792", "type": "string", "multiple": false },
+      { "order": 20, "concept": "Комментарий", "fieldId": "COMMENTS", "type": "string", "multiple": false },
+      { "order": 21, "concept": "Тестирование образцов", "fieldId": "UF_CRM_1790787974", "type": "boolean", "multiple": false },
+      { "order": 22, "concept": "Дата создания", "fieldId": "DATE_CREATE", "type": "date", "multiple": false },
+      { "order": 23, "concept": "Дата изменения", "fieldId": "DATE_MODIFY", "type": "date", "multiple": false }
     ]
   }
 }

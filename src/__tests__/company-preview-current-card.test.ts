@@ -39,7 +39,7 @@ import {
   COMPANY_TEST_RESULT_FIELD_ID,
 } from "@/lib/crm-constants";
 
-/** The exact expected current-card field ORDER (approved card mirror). */
+/** The exact expected current-card field ORDER (approved card mirror, 23 fields). */
 const EXPECTED_FIELD_ORDER = [
   "ASSIGNED_BY_ID",
   "CONTACT",
@@ -54,7 +54,6 @@ const EXPECTED_FIELD_ORDER = [
   "COMPANY_TYPE",
   COMPANY_INDUSTRY_CURRENT_FIELD_ID,
   COMPANY_DIRECTION_CURRENT_FIELD_ID,
-  COMPANY_PRODUCT_TYPE_FIELD_ID,
   "UF_CRM_1781806326214",
   "UF_CRM_1781806269703",
   "UF_CRM_1781806285641",
@@ -171,8 +170,8 @@ describe("Phase D — Company Preview current-card contract", () => {
     expect(byId.get("UF_CRM_1781806326214")!.value).toBe("КСМГ-9, КСМГ-12");
     // Sol grades.
     expect(byId.get("UF_CRM_1781806285641")!.value).toBe("СКСГ-4");
-    // Product types.
-    expect(byId.get(COMPANY_PRODUCT_TYPE_FIELD_ID)!.value).toBe("Гель, Золь");
+    // Product type is NOT a card field (CARD FIELD != ANALYTICAL DIMENSION).
+    expect(byId.has(COMPANY_PRODUCT_TYPE_FIELD_ID)).toBe(false);
 
     // No raw numeric classification codes anywhere in the card (ИНН is a
     // legitimate numeric-looking string field — excluded explicitly).
@@ -328,5 +327,53 @@ describe("Phase D — Company Preview current-card contract", () => {
     expect(COMPANY_PREVIEW_CURRENT_FIELDS.map((f) => f.id)).toEqual(
       EXPECTED_FIELD_ORDER as unknown as string[]
     );
+  });
+
+  it("PRIVACY: Contact resolution never leaks naked CRM ID or 'Контакт #1234'", () => {
+    // 1. Known contact ID resolves to directory name
+    const knownModel = buildCompanyPreviewModel(
+      { ID: "1", CONTACT_ID: "50" },
+      { contactNames: { "50": "Сергей Петров" } }
+    );
+    expect(knownModel.fields.find((f) => f.id === "CONTACT")?.value).toBe("Сергей Петров");
+
+    // 2. Unknown numeric contact ID resolves to truthful non-ID placeholder
+    const unknownModel = buildCompanyPreviewModel(
+      { ID: "2", CONTACT_ID: "9999" },
+      { contactNames: {} }
+    );
+    const contactVal = unknownModel.fields.find((f) => f.id === "CONTACT")?.value;
+    expect(contactVal).toBe("Контакт не удалось загрузить");
+    expect(contactVal).not.toContain("9999");
+    expect(contactVal).not.toContain("#");
+  });
+
+  it("PRIVACY: File resolution never leaks raw file ID or 'Файл #1234'", () => {
+    // 1. File object with name resolves to name
+    const namedModel = buildCompanyPreviewModel({
+      ID: "1",
+      UF_CRM_1782742600447: [{ name: "Договор_поставки.pdf" }],
+    });
+    expect(namedModel.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value).toBe(
+      "Договор_поставки.pdf"
+    );
+
+    // 2. File object with URL/id but no name resolves to 'Файл прикреплен'
+    const objModel = buildCompanyPreviewModel({
+      ID: "2",
+      UF_CRM_1782742600447: [{ id: 456, showUrl: "/download/456" }],
+    });
+    const objVal = objModel.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value;
+    expect(objVal).toBe("Файл прикреплен");
+    expect(objVal).not.toContain("456");
+
+    // 3. Raw numeric ID string resolves to 'Файл прикреплен'
+    const numModel = buildCompanyPreviewModel({
+      ID: "3",
+      UF_CRM_1782742600447: "789",
+    });
+    const numVal = numModel.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value;
+    expect(numVal).toBe("Файл прикреплен");
+    expect(numVal).not.toContain("789");
   });
 });

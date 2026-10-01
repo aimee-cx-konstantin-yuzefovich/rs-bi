@@ -40,6 +40,10 @@ import {
   SMART_PROCESS_GRADE_SOL_FIELD_ID,
   SMART_PROCESS_TEST_RESULT_FIELD_ID,
   SMART_PROCESS_DEAL_UF_FIELD_ID,
+  SMART_PROCESS_QTY_GEL_FIELD_ID,
+  SMART_PROCESS_QTY_GEL_UNIT,
+  SMART_PROCESS_QTY_SOL_FIELD_ID,
+  SMART_PROCESS_QTY_SOL_UNIT,
   isSmartProcessActiveStage,
   isSmartProcessTerminalStage,
   smartProcessStageSemantic,
@@ -92,10 +96,11 @@ function terminalStageImpliedResult(
 
 /**
  * Resolves the explicit SP «Результат тестирования» raw value:
- * - enum ID resolved through metadata when available;
- * - unknown enum ID → «Не классифицировано (<id>)» (never success/failure);
- * - normalized via the conservative keyword classifier over the RESOLVED
- *   label (unknown enum labels classify as unknown).
+ * - field is verified live string (free text, e.g. technologist comments);
+ * - empty / sentinel → normalized "unknown";
+ * - dictionary label resolved through metadata when available;
+ * - conservative result classification over resolved or raw string;
+ * - unclassified text preserves raw string verbatim (never forced to "Не классифицировано (<id>)").
  */
 export function resolveSmartProcessResult(
   raw: unknown,
@@ -110,18 +115,10 @@ export function resolveSmartProcessResult(
   }
   const label = resolve(SMART_PROCESS_TEST_RESULT_FIELD_ID ?? "", rawStr);
   if (label !== rawStr) {
-    // Metadata resolved the enum ID to a human label.
+    // Metadata resolved through dictionary to a human label.
     return { raw: rawStr, label, normalized: classifyResultValue(label) ?? "unknown" };
   }
-  // Unresolved: numeric enum ID stays unclassified; free text classifies conservatively.
-  if (/^\d+$/.test(rawStr)) {
-    return {
-      raw: rawStr,
-      label: `Не классифицировано (${rawStr})`,
-      normalized: "unknown",
-      unknownEnumId: rawStr,
-    };
-  }
+  // Field is verified string (free text). Preserves raw string verbatim.
   return { raw: rawStr, label: rawStr, normalized: classifyResultValue(rawStr) ?? "unknown" };
 }
 
@@ -154,16 +151,18 @@ export function adaptSmartProcessSampleEvidence(
   if (linkedDealId === "0") linkedDealId = undefined;
 
   let companyId = directCompanyId ?? "";
+  let dealCompanyId: string | undefined;
 
   // Relation conflict: direct Company relation and linked Deal's COMPANY_ID disagree.
   if (directCompanyId && linkedDealId && context.dealCompanyById) {
-    const dealCompanyId = context.dealCompanyById.get(linkedDealId);
+    dealCompanyId = context.dealCompanyById.get(linkedDealId);
     if (dealCompanyId && dealCompanyId !== "0" && dealCompanyId !== directCompanyId) {
       issues.push("smart_process_relation_conflict");
+      companyId = ""; // Fail-closed: relation conflict must not be attributed to either company
     }
   } else if (!directCompanyId && linkedDealId && context.dealCompanyById) {
     // Fallback to linked Deal's COMPANY_ID when direct relation is missing
-    const dealCompanyId = context.dealCompanyById.get(linkedDealId);
+    dealCompanyId = context.dealCompanyById.get(linkedDealId);
     if (dealCompanyId && dealCompanyId !== "0") {
       companyId = dealCompanyId;
     }
@@ -247,13 +246,13 @@ export function adaptSmartProcessSampleEvidence(
 
   // ── Quantities ──
   const quantities: SampleEvidenceUnit["quantities"] = [];
-  const rawGelQty = parseQuantity(rowValue(row, "UF_CRM_7_1766136470"));
+  const rawGelQty = parseQuantity(rowValue(row, SMART_PROCESS_QTY_GEL_FIELD_ID));
   if (rawGelQty !== undefined) {
-    quantities.push({ productFamily: PRODUCT_FAMILY_GEL, value: rawGelQty, unit: "кг" });
+    quantities.push({ productFamily: PRODUCT_FAMILY_GEL, value: rawGelQty, unit: SMART_PROCESS_QTY_GEL_UNIT });
   }
-  const rawSolQty = parseQuantity(rowValue(row, "UF_CRM_7_1766136546"));
+  const rawSolQty = parseQuantity(rowValue(row, SMART_PROCESS_QTY_SOL_FIELD_ID));
   if (rawSolQty !== undefined) {
-    quantities.push({ productFamily: PRODUCT_FAMILY_SOL, value: rawSolQty, unit: "л" });
+    quantities.push({ productFamily: PRODUCT_FAMILY_SOL, value: rawSolQty, unit: SMART_PROCESS_QTY_SOL_UNIT });
   }
 
   // ── Status evidence: stage label (display) + stage semantic marker ──
@@ -265,8 +264,8 @@ export function adaptSmartProcessSampleEvidence(
   const responsibleId = rowString(row, "assignedById") ?? rowString(row, "ASSIGNED_BY_ID");
   const createdTime = rowString(row, "createdTime");
 
-  // Orphan: no company relation at all.
-  if (!companyId) {
+  // Orphan: no company relation at all (distinct from relation conflict).
+  if (!companyId && !issues.includes("smart_process_relation_conflict")) {
     issues.push("smart_process_orphan_item");
   }
 
@@ -285,6 +284,8 @@ export function adaptSmartProcessSampleEvidence(
     categoryId: SMART_PROCESS_CATEGORY_ID,
     createdTime,
     linkedDealId,
+    directCompanyId,
+    dealCompanyId,
     productFamilies: [],
     grades,
     quantities,

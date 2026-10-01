@@ -127,6 +127,7 @@ describe("Phase C — Marker isolation (§45)", () => {
         "src/__tests__/ingress-to-domain-e2e.test.ts",
         "src/__tests__/global-adversarial-reconciliation.test.ts",
         "src/__tests__/bitrix-contract.test.ts",
+        "src/__tests__/live-contract-consistency.test.ts",
         "scripts/verify-bitrix-contract.mjs",
         "scripts/verify-samples-field-map.mjs",
       ]

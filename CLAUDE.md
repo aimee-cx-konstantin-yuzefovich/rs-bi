@@ -142,7 +142,7 @@ Global dimensional filtering (Responsible, Product, Industry, Direction, Region)
   - When `sampleStatusSource === "DEAL"`, sample bottlenecks and Action Plan entries use `sampleResponsibleDealId`, **never** substituting `primaryDealId` (which may be an unrelated commercial deal).
   - When `sampleStatusSource === "SMART_PROCESS"`, bottlenecks use `sampleRelatedDealId` when a factual linked Deal exists and leave Deal blank otherwise.
   - When `sampleStatusSource === "COMPANY"`, deal fields remain `undefined`. The system never borrows an arbitrary representative deal merely to populate columns.
-  - The Samples registry Industry filter uses the current approved Company-card field `UF_CRM_1784195884554` («Отрасль (согл.список)»); legacy `INDUSTRY` and retired `UF_CRM_6915D8C0C6814` never override it.
+  - The Samples registry and Commercial Funnel Industry filter uses the current approved Company-card field `UF_CRM_1784195884554` («Отрасль (согл.список)»); direction uses `UF_CRM_1784200275341` («Направление (согл.список)»); region uses `UF_CRM_69259C45D3399` («Регион»); legacy `INDUSTRY` and retired `UF_CRM_6915D8C0C6814` never override them.
 
 #### Event vs Snapshot model (Two analytical planes)
 

@@ -240,7 +240,9 @@ describe("Phase C — Smart Process adversarial matrix (SP1–SP16)", () => {
       { dealCompanyById: new Map([["50", "200"]]) }
     )!;
     expect(unit.issues).toContain("smart_process_relation_conflict");
-    expect(unit.companyId).toBe("100"); // direct relation preserved as evidence
+    expect(unit.companyId).toBe(""); // Fail-closed: relation conflict must not be attributed to either company
+    expect(unit.directCompanyId).toBe("100");
+    expect(unit.dealCompanyId).toBe("200");
   });
 
   it("SP14: orphan SP item (no company relation) → counted and disclosed", () => {
@@ -283,13 +285,12 @@ describe("Phase C — Smart Process adversarial matrix (SP1–SP16)", () => {
     expect(unit.statusEvidence).toEqual(["DT1032_15:UC_UNKNOWNXYZ"]);
   });
 
-  it("SP-extra: unknown result enum ID → Не классифицировано (<id>), never success/failure", () => {
+  it("SP-extra: unclassified string result → preserved verbatim, normalized unknown", () => {
     const unit = adaptSmartProcessSampleEvidence(
       spItem({ stageId: "DT1032_15:CLIENT", [SP_RESULT]: "777" }),
       resolve
     )!;
-    expect(unit.issues).toContain("smart_process_unknown_result");
-    expect(unit.rawTestResult).toBe("Не классифицировано (777)");
+    expect(unit.rawTestResult).toBe("777");
     expect(unit.normalizedResult).toBe("unknown");
   });
 

@@ -81,6 +81,10 @@ export interface SampleEvidenceUnit {
   createdTime?: string;
   /** Exact linked Deal from the verified SP Deal relation (when configured). */
   linkedDealId?: string;
+  /** Direct company relation from SP item (for diagnostic inspection / conflict audit). */
+  directCompanyId?: string;
+  /** Linked deal's company relation (for diagnostic inspection / conflict audit). */
+  dealCompanyId?: string;
 
   // Products, grades, and quantities
   productFamilies: string[];

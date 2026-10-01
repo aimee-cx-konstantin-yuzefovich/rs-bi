@@ -342,21 +342,21 @@ describe("buildSampleSummaries — result normalization and quality", () => {
     expect(s.normalizedResult).toBe("positive");
   });
 
-  it("industry and application: newer field wins, older supplement, difference flagged", () => {
+  it("industry and application: Gel grade (UF_CRM_1781806326214) never populates application; verified application field wins", () => {
     const { summaries } = buildSampleSummaries(
       [
         company({
           [F.result]: "Положительный",
-          "UF_CRM_1781806326214": "Керамика",
-          "UF_CRM_69257337B8025": "Строительство",
+          "UF_CRM_1781806326214": "Керамика", // Gel grade used, NOT application
+          "UF_CRM_69257337B8025": "Строительство", // Canonical application
         }),
       ],
       [],
       [],
     );
     const s = summaries[0];
-    expect(s.application).toBe("Керамика");
-    expect(s.dataIssues).toContain("application_fields_differ");
+    expect(s.application).toBe("Строительство");
+    expect(s.application).not.toBe("Керамика");
   });
 });
 

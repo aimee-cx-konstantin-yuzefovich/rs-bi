@@ -140,7 +140,7 @@ describe("Bitrix Contract Validator — Canonical Engine", () => {
       const issues = validateDealFieldsContract(broken);
       const err = issues.find((i) => i.field === DEAL_SAMPLE_TRANSFER_FIELD_ID && i.severity === "error");
       expect(err).toBeDefined();
-      expect(err?.message).toContain("expected type [enumeration], found 'date'");
+      expect(err?.message).toContain("expected type [enumeration, crm_status], found 'date'");
     });
 
     it("TC-CONTRACT-03d: company samples field changed from enumeration to boolean/string -> FAIL", () => {
@@ -206,9 +206,9 @@ describe("Bitrix Contract Validator — Canonical Engine", () => {
       const compIssues2 = validateCompanyFieldsContract(brokenComp2);
       expect(compIssues2.some((i) => i.field === COMPANY_PRODUCT_TYPE_FIELD_ID && i.message.includes("MULTIPLE"))).toBe(true);
 
-      // 3. COMPANY_DIRECTION_FIELD_ID
+      // 3. COMPANY_DIRECTION_FIELD_ID (contract specifies single; multiple -> FAIL)
       const brokenComp3 = JSON.parse(JSON.stringify(OFFLINE_CONTRACT_SNAPSHOT.companyFields.result));
-      brokenComp3[COMPANY_DIRECTION_FIELD_ID].isMultiple = false;
+      brokenComp3[COMPANY_DIRECTION_FIELD_ID].isMultiple = true;
       const compIssues3 = validateCompanyFieldsContract(brokenComp3);
       expect(compIssues3.some((i) => i.field === COMPANY_DIRECTION_FIELD_ID && i.message.includes("MULTIPLE"))).toBe(true);
 

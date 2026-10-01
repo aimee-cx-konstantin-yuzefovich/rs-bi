@@ -18,12 +18,21 @@ import {
   SENT_INDICATOR_KEYWORDS,
 } from "./constants";
 
-/** Checks if a value is absent or a Bitrix REST API sentinel (false, "false", "true", "null", "undefined", ""). */
+/** Checks if a value is absent or a Bitrix REST API sentinel (false, "false", "true", "null", "undefined", "", "—", "–", "-"). */
 export function isSentinelValue(v: unknown): boolean {
   if (v === null || v === undefined || v === false || v === true) return true;
   if (typeof v === "string") {
     const s = v.trim().toLowerCase();
-    return s === "" || s === "false" || s === "true" || s === "null" || s === "undefined";
+    return (
+      s === "" ||
+      s === "false" ||
+      s === "true" ||
+      s === "null" ||
+      s === "undefined" ||
+      s === "—" ||
+      s === "–" ||
+      s === "-"
+    );
   }
   return false;
 }

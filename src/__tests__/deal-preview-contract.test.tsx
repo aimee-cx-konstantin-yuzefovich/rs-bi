@@ -120,7 +120,7 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     // Whitelist core attributes present
     expect(screen.getByText("Сделка Тест A")).toBeInTheDocument();
     expect(screen.getByText("Стадия")).toBeInTheDocument();
-    expect(screen.getByText("Новые")).toBeInTheDocument();
+    expect(screen.getByText("Предложение / Согласование цены")).toBeInTheDocument();
     expect(screen.getByText("Сумма")).toBeInTheDocument();
     expect(screen.getByText("Ответственный")).toBeInTheDocument();
     expect(screen.getByText("Компания")).toBeInTheDocument();
@@ -514,8 +514,12 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     // Input with category prefix falling back to base ID if category stage absent
     expect(resolveDealStage("C3:NEW", fields)).toBe("Новая (Основная)");
 
-    // Unprefixed input matching category stage
-    expect(resolveDealStage("10", fields)).toBe("Счет выставлен (Воронка 1)");
+    // Unprefixed input with categoryId disambiguation
+    expect(resolveDealStage("10", fields, "1")).toBe("Счет выставлен (Воронка 1)");
+    expect(resolveDealStage("10", fields, "2")).toBe("Тестирование (Воронка 2)");
+
+    // Unprefixed input ambiguous across multiple categories without categoryId
+    expect(resolveDealStage("10", fields)).toBe("Не классифицировано (10)");
   });
 
   it("AUDIT REGRESSION 2: Multi-enum array falls back gracefully even when fields metadata is missing", () => {
