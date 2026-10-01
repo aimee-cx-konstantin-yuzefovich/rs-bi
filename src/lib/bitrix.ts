@@ -215,7 +215,7 @@ export const SYSTEM_FIELDS_TO_EXCLUDE = new Set([
   "CONTACT_IDS",
   "QUOTE_ID",
   "MYCOMPANY_ID",
-  "PARENT_ID_1032",
+  "PARENT_ID_1032", // Historical / Deal-side parent link is absent in live schema; SP links via parentId2
   "ORIGINATOR_ID",
   "ORIGIN_ID",
 

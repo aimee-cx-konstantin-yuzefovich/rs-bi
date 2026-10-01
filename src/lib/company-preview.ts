@@ -272,12 +272,30 @@ export function resolveFileRaw(raw: unknown): string | null {
   if (typeof raw === "object" && raw !== null) {
     const obj = raw as Record<string, unknown>;
     if (obj.name && typeof obj.name === "string" && obj.name.trim() !== "") return obj.name.trim();
-    if (obj.showUrl || obj.downloadUrl || obj.id) return "Файл прикреплен";
+    if (
+      obj.showUrl ||
+      obj.downloadUrl ||
+      obj.url ||
+      obj.id !== undefined ||
+      obj.ID !== undefined ||
+      obj.fileId !== undefined ||
+      obj.FILE_ID !== undefined
+    ) {
+      return "Файл прикреплен";
+    }
+    if (Object.keys(obj).length > 0) return "Файл прикреплен";
     return null;
   }
   const str = String(raw).trim();
   if (!str) return null;
-  if (/^\d+$/.test(str)) return "Файл прикреплен";
+  if (
+    /^\d+$/.test(str) ||
+    /^#\d+$/.test(str) ||
+    str.startsWith("Файл #") ||
+    str.startsWith("Файл №")
+  ) {
+    return "Файл прикреплен";
+  }
   return str;
 }
 
@@ -322,7 +340,12 @@ export function resolveContactRaw(
     if (ctx.contactNames && ctx.contactNames[idStr]) {
       return ctx.contactNames[idStr];
     }
-    if (/^\d+$/.test(idStr)) {
+    if (
+      /^\d+$/.test(idStr) ||
+      /^#\d+$/.test(idStr) ||
+      idStr.startsWith("Контакт #") ||
+      idStr.startsWith("Контакт №")
+    ) {
       return "Контакт не удалось загрузить";
     }
     return idStr;

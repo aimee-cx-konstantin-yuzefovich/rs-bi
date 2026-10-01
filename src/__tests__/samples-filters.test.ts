@@ -479,10 +479,10 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
     expect(normalizeTitle("Марка и объём")).toBe("марка и объем");
 
     const appSpec = {
-      role: "Область применения — current/new",
+      role: "Область применения",
       entity: "Company",
-      configuredId: "UF_CRM_1781806326214",
-      expectedTypes: ["enumeration"],
+      configuredId: "UF_CRM_69257337B8025",
+      expectedTypes: ["enumeration", "string"],
       acceptedTitles: ["Область применения"],
     };
 

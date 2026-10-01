@@ -346,6 +346,13 @@ describe("Phase D — Company Preview current-card contract", () => {
     expect(contactVal).toBe("Контакт не удалось загрузить");
     expect(contactVal).not.toContain("9999");
     expect(contactVal).not.toContain("#");
+
+    // 3. Stale formatted string with ID pattern (Контакт #999 or #999) is sanitized
+    const formattedModel = buildCompanyPreviewModel(
+      { ID: "3", CONTACT_ID: "Контакт #999" },
+      { contactNames: {} }
+    );
+    expect(formattedModel.fields.find((f) => f.id === "CONTACT")?.value).toBe("Контакт не удалось загрузить");
   });
 
   it("PRIVACY: File resolution never leaks raw file ID or 'Файл #1234'", () => {
@@ -375,5 +382,26 @@ describe("Phase D — Company Preview current-card contract", () => {
     const numVal = numModel.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value;
     expect(numVal).toBe("Файл прикреплен");
     expect(numVal).not.toContain("789");
+
+    // 4. Object with ONLY id property resolves to 'Файл прикреплен'
+    const onlyIdModel = buildCompanyPreviewModel({
+      ID: "4",
+      UF_CRM_1782742600447: [{ id: 101 }],
+    });
+    expect(onlyIdModel.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value).toBe("Файл прикреплен");
+
+    // 5. Object with uppercase ID property resolves to 'Файл прикреплен'
+    const uppercaseIdModel = buildCompanyPreviewModel({
+      ID: "5",
+      UF_CRM_1782742600447: [{ ID: 202 }],
+    });
+    expect(uppercaseIdModel.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value).toBe("Файл прикреплен");
+
+    // 6. Object with downloadUrl but no name resolves to 'Файл прикреплен'
+    const dlModel = buildCompanyPreviewModel({
+      ID: "6",
+      UF_CRM_1782742600447: [{ downloadUrl: "/crm/file/download/303" }],
+    });
+    expect(dlModel.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value).toBe("Файл прикреплен");
   });
 });
