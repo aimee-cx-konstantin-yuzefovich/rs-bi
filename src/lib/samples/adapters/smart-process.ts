@@ -39,7 +39,6 @@ import {
   SMART_PROCESS_GRADE_GEL_FIELD_ID,
   SMART_PROCESS_GRADE_SOL_FIELD_ID,
   SMART_PROCESS_TEST_RESULT_FIELD_ID,
-  SMART_PROCESS_DEAL_UF_FIELD_ID,
   SMART_PROCESS_QTY_GEL_FIELD_ID,
   SMART_PROCESS_QTY_GEL_UNIT,
   SMART_PROCESS_QTY_SOL_FIELD_ID,
@@ -138,11 +137,8 @@ export function adaptSmartProcessSampleEvidence(
   const rawDirect = rowString(row, "companyId") ?? rowString(row, "COMPANY_ID");
   const directCompanyId = rawDirect && rawDirect !== "0" ? rawDirect : undefined;
 
-  // ── Deal relation: primary parentId2, secondary UF_CRM_7_1779385642 ──
+  // ── Deal relation: authoritative parentId2 only ──
   let linkedDealId = rowString(row, SMART_PROCESS_DEAL_FIELD_ID);
-  if (!linkedDealId || linkedDealId === "0") {
-    linkedDealId = rowString(row, SMART_PROCESS_DEAL_UF_FIELD_ID);
-  }
   if (linkedDealId === "0") linkedDealId = undefined;
 
   let companyId = directCompanyId ?? "";

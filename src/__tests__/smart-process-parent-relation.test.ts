@@ -48,8 +48,8 @@ describe("Phase C §35: Smart Process Deal Relation & PARENT_ID_1032 Independenc
     expect(unit?.linkedDealId).toBe("505");
   });
 
-  it("C. Auxiliary UF relation (UF_CRM_7_1779385642) acts as fallback when parentId2 is absent or '0'", () => {
-    // Case 1: parentId2 absent
+  it("C. Auxiliary UF relation (UF_CRM_7_1779385642) does NOT act as fallback when parentId2 is absent or '0'", () => {
+    // Case 1: parentId2 absent — linkedDealId must be undefined (no fallback inference)
     const rowNoParent = {
       id: "9002",
       title: "Тестирование",
@@ -59,7 +59,7 @@ describe("Phase C §35: Smart Process Deal Relation & PARENT_ID_1032 Independenc
       [SMART_PROCESS_DEAL_UF_FIELD_ID]: "606",
     };
     const unit1 = adaptSmartProcessSampleEvidence(rowNoParent, resolve);
-    expect(unit1?.linkedDealId).toBe("606");
+    expect(unit1?.linkedDealId).toBeUndefined();
 
     // Case 2: parentId2 is "0" (empty foreign key representation in Bitrix)
     const rowZeroParent = {
@@ -72,10 +72,10 @@ describe("Phase C §35: Smart Process Deal Relation & PARENT_ID_1032 Independenc
       [SMART_PROCESS_DEAL_UF_FIELD_ID]: "707",
     };
     const unit2 = adaptSmartProcessSampleEvidence(rowZeroParent, resolve);
-    expect(unit2?.linkedDealId).toBe("707");
+    expect(unit2?.linkedDealId).toBeUndefined();
   });
 
-  it("D. Primary parentId2 takes precedence over auxiliary UF field", () => {
+  it("D. parentId2 is the sole authoritative relation regardless of auxiliary UF field presence", () => {
     const rowBoth = {
       id: "9004",
       title: "Тестирование",
