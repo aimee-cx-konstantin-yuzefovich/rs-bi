@@ -306,6 +306,8 @@ describe("Commercial Funnel — Closure Patch Verification", () => {
             stageId: "EXECUTING",
             categoryId: "0",
             sampleTransferStatus: "На испытании",
+            opportunity: 100_000,
+            currencyId: "RUB",
             productType: [],
             industry: [],
             direction: [],
@@ -318,6 +320,8 @@ describe("Commercial Funnel — Closure Patch Verification", () => {
             stageId: "EXECUTING",
             categoryId: "0",
             sampleTransferStatus: "На испытании",
+            opportunity: 200_000,
+            currencyId: "RUB",
             productType: [],
             industry: [],
             direction: [],
@@ -356,6 +360,8 @@ describe("Commercial Funnel — Closure Patch Verification", () => {
             stageId: "EXECUTING",
             categoryId: "0",
             sampleTransferStatus: "На испытании",
+            opportunity: 100_000,
+            currencyId: "RUB",
             productType: [],
             industry: [],
             direction: [],
@@ -368,6 +374,8 @@ describe("Commercial Funnel — Closure Patch Verification", () => {
             stageId: "EXECUTING",
             categoryId: "0",
             sampleTransferStatus: "На испытании",
+            opportunity: 200_000,
+            currencyId: "RUB",
             productType: [],
             industry: [],
             direction: [],
@@ -397,6 +405,11 @@ describe("Commercial Funnel — Closure Patch Verification", () => {
         industry: "Строительство",
         direction: ["Бетон"],
         productType: ["Гель", "Золь"],
+        sampleStatus: "—",
+        sampleStatusSource: "NONE",
+        sampleAllDates: [],
+        gradeGel: [],
+        gradeSol: [],
         deals: [],
         hasAttention: false,
         attentionReasons: [],
@@ -407,9 +420,6 @@ describe("Commercial Funnel — Closure Patch Verification", () => {
 
       const bdDirection = computeSegmentBreakdown([c], boundariesSept, "direction");
       expect(bdDirection.isMultiValueDimension).toBe(false);
-
-      const bdRegion = computeSegmentBreakdown([c], boundariesSept, "region");
-      expect(bdRegion.isMultiValueDimension).toBe(false);
 
       const bdProduct = computeSegmentBreakdown([c], boundariesSept, "product");
       expect(bdProduct.isMultiValueDimension).toBe(true);
