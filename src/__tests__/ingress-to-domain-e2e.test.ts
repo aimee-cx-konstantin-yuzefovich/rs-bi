@@ -15,7 +15,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ExcelJS from "exceljs";
 import { fetchAllPages } from "@/lib/samples/bitrix-fetch";
-import { normalizeDeals, normalizeCompanies } from "@/lib/commercial-funnel/normalize";
+import { applyCanonicalSampleDomain, normalizeDeals, normalizeCompanies } from "@/lib/commercial-funnel/normalize";
+import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
 import {
   computeBottlenecks,
   computeManagerScorecard,
@@ -174,7 +175,11 @@ describe("Ingress-to-Domain End-to-End Pipeline Fixture", () => {
     expect(d1004.opportunity).toBe(0);
     expect(d1004.opportunityQuality).toBe("VALID");
 
-    const companies = normalizeCompanies(rawCompanies, deals, { userNames, now: fixedNow });
+    const companies = applyCanonicalSampleDomain(
+      normalizeCompanies(rawCompanies, deals, { userNames, now: fixedNow }),
+      buildCanonicalSampleDomain(rawCompanies, rawDeals, []),
+      { userNames, now: fixedNow }
+    );
     expect(companies).toHaveLength(3);
 
     // ── 3. Pure Analytics Engine ──

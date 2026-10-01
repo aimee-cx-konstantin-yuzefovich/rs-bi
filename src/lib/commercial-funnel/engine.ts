@@ -110,9 +110,39 @@ export function filterCompaniesByDimensions(
     if (hasDirFilter && !company.direction.includes(filters.direction!)) companyMatches = false;
     if (hasRegFilter && company.region !== filters.region) companyMatches = false;
 
+    // Phase C: when a responsible filter is active, the canonical current
+    // sample state (a company-level fact from the one sample engine) is
+    // attributed to a specific manager. It surfaces in this slice only
+    // when that manager matches the filter (or the company itself
+    // matches); otherwise it becomes truthful NONE for this grain (no
+    // recomputation from the filtered deal subset; no second engine).
+    let includeCanonicalSampleState = companyMatches;
+    if (
+      hasRespFilter &&
+      !companyMatches &&
+      company.sampleStatusSource !== "NONE" &&
+      company.sampleStatusSource !== "—"
+    ) {
+      const sampleMgrId =
+        company.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE"
+          ? undefined
+          : company.sampleStatusSource === "SMART_PROCESS" || company.sampleStatusSource === "DEAL"
+          ? company.sampleResponsibleId
+          : company.responsibleId;
+      includeCanonicalSampleState = sampleMgrId === filters.responsibleId;
+    }
+
     // Retain company if company itself matches OR it has matching child deals
     if (companyMatches || matchingDeals.length > 0) {
-      result.push(reprojectCompanyForFilteredGrain(company, matchingDeals, companyMatches));
+      result.push(
+        reprojectCompanyForFilteredGrain(
+          company,
+          matchingDeals,
+          companyMatches,
+          undefined,
+          includeCanonicalSampleState
+        )
+      );
     }
   }
 

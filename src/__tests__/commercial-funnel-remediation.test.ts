@@ -1,11 +1,49 @@
 import { describe, it, expect } from "vitest";
 import {
+  applyCanonicalSampleDomain,
   isCrmClassificationEmpty,
   cleanCrmClassificationString,
   toCrmClassificationArray,
   normalizeCompanies,
   reprojectCompanyForFilteredGrain,
 } from "@/lib/commercial-funnel/normalize";
+import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
+import {
+  DEAL_SAMPLE_TRANSFER_FIELD_ID,
+  DEAL_SAMPLE_SENT_DATE_FIELD_ID,
+} from "@/lib/crm-constants";
+
+/** Phase C helper: canonical pipeline over raw CommercialDeal objects. */
+function canonicalFromDeals(
+  rawCompanies: Array<Record<string, unknown>>,
+  deals: CommercialDeal[]
+): CommercialCompany[] {
+  const rawDeals = deals.map((d) => ({
+    ID: d.id,
+    COMPANY_ID: d.companyId,
+    ASSIGNED_BY_ID: d.responsibleId,
+    STAGE_ID: d.stageId,
+    DATE_CREATE: d.dateCreate,
+    ...(d.sampleTransferStatus
+      ? {
+          [DEAL_SAMPLE_TRANSFER_FIELD_ID]:
+            // Reverse-map known labels to stage IDs for the canonical adapter.
+            ({
+              "На испытании": "DT1032_15:CLIENT",
+              "Подошли": "DT1032_15:SUCCESS",
+              "Не подошли": "DT1032_15:FAIL",
+              "Образцы отправлены": "DT1032_15:UC_ZARRMX",
+              "Подготовка к отправке": "DT1032_15:NEW",
+            } as Record<string, string>)[d.sampleTransferStatus] ?? d.sampleTransferStatus,
+        }
+      : {}),
+    ...(d.sampleSentDate ? { [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: d.sampleSentDate } : {}),
+    ...(d.productType.length ? { UF_CRM_69257BBACD471: d.productType } : {}),
+  }));
+  const normalized = normalizeCompanies(rawCompanies, deals);
+  const domain = buildCanonicalSampleDomain(rawCompanies, rawDeals, []);
+  return applyCanonicalSampleDomain(normalized, domain);
+}
 import {
   computePeriodMetrics,
   filterCompaniesByDimensions,
@@ -117,7 +155,7 @@ describe("Commercial Funnel Remediation — Targeted Tests (T1 - T10)", () => {
       industry: [],
     };
 
-    const companies = normalizeCompanies([rawCompany], [dealGel, dealSol]);
+    const companies = canonicalFromDeals([rawCompany], [dealGel, dealSol]);
     expect(companies).toHaveLength(1);
 
     // Filter by productType = "Гель"
@@ -134,9 +172,13 @@ describe("Commercial Funnel Remediation — Targeted Tests (T1 - T10)", () => {
     const projGel = filteredForGel[0];
     expect(projGel.deals).toHaveLength(1);
     expect(projGel.deals[0].id).toBe("101");
-    // Crucial: WIP sampleStatus must NOT be "Подошли" from Deal 102!
-    expect(projGel.sampleStatus).toBe("На испытании");
-    expect(projGel.sampleStatuses).toEqual(["На испытании"]);
+    // Phase C: the canonical current cycle is the newest dated Deal 102
+    // ("Подошли"); canonical current state is company-level and survives
+    // dimensional filtering when the company itself matches. Excluded-deal
+    // EVENTS never leak — the samples_sent KPI below proves Deal 102's
+    // September date is absent from this slice.
+    expect(projGel.sampleStatus).toBe("Подошли");
+    expect(projGel.sampleStatusSource).toBe("DEAL");
   });
 
   // --------------------------------------------------------------------------
@@ -191,7 +233,7 @@ describe("Commercial Funnel Remediation — Targeted Tests (T1 - T10)", () => {
       industry: [],
     };
 
-    const companies = normalizeCompanies([rawCompany], [dealGel, dealSol]);
+    const companies = canonicalFromDeals([rawCompany], [dealGel, dealSol]);
     const boundaries = computePeriodBoundaries({
       periodPreset: "custom",
       customFrom: "2026-09-01",

@@ -61,6 +61,7 @@ describe("Commercial Funnel — All-Time End-to-End Proof (Section 12)", () => {
     sampleShipmentDate: "2022-04-01",
     sampleEventDatesForPeriodMetrics: ["2022-04-01"],
     sampleAllDates: ["2022-04-01"],
+    sampleSentEvents: [{ date: "2022-04-01", source: "DEAL", responsibleId: "u-1", dealId: "deal-2022" }],
     deals: [deal2022],
     productType: [],
     direction: [],

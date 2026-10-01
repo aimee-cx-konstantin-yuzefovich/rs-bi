@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { normalizeCompanies } from "@/lib/commercial-funnel/normalize";
+import {
+  applyCanonicalSampleDomain,
+  normalizeCompanies,
+} from "@/lib/commercial-funnel/normalize";
+import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
 import {
   computeBottlenecks,
   computeManagerScorecard,
@@ -72,10 +76,40 @@ describe("Commercial Funnel — Adversarial Responsibility Provenance (Section 8
     customTo: "2026-08-31",
   });
 
-  const baseCompanies = normalizeCompanies([rawCompany], [dealGel, dealSol], {
-    userNames,
-    now: fixedNow,
-  });
+  // Phase C: build the canonical sample domain from raw rows (the same
+  // engine as production), then project onto normalized companies.
+  // Manager attribution flows from per-event provenance: Deal sent event →
+  // Deal responsible (mgr-B); current state → winning Deal responsible.
+  const rawDeals = [
+    {
+      ID: "deal-gel-B",
+      COMPANY_ID: "comp-mixed-1",
+      ASSIGNED_BY_ID: "mgr-B",
+      STAGE_ID: "C4:EXECUTING",
+      DATE_CREATE: "2026-08-02",
+      UF_CRM_1779386185: "DT1032_15:CLIENT", // На испытании
+      UF_CRM_1774879952785: "2026-08-05",
+      UF_CRM_69257BBACD471: ["Гель"],
+    },
+    {
+      ID: "deal-sol-C",
+      COMPANY_ID: "comp-mixed-1",
+      ASSIGNED_BY_ID: "mgr-C",
+      STAGE_ID: "C4:FINAL_INVOICE",
+      DATE_CREATE: "2026-08-03",
+      UF_CRM_1779386185: "DT1032_15:SUCCESS", // Подошли
+      UF_CRM_69257BBACD471: ["Золь"],
+    },
+  ];
+  const sampleDomain = buildCanonicalSampleDomain([rawCompany], rawDeals, []);
+  const baseCompanies = applyCanonicalSampleDomain(
+    normalizeCompanies([rawCompany], [dealGel, dealSol], {
+      userNames,
+      now: fixedNow,
+    }),
+    sampleDomain,
+    { userNames, now: fixedNow }
+  );
 
   it("Scenario 1: No responsible filter (All Managers)", () => {
     const filters: CommercialFilters = {
@@ -191,10 +225,20 @@ describe("Commercial Funnel — Adversarial Responsibility Provenance (Section 8
     expect(comp.deals[0].id).toBe("deal-sol-C");
     expect(comp.deals[0].responsibleId).toBe("mgr-C");
 
-    // Projected sample state is Deal-derived from C
-    expect(comp.sampleStatus).toBe("Подошли");
-    expect(comp.sampleStatusSource).toBe("DEAL");
-    expect(comp.sampleResponsibleId).toBe("mgr-C");
+    // Projected sample state under mgr-C's slice:
+    // Phase C — the canonical current cycle is Deal Gel (mgr-B, newest
+    // dated cycle). The current sample state belongs to mgr-B and does
+    // NOT surface under mgr-C's slice (truthful NONE, no recomputation
+    // from the filtered deal subset). mgr-C's Deal Sol remains a
+    // historical sample-evidence row via sampleStatusEntries.
+    expect(comp.sampleStatus).toBe("—");
+    expect(comp.sampleStatusSource).toBe("NONE");
+    expect(comp.sampleResponsibleId).toBeUndefined();
+    expect(
+      (comp.sampleStatusEntries ?? []).some(
+        (e) => e.dealId === "deal-sol-C" && e.label === "Подошли"
+      )
+    ).toBe(true);
 
     const bottlenecks = computeBottlenecks(filtered, fixedNow);
     const successBot = bottlenecks.find((b) => b.type === "sample_success_no_deal");
@@ -204,10 +248,13 @@ describe("Commercial Funnel — Adversarial Responsibility Provenance (Section 8
 
     const scorecard = computeManagerScorecard(filtered, augBoundaries, bottlenecks, userNames);
 
-    // Manager C row exists
+    // Manager C row exists (Deal Sol remains a matching commercial deal)
     const rowC = scorecard.find((r) => r.responsibleId === "mgr-C");
     expect(rowC).toBeDefined();
-    expect(rowC?.sampleSuccess).toBe(1);
+    // Phase C: current-sample WIP attribution follows the canonical
+    // current cycle (mgr-B's Deal Gel) — mgr-C's slice shows no current
+    // sample state, so sampleSuccess is 0 here.
+    expect(rowC?.sampleSuccess).toBe(0);
     expect(rowC?.dealsCreated).toBe(1);
     // Company DATE_CREATE not leaked to C
     expect(rowC?.newCompanies).toBe(0);

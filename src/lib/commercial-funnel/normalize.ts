@@ -844,7 +844,13 @@ export function reprojectCompanyForFilteredGrain(
   company: CommercialCompany,
   matchingDeals: CommercialDeal[],
   companyMatches: boolean,
-  now: Date = new Date()
+  now: Date = new Date(),
+  /**
+   * Phase C: whether the canonical current sample state (company-level
+   * fact from the one sample engine) survives into this filtered grain.
+   * Defaults to companyMatches. Independent of companyFactsIncluded.
+   */
+  includeCanonicalSampleState: boolean = companyMatches
 ): CommercialCompany {
   // 1. Historical sampleStatusEntries from matchingDeals (display/history
   //    rows only — never the current-state source) + company entries.
@@ -886,7 +892,10 @@ export function reprojectCompanyForFilteredGrain(
     }
   }
 
-  // 3. Dates reconciliation with explicit provenance (Section 4 A4)
+  // 3. Dates reconciliation with explicit provenance (Section 4 A4).
+  //     Deal-sourced sent events are filtered to matching deals; SP/Company
+  //     events survive per the canonical event filter applied in step 4
+  //     below. Here the union uses only deal-level fields.
   const sampleDealSentDates = Array.from(
     new Set(matchingDeals.map((d) => d.sampleSentDate).filter(Boolean) as string[])
   ).sort();
@@ -919,7 +928,7 @@ export function reprojectCompanyForFilteredGrain(
   let gradeSol = company.gradeSol;
   let sampleTestResult = company.sampleTestResult;
 
-  if (companyMatches) {
+  if (includeCanonicalSampleState) {
     sampleStatus = company.sampleStatus;
     sampleStatusRaw = company.sampleStatusRaw;
     sampleStatusSource = company.sampleStatusSource;
@@ -930,7 +939,18 @@ export function reprojectCompanyForFilteredGrain(
     sampleResponsibleProcessItemId = company.sampleResponsibleProcessItemId;
     sampleRelatedDealId = company.sampleRelatedDealId;
     sampleCurrentResolutionQuality = company.sampleCurrentResolutionQuality ?? "NONE";
-    sampleSentEvents = company.sampleSentEvents;
+    // Deal-sourced sent events are filtered to matching deals only —
+    // excluded deals must never leak their dates into a filtered slice.
+    // Company-sourced events survive when the company itself matches;
+    // SP events are company-level cycle facts and survive with the company.
+    const matchingDealIds = new Set(matchingDeals.map((d) => d.id));
+    sampleSentEvents = (company.sampleSentEvents ?? []).filter(
+      (event) =>
+        (event.dealId !== undefined && matchingDealIds.has(event.dealId)) ||
+        (event.dealId === undefined &&
+          (event.source === "SMART_PROCESS" ||
+            (event.source === "COMPANY" && companyMatches)))
+    );
     gradeGel = company.gradeGel;
     gradeSol = company.gradeSol;
     sampleTestResult = company.sampleTestResult;
@@ -977,6 +997,9 @@ export function reprojectCompanyForFilteredGrain(
 
   return {
     ...company,
+    // Company factual ownership: true only when the company itself
+    // matches the dimensional filters (independent of whether the
+    // canonical sample manager matches).
     companyFactsIncluded: companyMatches,
     sampleResponsibleId,
     sampleResponsibleName,

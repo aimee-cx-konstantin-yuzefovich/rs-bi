@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { normalizeCompanies } from "@/lib/commercial-funnel/normalize";
+import {
+  applyCanonicalSampleDomain,
+  normalizeCompanies,
+} from "@/lib/commercial-funnel/normalize";
+import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
 import {
   computePeriodMetrics,
   filterCompaniesByDimensions,
@@ -38,7 +42,12 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     opportunityQuality: "VALID",
     currencyId: "RUB",
     dateCreate: "2026-08-01",
-    sampleTestingStatus: ["На испытании"],
+    // Phase C marker isolation: testing status is carried by the Deal
+    // transfer field (UF_CRM_1779386185); the marker field
+    // (UF_CRM_1779394379 → sampleTestingStatus) is MARKER_ONLY and can no
+    // longer create current sample state.
+    sampleTransferStatus: "На испытании",
+    sampleTestingStatus: ["На испытании"], // marker preview only
     sampleSentDate: undefined,
     productType: ["Гель"],
     direction: [],
@@ -85,7 +94,54 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     industry: [],
   };
 
-  const allCompanies = normalizeCompanies([rawCompany], [dealA, dealB, dealC]);
+  // Phase C: build the canonical sample domain from raw rows (the same
+  // engine as production), then project onto normalized companies.
+  const rawDeals = [
+    {
+      ID: "1001",
+      COMPANY_ID: "100",
+      ASSIGNED_BY_ID: "5",
+      STAGE_ID: "C4:EXECUTING",
+      CATEGORY_ID: "0",
+      OPPORTUNITY: "250000",
+      CURRENCY_ID: "RUB",
+      DATE_CREATE: "2026-08-01",
+      UF_CRM_1779386185: "DT1032_15:CLIENT", // На испытании
+      UF_CRM_69257BBACD471: ["Гель"],
+    },
+    {
+      ID: "1002",
+      COMPANY_ID: "100",
+      ASSIGNED_BY_ID: "5",
+      STAGE_ID: "C4:FINAL_INVOICE",
+      CATEGORY_ID: "0",
+      OPPORTUNITY: "350000",
+      CURRENCY_ID: "RUB",
+      DATE_CREATE: "2026-08-15",
+      UF_CRM_1779386185: "DT1032_15:SUCCESS", // Подошли
+      UF_CRM_1774879952785: "2026-09-10",
+      UF_CRM_69257BBACD471: ["Золь"],
+    },
+    {
+      ID: "1003",
+      COMPANY_ID: "100",
+      ASSIGNED_BY_ID: "5",
+      STAGE_ID: "C4:WON",
+      CATEGORY_ID: "0",
+      OPPORTUNITY: "500000",
+      CURRENCY_ID: "RUB",
+      DATE_CREATE: "2026-08-20",
+      PAYMENT_STATUS: "113",
+      UF_CRM_1584460062014: "2026-09-12",
+      UF_CRM_1584459666824: "2026-09-15",
+      UF_CRM_69257BBACD471: ["Гель"],
+    },
+  ];
+  const sampleDomain = buildCanonicalSampleDomain([rawCompany], rawDeals, []);
+  const allCompanies = applyCanonicalSampleDomain(
+    normalizeCompanies([rawCompany], [dealA, dealB, dealC]),
+    sampleDomain
+  );
   const septBoundaries = computePeriodBoundaries({
     periodPreset: "custom",
     customFrom: "2026-09-01",
@@ -162,9 +218,14 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     expect(dealIds).toEqual(["1001", "1003"]);
 
     // CRITICAL: Deal B's "Подошли" status must NOT leak to company WIP status!
-    // Deal A is "На испытании"
-    expect(comp.sampleStatus).toBe("На испытании");
-    expect(comp.sampleStatuses).toEqual(["На испытании"]);
+    // Phase C: canonical current state is a company-level fact and survives
+    // dimensional filtering when the company itself matches (companyFacts
+    // included). Excluded-deal EVENTS (payment/shipment/sent dates) never
+    // leak — enforced below — but the company's canonical current sample
+    // cycle is not recomputed from the filtered deal subset (no second
+    // engine at filter time).
+    expect(comp.sampleStatus).toBe("Подошли");
+    expect(comp.sampleStatusSource).toBe("DEAL");
 
     // Overview Dated KPIs
     const metrics = computePeriodMetrics(companies, septBoundaries);
