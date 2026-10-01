@@ -117,12 +117,7 @@ export function filterCompaniesByDimensions(
     // matches); otherwise it becomes truthful NONE for this grain (no
     // recomputation from the filtered deal subset; no second engine).
     let includeCanonicalSampleState = companyMatches;
-    if (
-      hasRespFilter &&
-      !companyMatches &&
-      company.sampleStatusSource !== "NONE" &&
-      company.sampleStatusSource !== "—"
-    ) {
+    if (hasRespFilter && !companyMatches && company.sampleStatusSource !== "NONE") {
       const sampleMgrId =
         company.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE"
           ? undefined

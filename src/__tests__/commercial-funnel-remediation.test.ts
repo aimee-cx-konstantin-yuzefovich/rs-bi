@@ -41,7 +41,7 @@ function canonicalFromDeals(
     ...(d.productType.length ? { UF_CRM_69257BBACD471: d.productType } : {}),
   }));
   const normalized = normalizeCompanies(rawCompanies, deals);
-  const domain = buildCanonicalSampleDomain(rawCompanies, rawDeals, []);
+  const domain = buildCanonicalSampleDomain(rawCompanies as any, rawDeals as any, []);
   return applyCanonicalSampleDomain(normalized, domain);
 }
 import {
