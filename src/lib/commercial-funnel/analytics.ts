@@ -235,7 +235,7 @@ const MISSING_SEGMENT_LABEL = "Не указано";
  * (the segment matrix answers "in which markets does the portfolio sit",
  * which is a property of the company, not of individual deals).
  */
-function getCompanyDimensionValues(
+export function getCompanyDimensionValues(
   c: CommercialCompany,
   dimension: SegmentDimension
 ): string[] {
@@ -244,6 +244,9 @@ function getCompanyDimensionValues(
   }
   if (dimension === "direction") {
     return (c.direction || []).filter(Boolean);
+  }
+  if (dimension === "region") {
+    return c.region ? [c.region] : [];
   }
   return (c.productType || []).filter(Boolean);
 }
@@ -254,11 +257,12 @@ function getCompanyDimensionValues(
  * For Segments:
  *   Industry → Company Industry
  *   Direction → Company Direction
+ *   Region → Company Region
  *   Product → Company Product
  * always.
  *
  * Even if a Company enters the Responsible slice only because the selected
- * manager owns a Deal, its Industry/Direction/Product remains the factual
+ * manager owns a Deal, its Industry/Direction/Region/Product remains the factual
  * Company dimensions (never substituted by Deal-derived dimensions).
  */
 export function getAnalyticalSegmentValues(
@@ -283,6 +287,8 @@ function activeFilterValueFor(
       ? filters.productType
       : dimension === "direction"
       ? filters.direction
+      : dimension === "region"
+      ? filters.region
       : filters.industry;
   if (!raw || raw === "all") return undefined;
   return raw;

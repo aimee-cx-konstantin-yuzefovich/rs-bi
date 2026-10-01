@@ -156,6 +156,7 @@ export async function createCommercialFunnelWorkbook(
   // filters object as the UI (Segments UI == Segments Excel invariant).
   const segmentIndustry = computeSegmentBreakdown(filteredCompanies, boundaries, "industry", filters);
   const segmentDirection = computeSegmentBreakdown(filteredCompanies, boundaries, "direction", filters);
+  const segmentRegion = computeSegmentBreakdown(filteredCompanies, boundaries, "region", filters);
   const segmentProduct = computeSegmentBreakdown(filteredCompanies, boundaries, "product", filters);
   const sampleSnapshot = buildSampleTestingSnapshot(filteredCompanies, now);
   const attentionSummary = computeAttentionSummary(filteredCompanies, now);
@@ -1031,7 +1032,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     colCount: segmentsColumns.length,
     disclosureLines: [
       "Текущее состояние портфеля. Диапазон дат применяется к событийным показателям и не ограничивает текущий WIP.",
-      "Компания может относиться к нескольким значениям измерения (Направления / Продукты); сумма строк может превышать число уникальных компаний. Итого считается по уникальным компаниям.",
+      "Компания может относиться к нескольким значениям измерения (Продукты); сумма строк может превышать число уникальных компаний. Итого считается по уникальным компаниям.",
       ...extraWarnings,
     ],
   });
@@ -1093,6 +1094,7 @@ function formatPeriodPresetToRussian(preset: string): string {
 
   writeSegmentSection("По отраслям", segmentIndustry);
   writeSegmentSection("По направлениям", segmentDirection);
+  writeSegmentSection("По регионам", segmentRegion);
   writeSegmentSection("По продуктам", segmentProduct);
 
   autoFitColumns(segmentsSheet);

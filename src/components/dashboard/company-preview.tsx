@@ -182,35 +182,6 @@ export function CompanyPreview({
     }
   };
 
-  // Distinct, explicitly labelled company-card-only export: valid when the
-  // company card succeeded even if related deals failed. The workbook is
-  // visibly labelled so its scope can never be mistaken for the full report.
-  const handleCardOnlyExport = async () => {
-    if (state.status !== "success") return;
-    try {
-      setIsExporting(true);
-      const company = state.company;
-      const companyTitle = String(company.TITLE || "").trim() || "Без названия";
-      const model = resolvedModel!;
-      const exportOptions = {
-        companyTitle: `${companyTitle} — только карточка компании (без сделок)`,
-        companyId: id,
-        companyFields: fieldsFor
-          ? activeFieldsFor(company)
-          : model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type })),
-        sampleFields: activeSampleFieldsFor(company),
-        deals: [],
-        fileName: `РусСилика_Компания_${id}_только_карточка.xlsx`,
-        companyModel: fieldsFor ? undefined : model,
-      };
-      await exportCompanyToExcel(exportOptions);
-    } catch (err) {
-      console.error("Failed to export company card to Excel", err);
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
   useEffect(() => {
     const controller = new AbortController();
     setState({ status: "loading" });
@@ -253,7 +224,7 @@ export function CompanyPreview({
               ? "Компания не найдена"
               : response.status === 403
               ? "Нет доступа к сделкам компании"
-              : "Не удалось загрузить связанные сделки");
+              : "Связанные сделки временно недоступны.");
           setDealsState({ status: "error", message });
           return;
         }
@@ -277,7 +248,7 @@ export function CompanyPreview({
         }
       } catch {
         if (!controller.signal.aborted) {
-          setDealsState({ status: "error", message: "Не удалось загрузить связанные сделки" });
+          setDealsState({ status: "error", message: "Связанные сделки временно недоступны." });
         }
       }
     }
@@ -375,9 +346,18 @@ export function CompanyPreview({
                 )}
 
                 {dealsState.status === "error" && (
-                  <p role="alert" className="text-xs text-destructive">
-                    {dealsState.message}
-                  </p>
+                  <div role="alert" className="space-y-2 text-xs">
+                    <p className="text-destructive">{dealsState.message}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAttempt((n) => n + 1)}
+                      className="h-7 text-xs"
+                    >
+                      Повторить
+                    </Button>
+                  </div>
                 )}
 
                 {dealsState.status === "success" && (
@@ -499,23 +479,6 @@ export function CompanyPreview({
             )}
             {isExporting ? "Экспорт…" : "Экспорт отчёта"}
           </Button>
-
-          {state.status === "success" && dealsState.status !== "success" && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleCardOnlyExport}
-              disabled={isExporting}
-              className="gap-1.5 w-full sm:w-auto text-xs"
-            >
-              {isExporting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              Экспортировать только карточку компании
-            </Button>
-          )}
 
           {state.status === "success" && state.bitrixUrl ? (
             <Button asChild className="w-full sm:w-auto">

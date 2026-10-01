@@ -23,9 +23,9 @@ import { normalizeCurrencyCode, reprojectCompanyForFilteredGrain } from "./norma
 import { getCurrencyUniverse } from "./currency";
 import { compareCompanyIds } from "./analytics-helpers";
 
-export { getCurrencyUniverse } from "./currency";
 import { isDealActiveStage, isCommercialContinuationStage } from "./stage-utils";
 import { evaluateStalledDeal } from "./bottlenecks";
+import { resolveDealStage } from "@/lib/deal-preview";
 import type {
   AggregateAmountQuality,
   BottleneckItem,
@@ -675,6 +675,15 @@ export function computeBottlenecks(
     for (const d of c.deals) {
       const stalledInfo = evaluateStalledDeal(d, now);
       if (stalledInfo) {
+        const rawStageDisplay = d.stageName || (d.stageId ? resolveDealStage(d.stageId, undefined, d.categoryId) : UNCLASSIFIED_LABEL);
+        const currentState =
+          rawStageDisplay &&
+          !rawStageDisplay.startsWith("Не классифицировано (") &&
+          rawStageDisplay !== d.stageId &&
+          rawStageDisplay !== "—"
+            ? rawStageDisplay
+            : UNCLASSIFIED_LABEL;
+
         items.push({
           id: `bottleneck-stalled-${d.id}`,
           companyId: c.id,
@@ -683,7 +692,7 @@ export function computeBottlenecks(
           responsibleName: d.responsibleName || c.responsibleName || "Не назначен",
           type: "stalled_deal",
           issueLabel: stalledInfo.issueLabel,
-          currentState: d.stageName || d.stageId,
+          currentState,
           relevantDate: stalledInfo.relevantDate,
           daysWaiting: stalledInfo.daysWaiting,
           dealId: d.id,

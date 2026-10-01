@@ -20,7 +20,9 @@ export const dynamic = "force-dynamic";
  *   final unique count;
  * - malformed / repeated / non-advancing cursor → fail;
  * - amounts use canonical strict parsing: "0x10" and "12abc" are INVALID
- *   (null), never real numbers; "" / null are UNKNOWN (null).
+ *   (null), never real numbers; "" / null are UNKNOWN (null);
+ * - transient total inconsistency triggers 1 safe retry from start=0;
+ *   if still inconsistent, returns neutral error "Связанные сделки временно недоступны."
  */
 export async function GET(
   _request: NextRequest,
@@ -40,7 +42,7 @@ export async function GET(
     return respond({ success: false, error: "Некорректный ID компании" }, 400);
   }
 
-  try {
+  const fetchAllDeals = async () => {
     let start = 0;
     const seenStarts = new Set<number>([0]);
     const rawItems: Array<Record<string, unknown>> = [];
@@ -177,33 +179,60 @@ export async function GET(
       });
     }
 
-    // Fail closed on identity corruption — the Single Company report may not
-    // have weaker entity identity guarantees than the analytical engine.
-    // Duplicates are detected and reported but deduplicated (they must never
-    // inflate counts); missing IDs are corruption and fail the request.
-    if (missingIdCount > 0 || totalInconsistent) {
+    return {
+      deals,
+      duplicateIds: Array.from(duplicateIds),
+      missingIdCount,
+      totalInconsistent,
+      authoritativeTotal,
+    };
+  };
+
+  try {
+    let fetchResult = await fetchAllDeals();
+
+    // Transient total inconsistency check: retry ONCE safely from start=0
+    if (
+      fetchResult.totalInconsistent ||
+      (fetchResult.authoritativeTotal !== undefined &&
+        fetchResult.authoritativeTotal !== fetchResult.deals.length)
+    ) {
+      console.warn(
+        `[GET /api/bitrix/companies/${id}/deals] Inconsistent total detected on first attempt. Retrying once...`
+      );
+      fetchResult = await fetchAllDeals();
+    }
+
+    // Fail closed on identity corruption
+    if (fetchResult.missingIdCount > 0 || fetchResult.totalInconsistent) {
+      console.error(
+        `[GET /api/bitrix/companies/${id}/deals] Failed after retry: missingIdCount=${fetchResult.missingIdCount}, totalInconsistent=${fetchResult.totalInconsistent}`
+      );
       return respond(
         {
           success: false,
-          error: "Получены некорректные данные о сделках компании (отсутствующие ID или несогласованный total). Попробуйте ещё раз.",
-          missingIdCount,
-          totalInconsistent,
+          error: "Связанные сделки временно недоступны.",
+          missingIdCount: fetchResult.missingIdCount,
+          totalInconsistent: fetchResult.totalInconsistent,
         },
         502
       );
     }
 
-    // Reconcile the final unique count against the first authoritative total.
+    // Reconcile final unique count against authoritative total
     if (
-      authoritativeTotal !== undefined &&
-      authoritativeTotal !== deals.length
+      fetchResult.authoritativeTotal !== undefined &&
+      fetchResult.authoritativeTotal !== fetchResult.deals.length
     ) {
+      console.error(
+        `[GET /api/bitrix/companies/${id}/deals] Inconsistent deal count after retry: expected ${fetchResult.authoritativeTotal}, fetched ${fetchResult.deals.length}`
+      );
       return respond(
         {
           success: false,
-          error: "Несогласованное количество сделок компании в ответе CRM. Попробуйте ещё раз.",
-          expectedTotal: authoritativeTotal,
-          fetched: deals.length,
+          error: "Связанные сделки временно недоступны.",
+          expectedTotal: fetchResult.authoritativeTotal,
+          fetched: fetchResult.deals.length,
         },
         502
       );
@@ -211,9 +240,8 @@ export async function GET(
 
     return respond({
       success: true,
-      deals,
-      // Detection accounting (deduplicated, never inflating counts):
-      duplicateIds: Array.from(duplicateIds),
+      deals: fetchResult.deals,
+      duplicateIds: fetchResult.duplicateIds,
     });
   } catch (error) {
     const status =

@@ -221,7 +221,7 @@ it("renders secondary outlined export button and triggers export with company ti
   });
 });
 
-it("full report export stays disabled while related deals are loading, and offers the labelled card-only export", async () => {
+it("full report export stays disabled while related deals are loading, and becomes enabled once loaded", async () => {
   const { exportCompanyToExcel } = await import("@/lib/export-utils");
   let resolveDeals!: (value: unknown) => void;
   fetchMock.mockImplementation(async (url: string) => {
@@ -238,20 +238,9 @@ it("full report export stays disabled while related deals are loading, and offer
   const fullBtn = screen.getByRole("button", { name: "Экспорт отчёта" });
   expect(fullBtn).toBeDisabled();
 
-  // Distinct explicitly-labelled card-only action is available.
-  const cardBtn = screen.getByRole("button", { name: "Экспортировать только карточку компании" });
-  expect(cardBtn).not.toBeDisabled();
-  fireEvent.click(cardBtn);
-  await waitFor(() => {
-    expect(exportCompanyToExcel).toHaveBeenCalledWith(
-      expect.objectContaining({
-        companyId: "42",
-        deals: [],
-      })
-    );
-  });
-  const cardCall = (exportCompanyToExcel as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
-  expect(cardCall.companyTitle).toContain("только карточка компании");
+  // Exactly two footer actions exist: no 3rd card-only export button
+  expect(screen.queryByRole("button", { name: "Экспортировать только карточку компании" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Открыть карточку в Bitrix24" })).toBeInTheDocument();
 
   // Once deals succeed, the full report becomes available.
   (exportCompanyToExcel as unknown as ReturnType<typeof vi.fn>).mockClear();
@@ -262,7 +251,15 @@ it("full report export stays disabled while related deals are loading, and offer
   await waitFor(() => {
     expect(screen.getByRole("button", { name: "Экспорт отчёта" })).not.toBeDisabled();
   });
-  expect(screen.queryByRole("button", { name: "Экспортировать только карточку компании" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Экспорт отчёта" }));
+  await waitFor(() => {
+    expect(exportCompanyToExcel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "42",
+        deals: [expect.objectContaining({ id: "1", title: "Сделка 1" })],
+      })
+    );
+  });
 });
 
 it("renders specific error message when related deals API returns 403 or 404", async () => {

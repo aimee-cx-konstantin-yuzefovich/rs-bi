@@ -19,6 +19,7 @@ import type {
 interface SegmentsTabProps {
   industryBreakdown: SegmentBreakdown;
   directionBreakdown: SegmentBreakdown;
+  regionBreakdown: SegmentBreakdown;
   productBreakdown: SegmentBreakdown;
   onOpenDrillDown: (title: string, subtitle: string, companyIds: string[]) => void;
 }
@@ -96,6 +97,7 @@ function Cell({
 export function CommercialSegmentsTab({
   industryBreakdown,
   directionBreakdown,
+  regionBreakdown,
   productBreakdown,
   onOpenDrillDown,
 }: SegmentsTabProps) {
@@ -104,12 +106,14 @@ export function CommercialSegmentsTab({
   const breakdown = useMemo(() => {
     if (dimension === "industry") return industryBreakdown;
     if (dimension === "direction") return directionBreakdown;
+    if (dimension === "region") return regionBreakdown;
     return productBreakdown;
-  }, [dimension, industryBreakdown, directionBreakdown, productBreakdown]);
+  }, [dimension, industryBreakdown, directionBreakdown, regionBreakdown, productBreakdown]);
 
   const dimensionLabels: Record<SegmentDimension, string> = {
     industry: "Отрасли",
     direction: "Направления",
+    region: "Регионы",
     product: "Продукты",
   };
 

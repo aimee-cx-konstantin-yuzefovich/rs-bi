@@ -7,6 +7,7 @@
 //   B. Компактный текущий портфель (two tracks, every number clickable)
 //   C. Управленческие сигналы (existing deterministic bottleneck rules only)
 
+import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { formatCurrencyAmount, getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
 import type {
@@ -123,6 +124,7 @@ export function CommercialOverviewTab({
   managementSignals,
   onOpenDrillDown,
 }: OverviewTabProps) {
+  const [selectedKpiId, setSelectedKpiId] = useState<string | null>(null);
   const { commercial, continuation, sampleTestingStages } = funnelView;
   const stage = (id: string) => sampleTestingStages.find((s) => s.id === id);
 
@@ -144,6 +146,7 @@ export function CommercialOverviewTab({
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
           {periodRows.map((kpi) => {
+            const isSelected = selectedKpiId === kpi.id;
             const delta =
               !isAllTime && kpi.comparisonAvailable !== false && kpi.delta !== null
                 ? `${kpi.delta > 0 ? "+" : ""}${kpi.delta}`
@@ -153,16 +156,19 @@ export function CommercialOverviewTab({
                 key={kpi.id}
                 type="button"
                 disabled={kpi.companyIds.length === 0}
-                onClick={() =>
+                onClick={() => {
+                  setSelectedKpiId(kpi.id);
                   onOpenDrillDown(
                     kpi.label,
                     "Компании, подходящие под показатель в выбранном периоде",
                     kpi.companyIds
-                  )
-                }
+                  );
+                }}
                 className={`group rounded-lg border px-3 py-2.5 text-left transition-colors ${
                   kpi.companyIds.length === 0
                     ? "border-border/50 bg-muted/30 opacity-60"
+                    : isSelected
+                    ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
                     : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
                 }`}
               >

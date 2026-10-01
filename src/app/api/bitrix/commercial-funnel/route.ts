@@ -163,30 +163,76 @@ export async function POST() {
       );
     }
 
-    // Fetch metadata, directories, companies, deals, and Smart Process
-    // items in parallel — independent until normalization/aggregation.
+    const routeStart = Date.now();
+
+    // Start deals fetch immediately, and as soon as rawDeals resolves,
+    // start fetchDealsActivities without waiting for companies, SP, or metadata.
+    const dealsAndActivitiesPromise = (async () => {
+      const tDeals0 = Date.now();
+      const rawDeals = await fetchAllPages(
+        "crm.deal.list",
+        { SELECT: COMMERCIAL_DEAL_SELECT, ORDER: { ID: "ASC" } },
+        "ID"
+      );
+      const dealsDuration = Date.now() - tDeals0;
+
+      const tActivities0 = Date.now();
+      const dealIds = rawDeals
+        .map((d) => String(d.ID || d.id || "").trim())
+        .filter((id) => /^\d+$/.test(id));
+      const activitiesResult = await fetchDealsActivities(dealIds);
+      const activitiesDuration = Date.now() - tActivities0;
+
+      return { rawDeals, dealsDuration, activitiesResult, activitiesDuration };
+    })();
+
+    const companiesPromise = (async () => {
+      const t0 = Date.now();
+      const res = await fetchAllPages(
+        "crm.company.list",
+        { SELECT: COMMERCIAL_COMPANY_SELECT, ORDER: { ID: "ASC" } },
+        "ID"
+      );
+      return { rawCompanies: res, duration: Date.now() - t0 };
+    })();
+
+    const smartProcessPromise = (async () => {
+      const t0 = Date.now();
+      const res = await fetchSmartProcessSampleItems();
+      return { smartProcessItems: res, duration: Date.now() - t0 };
+    })();
+
+    const metadataPromise = (async () => {
+      const t0 = Date.now();
+      const res = await fetchFieldLabelMaps();
+      return { fieldLabelMaps: res, duration: Date.now() - t0 };
+    })();
+
+    const usersPromise = (async () => {
+      const t0 = Date.now();
+      const res = await fetchUserDirectory();
+      return { userNames: res, duration: Date.now() - t0 };
+    })();
+
+    // Await all independent fetches and the parallelized deal activities
     const [
-      { labels },
-      userNames,
-      rawCompanies,
-      rawDeals,
-      smartProcessItems,
+      { rawDeals, dealsDuration, activitiesResult, activitiesDuration },
+      { rawCompanies, duration: companiesDuration },
+      { smartProcessItems, duration: smartProcessDuration },
+      { fieldLabelMaps, duration: metadataDuration },
+      { userNames, duration: usersDuration },
     ] = await Promise.all([
-      fetchFieldLabelMaps(),
-      fetchUserDirectory(),
-      fetchAllPages("crm.company.list", { SELECT: COMMERCIAL_COMPANY_SELECT, ORDER: { ID: "ASC" } }, "ID"),
-      fetchAllPages("crm.deal.list", { SELECT: COMMERCIAL_DEAL_SELECT, ORDER: { ID: "ASC" } }, "ID"),
-      fetchSmartProcessSampleItems(),
+      dealsAndActivitiesPromise,
+      companiesPromise,
+      smartProcessPromise,
+      metadataPromise,
+      usersPromise,
     ]);
 
-    // Extract deal IDs and fetch activities via shared authoritative pipeline
-    const dealIds = rawDeals
-      .map((d) => String(d.ID || d.id || "").trim())
-      .filter((id) => /^\d+$/.test(id));
-
-    const activitiesResult = await fetchDealsActivities(dealIds);
+    const labels = fieldLabelMaps.labels;
 
     // Pure server-side normalization with authoritative activities
+    const tNorm0 = Date.now();
     const deals = normalizeDeals(rawDeals, {
       userNames,
       statusLabels: labels,
@@ -196,21 +242,37 @@ export async function POST() {
       userNames,
       statusLabels: labels,
     });
+    const normalizationDuration = Date.now() - tNorm0;
 
     // ONE canonical sample domain (the same engine as /api/bitrix/samples):
     // Companies + Deals + Smart Process → per-company canonical state.
+    const tSample0 = Date.now();
     const sampleDomain = buildCanonicalSampleDomain(
       rawCompanies,
       rawDeals,
       smartProcessItems,
       { labelResolver: (fieldId, raw) => labels[fieldId]?.[raw] ?? raw }
     );
+    const sampleAggregationDuration = Date.now() - tSample0;
 
     // Project canonical sample facts onto CommercialCompany.
+    const tPrep0 = Date.now();
     const companies = applyCanonicalSampleDomain(normalizedCompanies, sampleDomain, {
       userNames,
       statusLabels: labels,
     });
+    const responsePrepDuration = Date.now() - tPrep0;
+    const totalDuration = Date.now() - routeStart;
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `[Commercial Funnel Timings] Total: ${totalDuration}ms | ` +
+        `Deals: ${dealsDuration}ms | Activities: ${activitiesDuration}ms | ` +
+        `Companies: ${companiesDuration}ms | SP: ${smartProcessDuration}ms | ` +
+        `Metadata: ${metadataDuration}ms | Users: ${usersDuration}ms | ` +
+        `Norm: ${normalizationDuration}ms | SampleAgg: ${sampleAggregationDuration}ms | Prep: ${responsePrepDuration}ms`
+      );
+    }
 
     return respond({
       success: true,

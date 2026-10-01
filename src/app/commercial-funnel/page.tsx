@@ -102,6 +102,7 @@ function CommercialFunnelContent() {
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("overview");
   const [filters, setFilters] = useState<CommercialFilters>(DEFAULT_COMMERCIAL_FILTERS);
+  const [isFilterCollapsed, setIsFilterCollapsed] = useState(false);
 
   // Previews
   const [companyPreviewId, setCompanyPreviewId] = useState<string | null>(null);
@@ -171,6 +172,10 @@ function CommercialFunnelContent() {
   );
   const segmentDirection = useMemo(
     () => computeSegmentBreakdown(filteredCompanies, boundaries, "direction", filters),
+    [filteredCompanies, boundaries, filters]
+  );
+  const segmentRegion = useMemo(
+    () => computeSegmentBreakdown(filteredCompanies, boundaries, "region", filters),
     [filteredCompanies, boundaries, filters]
   );
   const segmentProduct = useMemo(
@@ -286,6 +291,8 @@ function CommercialFunnelContent() {
           isDemoMode={isDemoMode}
           onRefresh={reload}
           refreshing={loading}
+          collapsed={isFilterCollapsed}
+          onToggleCollapse={() => setIsFilterCollapsed((v) => !v)}
         />
 
         {/* ─── VIEW TABS ─── */}
@@ -365,6 +372,7 @@ function CommercialFunnelContent() {
               <CommercialSegmentsTab
                 industryBreakdown={segmentIndustry}
                 directionBreakdown={segmentDirection}
+                regionBreakdown={segmentRegion}
                 productBreakdown={segmentProduct}
                 onOpenDrillDown={handleOpenDrillDown}
               />

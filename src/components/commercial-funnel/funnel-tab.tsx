@@ -7,6 +7,7 @@
 //   Track 2 — Коммерциализация (current snapshot + period events, separated)
 // Every count is clickable → exact drill-down (reconciles by company IDs).
 
+import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { formatCurrencyAmount, getCurrencySymbol } from "@/lib/commercial-funnel/currency";
 import { NEXT_ACTION_MISSING_LABEL } from "@/lib/commercial-funnel/analytics";
@@ -37,25 +38,32 @@ const QUALITY_SUFFIX: Record<AggregateAmountQuality, string> = {
 function StageButton({
   stage,
   onOpenDrillDown,
+  isSelected,
+  onSelect,
 }: {
   stage: FunnelStageRow;
   onOpenDrillDown: FunnelTabProps["onOpenDrillDown"];
+  isSelected?: boolean;
+  onSelect?: () => void;
 }) {
   const disabled = stage.companyCount === 0;
   return (
     <button
       type="button"
       disabled={disabled}
-      onClick={() =>
+      onClick={() => {
+        onSelect?.();
         onOpenDrillDown(
           `Воронка — ${stage.label}`,
           `Компании в текущем состоянии «${stage.label}»`,
           stage.companyIds
-        )
-      }
+        );
+      }}
       className={`group flex items-center justify-between gap-3 w-full rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
         disabled
           ? "border-border/50 bg-muted/30 opacity-60"
+          : isSelected
+          ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
           : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
       }`}
     >
@@ -79,6 +87,7 @@ function StageButton({
 }
 
 export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }: FunnelTabProps) {
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const { commercial, continuation } = funnelView;
 
   return (
@@ -97,7 +106,13 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
           {funnelView.sampleTestingStages.map((stage) => (
-            <StageButton key={stage.id} stage={stage} onOpenDrillDown={onOpenDrillDown} />
+            <StageButton
+              key={stage.id}
+              stage={stage}
+              onOpenDrillDown={onOpenDrillDown}
+              isSelected={selectedCardId === stage.id}
+              onSelect={() => setSelectedCardId(stage.id)}
+            />
           ))}
         </div>
       </section>
@@ -115,16 +130,19 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
               <button
                 type="button"
                 disabled={commercial.current.activeDeals.count === 0}
-                onClick={() =>
+                onClick={() => {
+                  setSelectedCardId("active_deals");
                   onOpenDrillDown(
                     "Активные коммерческие сделки",
                     "Компании с активными (не терминальными) сделками",
                     commercial.current.activeDeals.companyIds
-                  )
-                }
+                  );
+                }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.current.activeDeals.count === 0
                     ? "border-border/50 bg-muted/30 opacity-60"
+                    : selectedCardId === "active_deals"
+                    ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
                     : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
                 }`}
               >
@@ -142,16 +160,19 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
               <button
                 type="button"
                 disabled={commercial.current.awaitingPayment.count === 0}
-                onClick={() =>
+                onClick={() => {
+                  setSelectedCardId("awaiting_payment");
                   onOpenDrillDown(
                     "Ожидают оплаты",
                     "Компании со сделками, по которым выставлен счёт и ожидается оплата",
                     commercial.current.awaitingPayment.companyIds
-                  )
-                }
+                  );
+                }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.current.awaitingPayment.count === 0
                     ? "border-border/50 bg-muted/30 opacity-60"
+                    : selectedCardId === "awaiting_payment"
+                    ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
                     : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
                 }`}
               >
@@ -177,16 +198,19 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
               <button
                 type="button"
                 disabled={commercial.period.dealsCreated.count === 0}
-                onClick={() =>
+                onClick={() => {
+                  setSelectedCardId("deals_created");
                   onOpenDrillDown(
                     "Создано сделок за период",
                     "Компании, по которым созданы сделки в выбранном периоде",
                     commercial.period.dealsCreated.companyIds
-                  )
-                }
+                  );
+                }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.period.dealsCreated.count === 0
                     ? "border-border/50 bg-muted/30 opacity-60"
+                    : selectedCardId === "deals_created"
+                    ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
                     : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
                 }`}
               >
@@ -202,16 +226,19 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
               <button
                 type="button"
                 disabled={commercial.period.paymentsReceived.count === 0}
-                onClick={() =>
+                onClick={() => {
+                  setSelectedCardId("payments_received");
                   onOpenDrillDown(
                     "Получена оплата за период",
                     "Компании, по которым получена оплата в выбранном периоде",
                     commercial.period.paymentsReceived.companyIds
-                  )
-                }
+                  );
+                }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.period.paymentsReceived.count === 0
                     ? "border-border/50 bg-muted/30 opacity-60"
+                    : selectedCardId === "payments_received"
+                    ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
                     : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
                 }`}
               >
@@ -237,16 +264,19 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
               <button
                 type="button"
                 disabled={commercial.period.shipments.count === 0}
-                onClick={() =>
+                onClick={() => {
+                  setSelectedCardId("shipments");
                   onOpenDrillDown(
                     "Отгрузки за период",
                     "Компании, по которым прошли отгрузки в выбранном периоде",
                     commercial.period.shipments.companyIds
-                  )
-                }
+                  );
+                }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.period.shipments.count === 0
                     ? "border-border/50 bg-muted/30 opacity-60"
+                    : selectedCardId === "shipments"
+                    ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
                     : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
                 }`}
               >

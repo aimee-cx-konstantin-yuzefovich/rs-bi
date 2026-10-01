@@ -357,7 +357,7 @@ export interface FunnelView {
   continuation: FunnelContinuationLink;
 }
 
-export type SegmentDimension = "industry" | "direction" | "product";
+export type SegmentDimension = "industry" | "direction" | "region" | "product";
 
 /** Current-state metric group for one segment row. */
 export interface SegmentCurrentMetrics {
