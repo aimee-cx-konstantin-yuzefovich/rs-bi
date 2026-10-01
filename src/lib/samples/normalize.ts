@@ -18,12 +18,21 @@ import {
   SENT_INDICATOR_KEYWORDS,
 } from "./constants";
 
-/** Checks if a value is absent or a Bitrix REST API sentinel (false, "false", "true", "null", "undefined", ""). */
+/** Checks if a value is absent or a Bitrix REST API sentinel (false, "false", "true", "null", "undefined", "", "—", "–", "-"). */
 export function isSentinelValue(v: unknown): boolean {
   if (v === null || v === undefined || v === false || v === true) return true;
   if (typeof v === "string") {
     const s = v.trim().toLowerCase();
-    return s === "" || s === "false" || s === "true" || s === "null" || s === "undefined";
+    return (
+      s === "" ||
+      s === "false" ||
+      s === "true" ||
+      s === "null" ||
+      s === "undefined" ||
+      s === "—" ||
+      s === "–" ||
+      s === "-"
+    );
   }
   return false;
 }
@@ -59,7 +68,7 @@ const GEOGRAPHIC_PATTERNS = [
  * Rationale (CASE B):
  * During legacy Bitrix CRM data entry and migration, operators occasionally entered or mapped
  * geographic regions/territories into company direction or application fields. While the primary
- * application mapping uses exact Bitrix field IDs (UF_CRM_1781806326214 / UF_CRM_69257337B8025),
+ * application mapping uses the verified Bitrix field ID (UF_CRM_69257337B8025),
  * this heuristic is strictly retained as a defensive sanitizer to prevent dirty historic geography
  * strings from leaking into industrial application filters/summaries. Valid business applications
  * (e.g. "Катализаторы гидроочистки", "Осушка газов", "Керамика") are preserved and verified by test.

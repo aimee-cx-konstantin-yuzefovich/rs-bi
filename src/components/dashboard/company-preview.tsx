@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Download, ExternalLink, Loader2, FlaskConical, ArrowRight } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { defaultCompanyFields, defaultSampleFields, type PreviewField } from "@/lib/company-preview";
+import { buildCompanyPreviewModel, defaultSampleFields, type PreviewField } from "@/lib/company-preview";
 import { exportCompanyToExcel } from "@/lib/export-utils";
 import { parseStrictNumber } from "@/lib/scalar-safety";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
@@ -48,6 +48,11 @@ export interface CompanyPreviewProps {
   id: string;
   onClose: () => void;
   onRestoreFocus?: () => void;
+  /**
+   * Phase D: the drawer's current-card fields come from the ONE resolved
+   * model (buildCompanyPreviewModel). This hook remains for callers that
+   * supply a custom field projection (tests / transitional browser path).
+   */
   fieldsFor?: (company: Record<string, unknown>) => PreviewField[];
   sampleFieldsFor?: (company: Record<string, unknown>) => PreviewField[];
   onOpenDealPreview?: (dealId: string) => void;
@@ -84,10 +89,33 @@ export function CompanyPreview({
   const [attempt, setAttempt] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
 
-  const { userNames, fields, usersCoverage } = useDashboardStore();
+  const { userNames, fields, usersCoverage } = useDashboardStore() as {
+    userNames: Record<string, string> | null;
+    fields: Array<{ id: string; title?: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }> | null;
+    usersCoverage: import("@/lib/dataset-coverage").DatasetCoverage | null;
+  };
 
-  const activeFieldsFor = fieldsFor || ((c: Record<string, unknown>) => defaultCompanyFields(c, userNames || {}, fields || [], usersCoverage));
-  const activeSampleFieldsFor = sampleFieldsFor || ((c: Record<string, unknown>) => defaultSampleFields(c, fields || []));
+  // Phase D: the current-card field list comes from the ONE resolved
+  // model. A caller-provided fieldsFor overrides it (transitional path).
+  const resolvedModel =
+    state.status === "success"
+      ? buildCompanyPreviewModel(state.company, {
+          fields: (fields ?? []) as any,
+          userNames: userNames ?? {},
+          usersCoverage,
+        })
+      : null;
+
+  const cardFields: PreviewField[] = fieldsFor
+    ? fieldsFor(state.status === "success" ? state.company : {})
+    : (resolvedModel?.fields ?? []).map((f) => ({
+        id: f.id,
+        label: f.label,
+        value: f.value,
+        type: f.type,
+      }));
+  const activeFieldsFor = fieldsFor || (() => cardFields);
+  const activeSampleFieldsFor = sampleFieldsFor || ((c: Record<string, unknown>) => defaultSampleFields(c, (fields ?? []) as any));
 
   const stageField = fields?.find((f) => f.id === "STAGE_ID");
   const resolveStage = (rawStage: unknown): string | null => {
@@ -106,7 +134,11 @@ export function CompanyPreview({
       setIsExporting(true);
       const company = state.company;
       const companyTitle = String(company.TITLE || "").trim() || "Без названия";
-      const companyFields = activeFieldsFor(company);
+      // Phase D: UI and Excel consume the SAME resolved model.
+      const model = resolvedModel!;
+      const companyFields = fieldsFor
+        ? activeFieldsFor(company)
+        : model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type }));
       const sampleFields = activeSampleFieldsFor(company);
       const deals = dealsState.deals.map((d) => {
         const rawOpp = d.OPPORTUNITY ?? d.opportunity;
@@ -134,6 +166,9 @@ export function CompanyPreview({
         companyFields,
         sampleFields,
         deals,
+        // Phase D: the full model rides along so the Excel builder renders
+        // the exact same resolved fields (dates/comments) as the UI.
+        companyModel: fieldsFor ? undefined : model,
       };
 
       if (onExport) {
@@ -156,13 +191,17 @@ export function CompanyPreview({
       setIsExporting(true);
       const company = state.company;
       const companyTitle = String(company.TITLE || "").trim() || "Без названия";
+      const model = resolvedModel!;
       const exportOptions = {
         companyTitle: `${companyTitle} — только карточка компании (без сделок)`,
         companyId: id,
-        companyFields: activeFieldsFor(company),
+        companyFields: fieldsFor
+          ? activeFieldsFor(company)
+          : model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type })),
         sampleFields: activeSampleFieldsFor(company),
         deals: [],
         fileName: `РусСилика_Компания_${id}_только_карточка.xlsx`,
+        companyModel: fieldsFor ? undefined : model,
       };
       await exportCompanyToExcel(exportOptions);
     } catch (err) {
@@ -270,12 +309,34 @@ export function CompanyPreview({
           {state.status === "success" && (
             <div className="space-y-6 pb-6">
               <dl className="space-y-4 text-sm">
-                {activeFieldsFor(state.company).map((field) => (
+                {cardFields.map((field) => (
                   <div key={field.id}>
                     <dt className="text-xs text-muted-foreground">{field.label}</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value, field.type === "boolean" || field.type === "char")}</dd>
                   </div>
                 ))}
+                {/* Date Created / Date Modified — retained per current-card
+                    contract; rendered from the resolved model only when the
+                    model drives the card (no fieldsFor override). */}
+                {!fieldsFor && resolvedModel?.createdAt && !cardFields.some((f) => f.id === "DATE_CREATE") && (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Дата создания</dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.createdAt}</dd>
+                  </div>
+                )}
+                {!fieldsFor && resolvedModel?.modifiedAt && !cardFields.some((f) => f.id === "DATE_MODIFY") && (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Дата изменения</dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.modifiedAt}</dd>
+                  </div>
+                )}
+                {/* General Company comments — retained per current-card contract */}
+                {!fieldsFor && resolvedModel?.comments && !cardFields.some((f) => f.id === "COMMENTS") && (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Комментарий</dt>
+                    <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.comments}</dd>
+                  </div>
+                )}
               </dl>
 
               {/* Образцы */}
@@ -283,14 +344,16 @@ export function CompanyPreview({
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                   Образцы
                 </h4>
-                <dl className="space-y-4 text-sm">
-                  {activeSampleFieldsFor(state.company).map((field) => (
-                    <div key={field.id}>
-                      <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                      <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value, field.type === "boolean" || field.type === "char")}</dd>
-                    </div>
-                  ))}
-                </dl>
+                {sampleFieldsFor && (
+                  <dl className="space-y-4 text-sm mb-4">
+                    {activeSampleFieldsFor(state.company).map((field) => (
+                      <div key={field.id}>
+                        <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                        <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value, field.type === "boolean" || field.type === "char")}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
 
                 {/* Compact «Образцы» analytics block (Samples v1 cross-nav).
                     Lazy-fetched summary from the authoritative Samples API. */}

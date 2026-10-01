@@ -1,6 +1,6 @@
 // src/lib/samples/model.ts
 // ─────────────────────────────────────────────────────────────────────
-// Samples Canonical Domain Model (Phase B)
+// Samples Canonical Domain Model (Phase B + Phase C extension)
 //
 // Invariants:
 // 1. Explicit source provenance and granularity.
@@ -8,7 +8,8 @@
 //    dated evidence.
 // 3. No manufactured physical cycles from parallel legacy arrays.
 // 4. Deal testing marker (UF_CRM_1779394379) isolated as navigation marker.
-// 5. Reserved SMART_PROCESS source seam ready for Phase C.
+// 5. SMART_PROCESS source seam — ACTIVE in Phase C: exact process items
+//    with their own provenance, never merged into legacy evidence.
 // ─────────────────────────────────────────────────────────────────────
 
 import type {
@@ -31,13 +32,13 @@ export type {
 export type SampleSource =
   | "COMPANY_LEGACY"
   | "DEAL_LEGACY"
-  | "SMART_PROCESS"; // Reserved for Phase C
+  | "SMART_PROCESS";
 
 /** Explicit granularity / fidelity of the source record. */
 export type SampleSourceGranularity =
   | "COMPANY_AGGREGATE" // Aggregated historical fields on Company card (NOT an exact physical cycle)
   | "DEAL_RECORD"       // Deal-scoped record (may or may not represent 1 physical shipment/test)
-  | "PROCESS_ITEM";     // Future Smart Process item / cycle (exact physical item)
+  | "PROCESS_ITEM";     // Smart Process 1032 item (exact physical process item)
 
 /**
  * Historical dated sent evidence.
@@ -58,7 +59,7 @@ export interface SampleSentEvidence {
  * Retains exact entity provenance without losing or synthesizing relationships.
  */
 export interface SampleEvidenceUnit {
-  /** Stable deterministic ID (e.g., "company-42-aggregate", "deal-101-record"). */
+  /** Stable deterministic ID (e.g., "company-42-aggregate", "deal-101-record", "sp-item-9001"). */
   id: string;
   source: SampleSource;
   sourceGranularity: SampleSourceGranularity;
@@ -68,6 +69,22 @@ export interface SampleEvidenceUnit {
   responsibleId?: string;
   title?: string;
   stageId?: string;
+
+  // ─── Smart Process provenance (Phase C; absent for legacy sources) ───
+  /** Exact crm.item id (SP only). Never stored in dealId fields. */
+  processItemId?: string;
+  /** Smart Process entityTypeId (1032). */
+  entityTypeId?: number;
+  /** Smart Process categoryId (15). */
+  categoryId?: number;
+  /** Item creation timestamp — chronology for terminal-cycle selection ONLY. */
+  createdTime?: string;
+  /** Exact linked Deal from the verified SP Deal relation (when configured). */
+  linkedDealId?: string;
+  /** Direct company relation from SP item (for diagnostic inspection / conflict audit). */
+  directCompanyId?: string;
+  /** Linked deal's company relation (for diagnostic inspection / conflict audit). */
+  dealCompanyId?: string;
 
   // Products, grades, and quantities
   productFamilies: string[];
@@ -104,6 +121,7 @@ export interface SampleEvidenceUnit {
 export type CurrentStateResolutionQuality =
   | "RESOLVED"
   | "AMBIGUOUS"
+  | "AMBIGUOUS_MULTIPLE_ACTIVE"
   | "NONE";
 
 /**
@@ -115,6 +133,8 @@ export interface CurrentStateResolution {
   quality: CurrentStateResolutionQuality;
   evidenceId?: string;
   winningDealId?: string;
+  /** Exact Smart Process item id of the resolved current cycle (SP only). */
+  processItemId?: string;
   statusValues: string[];
   normalizedResult: NormalizedResult;
   reason?: string;
@@ -136,4 +156,9 @@ export interface CanonicalCompanySample {
   dataIssues: SampleDataIssue[];
   /** Preserves transitional registry discoverability when deal only has navigation marker. */
   hasMarkerOnlyDealActivity?: boolean;
+  /**
+   * All active Smart Process item IDs when resolution is
+   * AMBIGUOUS_MULTIPLE_ACTIVE (factual disclosure; no fabricated winner).
+   */
+  ambiguousActiveProcessItemIds?: string[];
 }

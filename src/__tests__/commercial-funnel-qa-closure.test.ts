@@ -54,8 +54,6 @@ function deal(p: Partial<CommercialDeal> & { id: string }): CommercialDeal {
     productType: [],
     direction: [],
     industry: [],
-    sampleTestingStatus: [],
-    sampleTestingStatusRaw: [],
     ...p,
   } as CommercialDeal;
 }
@@ -516,22 +514,21 @@ describe("Q16–Q19: effective segment provenance", () => {
     });
   }
 
-  it("Q16: product provenance under Deal-only global match", () => {
+  it("Q16: product provenance always uses Company dimensions (Section 7)", () => {
     const c = makeDealRetainedCompany();
-    expect(getAnalyticalSegmentValues(c, "product")).toEqual(["Gel"]);
-    // factual fields NOT mutated
+    expect(getAnalyticalSegmentValues(c, "product")).toEqual(["Sol"]);
     expect(c.productType).toEqual(["Sol"]);
   });
 
-  it("Q17: direction provenance under Deal-only global match", () => {
+  it("Q17: direction provenance always uses Company dimensions (Section 7)", () => {
     const c = makeDealRetainedCompany();
-    expect(getAnalyticalSegmentValues(c, "direction")).toEqual(["Y"]);
+    expect(getAnalyticalSegmentValues(c, "direction")).toEqual(["X"]);
     expect(c.direction).toEqual(["X"]);
   });
 
-  it("Q18: industry provenance under Deal-only global match", () => {
+  it("Q18: industry provenance always uses Company dimensions (Section 7)", () => {
     const c = makeDealRetainedCompany();
-    expect(getAnalyticalSegmentValues(c, "industry")).toEqual(["B"]);
+    expect(getAnalyticalSegmentValues(c, "industry")).toEqual(["A"]);
     expect(c.industry).toBe("A");
   });
 
@@ -559,14 +556,14 @@ describe("Q16–Q19: effective segment provenance", () => {
     expect(bd.totalUniqueCompanyIds).toEqual(["P3"]); // counted once
   });
 
-  it("Q19b: Deal-retained company lands in the Gel row, not Sol, inside a Gel-filtered report", () => {
+  it("Q19b: Deal-retained company lands in the Sol row (Company dimension), not Gel", () => {
     const c = makeDealRetainedCompany();
     const bd = computeSegmentBreakdown([c], bounds, "product");
     const gel = bd.rows.find((r) => r.label === "Gel");
     const sol = bd.rows.find((r) => r.label === "Sol");
-    expect(gel).toBeDefined();
-    expect(sol).toBeUndefined(); // no contradiction with the global Gel filter
-    expect(bd.totalUniqueCompanyIds).toEqual(["P1"]); // no silent disappearance
+    expect(sol).toBeDefined();
+    expect(gel).toBeUndefined();
+    expect(bd.totalUniqueCompanyIds).toEqual(["P1"]);
   });
 });
 

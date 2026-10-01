@@ -128,18 +128,21 @@ Global dimensional filtering (Responsible, Product, Industry, Direction, Region)
 
 #### Sample current-cycle provenance chain
 
-To prevent cross-deal data corruption and ensure truthful auditability:
-- When a company has sample evidence on linked deals, `selectCurrentSampleDeal` deterministically identifies the current sample deal by prioritizing:
-  1. Presence of sample evidence (`sampleTransferStatus`, `sampleTestingStatus`, or `sampleSentDate`).
-  2. Most recent sample timestamp (`sampleSentDate > activityLast > dateCreate > beginDate > closeDate`).
-  3. Numeric-aware stable Deal ID tie-breaker.
-- **Provenance assignment**:
-  - `sampleStatusSource = "DEAL"`
-  - `sampleResponsibleDealId = currentSampleDeal.id`
-  - `sampleResponsibleId = currentSampleDeal.responsibleId`
+**Phase C (canonical engine)**: current sample state is resolved by the ONE canonical sample engine in `src/lib/samples/` (`buildCanonicalSampleDomain` → `reconcileCompanySample`), consumed identically by the Samples registry, Commercial Funnel, Managers, and Excel exports. `normalize.ts` no longer resolves current sample state itself and `reprojectCompanyForFilteredGrain` no longer recomputes it from matching deals — the canonical company-level state survives dimensional filtering when the company matches, and surfaces under a responsible-filter slice only when the canonical sample manager matches the filter.
+
+- **Precedence (current state only)**: `SMART_PROCESS → DEAL_LEGACY → COMPANY_LEGACY → NONE`. Smart Process 1032 is authoritative for new/current cycles; legacy Deal/Company fields are historical/fallback evidence (never cleared, never overwritten). See `src/lib/samples/smart-process-contract.ts` for the canonical stage semantics, and the "Samples canonical engine & Smart Process 1032" section in `AGENTS.md` for the full invariant list.
+- **Deal-tier chronology**: among multiple legacy deals with sample evidence, the latest factual `sampleSentDate` wins (stable numeric Deal ID tie-break only on exact equality); conflicting undated statuses are strictly `AMBIGUOUS` — never the highest Deal ID.
+- **Marker isolation**: Deal field `UF_CRM_1779394379` («Тестирование образцов») is MARKER_ONLY — navigation/preview/display (`sampleTestingStatus` on `CommercialDeal`/`RelatedDealSampleInfo` as raw preview) only. It never contributes to sample status, result, `samples_sent`, KPIs, current contour membership, or manager attribution.
+- **Provenance assignment (legacy tiers, unchanged)**:
+  - `sampleStatusSource = "DEAL"` → `sampleResponsibleDealId = currentSampleDeal.id`, `sampleResponsibleId = currentSampleDeal.responsibleId`
+  - `sampleStatusSource = "SMART_PROCESS"` → `sampleResponsibleProcessItemId` (SP item ID — never stored in `sampleResponsibleDealId`), `sampleRelatedDealId` for the exact factual linked Deal
+  - `sampleStatusSource = "COMPANY"` → deal fields remain `undefined`. The system never borrows an arbitrary representative deal merely to populate columns.
+- **Sent-event attribution**: `sampleSentEvents` carry per-event provenance; the manager `samplesSent` flow attributes each event to its own source-entity responsible (SP event → SP `ASSIGNED_BY_ID`; Deal event → Deal responsible; Company event → Company owner). Global KPI counts unique companies; manager rows count unique companies per manager; the manager union reconciles to the attributable global population.
 - **Invariants**:
   - When `sampleStatusSource === "DEAL"`, sample bottlenecks and Action Plan entries use `sampleResponsibleDealId`, **never** substituting `primaryDealId` (which may be an unrelated commercial deal).
-  - When sample state comes from Company fallback (`sampleStatusSource === "COMPANY"`), deal fields remain `undefined`. The system never borrows an arbitrary representative deal merely to populate columns.
+  - When `sampleStatusSource === "SMART_PROCESS"`, bottlenecks use `sampleRelatedDealId` when a factual linked Deal exists and leave Deal blank otherwise.
+  - When `sampleStatusSource === "COMPANY"`, deal fields remain `undefined`. The system never borrows an arbitrary representative deal merely to populate columns.
+  - The Samples registry and Commercial Funnel Industry filter uses the current approved Company-card field `UF_CRM_1784195884554` («Отрасль (согл.список)»); direction uses `UF_CRM_1784200275341` («Направление (согл.список)»); region uses `UF_CRM_69259C45D3399` («Регион»); legacy `INDUSTRY` and retired `UF_CRM_6915D8C0C6814` never override them.
 
 #### Event vs Snapshot model (Two analytical planes)
 

@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contractVersion": "1.1.0",
+  "generatedAt": "2026-10-01T12:55:00.000Z",
+  "smartProcess": {
+    "entityTypeId": 1032,
+    "categoryId": 15,
+    "title": "Тестирование образца",
+    "stageEntity": "DYNAMIC_1032_STAGE_15",
+    "stages": {
+      "DT1032_15:NEW": {
+        "title": "Подготовка к отправке",
+        "semantic": "PREPARATION",
+        "isTerminal": false
+      },
+      "DT1032_15:UC_ZARRMX": {
+        "title": "Образцы отправлены",
+        "semantic": "SAMPLES_SENT",
+        "isTerminal": false
+      },
+      "DT1032_15:CLIENT": {
+        "title": "Образцы на испытании",
+        "semantic": "TESTING_IN_PROGRESS",
+        "isTerminal": false
+      },
+      "DT1032_15:SUCCESS": {
+        "title": "Образец подошел",
+        "semantic": "TERMINAL_SUCCESS",
+        "isTerminal": true
+      },
+      "DT1032_15:FAIL": {
+        "title": "Образец не подошел",
+        "semantic": "TERMINAL_FAILURE",
+        "isTerminal": true
+      }
+    },
+    "requiredFields": {
+      "ASSIGNED_BY_ID": {
+        "concept": "Ответственный",
+        "fieldId": "ASSIGNED_BY_ID",
+        "type": "user",
+        "multiple": false
+      },
+      "TITLE": {
+        "concept": "Название",
+        "fieldId": "TITLE",
+        "type": "string",
+        "multiple": false
+      },
+      "companyId": {
+        "concept": "Клиент (Company relation)",
+        "fieldId": "companyId",
+        "type": "crm_entity",
+        "multiple": false
+      },
+      "parentId2": {
+        "concept": "Сделка (Deal relation)",
+        "fieldId": "parentId2",
+        "type": "crm_entity",
+        "multiple": false
+      },
+      "UF_CRM_7_1766059943": {
+        "concept": "Дата отправки (manual shipping date)",
+        "fieldId": "UF_CRM_7_1766059943",
+        "type": "date",
+        "multiple": false
+      },
+      "UF_CRM_7_1766135695": {
+        "concept": "Марка предоставленных образцов (ГЕЛЬ)",
+        "fieldId": "UF_CRM_7_1766135695",
+        "type": "string",
+        "multiple": false
+      },
+      "UF_CRM_7_1766136511": {
+        "concept": "Марка предоставленных образцов (ЗОЛЬ)",
+        "fieldId": "UF_CRM_7_1766136511",
+        "type": "string",
+        "multiple": false
+      },
+      "UF_CRM_7_1763036405": {
+        "concept": "Результат тестирования",
+        "fieldId": "UF_CRM_7_1763036405",
+        "type": "string",
+        "multiple": false
+      },
+      "UF_CRM_7_1766136470": {
+        "concept": "Кол-во переданного образца (ГЕЛЬ) кг",
+        "fieldId": "UF_CRM_7_1766136470",
+        "type": "double",
+        "unit": "кг",
+        "multiple": false
+      },
+      "UF_CRM_7_1766136546": {
+        "concept": "Кол-во переданного образца (ЗОЛЬ) л",
+        "fieldId": "UF_CRM_7_1766136546",
+        "type": "double",
+        "unit": "л",
+        "multiple": false
+      }
+    }
+  },
+  "dealMarkers": {
+    "currentCheckbox": {
+      "concept": "Тестирование образцов (текущий чекбокс карточки сделки)",
+      "fieldId": "UF_CRM_1790786438",
+      "type": "boolean",
+      "multiple": false
+    },
+    "legacyMarker": {
+      "concept": "Тестирование образцов (legacy маркер)",
+      "fieldId": "UF_CRM_1779394379",
+      "type": "enumeration",
+      "multiple": true,
+      "markerOnly": true
+    }
+  },
+  "companyPreview": {
+    "totalApprovedFields": 24,
+    "fields": [
+      { "order": 1, "concept": "Ответственный", "fieldId": "ASSIGNED_BY_ID", "type": "user", "multiple": false },
+      { "order": 2, "concept": "Контакт", "fieldId": "CONTACT", "type": "contact", "multiple": false, "sourceKind": "crm_entity_relation", "exactField": "CONTACT_ID", "displayResolver": "contact_directory_lookup" },
+      { "order": 3, "concept": "Сайт", "fieldId": "WEB", "type": "url", "multiple": false },
+      { "order": 4, "concept": "Телефон", "fieldId": "PHONE", "type": "phone", "multiple": false },
+      { "order": 5, "concept": "E-mail", "fieldId": "EMAIL", "type": "email", "multiple": false },
+      { "order": 6, "concept": "Годовой оборот", "fieldId": "REVENUE", "type": "money", "multiple": false },
+      { "order": 7, "concept": "Реквизиты", "fieldId": "UF_CRM_1763116130490", "type": "string", "multiple": false, "sourceKind": "crm_requisite_entity", "exactField": "REQUISITES", "customInnField": "UF_CRM_1763116130490" },
+      { "order": 8, "concept": "Документы", "fieldId": "UF_CRM_1782742600447", "type": "file", "multiple": true },
+      { "order": 9, "concept": "Адрес", "fieldId": "ADDRESS", "type": "address", "multiple": false },
+      { "order": 10, "concept": "Регион", "fieldId": "UF_CRM_69259C45D3399", "type": "string", "multiple": false },
+      { "order": 11, "concept": "Карточка компании", "fieldId": "UF_CRM_691EB8983DE7D", "type": "file", "multiple": false },
+      { "order": 12, "concept": "Тип компании", "fieldId": "COMPANY_TYPE", "type": "crm_status", "multiple": false },
+      { "order": 13, "concept": "Отрасль", "fieldId": "UF_CRM_1784195884554", "type": "enumeration", "multiple": false },
+      { "order": 14, "concept": "Направление", "fieldId": "UF_CRM_1784200275341", "type": "enumeration", "multiple": false },
+      { "order": 15, "concept": "Используемая марка — ГЕЛЬ", "fieldId": "UF_CRM_1781806326214", "type": "string", "multiple": true },
+      { "order": 16, "concept": "Потребление — ГЕЛЬ", "fieldId": "UF_CRM_1781806269703", "type": "double", "multiple": true },
+      { "order": 17, "concept": "Используемая марка — ЗОЛЬ", "fieldId": "UF_CRM_1781806285641", "type": "string", "multiple": true },
+      { "order": 18, "concept": "Потребление — ЗОЛЬ", "fieldId": "UF_CRM_1781806301447", "type": "double", "multiple": true },
+      { "order": 19, "concept": "Фактические цены", "fieldId": "UF_CRM_1782743261289", "type": "money", "multiple": true },
+      { "order": 20, "concept": "Комментарий по используемым продуктам", "fieldId": "UF_CRM_1753080295792", "type": "string", "multiple": false },
+      { "order": 21, "concept": "Комментарий", "fieldId": "COMMENTS", "type": "string", "multiple": false },
+      { "order": 22, "concept": "Тестирование образцов", "fieldId": "UF_CRM_1790787974", "type": "boolean", "multiple": false },
+      { "order": 23, "concept": "Дата создания", "fieldId": "DATE_CREATE", "type": "date", "multiple": false },
+      { "order": 24, "concept": "Дата изменения", "fieldId": "DATE_MODIFY", "type": "date", "multiple": false }
+    ]
+  }
+}

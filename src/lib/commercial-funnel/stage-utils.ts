@@ -11,5 +11,6 @@ export {
   isTerminalLostStage,
   isTerminalStage,
   isDealActiveStage,
+  isCommercialContinuationStage,
   isProgressedCommercialStage,
 } from "../stage-utils";

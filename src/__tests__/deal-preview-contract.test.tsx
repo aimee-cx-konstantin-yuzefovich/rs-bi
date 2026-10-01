@@ -9,6 +9,7 @@ import {
 import { createDealExcelWorkbook } from "@/lib/export-utils";
 import {
   DEAL_SAMPLE_TESTING_FIELD_ID,
+  DEAL_TESTING_MARKER_CURRENT_FIELD_ID,
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
   PAYMENT_STATUS_FIELD_ID,
   DEAL_PAYMENT_DATE_FIELD_ID,
@@ -120,7 +121,7 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     // Whitelist core attributes present
     expect(screen.getByText("Сделка Тест A")).toBeInTheDocument();
     expect(screen.getByText("Стадия")).toBeInTheDocument();
-    expect(screen.getByText("Новые")).toBeInTheDocument();
+    expect(screen.getByText("Предложение / Согласование цены")).toBeInTheDocument();
     expect(screen.getByText("Сумма")).toBeInTheDocument();
     expect(screen.getByText("Ответственный")).toBeInTheDocument();
     expect(screen.getByText("Компания")).toBeInTheDocument();
@@ -514,8 +515,12 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     // Input with category prefix falling back to base ID if category stage absent
     expect(resolveDealStage("C3:NEW", fields)).toBe("Новая (Основная)");
 
-    // Unprefixed input matching category stage
-    expect(resolveDealStage("10", fields)).toBe("Счет выставлен (Воронка 1)");
+    // Unprefixed input with categoryId disambiguation
+    expect(resolveDealStage("10", fields, "1")).toBe("Счет выставлен (Воронка 1)");
+    expect(resolveDealStage("10", fields, "2")).toBe("Тестирование (Воронка 2)");
+
+    // Unprefixed input ambiguous across multiple categories without categoryId
+    expect(resolveDealStage("10", fields)).toBe("Не классифицировано (10)");
   });
 
   it("AUDIT REGRESSION 2: Multi-enum array falls back gracefully even when fields metadata is missing", () => {
@@ -540,5 +545,37 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     const sheet = workbook.getWorksheet("Отчёт по сделке");
     const row3Cell2 = String(sheet?.getRow(3).getCell(2).value || "");
     expect(row3Cell2).toContain("ID сделки: 777");
+  });
+
+  it("AUDIT REGRESSION 4: Current Deal Preview marker is strict — legacy marker cannot override absent current marker", () => {
+    // Current marker (UF_CRM_1790786438) is empty/absent
+    // Legacy marker (UF_CRM_1779394379) is populated ("Y" / ["2"])
+    const dealWithLegacyOnly = {
+      ID: "520",
+      TITLE: "Сделка с legacy маркером",
+      [DEAL_SAMPLE_TESTING_FIELD_ID]: ["2"], // legacy marker populated
+      // DEAL_TESTING_MARKER_CURRENT_FIELD_ID is absent
+    };
+
+    const modelLegacyOnly = buildDealPreviewModel(dealWithLegacyOnly, {});
+    const testingField = modelLegacyOnly.cardFields.find(
+      (f) => f.id === DEAL_TESTING_MARKER_CURRENT_FIELD_ID
+    );
+    expect(testingField).toBeDefined();
+    expect(testingField?.value).toBe("Нет");
+    expect(testingField?.excelValue).toBe("Нет");
+
+    // Current marker explicitly true
+    const dealWithCurrent = {
+      ID: "521",
+      TITLE: "Сделка с текущим маркером",
+      [DEAL_TESTING_MARKER_CURRENT_FIELD_ID]: "Y",
+    };
+    const modelCurrent = buildDealPreviewModel(dealWithCurrent, {});
+    const testingFieldCurrent = modelCurrent.cardFields.find(
+      (f) => f.id === DEAL_TESTING_MARKER_CURRENT_FIELD_ID
+    );
+    expect(testingFieldCurrent?.value).toBe("Да");
+    expect(testingFieldCurrent?.excelValue).toBe("Да");
   });
 });

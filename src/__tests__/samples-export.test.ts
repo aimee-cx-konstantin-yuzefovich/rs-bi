@@ -284,4 +284,57 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
       global.window = originalWindow;
     }
   });
+
+  // ─── Phase C §31: Smart-Process-source reconciliation ───
+
+  it("SMP-EXP-SP: SP-source summary reconciles exactly — human-readable status/responsible, no raw enum IDs", async () => {
+    const spSummary: SampleSummary = {
+      companyId: "900",
+      companyTitle: "ООО СП-Компани",
+      responsibleId: "7",
+      responsibleName: "Сергей Процессный",
+      productFamilies: [],
+      grades: [
+        { productFamily: "Гель", value: "КСМГ-9" },
+        { productFamily: "Золь", value: "СКСГ-4" },
+      ],
+      quantities: [],
+      sentDates: ["2026-09-05"],
+      sampleIndicators: [],
+      processStatuses: ["На испытании"],
+      rawTestResult: "Образцы соответствуют",
+      normalizedResult: "positive",
+      industry: "Химия",
+      application: undefined,
+      relatedDeals: [],
+      latestRelevantDate: "2026-09-05",
+      sourceQuality: "structured",
+      dataIssues: [],
+    };
+
+    const workbook = await buildSamplesWorkbook({
+      summaries: [spSummary],
+      userNames: { "7": "Сергей Процессный" },
+    });
+    const ws = workbook.getWorksheet("Образцы")!;
+    // Single data row = row 7.
+    const row = ws.getRow(7);
+    expect(row.getCell(2).value).toBe("ООО СП-Компани");
+    // Responsible resolved to the human name from the SAME summary the UI uses.
+    expect(row.getCell(3).value).toBe("Сергей Процессный");
+    // Current status is the SP stage label (human-readable), never a stage ID.
+    const rowValues: string[] = [];
+    row.eachCell((cell) => rowValues.push(String(cell.value ?? "")));
+    expect(rowValues.join(" | ")).toContain("На испытании");
+    expect(rowValues.join(" | ")).not.toContain("DT1032_15");
+    // Grades carried through.
+    expect(rowValues.join(" | ")).toContain("КСМГ-9");
+    expect(rowValues.join(" | ")).toContain("СКСГ-4");
+    // Sent date preserved as a native Date cell (label heuristic «Дата
+    // передачи» converts the ISO string to an Excel date — §27 contract).
+    const dateCell = row.getCell(8).value; // column 8 = «Дата передачи»
+    expect(dateCell).toBeInstanceOf(Date);
+    expect((dateCell as Date).getUTCMonth()).toBe(8); // September (0-based)
+    expect((dateCell as Date).getUTCDate()).toBe(5);
+  });
 });

@@ -26,6 +26,8 @@ import {
   COMPANY_APPLICATION_NEW_FIELD_ID,
   COMPANY_APPLICATION_OLD_FIELD_ID,
   COMPANY_DIRECTION_FIELD_ID,
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TESTING_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
@@ -33,6 +35,17 @@ import {
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
   DEAL_DIRECTION_FIELD_ID,
 } from "./constants";
+import {
+  SMART_PROCESS_ENTITY_TYPE_ID,
+  SMART_PROCESS_CATEGORY_ID,
+  SMART_PROCESS_SENT_DATE_FIELD_ID,
+  SMART_PROCESS_DEAL_FIELD_ID,
+  SMART_PROCESS_GRADE_GEL_FIELD_ID,
+  SMART_PROCESS_GRADE_SOL_FIELD_ID,
+  SMART_PROCESS_TEST_RESULT_FIELD_ID,
+  SMART_PROCESS_HAS_DISCOVERED_CONTRACT,
+  assertSmartProcessContractReady,
+} from "./smart-process-contract";
 
 const PAGE_SIZE = 50;
 
@@ -179,6 +192,8 @@ export const SAMPLES_COMPANY_SELECT = [
   "TITLE",
   "ASSIGNED_BY_ID",
   "INDUSTRY",
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
   COMPANY_SAMPLES_FIELD_ID,
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
@@ -249,6 +264,59 @@ export async function fetchSampleDeals(
   );
 }
 
+/**
+ * Fixed Smart Process SELECT — only fields the canonical sample contract
+ * consumes. Uses the live-discovered original UF names; system fields
+ * (id, stageId, assignedById, createdTime, companyId) are always included.
+ */
+export const SMART_PROCESS_ITEM_SELECT = [
+  "id",
+  "title",
+  "stageId",
+  "assignedById",
+  "createdTime",
+  "companyId",
+  ...(SMART_PROCESS_SENT_DATE_FIELD_ID ? [SMART_PROCESS_SENT_DATE_FIELD_ID] : []),
+  ...(SMART_PROCESS_DEAL_FIELD_ID ? [SMART_PROCESS_DEAL_FIELD_ID] : []),
+  ...(SMART_PROCESS_GRADE_GEL_FIELD_ID ? [SMART_PROCESS_GRADE_GEL_FIELD_ID] : []),
+  ...(SMART_PROCESS_GRADE_SOL_FIELD_ID ? [SMART_PROCESS_GRADE_SOL_FIELD_ID] : []),
+  ...(SMART_PROCESS_TEST_RESULT_FIELD_ID ? [SMART_PROCESS_TEST_RESULT_FIELD_ID] : []),
+];
+
+/**
+ * Fetches the COMPLETE relevant Smart Process 1032 (categoryId 15)
+ * population via fail-closed pagination. Fail-closed contract gate first:
+ * an unverified contract never reaches the transport.
+ *
+ * Scope semantics: `companyId` narrows to one company's items (Company
+ * Preview). `responsibleId` is deliberately NOT applied to the Smart
+ * Process — the SP item's own ASSIGNED_BY_ID may differ from the company
+ * owner, and filtering by it would fabricate attribution.
+ */
+export async function fetchSmartProcessSampleItems(
+  scope: FetchSamplesScope = {}
+): Promise<BitrixRow[]> {
+  assertSmartProcessContractReady();
+
+  const filter: Record<string, unknown> = { categoryId: SMART_PROCESS_CATEGORY_ID };
+  if (scope.companyId) filter.companyId = scope.companyId;
+
+  return fetchAllPages(
+    "crm.item.list",
+    {
+      entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
+      useOriginalUfNames: "Y",
+      select: SMART_PROCESS_ITEM_SELECT,
+      SELECT: SMART_PROCESS_ITEM_SELECT,
+      filter,
+      FILTER: filter,
+      order: { id: "ASC" },
+      ORDER: { id: "ASC" },
+    },
+    "id"
+  );
+}
+
 export interface FieldLabelMaps {
   /** fieldId -> (rawValue -> label). */
   labels: Record<string, Record<string, string>>;
@@ -268,6 +336,12 @@ export async function fetchFieldLabelMaps(): Promise<FieldLabelMaps> {
   const targets: Array<{ method: string; prefix: string }> = [
     { method: "crm.company.fields", prefix: "" },
     { method: "crm.deal.fields", prefix: "" },
+    // Smart Process enum metadata (Результат тестирования, marks) —
+    // non-fatal like the other field sources; raw values pass through
+    // when unavailable. Only attempted when the contract is discovered.
+    ...(SMART_PROCESS_HAS_DISCOVERED_CONTRACT
+      ? [{ method: "crm.item.fields", prefix: "" }]
+      : []),
   ];
 
   for (const { method } of targets) {
@@ -280,8 +354,18 @@ export async function fetchFieldLabelMaps(): Promise<FieldLabelMaps> {
             statusType?: string;
           }
         > | null;
-      }>(method, {});
-      const fields = data.result;
+      }>(method, method === "crm.item.fields" ? { entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID, useOriginalUfNames: "Y" } : {});
+      const rawResult = data.result;
+      const fields =
+        rawResult && typeof rawResult === "object" && (rawResult as Record<string, unknown>).fields
+          ? ((rawResult as Record<string, unknown>).fields as Record<
+              string,
+              {
+                items?: Array<{ ID: string; VALUE: string }>;
+                statusType?: string;
+              }
+            >)
+          : rawResult;
       if (!fields || typeof fields !== "object") continue;
       for (const [fieldId, meta] of Object.entries(fields)) {
         if (meta && Array.isArray(meta.items)) {

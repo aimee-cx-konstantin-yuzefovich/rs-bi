@@ -40,7 +40,14 @@ export type SampleDataIssue =
   | "deal_company_status_mismatch"
   | "missing_product"
   | "application_fields_differ"
-  | "deal_without_company";
+  | "deal_without_company"
+  | "smart_process_stage_result_conflict"
+  | "smart_process_relation_conflict"
+  | "smart_process_orphan_item"
+  | "smart_process_multiple_active"
+  | "smart_process_missing_sent_date"
+  | "smart_process_unknown_stage"
+  | "smart_process_unknown_result";
 
 export interface SampleGrade {
   productFamily?: string;

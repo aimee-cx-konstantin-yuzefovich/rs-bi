@@ -9,14 +9,26 @@
 import { NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
 import { bitrixPost } from "@/lib/bitrix";
-import { fetchAllPages, fetchFieldLabelMaps } from "@/lib/samples/bitrix-fetch";
+import {
+  fetchAllPages,
+  fetchFieldLabelMaps,
+  fetchSmartProcessSampleItems,
+} from "@/lib/samples/bitrix-fetch";
+import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
 import { fetchDealsActivities } from "@/lib/bitrix-activities";
-import { normalizeCompanies, normalizeDeals } from "@/lib/commercial-funnel/normalize";
+import {
+  applyCanonicalSampleDomain,
+  normalizeCompanies,
+  normalizeDeals,
+} from "@/lib/commercial-funnel/normalize";
 import { generateDemoCommercialDataset } from "@/lib/commercial-funnel/demo-data";
 import {
-  COMPANY_APPLICATION_NEW_FIELD_ID,
+  COMPANY_APPLICATION_FIELD_ID,
   COMPANY_APPLICATION_OLD_FIELD_ID,
   COMPANY_DIRECTION_FIELD_ID,
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
+  COMPANY_REGION_FIELD_ID,
   COMPANY_PRODUCT_TYPE_FIELD_ID,
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
@@ -37,7 +49,9 @@ import {
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
   DEAL_SHIPMENT_DATE_FIELD_ID,
+  DEAL_TESTING_MARKER_CURRENT_FIELD_ID,
   PAYMENT_STATUS_FIELD_ID,
+  SMART_PROCESS_HAS_DISCOVERED_CONTRACT,
 } from "@/lib/crm-constants";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +62,9 @@ const COMMERCIAL_COMPANY_SELECT = [
   "ASSIGNED_BY_ID",
   "DATE_CREATE",
   "INDUSTRY",
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
+  COMPANY_REGION_FIELD_ID,
   COMPANY_SAMPLES_FIELD_ID,
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
@@ -57,10 +74,8 @@ const COMMERCIAL_COMPANY_SELECT = [
   COMPANY_SAMPLES_QTY_SOL_FIELD_ID,
   COMPANY_TEST_RESULT_FIELD_ID,
   COMPANY_PRODUCT_TYPE_FIELD_ID,
-  COMPANY_APPLICATION_NEW_FIELD_ID,
-  COMPANY_APPLICATION_OLD_FIELD_ID,
+  COMPANY_APPLICATION_FIELD_ID,
   COMPANY_DIRECTION_FIELD_ID,
-  DEAL_REGION_FIELD_ID, // Регион
 ];
 
 const COMMERCIAL_DEAL_SELECT = [
@@ -77,6 +92,7 @@ const COMMERCIAL_DEAL_SELECT = [
   "CLOSEDATE",
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TESTING_FIELD_ID,
+  DEAL_TESTING_MARKER_CURRENT_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
@@ -133,16 +149,34 @@ export async function POST() {
   }
 
   try {
-    // Fetch metadata and directories in parallel
-    const [{ labels }, userNames] = await Promise.all([
+    // Fail-closed gate: Smart Process is authoritative for current sample
+    // cycles. An unverified contract must never silently produce
+    // legacy-only analytics.
+    if (!SMART_PROCESS_HAS_DISCOVERED_CONTRACT) {
+      return respond(
+        {
+          success: false,
+          error:
+            "Smart Process contract not verified — run scripts/discover-smart-process-contract.mjs",
+        },
+        502
+      );
+    }
+
+    // Fetch metadata, directories, companies, deals, and Smart Process
+    // items in parallel — independent until normalization/aggregation.
+    const [
+      { labels },
+      userNames,
+      rawCompanies,
+      rawDeals,
+      smartProcessItems,
+    ] = await Promise.all([
       fetchFieldLabelMaps(),
       fetchUserDirectory(),
-    ]);
-
-    // Fetch companies and deals with complete fail-closed pagination
-    const [rawCompanies, rawDeals] = await Promise.all([
       fetchAllPages("crm.company.list", { SELECT: COMMERCIAL_COMPANY_SELECT, ORDER: { ID: "ASC" } }, "ID"),
       fetchAllPages("crm.deal.list", { SELECT: COMMERCIAL_DEAL_SELECT, ORDER: { ID: "ASC" } }, "ID"),
+      fetchSmartProcessSampleItems(),
     ]);
 
     // Extract deal IDs and fetch activities via shared authoritative pipeline
@@ -158,7 +192,25 @@ export async function POST() {
       statusLabels: labels,
       activities: activitiesResult.byDealId,
     });
-    const companies = normalizeCompanies(rawCompanies, deals, { userNames, statusLabels: labels });
+    const normalizedCompanies = normalizeCompanies(rawCompanies, deals, {
+      userNames,
+      statusLabels: labels,
+    });
+
+    // ONE canonical sample domain (the same engine as /api/bitrix/samples):
+    // Companies + Deals + Smart Process → per-company canonical state.
+    const sampleDomain = buildCanonicalSampleDomain(
+      rawCompanies,
+      rawDeals,
+      smartProcessItems,
+      { labelResolver: (fieldId, raw) => labels[fieldId]?.[raw] ?? raw }
+    );
+
+    // Project canonical sample facts onto CommercialCompany.
+    const companies = applyCanonicalSampleDomain(normalizedCompanies, sampleDomain, {
+      userNames,
+      statusLabels: labels,
+    });
 
     return respond({
       success: true,
@@ -174,6 +226,7 @@ export async function POST() {
       statusLabels: labels,
       totalCompanies: companies.length,
       totalDeals: deals.length,
+      smartProcess: { qualityCounts: sampleDomain.qualityCounts },
     });
   } catch (error) {
     console.error("[Commercial Funnel API Error]", error);

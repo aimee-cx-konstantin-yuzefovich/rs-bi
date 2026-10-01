@@ -47,8 +47,11 @@ export interface CommercialDeal {
   closeDate?: string;
   sampleTransferStatus?: string;
   sampleTransferStatusRaw?: string;
-  sampleTestingStatus: string[];
-  sampleTestingStatusRaw?: string[];
+  /**
+   * Preserved raw values of legacy deal testing marker for debug/registry inspection only.
+   * MARKER_ONLY: must NEVER be interpreted as sample status or analytical state.
+   */
+  legacyTestingMarkerRaw?: string[];
   sampleSentDate?: string;
   tvlDetails?: string;
   markVolume?: string;
@@ -69,7 +72,29 @@ export interface CommercialDeal {
   activityDataKnown?: boolean;
 }
 
-export type SampleStatusSource = "DEAL" | "COMPANY" | "NONE";
+export type SampleStatusSource = "SMART_PROCESS" | "DEAL" | "COMPANY" | "NONE";
+
+/** Resolution quality of the canonical current sample state. */
+export type SampleCurrentResolutionQuality =
+  | "RESOLVED"
+  | "AMBIGUOUS"
+  | "AMBIGUOUS_MULTIPLE_ACTIVE"
+  | "NONE";
+
+/**
+ * One dated samples_sent event with per-event attribution.
+ * Global KPI counts unique companies; manager flow attributes each event
+ * to its own responsible (SP event → SP ASSIGNED_BY_ID, etc.).
+ */
+export interface SampleSentEvent {
+  date: string;
+  source: SampleStatusSource;
+  /** Responsible of the SOURCE entity that owns this event. */
+  responsibleId?: string;
+  dealId?: string;
+  /** Smart Process item id (SP events only; never a Deal ID). */
+  processItemId?: string;
+}
 
 export interface SampleStatusEntry {
   rawValue: string;
@@ -89,6 +114,15 @@ export interface CommercialCompany {
   sampleResponsibleId?: string;
   sampleResponsibleName?: string;
   sampleResponsibleDealId?: string;
+  /**
+   * Smart Process item id of the resolved current cycle (SP source only).
+   * NEVER a Deal ID — Deal provenance stays in sampleResponsibleDealId.
+   */
+  sampleResponsibleProcessItemId?: string;
+  /** Exact factual linked sample Deal (SP current cycle) when configured. */
+  sampleRelatedDealId?: string;
+  /** Canonical current-state resolution quality. */
+  sampleCurrentResolutionQuality?: SampleCurrentResolutionQuality;
   dateCreate?: string;
   industry?: string;
   industryRaw?: string;
@@ -109,6 +143,12 @@ export interface CommercialCompany {
   sampleCompanyTransferDates?: string[];
   sampleEventDatesForPeriodMetrics?: string[];
   sampleAllDates: string[];
+  /**
+   * Canonical per-event sent events with per-event attribution.
+   * Consumed by computePeriodMetrics (global KPI) and the manager
+   * samplesSent flow (per-event responsible attribution).
+   */
+  sampleSentEvents?: SampleSentEvent[];
   sampleTestResult?: string;
   gradeGel: string[];
   gradeSol: string[];

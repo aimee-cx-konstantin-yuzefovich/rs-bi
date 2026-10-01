@@ -60,8 +60,6 @@ function deal(p: Partial<CommercialDeal> & { id: string }): CommercialDeal {
     productType: [],
     direction: [],
     industry: [],
-    sampleTestingStatus: [],
-    sampleTestingStatusRaw: [],
     ...p,
   } as CommercialDeal;
 }
@@ -375,39 +373,34 @@ describe("FIX #2: segment rows never contradict the active same-dimension global
     expect(industries.totalUniqueCompanyIds).toEqual(["X1"]);
   });
 
-  it("TEST K: deal-retained company (facts excluded) shows Deal-derived Gel, not Sol, not Не указано; factual field unchanged", () => {
+  it("TEST K: Segments always use Company dimensions (Section 7); Deal dimensions never override", () => {
     const c = company({
       id: "K1",
-      productType: ["Sol"], // factual — must remain unchanged
-      companyFactsIncluded: false, // retained ONLY via the matching Deal
+      productType: ["Sol"], // factual Company dimension
+      companyFactsIncluded: false, // retained e.g. under Responsible filter via Deal
       deals: [deal({ id: "kd1", productType: ["Gel"] })],
     });
-    const bd = computeSegmentBreakdown([c], bounds, "product", {
-      ...baseFilters,
-      productType: "Gel",
-    });
+    // Under unfiltered (all) or responsible slice, company appears under its own Company product
+    const bd = computeSegmentBreakdown([c], bounds, "product", baseFilters);
 
-    expect(bd.rows.map((r) => r.label)).toEqual(["Gel"]);
-    expect(bd.rows.find((r) => r.label === "Sol")).toBeUndefined();
-    expect(bd.rows.find((r) => r.isMissingValue)).toBeUndefined();
+    expect(bd.rows.map((r) => r.label)).toEqual(["Sol"]);
+    expect(bd.rows.find((r) => r.label === "Gel")).toBeUndefined();
     expect(bd.totalUniqueCompanyIds).toEqual(["K1"]);
     // Factual CRM field NOT mutated.
     expect(c.productType).toEqual(["Sol"]);
   });
 
-  it("TEST L: multi-value surviving Deal products under Gel filter → Gel only", () => {
+  it("TEST L: Company with missing productType appears under «Не указано» even if Deal has products", () => {
     const c = company({
       id: "L1",
-      productType: [],
+      productType: [], // missing at Company level
       companyFactsIncluded: false,
       deals: [deal({ id: "ld1", productType: ["Gel", "Sol"] })],
     });
-    const bd = computeSegmentBreakdown([c], bounds, "product", {
-      ...baseFilters,
-      productType: "Gel",
-    });
+    const bd = computeSegmentBreakdown([c], bounds, "product", baseFilters);
 
-    expect(bd.rows.map((r) => r.label)).toEqual(["Gel"]);
+    expect(bd.rows.map((r) => r.label)).toEqual(["Не указано"]);
+    expect(bd.rows.find((r) => r.label === "Gel")).toBeUndefined();
     expect(bd.rows.find((r) => r.label === "Sol")).toBeUndefined();
     expect(bd.totalUniqueCompanyIds).toEqual(["L1"]);
   });

@@ -1,7 +1,10 @@
 // @vitest-environment node
 // src/__tests__/samples-api.test.ts
 // API behavior: auth, pagination completeness, fail-closed failures,
-// body validation, no webhook leakage, no arbitrary methods, no 1032.
+// body validation, no webhook leakage, no arbitrary methods.
+// Phase C: Smart Process 1032 is an authoritative source — the contract
+// gate is mocked as discovered here (the production gate stays real and
+// is covered by its own fail-closed test).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -10,6 +13,48 @@ vi.mock("@/lib/auth-guard", () => ({
   ...auth,
   isAuthError: (value: unknown) => value instanceof NextResponse,
 }));
+
+const spContract = vi.hoisted(() => ({
+  SMART_PROCESS_HAS_DISCOVERED_CONTRACT: true,
+  SMART_PROCESS_ENTITY_TYPE_ID: 1032,
+  SMART_PROCESS_CATEGORY_ID: 15,
+  SMART_PROCESS_SENT_DATE_FIELD_ID: "UF_CRM_SP_SENT_DATE_TEST",
+  SMART_PROCESS_DEAL_FIELD_ID: "UF_CRM_SP_DEAL_TEST",
+  SMART_PROCESS_GRADE_GEL_FIELD_ID: "UF_CRM_SP_GEL_TEST",
+  SMART_PROCESS_GRADE_SOL_FIELD_ID: "UF_CRM_SP_SOL_TEST",
+  SMART_PROCESS_TEST_RESULT_FIELD_ID: "UF_CRM_SP_RESULT_TEST",
+  SMART_PROCESS_COMPANY_FIELD_ID: null,
+  assertSmartProcessContractReady: () => {},
+  SMART_PROCESS_STAGE_SEMANTICS: {
+    "DT1032_15:NEW": "PREPARATION",
+    "DT1032_15:UC_ZARRMX": "SAMPLES_SENT",
+    "DT1032_15:CLIENT": "TESTING_IN_PROGRESS",
+    "DT1032_15:SUCCESS": "TERMINAL_SUCCESS",
+    "DT1032_15:FAIL": "TERMINAL_FAILURE",
+  },
+  SMART_PROCESS_ACTIVE_STAGES: new Set(["DT1032_15:NEW", "DT1032_15:UC_ZARRMX", "DT1032_15:CLIENT"]),
+  SMART_PROCESS_TERMINAL_STAGES: new Set(["DT1032_15:SUCCESS", "DT1032_15:FAIL"]),
+  SMART_PROCESS_STAGE_LABELS: {
+    "DT1032_15:NEW": "Подготовка к отправке",
+    "DT1032_15:UC_ZARRMX": "Образцы отправлены",
+    "DT1032_15:CLIENT": "На испытании",
+    "DT1032_15:SUCCESS": "Подошли",
+    "DT1032_15:FAIL": "Не подошли",
+  },
+  smartProcessStageSemantic: (id?: string) =>
+    (id && ({
+      "DT1032_15:NEW": "PREPARATION",
+      "DT1032_15:UC_ZARRMX": "SAMPLES_SENT",
+      "DT1032_15:CLIENT": "TESTING_IN_PROGRESS",
+      "DT1032_15:SUCCESS": "TERMINAL_SUCCESS",
+      "DT1032_15:FAIL": "TERMINAL_FAILURE",
+    } as Record<string, string>)[id]) as any,
+  isSmartProcessActiveStage: (id?: string) =>
+    Boolean(id && ["DT1032_15:NEW", "DT1032_15:UC_ZARRMX", "DT1032_15:CLIENT"].includes(id)),
+  isSmartProcessTerminalStage: (id?: string) =>
+    Boolean(id && ["DT1032_15:SUCCESS", "DT1032_15:FAIL"].includes(id)),
+}));
+vi.mock("@/lib/samples/smart-process-contract", () => spContract);
 
 import { POST } from "@/app/api/bitrix/samples/route";
 import { bitrixPost } from "@/lib/bitrix";
@@ -102,11 +147,11 @@ describe("POST /api/bitrix/samples — fixed Bitrix calls", () => {
     expect(calledUrls).toContain(`${webhook}/crm.deal.fields`);
     expect(calledUrls).toContain(`${webhook}/crm.company.list`);
     expect(calledUrls).toContain(`${webhook}/crm.deal.list`);
+    expect(calledUrls).toContain(`${webhook}/crm.item.list`);
     for (const url of calledUrls) {
       // Method path itself is clean (token lives in the webhook base only).
       expect(url.startsWith(`${webhook}/`)).toBe(true);
       expect(url.slice(webhook.length)).toMatch(/^\/crm\.[a-z.]+$/);
-      expect(url).not.toContain("1032");
     }
 
     const companyCall = fetchMock.mock.calls.find((c) =>
@@ -116,6 +161,8 @@ describe("POST /api/bitrix/samples — fixed Bitrix calls", () => {
     const companyBody = JSON.parse(companyCall![1].body);
     expect(companyBody.FILTER).toEqual({ ID: "42" });
     expect(companyBody.SELECT).toContain("UF_CRM_1753187313314");
+    expect(companyBody.SELECT).toContain("UF_CRM_1784195884554");
+    expect(companyBody.SELECT).toContain("UF_CRM_1784200275341");
     expect(companyBody.SELECT).not.toContain("*");
 
     const dealCall = fetchMock.mock.calls.find((c) =>
@@ -125,6 +172,16 @@ describe("POST /api/bitrix/samples — fixed Bitrix calls", () => {
     const dealBody = JSON.parse(dealCall![1].body);
     expect(dealBody.FILTER).toEqual({ COMPANY_ID: "42" });
     expect(dealBody.SELECT).toContain("UF_CRM_1779394379");
+
+    // Smart Process call: entityTypeId/categoryId travel in the POST body
+    // (URL method path stays clean).
+    const spCall = fetchMock.mock.calls.find((c) =>
+      String(c[0]).endsWith("crm.item.list")
+    );
+    expect(spCall).toBeDefined();
+    const spBody = JSON.parse(spCall![1].body);
+    expect(spBody.entityTypeId).toBe(1032);
+    expect(spBody.FILTER).toEqual({ categoryId: 15, companyId: "42" });
   });
 
   it("joins by company ID and returns one summary per company with nested deals", async () => {

@@ -86,7 +86,6 @@ describe("Fix A: Aggregate Financial Data Quality & Contract Decision A (Natural
       region: "Москва",
       paymentStatus: "113",
       paymentDate: "2026-03-10",
-      sampleTestingStatus: [],
     };
 
     const deal2: CommercialDeal = {
@@ -105,7 +104,6 @@ describe("Fix A: Aggregate Financial Data Quality & Contract Decision A (Natural
       region: "Казань",
       paymentStatus: "113",
       paymentDate: "2026-03-12",
-      sampleTestingStatus: [],
     };
 
     it("filtering for responsibleId=user-B prunes deal2 and sums only deal1 (100 RUB)", () => {
@@ -125,7 +123,7 @@ describe("Fix A: Aggregate Financial Data Quality & Contract Decision A (Natural
       expect(payKpi.amountQuality).toBe("COMPLETE");
     });
 
-    it("filtering for productType=Гель prunes deal2 and sums only deal1 (100 RUB)", () => {
+    it("filtering for productType=Гель retains company deals and sums all deals under Defect C (1000 RUB)", () => {
       const company = mkCompany([deal1, deal2]);
       const filtered = filterCompaniesByDimensions([company], {
         periodPreset: "30days",
@@ -133,12 +131,12 @@ describe("Fix A: Aggregate Financial Data Quality & Contract Decision A (Natural
       });
 
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].deals).toHaveLength(1);
-      expect(filtered[0].deals[0].id).toBe("D1");
+      // Defect C: do not prune deals by deal productType; retain company deals
+      expect(filtered[0].deals).toHaveLength(2);
 
       const kpis = computePeriodMetrics(filtered, bounds);
       const payKpi = kpis.find((k) => k.id === "payment_amount")!;
-      expect(payKpi.currentValue).toBe(100);
+      expect(payKpi.currentValue).toBe(1000);
     });
 
     it("manager scorecard assigns payment amounts strictly per manager without cross-contamination", () => {

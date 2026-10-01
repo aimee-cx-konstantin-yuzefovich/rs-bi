@@ -12,6 +12,14 @@ import * as bitrix from "../lib/bitrix";
 import * as bitrixFetch from "../lib/samples/bitrix-fetch";
 import * as authGuard from "../lib/auth-guard";
 
+// Phase C: the CF route fail-closes when the Smart Process contract is
+// undiscovered. For API-level tests the contract is mocked as discovered
+// (the real gate is covered by its own fail-closed test).
+vi.mock("../lib/samples/smart-process-contract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/samples/smart-process-contract")>();
+  return { ...actual, SMART_PROCESS_HAS_DISCOVERED_CONTRACT: true };
+});
+
 describe("Commercial Funnel Activity Authority", () => {
   const fixedNow = new Date("2026-03-25T12:00:00Z");
 
@@ -409,6 +417,9 @@ describe("Authoritative Activities & Selection Semantics (ACT-1 to ACT-7)", () =
       vi.spyOn(bitrixFetch, "fetchFieldLabelMaps").mockResolvedValue({
         labels: {},
       } as any);
+
+      // Phase C: stub the SP fetcher (route calls it in the parallel fetch).
+      vi.spyOn(bitrixFetch, "fetchSmartProcessSampleItems").mockResolvedValue([]);
 
       vi.spyOn(bitrixFetch, "fetchAllPages").mockImplementation(async (method: string) => {
         if (method === "crm.company.list") {

@@ -13,7 +13,8 @@
 
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
-import { normalizeDeals, normalizeCompanies } from "../lib/commercial-funnel/normalize";
+import { applyCanonicalSampleDomain, normalizeDeals, normalizeCompanies } from "../lib/commercial-funnel/normalize";
+import { buildCanonicalSampleDomain } from "../lib/samples/aggregate";
 import {
   computeBottlenecks,
   computeManagerScorecard,
@@ -125,6 +126,9 @@ describe("Commercial Funnel Golden Reconciliation", () => {
       OPPORTUNITY: "80000",
       CURRENCY_ID: "RUB",
       DATE_CREATE: "2026-02-20",
+      // Phase C: marker (UF_CRM_1779394379) is MARKER_ONLY; the state
+      // evidence lives in the transfer field (UF_CRM_1779386185).
+      [DEAL_SAMPLE_TRANSFER_FIELD_ID]: "Тестирование успешно",
       [DEAL_SAMPLE_TESTING_FIELD_ID]: ["Тестирование успешно"],
       [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: "2026-02-22",
       ASSIGNED_BY_ID: "U1",
@@ -242,10 +246,14 @@ describe("Commercial Funnel Golden Reconciliation", () => {
 
   it("TC-GOLDEN-02: normalizes companies and selects authoritative current sample cycle", () => {
     const deals = normalizeDeals(goldenRawDeals, { userNames });
-    const companies = normalizeCompanies(goldenRawCompanies, deals, {
-      userNames,
-      now: fixedNow,
-    });
+    const companies = applyCanonicalSampleDomain(
+      normalizeCompanies(goldenRawCompanies, deals, {
+        userNames,
+        now: fixedNow,
+      }),
+      buildCanonicalSampleDomain(goldenRawCompanies, goldenRawDeals, []),
+      { userNames, now: fixedNow }
+    );
 
     // Company C5 has multiple deals with sample statuses:
     // Deal 108 (Тестирование успешно, date 2026-02-20) takes precedence over Deal 109 (date 2026-01-10)
@@ -258,10 +266,14 @@ describe("Commercial Funnel Golden Reconciliation", () => {
 
   it("TC-GOLDEN-03: computes truthful bottlenecks without next action fabrication", () => {
     const deals = normalizeDeals(goldenRawDeals, { userNames });
-    const companies = normalizeCompanies(goldenRawCompanies, deals, {
-      userNames,
-      now: fixedNow,
-    });
+    const companies = applyCanonicalSampleDomain(
+      normalizeCompanies(goldenRawCompanies, deals, {
+        userNames,
+        now: fixedNow,
+      }),
+      buildCanonicalSampleDomain(goldenRawCompanies, goldenRawDeals, []),
+      { userNames, now: fixedNow }
+    );
 
     const bottlenecks = computeBottlenecks(companies, fixedNow);
 
@@ -285,10 +297,14 @@ describe("Commercial Funnel Golden Reconciliation", () => {
 
   it("TC-GOLDEN-04: computes KPIs and manager scorecards consistently", () => {
     const deals = normalizeDeals(goldenRawDeals, { userNames });
-    const companies = normalizeCompanies(goldenRawCompanies, deals, {
-      userNames,
-      now: fixedNow,
-    });
+    const companies = applyCanonicalSampleDomain(
+      normalizeCompanies(goldenRawCompanies, deals, {
+        userNames,
+        now: fixedNow,
+      }),
+      buildCanonicalSampleDomain(goldenRawCompanies, goldenRawDeals, []),
+      { userNames, now: fixedNow }
+    );
 
     const filters: CommercialFilters = { periodPreset: "90days" };
     const boundaries = computePeriodBoundaries(filters, fixedNow);
@@ -356,10 +372,14 @@ describe("Commercial Funnel Golden Reconciliation", () => {
 
   it("TC-GOLDEN-05: generates 6-sheet RusSilica Management Excel workbook cleanly", async () => {
     const deals = normalizeDeals(goldenRawDeals, { userNames });
-    const companies = normalizeCompanies(goldenRawCompanies, deals, {
-      userNames,
-      now: fixedNow,
-    });
+    const companies = applyCanonicalSampleDomain(
+      normalizeCompanies(goldenRawCompanies, deals, {
+        userNames,
+        now: fixedNow,
+      }),
+      buildCanonicalSampleDomain(goldenRawCompanies, goldenRawDeals, []),
+      { userNames, now: fixedNow }
+    );
 
     const filters: CommercialFilters = { periodPreset: "90days" };
     const workbook = await createCommercialFunnelWorkbook({
@@ -387,10 +407,14 @@ describe("Commercial Funnel Golden Reconciliation", () => {
 
   it("TC-GOLDEN-06: reconciles complete independent ledger (stages, WIP vs terminal, currencies, bottlenecks)", () => {
     const deals = normalizeDeals(goldenRawDeals, { userNames });
-    const companies = normalizeCompanies(goldenRawCompanies, deals, {
-      userNames,
-      now: fixedNow,
-    });
+    const companies = applyCanonicalSampleDomain(
+      normalizeCompanies(goldenRawCompanies, deals, {
+        userNames,
+        now: fixedNow,
+      }),
+      buildCanonicalSampleDomain(goldenRawCompanies, goldenRawDeals, []),
+      { userNames, now: fixedNow }
+    );
 
     // 1. Stage population assertion
     const newDeals = deals.filter((d) => d.stageId === "NEW");
@@ -473,10 +497,14 @@ describe("Commercial Funnel Golden Reconciliation", () => {
 
   it("TC-GOLDEN-07: verifies binary ExcelJS reload with cell-by-cell inspection of golden values, invalid money formatting, real zero, and date types", async () => {
     const deals = normalizeDeals(goldenRawDeals, { userNames });
-    const companies = normalizeCompanies(goldenRawCompanies, deals, {
-      userNames,
-      now: fixedNow,
-    });
+    const companies = applyCanonicalSampleDomain(
+      normalizeCompanies(goldenRawCompanies, deals, {
+        userNames,
+        now: fixedNow,
+      }),
+      buildCanonicalSampleDomain(goldenRawCompanies, goldenRawDeals, []),
+      { userNames, now: fixedNow }
+    );
 
     const filters: CommercialFilters = { periodPreset: "90days" };
     const workbook = await createCommercialFunnelWorkbook({

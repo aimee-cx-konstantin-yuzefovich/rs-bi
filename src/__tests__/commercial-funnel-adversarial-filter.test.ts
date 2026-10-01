@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { normalizeCompanies } from "@/lib/commercial-funnel/normalize";
+import {
+  applyCanonicalSampleDomain,
+  normalizeCompanies,
+} from "@/lib/commercial-funnel/normalize";
+import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
 import {
   computePeriodMetrics,
   filterCompaniesByDimensions,
@@ -38,7 +42,12 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     opportunityQuality: "VALID",
     currencyId: "RUB",
     dateCreate: "2026-08-01",
-    sampleTestingStatus: ["На испытании"],
+    // Phase C marker isolation: testing status is carried by the Deal
+    // transfer field (UF_CRM_1779386185); the marker field
+    // (UF_CRM_1779394379 → sampleTestingStatus) is MARKER_ONLY and can no
+    // longer create current sample state.
+    sampleTransferStatus: "На испытании",
+    legacyTestingMarkerRaw: ["На испытании"], // marker preview only
     sampleSentDate: undefined,
     productType: ["Гель"],
     direction: [],
@@ -57,7 +66,6 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     currencyId: "RUB",
     dateCreate: "2026-08-15",
     sampleTransferStatus: "Подошли",
-    sampleTestingStatus: [],
     sampleSentDate: "2026-09-10", // Sent in September 2026
     productType: ["Золь"],
     direction: [],
@@ -79,13 +87,59 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     paymentStatusLabel: "Оплачен",
     paymentDate: "2026-09-12", // Paid in September 2026
     shipmentDate: "2026-09-15", // Shipped in September 2026
-    sampleTestingStatus: [],
     productType: ["Гель"],
     direction: [],
     industry: [],
   };
 
-  const allCompanies = normalizeCompanies([rawCompany], [dealA, dealB, dealC]);
+  // Phase C: build the canonical sample domain from raw rows (the same
+  // engine as production), then project onto normalized companies.
+  const rawDeals = [
+    {
+      ID: "1001",
+      COMPANY_ID: "100",
+      ASSIGNED_BY_ID: "5",
+      STAGE_ID: "C4:EXECUTING",
+      CATEGORY_ID: "0",
+      OPPORTUNITY: "250000",
+      CURRENCY_ID: "RUB",
+      DATE_CREATE: "2026-08-01",
+      UF_CRM_1779386185: "DT1032_15:CLIENT", // На испытании
+      UF_CRM_69257BBACD471: ["Гель"],
+    },
+    {
+      ID: "1002",
+      COMPANY_ID: "100",
+      ASSIGNED_BY_ID: "5",
+      STAGE_ID: "C4:FINAL_INVOICE",
+      CATEGORY_ID: "0",
+      OPPORTUNITY: "350000",
+      CURRENCY_ID: "RUB",
+      DATE_CREATE: "2026-08-15",
+      UF_CRM_1779386185: "DT1032_15:SUCCESS", // Подошли
+      UF_CRM_1774879952785: "2026-09-10",
+      UF_CRM_69257BBACD471: ["Золь"],
+    },
+    {
+      ID: "1003",
+      COMPANY_ID: "100",
+      ASSIGNED_BY_ID: "5",
+      STAGE_ID: "C4:WON",
+      CATEGORY_ID: "0",
+      OPPORTUNITY: "500000",
+      CURRENCY_ID: "RUB",
+      DATE_CREATE: "2026-08-20",
+      PAYMENT_STATUS: "113",
+      UF_CRM_1584460062014: "2026-09-12",
+      UF_CRM_1584459666824: "2026-09-15",
+      UF_CRM_69257BBACD471: ["Гель"],
+    },
+  ];
+  const sampleDomain = buildCanonicalSampleDomain([rawCompany], rawDeals, []);
+  const allCompanies = applyCanonicalSampleDomain(
+    normalizeCompanies([rawCompany], [dealA, dealB, dealC]),
+    sampleDomain
+  );
   const septBoundaries = computePeriodBoundaries({
     periodPreset: "custom",
     customFrom: "2026-09-01",
@@ -156,15 +210,13 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     expect(companies).toHaveLength(1);
     const comp = companies[0];
 
-    // Only Deal A and Deal C are "Гель"
-    expect(comp.deals).toHaveLength(2);
+    // Under Defect C: deals of matched company are NOT pruned by deal dimensions
+    expect(comp.deals).toHaveLength(3);
     const dealIds = comp.deals.map((d) => d.id).sort();
-    expect(dealIds).toEqual(["1001", "1003"]);
+    expect(dealIds).toEqual(["1001", "1002", "1003"]);
 
-    // CRITICAL: Deal B's "Подошли" status must NOT leak to company WIP status!
-    // Deal A is "На испытании"
-    expect(comp.sampleStatus).toBe("На испытании");
-    expect(comp.sampleStatuses).toEqual(["На испытании"]);
+    expect(comp.sampleStatus).toBe("Подошли");
+    expect(comp.sampleStatusSource).toBe("DEAL");
 
     // Overview Dated KPIs
     const metrics = computePeriodMetrics(companies, septBoundaries);
@@ -173,32 +225,31 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     const shipmentsKpi = metrics.find((k) => k.id === "shipments")!;
     const paymentAmountKpi = metrics.find((k) => k.id === "payment_amount")!;
 
-    // CRITICAL: Deal B's shipment date (2026-09-10) must NOT leak into "samples_sent" KPI!
-    expect(samplesSentKpi.currentValue).toBe(0);
-    expect(samplesSentKpi.companyIds).toEqual([]);
+    // Under Defect C: Company's deals are intact, so company's period events remain in KPI
+    expect(samplesSentKpi.currentValue).toBe(1);
+    expect(samplesSentKpi.companyIds).toEqual(["100"]);
 
     // Gel deals have payment and shipment via Deal C
     expect(paymentsReceivedKpi.currentValue).toBe(1);
     expect(shipmentsKpi.currentValue).toBe(1);
     expect(paymentAmountKpi.currentValue).toBe(500000);
 
-    // Samples Tab: ONLY Deal A has sample evidence among Gel deals
+    // Samples Tab: 2 deals have sample evidence (A and B)
     const registerRows = buildSampleRegister(companies);
-    expect(registerRows).toHaveLength(1);
-    expect(registerRows[0].dealId).toBe("1001");
-    expect(registerRows[0].status).toBe("На испытании");
+    expect(registerRows).toHaveLength(2);
+    expect(registerRows.map((r) => r.dealId).sort()).toEqual(["1001", "1002"]);
 
     // Managers Tab
     const managerRows = computeManagerScorecard(companies, septBoundaries);
     expect(managerRows).toHaveLength(1);
-    expect(managerRows[0].samplesSent).toBe(0); // 0 samples sent for Gel in Sept
+    expect(managerRows[0].samplesSent).toBe(1);
     expect(managerRows[0].paymentsReceived).toBe(1);
   });
 
   // --------------------------------------------------------------------------
   // Slice 3: Filter by Product = "Золь"
   // --------------------------------------------------------------------------
-  it("Slice 3 (Product = Золь): excludes Deals A and C completely, isolating Deal B", () => {
+  it("Slice 3 (Product = Золь): retains company and all its deals per Defect C (no deal pruning)", () => {
     const filters: CommercialFilters = {
       periodPreset: "custom",
       customFrom: "2026-09-01",
@@ -214,13 +265,14 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     expect(companies).toHaveLength(1);
     const comp = companies[0];
 
-    // Only Deal B is "Золь"
-    expect(comp.deals).toHaveLength(1);
-    expect(comp.deals[0].id).toBe("1002");
+    // Under Defect C: deals are NOT pruned by deal-level productType
+    expect(comp.deals).toHaveLength(3);
+    const dealIds = comp.deals.map((d) => d.id).sort();
+    expect(dealIds).toEqual(["1001", "1002", "1003"]);
 
     // Status is Deal B's status
     expect(comp.sampleStatus).toBe("Подошли");
-    expect(comp.sampleStatuses).toEqual(["Подошли"]);
+    expect(comp.sampleStatuses).toEqual(["На испытании", "Подошли"]);
 
     // Overview Dated KPIs
     const metrics = computePeriodMetrics(companies, septBoundaries);
@@ -233,23 +285,21 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     expect(samplesSentKpi.currentValue).toBe(1);
     expect(samplesSentKpi.companyIds).toEqual(["100"]);
 
-    // CRITICAL: Deal C's payment and shipment must NOT leak into "Золь" slice!
-    expect(paymentsReceivedKpi.currentValue).toBe(0);
-    expect(paymentsReceivedKpi.companyIds).toEqual([]);
-    expect(shipmentsKpi.currentValue).toBe(0);
-    expect(shipmentsKpi.companyIds).toEqual([]);
-    expect(paymentAmountKpi.currentValue).toBe(0);
+    // Deal C's payment and shipment belong to company in the slice (no undercount)
+    expect(paymentsReceivedKpi.currentValue).toBe(1);
+    expect(paymentsReceivedKpi.companyIds).toEqual(["100"]);
+    expect(shipmentsKpi.currentValue).toBe(1);
+    expect(shipmentsKpi.companyIds).toEqual(["100"]);
+    expect(paymentAmountKpi.currentValue).toBe(500000);
 
-    // Samples Tab: ONLY Deal B
+    // Samples Tab: both sample deals
     const registerRows = buildSampleRegister(companies);
-    expect(registerRows).toHaveLength(1);
-    expect(registerRows[0].dealId).toBe("1002");
-    expect(registerRows[0].status).toBe("Подошли");
+    expect(registerRows).toHaveLength(2);
 
     // Managers Tab
     const managerRows = computeManagerScorecard(companies, septBoundaries);
     expect(managerRows).toHaveLength(1);
     expect(managerRows[0].samplesSent).toBe(1);
-    expect(managerRows[0].paymentsReceived).toBe(0);
+    expect(managerRows[0].paymentsReceived).toBe(1);
   });
 });

@@ -146,7 +146,7 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
           opportunity: 100_000,
           currencyId: "RUB",
           dateCreate: "2026-09-11",
-          sampleTestingStatus: ["На испытании"],
+          sampleTransferStatus: "На испытании",
           productType: [],
           industry: [],
           direction: [],
@@ -161,7 +161,7 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
           opportunity: 200_000,
           currencyId: "RUB",
           dateCreate: "2026-09-12",
-          sampleTestingStatus: ["На испытании"],
+          sampleTransferStatus: "На испытании",
           productType: [],
           industry: [],
           direction: [],
@@ -176,7 +176,6 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
           opportunity: 300_000,
           currencyId: "RUB",
           dateCreate: "2026-09-13",
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -195,9 +194,8 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
 
     const wip = computeWipMetrics([multiDealCompany]);
     const inTestingWip = wip.find((w) => w.id === "На испытании")!;
-    expect(inTestingWip.companyCount).toBe(1);
-    // Only the 2 deals matching the sample testing status are counted, excluding unrelated deal 3
-    expect(inTestingWip.dealCount).toBe(2);
+    // Defect F: only the Deal attached to the current canonical sample cycle is counted once (no historical sibling summation)
+    expect(inTestingWip.dealCount).toBe(1);
     expect(inTestingWip.companyIds).toEqual(["999"]);
   });
 
@@ -223,7 +221,6 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
             currencyId: "RUB",
             paymentStatus: "109",
             paymentDate: "2026-09-10",
-            sampleTestingStatus: [],
             productType: [],
             industry: [],
             direction: [],
@@ -266,7 +263,6 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
             currencyId: "USD",
             paymentStatus: "109",
             paymentDate: "2026-09-12",
-            sampleTestingStatus: [],
             productType: [],
             industry: [],
             direction: [],

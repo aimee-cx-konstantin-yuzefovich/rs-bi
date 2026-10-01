@@ -90,7 +90,7 @@ describe("Sample Sentinel Activity & KPI Invariants", () => {
       },
     ] as any as BitrixRow[];
 
-    const { orphanDeals } = buildSampleSummaries([], deals);
+    const { orphanDeals } = buildSampleSummaries([], deals, []);
     expect(orphanDeals).toHaveLength(1);
     expect(orphanDeals[0].ID).toBe("602");
   });
@@ -128,7 +128,7 @@ describe("Sample Sentinel Activity & KPI Invariants", () => {
       },
     ] as any as BitrixRow[];
 
-    const { summaries } = buildSampleSummaries(companies, deals);
+    const { summaries } = buildSampleSummaries(companies, deals, []);
     // Only Company 2 and Company 3 enter the dataset (Company 1 has only sentinels)
     expect(summaries).toHaveLength(2);
     expect(summaries.map((s) => s.companyId).sort()).toEqual(["2", "3"]);

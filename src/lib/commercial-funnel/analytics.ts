@@ -30,6 +30,7 @@ import {
 } from "./engine";
 import {
   isDealActiveStage,
+  isCommercialContinuationStage,
   isProgressedCommercialStage,
 } from "./stage-utils";
 import type {
@@ -209,7 +210,7 @@ export function computeFunnelView(
   for (const c of companies) {
     if (c.sampleStatus === "Подошли") {
       positiveIds.push(c.id);
-      if (c.deals.some((d) => isProgressedCommercialStage(d.stageId))) {
+      if (c.deals.some((d) => isCommercialContinuationStage(d.stageId, d.categoryId))) {
         continuationIds.push(c.id);
       }
     }
@@ -249,47 +250,23 @@ function getCompanyDimensionValues(
 }
 
 /**
- * EFFECTIVE SEGMENT PROVENANCE (Defect G fix).
+ * Authoritative Segment Value Derivation (Section 7).
  *
- * Global dimensional filters retain a Company when EITHER its factual
- * Company-level dimension matched OR a child Deal matched
- * (companyFactsIncluded === false means only the Deal path matched).
- * Reading raw factual fields alone would then place such a Company under a
- * factual value that the global filter excluded — the Segment view would
- * contradict the very filter that retained the Company.
+ * For Segments:
+ *   Industry → Company Industry
+ *   Direction → Company Direction
+ *   Product → Company Product
+ * always.
  *
- * Contract:
- *   1. companyFactsIncluded !== false (Company matched the filter itself)
- *      → the Company's factual dimension values are used.
- *   2. companyFactsIncluded === false (retained only via matching Deals)
- *      → the union of the surviving (filtered) Deals' dimension values is
- *      used. Multi-value union semantics are explicit: a Company may appear
- *      in several rows, but the grand total counts unique companies once.
- *
- * Factual Company fields are NEVER mutated — this is a separate analytical
- * derivation. Company inclusion is unchanged from canonical filtering.
+ * Even if a Company enters the Responsible slice only because the selected
+ * manager owns a Deal, its Industry/Direction/Product remains the factual
+ * Company dimensions (never substituted by Deal-derived dimensions).
  */
 export function getAnalyticalSegmentValues(
   c: CommercialCompany,
   dimension: SegmentDimension
 ): string[] {
-  if (c.companyFactsIncluded !== false) {
-    return getCompanyDimensionValues(c, dimension);
-  }
-  // Deal-retained slice: derive the effective segment from the surviving deals.
-  const values = new Set<string>();
-  for (const d of c.deals) {
-    const dealValues =
-      dimension === "industry"
-        ? d.industry || []
-        : dimension === "direction"
-        ? d.direction || []
-        : d.productType || [];
-    for (const v of dealValues) {
-      if (v) values.add(v);
-    }
-  }
-  return Array.from(values);
+  return getCompanyDimensionValues(c, dimension);
 }
 
 /**
@@ -570,10 +547,13 @@ export const NEXT_ACTION_MISSING_LABEL = "Следующий шаг не ука�
  * normalization — NOT from the raw buildSampleRegister (which intentionally
  * emits granular sample-Deal rows and historical/fallback records).
  *
- *   A. sampleStatusSource === "DEAL"   → row from the Deal identified by
+ *   A. sampleStatusSource === "SMART_PROCESS" → row from the current SP
+ *      item facts; exact linked Deal via sampleRelatedDealId when factual
+ *      (blank otherwise — never a representative primaryDeal).
+ *   B. sampleStatusSource === "DEAL"   → row from the Deal identified by
  *                                        sampleResponsibleDealId.
- *   B. sampleStatusSource === "COMPANY" → Company fallback state.
- *   C. sampleStatusSource === "NONE" or sampleStatus === "—" → no row.
+ *   C. sampleStatusSource === "COMPANY" → Company fallback state.
+ *   D. sampleStatusSource === "NONE" or sampleStatus === "—" → no row.
  *
  * Historical sibling sample Deals that are not the selected current cycle
  * never appear merely because the register contains them. The dedicated
@@ -590,9 +570,11 @@ export function buildSampleTestingSnapshot(
     if (c.sampleStatusSource === "NONE") continue;
 
     // Resolve the authoritative current-cycle sample Deal (same provenance
-    // rule as computeBottlenecks — Defect D chain).
+    // rule as computeBottlenecks — Defect D chain, Phase C extended).
     const sampleDeal =
-      c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
+      c.sampleStatusSource === "SMART_PROCESS" && c.sampleRelatedDealId
+        ? c.deals.find((d) => d.id === c.sampleRelatedDealId)
+        : c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
         ? c.deals.find((d) => d.id === c.sampleResponsibleDealId)
         : undefined;
 
@@ -616,7 +598,7 @@ export function buildSampleTestingSnapshot(
       testingStatus: c.sampleStatus,
       testResult: c.sampleTestResult || "—",
       nextActionOrComment:
-        (c.sampleStatusSource === "DEAL" ? sampleDeal?.activityNext : undefined) ||
+        (sampleDeal?.activityNext) ||
         NEXT_ACTION_MISSING_LABEL,
       dealId: sampleDeal?.id,
       dealTitle: sampleDeal?.title,

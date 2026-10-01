@@ -60,9 +60,15 @@ export function CommercialFilterBar({
       if (c.responsibleId) {
         map.set(c.responsibleId, c.responsibleName || userNames[c.responsibleId] || `ID ${c.responsibleId}`);
       }
+      if (c.sampleResponsibleId && !map.has(c.sampleResponsibleId)) {
+        map.set(
+          c.sampleResponsibleId,
+          c.sampleResponsibleName || userNames[c.sampleResponsibleId] || `ID ${c.sampleResponsibleId}`
+        );
+      }
     }
     for (const d of deals) {
-      if (d.responsibleId) {
+      if (d.responsibleId && !map.has(d.responsibleId)) {
         map.set(d.responsibleId, d.responsibleName || userNames[d.responsibleId] || `ID ${d.responsibleId}`);
       }
     }
@@ -74,30 +80,26 @@ export function CommercialFilterBar({
   const productOptions = useMemo(() => {
     const set = new Set<string>();
     companies.forEach((c) => c.productType.forEach((p) => p && set.add(p)));
-    deals.forEach((d) => d.productType.forEach((p) => p && set.add(p)));
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ru"));
-  }, [companies, deals]);
+  }, [companies]);
 
   const industryOptions = useMemo(() => {
     const set = new Set<string>();
     companies.forEach((c) => c.industry && set.add(c.industry));
-    deals.forEach((d) => d.industry.forEach((i) => i && set.add(i)));
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ru"));
-  }, [companies, deals]);
+  }, [companies]);
 
   const directionOptions = useMemo(() => {
     const set = new Set<string>();
     companies.forEach((c) => c.direction.forEach((dir) => dir && set.add(dir)));
-    deals.forEach((d) => d.direction.forEach((dir) => dir && set.add(dir)));
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ru"));
-  }, [companies, deals]);
+  }, [companies]);
 
   const regionOptions = useMemo(() => {
     const set = new Set<string>();
     companies.forEach((c) => c.region && set.add(c.region));
-    deals.forEach((d) => d.region && set.add(d.region));
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ru"));
-  }, [companies, deals]);
+  }, [companies]);
 
   const isFiltered =
     filters.periodPreset !== "30days" ||
