@@ -489,46 +489,78 @@ describe("POST /api/bitrix/samples — security invariants", () => {
   });
 
   it("starts metadata, company, and deal fetches concurrently without serial blocking", async () => {
-    const calledEndpoints: string[] = [];
-    let resolveMetadata: ((res: Response) => void) | null = null;
-    const metadataPromise = new Promise<Response>((resolve) => {
-      resolveMetadata = resolve;
-    });
+    function createDeferred<T>() {
+      let resolve!: (value: T) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    const metadataStarted = createDeferred<void>();
+    const companyStarted = createDeferred<void>();
+    const dealStarted = createDeferred<void>();
+    const spStarted = createDeferred<void>();
+
+    const metadataGate = createDeferred<Response>();
+    const companyGate = createDeferred<Response>();
+    const dealGate = createDeferred<Response>();
+    const spGate = createDeferred<Response>();
+
+    const startedEndpoints: string[] = [];
 
     fetchMock.mockImplementation((url: string) => {
       if (url.endsWith("crm.company.fields")) {
-        calledEndpoints.push("crm.company.fields");
-        return metadataPromise;
+        startedEndpoints.push("crm.company.fields");
+        metadataStarted.resolve();
+        return metadataGate.promise;
       }
       if (url.endsWith("crm.deal.fields")) {
-        calledEndpoints.push("crm.deal.fields");
         return Promise.resolve(emptyFieldsMeta());
       }
       if (url.endsWith("crm.company.list")) {
-        calledEndpoints.push("crm.company.list");
-        return Promise.resolve(listPage([], { total: 0 }));
+        startedEndpoints.push("crm.company.list");
+        companyStarted.resolve();
+        return companyGate.promise;
       }
       if (url.endsWith("crm.deal.list")) {
-        calledEndpoints.push("crm.deal.list");
-        return Promise.resolve(listPage([], { total: 0 }));
+        startedEndpoints.push("crm.deal.list");
+        dealStarted.resolve();
+        return dealGate.promise;
+      }
+      if (url.endsWith("crm.item.list")) {
+        startedEndpoints.push("crm.item.list");
+        spStarted.resolve();
+        return spGate.promise;
       }
       return Promise.resolve(listPage([], { total: 0 }));
     });
 
-    // Start request without resolving metadata yet
+    // Start request without resolving any upstream gates
     const reqPromise = request();
 
-    // Give microtasks time to execute so all concurrent operations begin
-    await new Promise((r) => setTimeout(r, 10));
+    // Prove deterministically that independent sources (metadata, company, deal, Smart Process)
+    // begin execution concurrently and are waiting at their gates without serial blocking.
+    await Promise.all([
+      metadataStarted.promise,
+      companyStarted.promise,
+      dealStarted.promise,
+      spStarted.promise,
+    ]);
 
-    // Both crm.company.list and crm.deal.list must have been initiated
-    // even though crm.company.fields has NOT resolved yet!
-    expect(calledEndpoints).toContain("crm.company.fields");
-    expect(calledEndpoints).toContain("crm.company.list");
-    expect(calledEndpoints).toContain("crm.deal.list");
+    expect(startedEndpoints).toContain("crm.company.fields");
+    expect(startedEndpoints).toContain("crm.company.list");
+    expect(startedEndpoints).toContain("crm.deal.list");
+    expect(startedEndpoints).toContain("crm.item.list");
 
-    // Now resolve metadata to let request finish
-    resolveMetadata!(emptyFieldsMeta());
+    // Release all barrier gates now that concurrent initiation has been verified
+    metadataGate.resolve(emptyFieldsMeta());
+    companyGate.resolve(listPage([], { total: 0 }));
+    dealGate.resolve(listPage([], { total: 0 }));
+    spGate.resolve(listPage([], { total: 0 }));
+
     const response = await reqPromise;
     expect(response.status).toBe(200);
   });

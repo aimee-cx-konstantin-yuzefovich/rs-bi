@@ -419,8 +419,21 @@ describe("Deal Preview Component and Navigation", () => {
       });
 
       render(<CompanyPreview id="42" onClose={() => {}} />);
+      // 4. Company Preview itself remains rendered / usable
       expect(await screen.findByRole("heading", { name: "Компания С Ошибкой" })).toBeInTheDocument();
-      expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось загрузить связанные сделки");
+
+      // 1. alert contains approved neutral message
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Связанные сделки временно недоступны.");
+
+      // 2. Retry button exists
+      expect(screen.getByRole("button", { name: "Повторить" })).toBeInTheDocument();
+
+      // 3. no raw technical diagnostic is exposed to user
+      expect(screen.queryByText(/502|status|failed/i)).not.toBeInTheDocument();
+
+      // 5. full export is disabled: no fake deals=[] full-report success state is created
+      expect(screen.getByRole("button", { name: "Экспорт отчёта" })).toBeDisabled();
     });
   });
 
