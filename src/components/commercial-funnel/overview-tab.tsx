@@ -10,7 +10,22 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { formatCurrencyAmount, getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
+import { UNCLASSIFIED_LABEL } from "@/lib/commercial-funnel/constants";
+import {
+  buildActiveDealsDrillDown,
+  buildAwaitingPaymentDrillDown,
+  buildContinuationDrillDown,
+  buildDealsCreatedDrillDown,
+  buildNewCompaniesDrillDown,
+  buildPaymentsReceivedDrillDown,
+  buildSampleStageDrillDown,
+  buildSamplesSentDrillDown,
+  buildShipmentsDrillDown,
+  buildSignalDrillDown,
+} from "@/lib/commercial-funnel/drill-down";
 import type {
+  CommercialCompany,
+  CommercialDrillDownPayload,
   DatedKpi,
   FunnelView,
   ManagementSignal,
@@ -22,7 +37,12 @@ interface OverviewTabProps {
   funnelView: FunnelView;
   boundaries: PeriodBoundaries;
   managementSignals: ManagementSignal[];
-  onOpenDrillDown: (title: string, subtitle: string, companyIds: string[]) => void;
+  companies?: CommercialCompany[];
+  onOpenDrillDown: (
+    titleOrPayload: string | CommercialDrillDownPayload,
+    subtitle?: string,
+    companyIds?: string[]
+  ) => void;
 }
 
 const PERIOD_KPI_IDS = [
@@ -41,6 +61,7 @@ function MiniStat({
   onOpenDrillDown,
   title,
   subtitle,
+  payload,
   accent = false,
 }: {
   label: string;
@@ -49,6 +70,7 @@ function MiniStat({
   onOpenDrillDown: OverviewTabProps["onOpenDrillDown"];
   title: string;
   subtitle: string;
+  payload?: CommercialDrillDownPayload;
   accent?: boolean;
 }) {
   const disabled = count === 0;
@@ -56,7 +78,13 @@ function MiniStat({
     <button
       type="button"
       disabled={disabled}
-      onClick={() => onOpenDrillDown(title, subtitle, companyIds)}
+      onClick={() => {
+        if (payload) {
+          onOpenDrillDown(payload);
+        } else {
+          onOpenDrillDown(title, subtitle, companyIds);
+        }
+      }}
       className={`group flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
         disabled
           ? "border-border/50 bg-muted/30 opacity-60"
@@ -102,8 +130,9 @@ function currencyLine(kpi: DatedKpi): string | null {
     return universe
       .map((cur) => {
         const q = kpi.currencyBreakdownQuality?.current?.[cur] || "COMPLETE";
-        if (q === "INVALID_ONLY") return `${cur} — ошибка данных`;
-        if (q === "UNKNOWN") return `${cur} — нет данных`;
+        const curLabel = cur === "UNKNOWN" ? "валюта не указана" : cur;
+        if (q === "INVALID_ONLY") return `${curLabel} — ошибка данных`;
+        if (q === "UNKNOWN") return `${curLabel} — нет данных`;
         const amt = kpi.currencyBreakdown!.current[cur];
         const val = typeof amt === "number" ? amt : 0;
         return `${formatCurrencyAmount(val, cur)}${q === "PARTIAL" ? " (неполные данные)" : ""}`;
@@ -111,8 +140,9 @@ function currencyLine(kpi: DatedKpi): string | null {
       .join(" · ");
   }
   const q = kpi.amountQuality || "COMPLETE";
-  if (q === "INVALID_ONLY") return kpi.currencyId ? `${kpi.currencyId} — ошибка данных` : "— (ошибка данных)";
-  if (q === "UNKNOWN") return kpi.currencyId ? `${kpi.currencyId} — нет данных` : "— (нет данных)";
+  const curLabel = kpi.currencyId === "UNKNOWN" ? "валюта не указана" : kpi.currencyId;
+  if (q === "INVALID_ONLY") return curLabel ? `${curLabel} — ошибка данных` : "— (ошибка данных)";
+  if (q === "UNKNOWN") return curLabel ? `${curLabel} — нет данных` : "— (нет данных)";
   const val = kpi.currentValue ?? 0;
   return `${formatCurrencyAmount(val, kpi.currencyId)}${q === "PARTIAL" ? " (неполные данные)" : ""}`;
 }
@@ -122,6 +152,7 @@ export function CommercialOverviewTab({
   funnelView,
   boundaries,
   managementSignals,
+  companies,
   onOpenDrillDown,
 }: OverviewTabProps) {
   const [selectedKpiId, setSelectedKpiId] = useState<string | null>(null);
@@ -158,11 +189,31 @@ export function CommercialOverviewTab({
                 disabled={kpi.companyIds.length === 0}
                 onClick={() => {
                   setSelectedKpiId(kpi.id);
-                  onOpenDrillDown(
-                    kpi.label,
-                    "Компании, подходящие под показатель в выбранном периоде",
-                    kpi.companyIds
-                  );
+                  if (companies) {
+                    if (kpi.id === "new_companies") {
+                      onOpenDrillDown(buildNewCompaniesDrillDown(companies, boundaries));
+                    } else if (kpi.id === "samples_sent") {
+                      onOpenDrillDown(buildSamplesSentDrillDown(companies, boundaries));
+                    } else if (kpi.id === "deals_created") {
+                      onOpenDrillDown(buildDealsCreatedDrillDown(companies, boundaries));
+                    } else if (kpi.id === "payments_received" || kpi.id === "payment_amount") {
+                      onOpenDrillDown(buildPaymentsReceivedDrillDown(companies, boundaries));
+                    } else if (kpi.id === "shipments") {
+                      onOpenDrillDown(buildShipmentsDrillDown(companies, boundaries));
+                    } else {
+                      onOpenDrillDown(
+                        kpi.label,
+                        "Компании, подходящие под показатель в выбранном периоде",
+                        kpi.companyIds
+                      );
+                    }
+                  } else {
+                    onOpenDrillDown(
+                      kpi.label,
+                      "Компании, подходящие под показатель в выбранном периоде",
+                      kpi.companyIds
+                    );
+                  }
                 }}
                 className={`group rounded-lg border px-3 py-2.5 text-left transition-colors ${
                   kpi.companyIds.length === 0
@@ -174,7 +225,9 @@ export function CommercialOverviewTab({
               >
                 <div className="text-[10px] text-muted-foreground font-medium truncate">{kpi.label}</div>
                 <div className="flex items-baseline gap-1.5 mt-0.5">
-                  <span className="text-lg font-semibold tabular-nums">{kpi.currentValue ?? 0}</span>
+                  <span className="text-lg font-semibold tabular-nums">
+                    {kpi.isCurrency && kpi.currentValue === null ? "—" : (kpi.currentValue ?? 0)}
+                  </span>
                   {!isAllTime && (
                     <span
                       className={`text-[10px] tabular-nums ${
@@ -217,7 +270,7 @@ export function CommercialOverviewTab({
             <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
               Образцы и испытания
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
               <MiniStat
                 label="Требуются образцы"
                 count={stage("Требуются образцы")?.companyCount ?? 0}
@@ -225,6 +278,7 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title="Требуются образцы"
                 subtitle="Компании, которым требуются образцы"
+                payload={companies ? buildSampleStageDrillDown(companies, "Требуются образцы") : undefined}
               />
               <MiniStat
                 label="Подготовка"
@@ -233,6 +287,7 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title="Подготовка к отправке"
                 subtitle="Компании в подготовке образцов"
+                payload={companies ? buildSampleStageDrillDown(companies, "Подготовка к отправке") : undefined}
               />
               <MiniStat
                 label="Отправлены"
@@ -241,6 +296,7 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title="Образцы отправлены"
                 subtitle="Компании с отправленными образцами"
+                payload={companies ? buildSampleStageDrillDown(companies, "Образцы отправлены") : undefined}
               />
               <MiniStat
                 label="На испытаниях"
@@ -249,6 +305,7 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title="На испытании"
                 subtitle="Компании, чьи образцы на испытаниях"
+                payload={companies ? buildSampleStageDrillDown(companies, "На испытании") : undefined}
               />
               <MiniStat
                 label="Подошли"
@@ -257,6 +314,7 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title="Подошли"
                 subtitle="Компании с положительным результатом"
+                payload={companies ? buildSampleStageDrillDown(companies, "Подошли") : undefined}
               />
               <MiniStat
                 label="Не подошли / Доработка"
@@ -268,6 +326,16 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title="Не подошли / Требуется доработка"
                 subtitle="Компании с отрицательным результатом или на доработке"
+                payload={companies ? buildSampleStageDrillDown(companies, "Не подошли / Требуется доработка", ["Не подошли", "Требуется доработка"]) : undefined}
+              />
+              <MiniStat
+                label="Не классифицировано"
+                count={stage(UNCLASSIFIED_LABEL)?.companyCount ?? 0}
+                companyIds={stage(UNCLASSIFIED_LABEL)?.companyIds ?? []}
+                onOpenDrillDown={onOpenDrillDown}
+                title="Не классифицировано"
+                subtitle="Компании с неоднозначным или неклассифицированным статусом образцов"
+                payload={companies ? buildSampleStageDrillDown(companies, UNCLASSIFIED_LABEL) : undefined}
               />
             </div>
           </div>
@@ -285,6 +353,7 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title="Активные коммерческие сделки"
                 subtitle="Компании с активными (не терминальными) сделками"
+                payload={companies ? buildActiveDealsDrillDown(companies) : undefined}
               />
               <MiniStat
                 label="Ожидают оплаты"
@@ -293,6 +362,7 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title="Ожидают оплаты"
                 subtitle="Компании со счетами, ожидающими оплату"
+                payload={companies ? buildAwaitingPaymentDrillDown(companies) : undefined}
               />
             </div>
             <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -300,13 +370,17 @@ export function CommercialOverviewTab({
               <button
                 type="button"
                 disabled={continuation.positiveResult.count === 0}
-                onClick={() =>
-                  onOpenDrillDown(
-                    "Положительный результат испытаний",
-                    "Компании с текущим статусом «Подошли»",
-                    continuation.positiveResult.companyIds
-                  )
-                }
+                onClick={() => {
+                  if (companies) {
+                    onOpenDrillDown(buildContinuationDrillDown(companies, "positive"));
+                  } else {
+                    onOpenDrillDown(
+                      "Положительный результат испытаний",
+                      "Компании с текущим статусом «Подошли»",
+                      continuation.positiveResult.companyIds
+                    );
+                  }
+                }}
                 className="tabular-nums font-semibold text-primary hover:underline disabled:opacity-50 cursor-pointer"
               >
                 {continuation.positiveResult.count}
@@ -315,13 +389,17 @@ export function CommercialOverviewTab({
               <button
                 type="button"
                 disabled={continuation.withCommercialContinuation.count === 0}
-                onClick={() =>
-                  onOpenDrillDown(
-                    "Коммерческое продолжение",
-                    "Компании с «Подошли» и продвинутой коммерческой сделкой",
-                    continuation.withCommercialContinuation.companyIds
-                  )
-                }
+                onClick={() => {
+                  if (companies) {
+                    onOpenDrillDown(buildContinuationDrillDown(companies, "continuation"));
+                  } else {
+                    onOpenDrillDown(
+                      "Коммерческое продолжение",
+                      "Компании с «Подошли» и продвинутой коммерческой сделкой",
+                      continuation.withCommercialContinuation.companyIds
+                    );
+                  }
+                }}
                 className="tabular-nums font-semibold text-primary hover:underline disabled:opacity-50 cursor-pointer"
               >
                 {continuation.withCommercialContinuation.count}
@@ -350,6 +428,7 @@ export function CommercialOverviewTab({
                 onOpenDrillDown={onOpenDrillDown}
                 title={signal.label}
                 subtitle="Открыть список компаний"
+                payload={companies ? buildSignalDrillDown(companies, signal.id, signal.label) : undefined}
                 accent
               />
             ))}

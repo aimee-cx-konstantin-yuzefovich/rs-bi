@@ -21,7 +21,7 @@ import {
 } from "./constants";
 import { calculateDaysWaiting } from "./date-utils";
 import { isValidCalendarDate, isValidTime, parseStrictDate } from "@/lib/scalar-safety";
-import { evaluateStalledDeal } from "./bottlenecks";
+import { evaluateStalledDeal, isActiveDealMissingNextStep } from "./bottlenecks";
 import type {
   CommercialCompany,
   CommercialDeal,
@@ -634,11 +634,11 @@ export function applyCanonicalSampleDomain(
       sampleResponsibleProcessItemId = state.processItemId;
       sampleRelatedDealId = state.winningDealId;
       sampleResponsibleDealId = undefined; // SP provenance is NOT a Deal ID
-    } else if (state.source === "DEAL_LEGACY" && state.winningDealId) {
+    } else if (state.source === "DEAL_LEGACY" && state.winningDealId && state.quality === "RESOLVED") {
       const deal = company.deals.find((d) => d.id === state.winningDealId);
       sampleResponsibleId = deal?.responsibleId;
       sampleResponsibleDealId = state.winningDealId;
-    } else if (state.source === "COMPANY_LEGACY") {
+    } else if (state.source === "COMPANY_LEGACY" && state.quality === "RESOLVED") {
       sampleResponsibleId = company.responsibleId;
     }
 
@@ -667,7 +667,7 @@ export function applyCanonicalSampleDomain(
     // COMPANY source: company transfer date. Legacy values never override SP.
     const spSentDate = spUnit?.sentDates[0]?.date;
     const winningDeal =
-      state.source === "DEAL_LEGACY" && state.winningDealId
+      state.source === "DEAL_LEGACY" && state.winningDealId && state.quality === "RESOLVED"
         ? company.deals.find((d) => d.id === state.winningDealId)
         : undefined;
     const dealSentDate = winningDeal?.sampleSentDate;
@@ -677,9 +677,19 @@ export function applyCanonicalSampleDomain(
     // SP test result when the item provides the fact.
     const sampleTestResult = spUnit?.rawTestResult ?? company.sampleTestResult;
 
+    // Defect 3: fail-closed current sample status projection
+    let currentSampleStatus = "—";
+    if (state.quality === "RESOLVED") {
+      currentSampleStatus = resolvedStatusValues[0] ?? UNCLASSIFIED_LABEL;
+    } else if (state.quality === "AMBIGUOUS" || state.quality === "AMBIGUOUS_MULTIPLE_ACTIVE") {
+      currentSampleStatus = UNCLASSIFIED_LABEL;
+    } else {
+      currentSampleStatus = "—";
+    }
+
     return {
       ...company,
-      sampleStatus: state.source === "NONE" ? "—" : resolvedStatusValues[0] ?? "—",
+      sampleStatus: currentSampleStatus,
       sampleStatusSource,
       sampleStatuses: resolvedStatusValues,
       sampleStatusRawValues: state.statusValues,
@@ -722,7 +732,7 @@ export function applyCanonicalSampleDomain(
       ...recomputeCanonicalSampleAttention(
         {
           ...company,
-          sampleStatus: state.source === "NONE" ? "—" : resolvedStatusValues[0] ?? "—",
+          sampleStatus: currentSampleStatus,
           sampleStatusSource,
           sampleStatuses: resolvedStatusValues,
           sampleShipmentDate,
@@ -966,11 +976,13 @@ export function reprojectCompanyForFilteredGrain(
     }
   }
 
-  // Bottleneck 4: Stalled deal in matching deals
+  // Bottleneck 4: Stalled deal / missing next step in matching deals
   for (const d of matchingDeals) {
     const stalledInfo = evaluateStalledDeal(d, now);
     if (stalledInfo) {
       attentionReasons.push(stalledInfo.attentionReason);
+    } else if (isActiveDealMissingNextStep(d)) {
+      attentionReasons.push(`Нет следующего шага «${d.title}»`);
     }
   }
 

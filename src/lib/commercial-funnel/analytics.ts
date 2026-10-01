@@ -18,11 +18,12 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import {
+  COMMERCIAL_THRESHOLDS,
   INVOICE_SENT_STATUS_CODES,
   UNCLASSIFIED_LABEL,
   WIP_STATUS_KEYS,
 } from "./constants";
-import { evaluateStalledDeal } from "./bottlenecks";
+import { evaluateStalledDeal, isActiveDealMissingNextStep } from "./bottlenecks";
 import {
   computeBottlenecks,
   computePeriodMetrics,
@@ -139,17 +140,21 @@ export function computeFunnelView(
   const samplesSentKpi = findPeriod("samples_sent");
   const sampleTestingStages: FunnelStageRow[] = WIP_STATUS_KEYS.map((key) => {
     const wip = wipKpis.find((k) => k.id === key)!;
-    // Period event: ONLY "Образцы отправлены" has a reliable dated event
+    // Period company count: ONLY "Образцы отправлены" has a reliable dated event
     // (canonical samples_sent KPI provenance). All other stages: null → "–".
     const hasDatedEvent = key === "Образцы отправлены";
+    const periodCount = hasDatedEvent ? samplesSentKpi?.currentValue ?? 0 : null;
+    const periodIds = hasDatedEvent ? samplesSentKpi?.companyIds ?? [] : null;
     return {
       id: key,
       label: key,
       companyCount: wip.companyCount,
       dealCount: wip.dealCount,
       companyIds: wip.companyIds,
-      periodEventCount: hasDatedEvent ? samplesSentKpi?.currentValue ?? 0 : null,
-      periodEventCompanyIds: hasDatedEvent ? samplesSentKpi?.companyIds ?? [] : null,
+      periodCompanyCount: periodCount,
+      periodCompanyIds: periodIds,
+      periodEventCount: periodCount,
+      periodEventCompanyIds: periodIds,
     };
   });
 
@@ -197,6 +202,7 @@ export function computeFunnelView(
     },
     paymentAmountsByCurrency: { ...(paymentAmountKpi?.currencyBreakdown?.current ?? {}) },
     paymentAmountQualityByCurrency: { ...(paymentAmountKpi?.currencyBreakdownQuality?.current ?? {}) },
+    paidCompanyIdsByCurrency: { ...(paymentAmountKpi?.currencyCompanyIds?.current ?? {}) },
     shipments: {
       count: shipmentsKpi?.currentValue ?? 0,
       companyIds: shipmentsKpi?.companyIds ?? [],
@@ -648,26 +654,28 @@ export function computeManagementSignals(
 
   const stalledTesting = group((b) => b.type === "sample_testing_stalled");
   const successNoDeal = group((b) => b.type === "sample_success_no_deal");
-  const stalledDeals = group((b) => b.type === "stalled_deal");
+  const stalledDealsKnown = group(
+    (b) => b.type === "stalled_deal" && b.isStalled === true && b.activityEvidence === "KNOWN"
+  );
+  const stalledDealsUnknown = group(
+    (b) => b.type === "stalled_deal" && b.activityEvidence === "UNKNOWN"
+  );
 
-  // "Сделки без следующего шага": subset of stalled_deal where the deal has
-  // known activity data but no next step (factual, no new trigger condition).
-  const companyById = new Map(companies.map((c) => [c.id, c]));
-  const noNextStepIds: string[] = [];
-  for (const b of bottlenecks) {
-    if (b.type !== "stalled_deal" || !b.dealId) continue;
-    const c = companyById.get(b.companyId);
-    const deal = c?.deals.find((d) => d.id === b.dealId);
-    if (deal?.activityDataKnown && !deal.activityNext) {
-      noNextStepIds.push(b.companyId);
+  // Canonical "Сделки без следующего шага" (Defect 5):
+  // Active deals with known activity data and no next planned activity.
+  const noNextStepCompanyIds: string[] = [];
+  for (const c of companies) {
+    if (c.deals.some(isActiveDealMissingNextStep)) {
+      noNextStepCompanyIds.push(c.id);
     }
   }
-  const noNextStep = population(noNextStepIds);
+  const noNextStep = population(noNextStepCompanyIds);
 
+  const testingAttentionDays = COMMERCIAL_THRESHOLDS.SAMPLE_TESTING_ATTENTION_DAYS;
   const signals: ManagementSignal[] = [
     {
       id: "testing_stalled",
-      label: "Испытания без движения",
+      label: `Испытания более ${testingAttentionDays} дней`,
       companyCount: stalledTesting.count,
       companyIds: stalledTesting.companyIds,
     },
@@ -680,8 +688,14 @@ export function computeManagementSignals(
     {
       id: "deals_stalled",
       label: "Сделки без движения",
-      companyCount: stalledDeals.count,
-      companyIds: stalledDeals.companyIds,
+      companyCount: stalledDealsKnown.count,
+      companyIds: stalledDealsKnown.companyIds,
+    },
+    {
+      id: "deals_unknown_activity",
+      label: "Старые активные сделки — данные активностей недоступны",
+      companyCount: stalledDealsUnknown.count,
+      companyIds: stalledDealsUnknown.companyIds,
     },
   ];
 
@@ -717,7 +731,6 @@ export function computeAttentionSummary(
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// evaluateStalledDeal re-exported for tests that verify no-new-rules
-// behavior without importing bottlenecks directly.
+// evaluateStalledDeal and isActiveDealMissingNextStep re-exported for tests
 // ─────────────────────────────────────────────────────────────────────
-export { evaluateStalledDeal };
+export { evaluateStalledDeal, isActiveDealMissingNextStep };

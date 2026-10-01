@@ -52,7 +52,10 @@ import {
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
 import { downloadCommercialFunnelExcel } from "@/lib/commercial-funnel/export-excel";
 import { buildExcelExtraWarnings } from "@/lib/commercial-funnel/disclosure";
-import type { CommercialFilters } from "@/lib/commercial-funnel/types";
+import type {
+  CommercialDrillDownPayload,
+  CommercialFilters,
+} from "@/lib/commercial-funnel/types";
 
 export type ActiveTab = "overview" | "funnel" | "segments" | "managers" | "bottlenecks";
 
@@ -113,6 +116,7 @@ function CommercialFunnelContent() {
   const [drillDownTitle, setDrillDownTitle] = useState("");
   const [drillDownSubtitle, setDrillDownSubtitle] = useState("");
   const [drillDownCompanyIds, setDrillDownCompanyIds] = useState<string[]>([]);
+  const [drillDownPayload, setDrillDownPayload] = useState<CommercialDrillDownPayload | null>(null);
 
   // Excel export state
   const [exportingExcel, setExportingExcel] = useState(false);
@@ -204,10 +208,23 @@ function CommercialFunnelContent() {
     });
   }, [datedKpis, activityPartial, activityWarning]);
 
-  const handleOpenDrillDown = (title: string, subtitle: string, companyIds: string[]) => {
-    setDrillDownTitle(title);
-    setDrillDownSubtitle(subtitle);
-    setDrillDownCompanyIds(companyIds);
+  const handleOpenDrillDown = (
+    titleOrPayload: string | CommercialDrillDownPayload,
+    subtitle?: string,
+    companyIds?: string[],
+    payload?: CommercialDrillDownPayload
+  ) => {
+    if (typeof titleOrPayload === "object" && titleOrPayload !== null) {
+      setDrillDownTitle(titleOrPayload.title);
+      setDrillDownSubtitle(titleOrPayload.subtitle || "");
+      setDrillDownCompanyIds(titleOrPayload.companyIds);
+      setDrillDownPayload(titleOrPayload);
+    } else {
+      setDrillDownTitle(titleOrPayload);
+      setDrillDownSubtitle(subtitle || "");
+      setDrillDownCompanyIds(companyIds || []);
+      setDrillDownPayload(payload || null);
+    }
     setDrillDownOpen(true);
   };
 
@@ -357,6 +374,7 @@ function CommercialFunnelContent() {
                 boundaries={boundaries}
                 managementSignals={managementSignals}
                 onOpenDrillDown={handleOpenDrillDown}
+                companies={filteredCompanies}
               />
             )}
 
@@ -365,6 +383,7 @@ function CommercialFunnelContent() {
                 funnelView={funnelView}
                 boundaries={boundaries}
                 onOpenDrillDown={handleOpenDrillDown}
+                companies={filteredCompanies}
               />
             )}
 
@@ -406,10 +425,15 @@ function CommercialFunnelContent() {
         title={drillDownTitle}
         subtitle={drillDownSubtitle}
         companyIds={drillDownCompanyIds}
+        payload={drillDownPayload}
         allCompanies={companies}
         onSelectCompany={(id) => {
           setDrillDownOpen(false);
           setCompanyPreviewId(id);
+        }}
+        onSelectDeal={(dealId) => {
+          setDrillDownOpen(false);
+          setDealPreviewId(dealId);
         }}
       />
 

@@ -16,6 +16,21 @@ export interface StalledDealInfo {
   daysWaiting: number;
   relevantDate?: string;
   nextAction?: string;
+  activityEvidence: "KNOWN" | "UNKNOWN";
+  missingNextStep: boolean;
+}
+
+/**
+ * One canonical missing next step predicate (Defect 5).
+ * Deal is active in a non-terminal stage, activity data is known, and no next step exists.
+ * Does not depend on stalled duration.
+ */
+export function isActiveDealMissingNextStep(deal: CommercialDeal): boolean {
+  return (
+    isDealActiveStage(deal.stageId) &&
+    deal.activityDataKnown === true &&
+    !deal.activityNext
+  );
 }
 
 /**
@@ -32,17 +47,18 @@ export function evaluateStalledDeal(
     return null;
   }
 
+  const missingNextStep = isActiveDealMissingNextStep(deal);
+
   if (deal.activityDataKnown) {
     // Validated movement evidence: activityLast when known; fallback to beginDate/dateCreate if never had activity
     const refDate = deal.activityLast || deal.beginDate || deal.dateCreate;
     const days = calculateDaysWaiting(refDate, now) || 0;
 
     if (days > COMMERCIAL_THRESHOLDS.STALLED_DEAL_DAYS) {
-      const hasNoNextAction = !deal.activityNext;
-      const issueLabel = hasNoNextAction
+      const issueLabel = missingNextStep
         ? `Сделка без движения (${days} дн., нет след. шага)`
         : `Сделка без движения (${days} дн.)`;
-      const attentionReason = hasNoNextAction
+      const attentionReason = missingNextStep
         ? `Сделка без движения ${days} дн. (нет следующего шага) «${deal.title}»`
         : `Сделка без движения ${days} дн. «${deal.title}»`;
       const nextAction = deal.activityNext ? deal.activityNext : undefined;
@@ -54,6 +70,8 @@ export function evaluateStalledDeal(
         daysWaiting: days,
         relevantDate: refDate,
         nextAction,
+        activityEvidence: "KNOWN",
+        missingNextStep,
       };
     }
   } else {
@@ -69,6 +87,8 @@ export function evaluateStalledDeal(
         daysWaiting: days,
         relevantDate: refDate,
         nextAction: undefined,
+        activityEvidence: "UNKNOWN",
+        missingNextStep: false,
       };
     }
   }

@@ -24,7 +24,7 @@ import { getCurrencyUniverse } from "./currency";
 import { compareCompanyIds } from "./analytics-helpers";
 
 import { isDealActiveStage, isCommercialContinuationStage } from "./stage-utils";
-import { evaluateStalledDeal } from "./bottlenecks";
+import { evaluateStalledDeal, isActiveDealMissingNextStep } from "./bottlenecks";
 import { resolveDealStage } from "@/lib/deal-preview";
 import type {
   AggregateAmountQuality,
@@ -214,6 +214,8 @@ export function computePeriodMetrics(
   // Tracks OPPORTUNITY isolated by currency with comprehensive quality invariant evaluation.
   const currentPaidCompanyIds = new Set<string>();
   const prevPaidCompanyIds = new Set<string>();
+  const currentPaidCompanyIdsByCurrency: Record<string, Set<string>> = {};
+  const prevPaidCompanyIdsByCurrency: Record<string, Set<string>> = {};
   const currentPaymentAmountsByCurrency: Record<string, number> = {};
   const prevPaymentAmountsByCurrency: Record<string, number> = {};
   const currentPaymentSumCompanyIds = new Set<string>();
@@ -247,6 +249,11 @@ export function computePeriodMetrics(
 
         if (isDateInPeriod(d.paymentDate, currentStart, currentEnd)) {
           currentPaidCompanyIds.add(c.id);
+          if (!currentPaidCompanyIdsByCurrency[normCurrency]) {
+            currentPaidCompanyIdsByCurrency[normCurrency] = new Set();
+          }
+          currentPaidCompanyIdsByCurrency[normCurrency].add(c.id);
+
           const st = getStats(currentCurrencyStats, normCurrency);
           if (isValidOpp) {
             currentPaymentSumCompanyIds.add(c.id);
@@ -262,6 +269,11 @@ export function computePeriodMetrics(
         }
         if (isDateInPeriod(d.paymentDate, previousStart, previousEnd)) {
           prevPaidCompanyIds.add(c.id);
+          if (!prevPaidCompanyIdsByCurrency[normCurrency]) {
+            prevPaidCompanyIdsByCurrency[normCurrency] = new Set();
+          }
+          prevPaidCompanyIdsByCurrency[normCurrency].add(c.id);
+
           const st = getStats(prevCurrencyStats, normCurrency);
           if (isValidOpp) {
             prevPaymentSumCompanyIds.add(c.id);
@@ -351,6 +363,21 @@ export function computePeriodMetrics(
     ).quality;
   }
 
+  const currencyCompanyIds = {
+    current: Object.fromEntries(
+      Object.entries(currentPaidCompanyIdsByCurrency).map(([cur, set]) => [
+        cur,
+        Array.from(set).sort(compareCompanyIds),
+      ])
+    ),
+    previous: Object.fromEntries(
+      Object.entries(prevPaidCompanyIdsByCurrency).map(([cur, set]) => [
+        cur,
+        Array.from(set).sort(compareCompanyIds),
+      ])
+    ),
+  };
+
   let paymentKpi: DatedKpi;
   if (distinctCurrencies.length === 0) {
     paymentKpi = buildKpi(
@@ -358,7 +385,7 @@ export function computePeriodMetrics(
       PAYMENT_AMOUNT_LABEL,
       0,
       isComparisonAvailable ? 0 : null,
-      Array.from(currentPaymentSumCompanyIds),
+      Array.from(currentPaidCompanyIds),
       true,
       {
         isMultiCurrency: false,
@@ -366,6 +393,7 @@ export function computePeriodMetrics(
         currencyBreakdown: { current: {}, previous: {} },
         amountQuality: "COMPLETE",
         currencyBreakdownQuality: { current: {}, previous: {} },
+        currencyCompanyIds,
         comparisonAvailable: isComparisonAvailable,
       }
     );
@@ -391,7 +419,7 @@ export function computePeriodMetrics(
       PAYMENT_AMOUNT_LABEL,
       cRes.amount !== null ? Math.round(cRes.amount) : null,
       isComparisonAvailable && pRes.amount !== null ? Math.round(pRes.amount) : null,
-      Array.from(currentPaymentSumCompanyIds),
+      Array.from(currentPaidCompanyIds),
       true,
       {
         isMultiCurrency: false,
@@ -405,6 +433,7 @@ export function computePeriodMetrics(
           current: currentQualityByCurrency,
           previous: isComparisonAvailable ? prevQualityByCurrency : {},
         },
+        currencyCompanyIds,
         comparisonAvailable: isSingleCurComplete,
         delta: singleDelta,
         deltaPercent: singleDeltaPct,
@@ -429,7 +458,7 @@ export function computePeriodMetrics(
       PAYMENT_AMOUNT_LABEL,
       null,
       null,
-      Array.from(currentPaymentSumCompanyIds),
+      Array.from(currentPaidCompanyIds),
       true,
       {
         isMultiCurrency: true,
@@ -442,6 +471,7 @@ export function computePeriodMetrics(
           current: currentQualityByCurrency,
           previous: isComparisonAvailable ? prevQualityByCurrency : {},
         },
+        currencyCompanyIds,
         comparisonAvailable: false,
         delta: null,
         deltaPercent: null,
@@ -671,9 +701,10 @@ export function computeBottlenecks(
     // Note: Bitrix CRM does not provide an invoice issue date. Do NOT fabricate invoice age from deal creation date.
     // If an authoritative invoice date is populated in the future, it is used here.
 
-    // 4. Stalled active deal (evaluated via canonical evaluateStalledDeal helper)
+    // 4. Stalled active deal (evaluated via canonical helper)
     for (const d of c.deals) {
       const stalledInfo = evaluateStalledDeal(d, now);
+
       if (stalledInfo) {
         const rawStageDisplay = d.stageName || (d.stageId ? resolveDealStage(d.stageId, undefined, d.categoryId) : UNCLASSIFIED_LABEL);
         const currentState =
@@ -701,6 +732,9 @@ export function computeBottlenecks(
           amountQuality: d.opportunityQuality,
           currencyId: d.currencyId,
           nextAction: stalledInfo.nextAction,
+          activityEvidence: stalledInfo.activityEvidence,
+          missingNextStep: stalledInfo.missingNextStep,
+          isStalled: true,
         });
       }
     }
@@ -814,7 +848,7 @@ export function computeManagerScorecard(
       }
       set.add(c.id);
 
-      if (d.activityDataKnown && !d.activityNext) {
+      if (isActiveDealMissingNextStep(d)) {
         let stepSet = noNextStepByManager.get(dealRespId);
         if (!stepSet) {
           stepSet = new Set();
@@ -831,11 +865,16 @@ export function computeManagerScorecard(
   // counts: NONE / blank / "—" are excluded — exact parity with the
   // Segments-side sample predicate of isActivePortfolioCompany.
   // Phase C: SMART_PROCESS source attributes to the SP item's own
-  // responsible (sampleResponsibleId); AMBIGUOUS_MULTIPLE_ACTIVE never
+  // responsible (sampleResponsibleId); AMBIGUOUS / AMBIGUOUS_MULTIPLE_ACTIVE never
   // fabricates one current manager (no attribution).
   for (const c of companies) {
     if (!c.sampleStatus || c.sampleStatus === "—" || c.sampleStatusSource === "NONE") continue;
-    if (c.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE") continue;
+    if (
+      c.sampleCurrentResolutionQuality === "AMBIGUOUS" ||
+      c.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE"
+    ) {
+      continue;
+    }
     const sampleMgrId =
       c.sampleStatusSource === "SMART_PROCESS" || c.sampleStatusSource === "DEAL"
         ? c.sampleResponsibleId
@@ -891,8 +930,9 @@ export function computeManagerScorecard(
     // SMART_PROCESS/DEAL-derived -> sampleResponsibleId (SP attribution is
     // the SP item's own ASSIGNED_BY_ID, never the Company owner);
     // COMPANY fallback -> c.responsibleId (if companyFactsIncluded !== false).
-    // AMBIGUOUS_MULTIPLE_ACTIVE: no arbitrary current manager attribution.
+    // AMBIGUOUS / AMBIGUOUS_MULTIPLE_ACTIVE: no arbitrary current manager attribution.
     const sampleWipMgrId =
+      c.sampleCurrentResolutionQuality === "AMBIGUOUS" ||
       c.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE"
         ? undefined
         : c.sampleStatusSource === "SMART_PROCESS" || c.sampleStatusSource === "DEAL"

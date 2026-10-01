@@ -9,10 +9,19 @@
 
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { formatCurrencyAmount, getCurrencySymbol } from "@/lib/commercial-funnel/currency";
-import { NEXT_ACTION_MISSING_LABEL } from "@/lib/commercial-funnel/analytics";
+import { formatCurrencyAmount, getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
+import {
+  buildActiveDealsDrillDown,
+  buildAwaitingPaymentDrillDown,
+  buildContinuationDrillDown,
+  buildDealsCreatedDrillDown,
+  buildPaymentsReceivedDrillDown,
+  buildSampleStageDrillDown,
+  buildShipmentsDrillDown,
+} from "@/lib/commercial-funnel/drill-down";
 import type {
-  AggregateAmountQuality,
+  CommercialCompany,
+  CommercialDrillDownPayload,
   FunnelStageRow,
   FunnelView,
   PeriodBoundaries,
@@ -21,43 +30,45 @@ import type {
 interface FunnelTabProps {
   funnelView: FunnelView;
   boundaries: PeriodBoundaries;
-  onOpenDrillDown: (title: string, subtitle: string, companyIds: string[]) => void;
+  companies?: CommercialCompany[];
+  onOpenDrillDown: (
+    titleOrPayload: string | CommercialDrillDownPayload,
+    subtitle?: string,
+    companyIds?: string[]
+  ) => void;
 }
-
-function formatMoney(amount: number, currency: string): string {
-  return `${formatCurrencyAmount(amount)} ${getCurrencySymbol(currency)}`;
-}
-
-const QUALITY_SUFFIX: Record<AggregateAmountQuality, string> = {
-  COMPLETE: "",
-  PARTIAL: " (неполные данные)",
-  UNKNOWN: " (нет данных)",
-  INVALID_ONLY: " (ошибка данных)",
-};
 
 function StageButton({
   stage,
+  companies,
   onOpenDrillDown,
   isSelected,
   onSelect,
 }: {
   stage: FunnelStageRow;
+  companies?: CommercialCompany[];
   onOpenDrillDown: FunnelTabProps["onOpenDrillDown"];
   isSelected?: boolean;
   onSelect?: () => void;
 }) {
   const disabled = stage.companyCount === 0;
+  const periodCount = stage.periodCompanyCount ?? stage.periodEventCount;
+
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => {
         onSelect?.();
-        onOpenDrillDown(
-          `Воронка — ${stage.label}`,
-          `Компании в текущем состоянии «${stage.label}»`,
-          stage.companyIds
-        );
+        if (companies) {
+          onOpenDrillDown(buildSampleStageDrillDown(companies, stage.label));
+        } else {
+          onOpenDrillDown(
+            `Воронка — ${stage.label}`,
+            `Компании в текущем состоянии «${stage.label}»`,
+            stage.companyIds
+          );
+        }
       }}
       className={`group flex items-center justify-between gap-3 w-full rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
         disabled
@@ -75,8 +86,8 @@ function StageButton({
         <div className="text-[11px] text-muted-foreground mt-0.5">
           Сделок: {stage.dealCount}
           {" · "}
-          Событий за период:{" "}
-          {stage.periodEventCount === null ? "–" : stage.periodEventCount}
+          Компаний с отправкой за период:{" "}
+          {periodCount === null ? "–" : periodCount}
         </div>
       </div>
       {!disabled && (
@@ -86,7 +97,12 @@ function StageButton({
   );
 }
 
-export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }: FunnelTabProps) {
+export function CommercialFunnelTab({
+  funnelView,
+  boundaries,
+  companies,
+  onOpenDrillDown,
+}: FunnelTabProps) {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const { commercial, continuation } = funnelView;
 
@@ -101,14 +117,15 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
           </span>
         </div>
         <p className="text-[11px] text-muted-foreground mb-3">
-          Событий за период показано только там, где существует достоверная датированная активность
-          (отправка образцов). Для остальных состояний достоверной даты события нет — отображается «–».
+          Компаний с отправкой за период показано только там, где существует подтверждённый
+          факт отправки образцов. Для остальных состояний даты события отправки нет — отображается «–».
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
           {funnelView.sampleTestingStages.map((stage) => (
             <StageButton
               key={stage.id}
               stage={stage}
+              companies={companies}
               onOpenDrillDown={onOpenDrillDown}
               isSelected={selectedCardId === stage.id}
               onSelect={() => setSelectedCardId(stage.id)}
@@ -132,11 +149,15 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
                 disabled={commercial.current.activeDeals.count === 0}
                 onClick={() => {
                   setSelectedCardId("active_deals");
-                  onOpenDrillDown(
-                    "Активные коммерческие сделки",
-                    "Компании с активными (не терминальными) сделками",
-                    commercial.current.activeDeals.companyIds
-                  );
+                  if (companies) {
+                    onOpenDrillDown(buildActiveDealsDrillDown(companies));
+                  } else {
+                    onOpenDrillDown(
+                      "Активные коммерческие сделки",
+                      "Компании с активными (не терминальными) сделками",
+                      commercial.current.activeDeals.companyIds
+                    );
+                  }
                 }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.current.activeDeals.count === 0
@@ -162,11 +183,15 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
                 disabled={commercial.current.awaitingPayment.count === 0}
                 onClick={() => {
                   setSelectedCardId("awaiting_payment");
-                  onOpenDrillDown(
-                    "Ожидают оплаты",
-                    "Компании со сделками, по которым выставлен счёт и ожидается оплата",
-                    commercial.current.awaitingPayment.companyIds
-                  );
+                  if (companies) {
+                    onOpenDrillDown(buildAwaitingPaymentDrillDown(companies));
+                  } else {
+                    onOpenDrillDown(
+                      "Ожидают оплаты",
+                      "Компании со сделками, по которым выставлен счёт и ожидается оплата",
+                      commercial.current.awaitingPayment.companyIds
+                    );
+                  }
                 }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.current.awaitingPayment.count === 0
@@ -200,11 +225,15 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
                 disabled={commercial.period.dealsCreated.count === 0}
                 onClick={() => {
                   setSelectedCardId("deals_created");
-                  onOpenDrillDown(
-                    "Создано сделок за период",
-                    "Компании, по которым созданы сделки в выбранном периоде",
-                    commercial.period.dealsCreated.companyIds
-                  );
+                  if (companies) {
+                    onOpenDrillDown(buildDealsCreatedDrillDown(companies, boundaries));
+                  } else {
+                    onOpenDrillDown(
+                      "Создано сделок за период",
+                      "Компании, по которым созданы сделки в выбранном периоде",
+                      commercial.period.dealsCreated.companyIds
+                    );
+                  }
                 }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.period.dealsCreated.count === 0
@@ -228,11 +257,15 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
                 disabled={commercial.period.paymentsReceived.count === 0}
                 onClick={() => {
                   setSelectedCardId("payments_received");
-                  onOpenDrillDown(
-                    "Получена оплата за период",
-                    "Компании, по которым получена оплата в выбранном периоде",
-                    commercial.period.paymentsReceived.companyIds
-                  );
+                  if (companies) {
+                    onOpenDrillDown(buildPaymentsReceivedDrillDown(companies, boundaries));
+                  } else {
+                    onOpenDrillDown(
+                      "Получена оплата за период",
+                      "Компании, по которым получена оплата в выбранном периоде",
+                      commercial.period.paymentsReceived.companyIds
+                    );
+                  }
                 }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.period.paymentsReceived.count === 0
@@ -249,15 +282,25 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
                   <span className="text-xs font-medium">Получена оплата</span>
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">
-                  {Object.keys(commercial.period.paymentAmountsByCurrency).length === 0
-                    ? "–"
-                    : Object.entries(commercial.period.paymentAmountsByCurrency)
-                        .map(([cur, amount]) => {
-                          const quality =
-                            commercial.period.paymentAmountQualityByCurrency?.[cur] || "COMPLETE";
-                          return `${formatMoney(amount, cur)}${QUALITY_SUFFIX[quality]}`;
-                        })
-                        .join(" · ")}
+                  {(() => {
+                    const universe = getCurrencyUniverse(
+                      commercial.period.paymentAmountsByCurrency,
+                      commercial.period.paymentAmountQualityByCurrency
+                    );
+                    if (universe.length === 0) return "–";
+                    return universe
+                      .map((cur) => {
+                        const quality =
+                          commercial.period.paymentAmountQualityByCurrency?.[cur] || "COMPLETE";
+                        const curLabel = cur === "UNKNOWN" ? "валюта не указана" : cur;
+                        if (quality === "INVALID_ONLY") return `${curLabel} — ошибка данных`;
+                        if (quality === "UNKNOWN") return `${curLabel} — нет данных`;
+                        const amt = commercial.period.paymentAmountsByCurrency[cur];
+                        const val = typeof amt === "number" ? amt : 0;
+                        return `${formatCurrencyAmount(val, cur)}${quality === "PARTIAL" ? " (неполные данные)" : ""}`;
+                      })
+                      .join(" · ");
+                  })()}
                 </div>
               </button>
 
@@ -266,11 +309,15 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
                 disabled={commercial.period.shipments.count === 0}
                 onClick={() => {
                   setSelectedCardId("shipments");
-                  onOpenDrillDown(
-                    "Отгрузки за период",
-                    "Компании, по которым прошли отгрузки в выбранном периоде",
-                    commercial.period.shipments.companyIds
-                  );
+                  if (companies) {
+                    onOpenDrillDown(buildShipmentsDrillDown(companies, boundaries));
+                  } else {
+                    onOpenDrillDown(
+                      "Отгрузки за период",
+                      "Компании, по которым прошли отгрузки в выбранном периоде",
+                      commercial.period.shipments.companyIds
+                    );
+                  }
                 }}
                 className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
                   commercial.period.shipments.count === 0
@@ -307,13 +354,17 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
           <button
             type="button"
             disabled={continuation.positiveResult.count === 0}
-            onClick={() =>
-              onOpenDrillDown(
-                "Положительный результат испытаний",
-                "Компании с текущим статусом «Подошли»",
-                continuation.positiveResult.companyIds
-              )
-            }
+            onClick={() => {
+              if (companies) {
+                onOpenDrillDown(buildContinuationDrillDown(companies, "positive"));
+              } else {
+                onOpenDrillDown(
+                  "Положительный результат испытаний",
+                  "Компании с текущим статусом «Подошли»",
+                  continuation.positiveResult.companyIds
+                );
+              }
+            }}
             className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
               continuation.positiveResult.count === 0
                 ? "border-border/50 bg-muted/30 opacity-60"
@@ -333,13 +384,17 @@ export function CommercialFunnelTab({ funnelView, boundaries, onOpenDrillDown }:
           <button
             type="button"
             disabled={continuation.withCommercialContinuation.count === 0}
-            onClick={() =>
-              onOpenDrillDown(
-                "Коммерческое продолжение",
-                "Компании с «Подошли» и продвинутой коммерческой сделкой",
-                continuation.withCommercialContinuation.companyIds
-              )
-            }
+            onClick={() => {
+              if (companies) {
+                onOpenDrillDown(buildContinuationDrillDown(companies, "continuation"));
+              } else {
+                onOpenDrillDown(
+                  "Коммерческое продолжение",
+                  "Компании с «Подошли» и продвинутой коммерческой сделкой",
+                  continuation.withCommercialContinuation.companyIds
+                );
+              }
+            }}
             className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
               continuation.withCommercialContinuation.count === 0
                 ? "border-border/50 bg-muted/30 opacity-60"

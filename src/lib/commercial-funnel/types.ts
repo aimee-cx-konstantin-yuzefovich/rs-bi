@@ -196,6 +196,10 @@ export interface DatedKpi {
     current: Record<string, AggregateAmountQuality>;
     previous: Record<string, AggregateAmountQuality>;
   };
+  currencyCompanyIds?: {
+    current: Record<string, string[]>;
+    previous: Record<string, string[]>;
+  };
   comparisonAvailable?: boolean;
 }
 
@@ -230,6 +234,40 @@ export interface BottleneckItem {
   amountQuality?: "VALID" | "UNKNOWN" | "INVALID";
   currencyId?: string;
   nextAction?: string;
+  activityEvidence?: "KNOWN" | "UNKNOWN";
+  missingNextStep?: boolean;
+  isStalled?: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Commercial Drill-Down Evidence Contract (Factual Provenance)
+// ─────────────────────────────────────────────────────────────────────
+
+export type CommercialDrillDownEvidenceKind =
+  | "COMPANY"
+  | "DEAL"
+  | "SAMPLE_SP"
+  | "SAMPLE_DEAL"
+  | "SAMPLE_COMPANY"
+  | "SAMPLE_SENT_EVIDENCE";
+
+export interface CommercialDrillDownEvidence {
+  companyId: string;
+  kind: CommercialDrillDownEvidenceKind;
+  dealId?: string;
+  processItemId?: string;
+  date?: string;
+  source?: SampleStatusSource;
+  reason?: string;
+}
+
+export interface CommercialDrillDownPayload {
+  title: string;
+  subtitle?: string;
+  companyIds: string[];
+  evidence: CommercialDrillDownEvidence[];
+  expectedCompanyCount: number;
+  expectedDealCount?: number;
 }
 
 export interface ManagerScorecardRow {
@@ -314,12 +352,16 @@ export interface FunnelStageRow {
   dealCount: number;
   companyIds: string[];
   /**
-   * Period event count. Present ONLY where a reliable dated event exists
-   * (currently: "Образцы отправлены" via sampleSentDate provenance).
+   * Period company count: unique companies with a dated sent fact in period.
+   * Present ONLY where a reliable dated event exists (currently: "Образцы отправлены").
    * null means: no reliable dated event → UI/Excel show "–". Never fake.
    */
-  periodEventCount: number | null;
-  periodEventCompanyIds: string[] | null;
+  periodCompanyCount: number | null;
+  periodCompanyIds: string[] | null;
+  /** @deprecated Alias for periodCompanyCount (Defect 2 transition) */
+  periodEventCount?: number | null;
+  /** @deprecated Alias for periodCompanyIds (Defect 2 transition) */
+  periodEventCompanyIds?: string[] | null;
 }
 
 /** Commercial track of the Funnel view: current snapshot + period events. */
@@ -338,6 +380,8 @@ export interface FunnelCommercialView {
     /** Payment amounts by currency (isolated; never cross-summed). */
     paymentAmountsByCurrency: Record<string, number>;
     paymentAmountQualityByCurrency: Record<string, AggregateAmountQuality>;
+    /** Paid unique company IDs by currency. */
+    paidCompanyIdsByCurrency?: Record<string, string[]>;
     /** Companies with shipments in period. */
     shipments: CountedPopulation;
   };

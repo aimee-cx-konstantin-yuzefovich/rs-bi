@@ -565,16 +565,18 @@ function formatPeriodPresetToRussian(preset: string): string {
         const pct = isComparisonValid ? safeDeltaPercent(numCurr, numPrev) : null;
         const pctStr = pct !== null ? `${pct > 0 ? "+" : ""}${pct}%` : "—";
         const prevDisplayAmt: number | string = boundaries.isAllTime ? "—" : prevAmt;
-        const compCount = filteredCompanies.filter((c) =>
-          c.deals.some(
-            (d) =>
-              d.paymentStatus &&
-              PAID_STATUS_CODES.has(d.paymentStatus) &&
-              d.paymentDate &&
-              isDateInPeriod(d.paymentDate, boundaries.currentStart, boundaries.currentEnd) &&
-              normalizeCurrencyCode(d.currencyId) === cur
-          )
-        ).length;
+        const compCount =
+          k.currencyCompanyIds?.current?.[cur]?.length ??
+          filteredCompanies.filter((c) =>
+            c.deals.some(
+              (d) =>
+                d.paymentStatus &&
+                PAID_STATUS_CODES.has(d.paymentStatus) &&
+                d.paymentDate &&
+                isDateInPeriod(d.paymentDate, boundaries.currentStart, boundaries.currentEnd) &&
+                normalizeCurrencyCode(d.currencyId) === cur
+            )
+          ).length;
 
         const curLabel = cur === "UNKNOWN" ? "валюта не указана" : cur;
         const qualitySuffix =
@@ -885,7 +887,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     "Этап / Показатель",
     "Сейчас компаний",
     "Сейчас сделок",
-    "Событий за выбранный период",
+    "Компаний с отправкой за выбранный период",
   ];
 
   const funnelHeaderRowIndex = addOperationalHeader(funnelSheet, logoImageId, {
@@ -916,17 +918,18 @@ function formatPeriodPresetToRussian(preset: string): string {
   const startFunnelRow = funnelHeaderRowIndex + 1;
   // Section A: Samples & Testing
   for (const stage of funnelView.sampleTestingStages) {
+    const periodCount = stage.periodCompanyCount ?? stage.periodEventCount;
     const row = funnelSheet.addRow([
       "Образцы и испытания",
       stage.label,
       stage.companyCount,
       stage.dealCount,
-      stage.periodEventCount === null ? "–" : stage.periodEventCount,
+      periodCount === null ? "–" : periodCount,
     ]);
     row.height = 20;
     row.getCell(3).numFmt = NUMFMT.INTEGER;
     row.getCell(4).numFmt = NUMFMT.INTEGER;
-    if (stage.periodEventCount !== null) row.getCell(5).numFmt = NUMFMT.INTEGER;
+    if (periodCount !== null) row.getCell(5).numFmt = NUMFMT.INTEGER;
     applyStatusCell(row.getCell(2), stage.label);
     row.getCell(2).value = stage.label;
   }
