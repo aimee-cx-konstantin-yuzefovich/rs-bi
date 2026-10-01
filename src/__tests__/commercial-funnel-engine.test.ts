@@ -1035,6 +1035,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       productType: [],
       sampleStatus: "На испытании",
       sampleStatusSource: "DEAL",
+      sampleResponsibleDealId: "deal-sample-1",
       sampleAllDates: [],
       gradeGel: [],
       gradeSol: [],

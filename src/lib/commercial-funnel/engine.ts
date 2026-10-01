@@ -24,7 +24,7 @@ import { getCurrencyUniverse } from "./currency";
 import { compareCompanyIds } from "./analytics-helpers";
 
 export { getCurrencyUniverse } from "./currency";
-import { isDealActiveStage, isCommercialContinuationStage, isProgressedCommercialStage } from "./stage-utils";
+import { isDealActiveStage, isCommercialContinuationStage } from "./stage-utils";
 import { evaluateStalledDeal } from "./bottlenecks";
 import type {
   AggregateAmountQuality,
@@ -71,8 +71,8 @@ export function evaluateAggregateAmountQuality(
 
 /**
  * Filter dataset by dimensional filters (responsible, product, industry, direction, region).
- * Enforces natural-grain filtering: retained companies have their deals pruned strictly
- * to matching deals, preventing unselected managers' or products' metrics from polluting totals.
+ * Enforces natural-grain filtering on Company dimensions (without pruning child deals by dimensions);
+ * deals are pruned strictly by responsibleId when a responsible filter is active.
  */
 export function filterCompaniesByDimensions(
   companies: CommercialCompany[],
@@ -123,9 +123,12 @@ export function filterCompaniesByDimensions(
     }
 
     if (hasRespFilter) {
-      const hasSentEvent = (company.sampleSentEvents ?? []).some(
-        (e) => e.responsibleId === filters.responsibleId
-      );
+      const hasSentEvent = (company.sampleSentEvents ?? []).some((e) => {
+        if (e.source === "SMART_PROCESS") return e.responsibleId === filters.responsibleId;
+        if (e.source === "DEAL") return e.responsibleId === filters.responsibleId || (e.dealId !== undefined && matchingDeals.some((d) => d.id === e.dealId));
+        if (e.source === "COMPANY") return companyMatches && (e.responsibleId ? e.responsibleId === filters.responsibleId : company.responsibleId === filters.responsibleId);
+        return false;
+      });
       if (!companyMatches && matchingDeals.length === 0 && !includeCanonicalSampleState && !hasSentEvent) {
         continue;
       }
@@ -137,7 +140,8 @@ export function filterCompaniesByDimensions(
         matchingDeals,
         companyMatches,
         undefined,
-        includeCanonicalSampleState
+        includeCanonicalSampleState,
+        hasRespFilter ? filters.responsibleId : undefined
       )
     );
   }
@@ -178,7 +182,7 @@ export function computePeriodMetrics(
 
   for (const c of companies) {
     const eventDates =
-      c.sampleSentEvents && c.sampleSentEvents.length > 0
+      c.sampleSentEvents !== undefined
         ? c.sampleSentEvents.map((e) => e.date)
         : (c.sampleEventDatesForPeriodMetrics || c.sampleAllDates || []);
     const hasCurrentShipment = eventDates.some((d) => isDateInPeriod(d, currentStart, currentEnd));
@@ -516,11 +520,8 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
         if (c.deals.some((d) => d.id === c.sampleRelatedDealId)) {
           entry.dealCount += 1;
         }
-      } else if (c.sampleStatusSource === "DEAL") {
-        const targetDealId =
-          c.sampleResponsibleDealId ||
-          c.deals.find((d) => d.sampleTransferStatus && (d.sampleTransferStatus === targetKey || d.sampleTransferStatus.startsWith(targetKey)))?.id;
-        if (targetDealId && c.deals.some((d) => d.id === targetDealId)) {
+      } else if (c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId) {
+        if (c.deals.some((d) => d.id === c.sampleResponsibleDealId)) {
           entry.dealCount += 1;
         }
       }
@@ -605,8 +606,8 @@ export function computeBottlenecks(
       c.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE"
         ? undefined
         : (c.sampleStatusSource === "SMART_PROCESS" || c.sampleStatusSource === "DEAL") &&
-          c.sampleResponsibleName
-        ? c.sampleResponsibleName
+          c.sampleResponsibleId
+        ? c.sampleResponsibleName || `ID ${c.sampleResponsibleId}`
         : c.responsibleName || `ID ${c.responsibleId}`;
 
     // 1. Sample testing stalled (> 14 days)
@@ -1064,7 +1065,10 @@ export function buildSampleRegister(
         companyId: c.id,
         companyTitle: c.title,
         responsibleId: c.sampleResponsibleId ?? c.responsibleId,
-        responsibleName: c.sampleResponsibleName || c.responsibleName || "Не назначен",
+        responsibleName:
+          c.sampleResponsibleName ||
+          (c.sampleResponsibleId ? `ID ${c.sampleResponsibleId}` : c.responsibleName) ||
+          "Не назначен",
         dealId: linkedDeal?.id,
         dealTitle: linkedDeal?.title,
         productType: linkedDeal?.productType.join(", ") || c.productType.join(", ") || "—",
