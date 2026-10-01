@@ -30,8 +30,6 @@ function deal(p: Partial<CommercialDeal> & { id: string }): CommercialDeal {
     productType: [],
     direction: [],
     industry: [],
-    sampleTestingStatus: [],
-    sampleTestingStatusRaw: [],
     ...p,
   } as CommercialDeal;
 }

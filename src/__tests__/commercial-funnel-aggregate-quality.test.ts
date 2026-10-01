@@ -86,7 +86,6 @@ describe("Fix A: Aggregate Financial Data Quality & Contract Decision A (Natural
       region: "Москва",
       paymentStatus: "113",
       paymentDate: "2026-03-10",
-      sampleTestingStatus: [],
     };
 
     const deal2: CommercialDeal = {
@@ -105,7 +104,6 @@ describe("Fix A: Aggregate Financial Data Quality & Contract Decision A (Natural
       region: "Казань",
       paymentStatus: "113",
       paymentDate: "2026-03-12",
-      sampleTestingStatus: [],
     };
 
     it("filtering for responsibleId=user-B prunes deal2 and sums only deal1 (100 RUB)", () => {

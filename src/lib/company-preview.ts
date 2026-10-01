@@ -22,8 +22,11 @@ import {
   COMPANY_INDUSTRY_CURRENT_FIELD_ID,
   COMPANY_DIRECTION_CURRENT_FIELD_ID,
   COMPANY_PRODUCT_TYPE_FIELD_ID,
-  COMPANY_MARK_GEL_FIELD_ID,
-  COMPANY_MARK_SOL_FIELD_ID,
+  COMPANY_GEL_GRADE_CURRENT_FIELD_ID,
+  COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
+  COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
+  COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
+  COMPANY_ACTUAL_PRICES_FIELD_ID,
   COMPANY_COMMENTS_PRODUCT_FIELD_ID,
   COMPANY_INN_FIELD_ID,
   COMPANY_REGION_FIELD_ID,
@@ -262,7 +265,7 @@ export function resolveAddressRaw(raw: unknown): string | null {
   return String(raw).trim() || null;
 }
 
-/** File field resolution: returns human-readable file title or link label. Never raw JSON or ID. */
+/** File field resolution: returns human-readable file title or link label. Never raw storage ID or opaque token. */
 export function resolveFileRaw(raw: unknown): string | null {
   if (isSentinel(raw)) return null;
   if (Array.isArray(raw)) {
@@ -271,7 +274,11 @@ export function resolveFileRaw(raw: unknown): string | null {
   }
   if (typeof raw === "object" && raw !== null) {
     const obj = raw as Record<string, unknown>;
-    if (obj.name && typeof obj.name === "string" && obj.name.trim() !== "") return obj.name.trim();
+    if (obj.name && typeof obj.name === "string" && obj.name.trim() !== "") {
+      const name = obj.name.trim();
+      if (/^\d+$/.test(name) || /^#\d+$/.test(name)) return "Файл прикреплен";
+      return name;
+    }
     if (
       obj.showUrl ||
       obj.downloadUrl ||
@@ -296,7 +303,26 @@ export function resolveFileRaw(raw: unknown): string | null {
   ) {
     return "Файл прикреплен";
   }
-  return str;
+  // Check if string is a safe human-readable filename with known extension (no path separators)
+  const isFilename = /\.[a-zA-Z0-9]{2,5}$/i.test(str) && !str.includes("/") && !str.includes("\\");
+  if (
+    isFilename &&
+    !/^(disk|file|storage|attach|token)[_-]/i.test(str) &&
+    !/^[a-f0-9-]{32,}$/i.test(str)
+  ) {
+    return str;
+  }
+  // Safe URL with trailing filename
+  if (/^https?:\/\//i.test(str)) {
+    const pathname = str.split("?")[0];
+    const match = pathname.match(/\/([^/]+\.[a-zA-Z0-9]{2,5})$/i);
+    if (match && match[1]) {
+      return decodeURIComponent(match[1]);
+    }
+    return "Файл прикреплен";
+  }
+  // Opaque token, storage ID, or unstructured ID string: fail-closed to friendly label
+  return "Файл прикреплен";
 }
 
 /** Consumption quantity (annual) with explicit unit «тн/год». */
@@ -325,7 +351,7 @@ export function resolveConsumptionRaw(raw: unknown): { display: string; excel: n
   };
 }
 
-/** Contact display resolution: directory name > custom contact string > contact title. Never naked CRM ID. */
+/** Contact display resolution: directory name > custom contact string > contact title. Never naked CRM relation ID or token. */
 export function resolveContactRaw(
   company: Record<string, unknown>,
   ctx: CompanyPreviewResolveContext
@@ -340,15 +366,8 @@ export function resolveContactRaw(
     if (ctx.contactNames && ctx.contactNames[idStr]) {
       return ctx.contactNames[idStr];
     }
-    if (
-      /^\d+$/.test(idStr) ||
-      /^#\d+$/.test(idStr) ||
-      idStr.startsWith("Контакт #") ||
-      idStr.startsWith("Контакт №")
-    ) {
-      return "Контакт не удалось загрузить";
-    }
-    return idStr;
+    // Fail-closed: ANY value from contactId unresolvable in contactNames must NEVER leak raw token / ID
+    return "Контакт не удалось загрузить";
   }
   return null;
 }
@@ -363,9 +382,9 @@ export function resolveRequisitesRaw(company: Record<string, unknown>): string |
   return null;
 }
 
-/** Price fields resolution: formatted money or price text. */
+/** Price fields resolution: formatted money from current field ONLY. Zero legacy fallback. */
 export function resolvePricesRaw(company: Record<string, unknown>): { display: string; excel: unknown } | null {
-  const rawMoney = company.UF_CRM_1782743261289;
+  const rawMoney = company[COMPANY_ACTUAL_PRICES_FIELD_ID];
   if (!isSentinel(rawMoney)) {
     if (Array.isArray(rawMoney)) {
       const parts = rawMoney.map(resolveMoneyRaw).filter(Boolean);
@@ -380,39 +399,38 @@ export function resolvePricesRaw(company: Record<string, unknown>): { display: s
       if (money) return { display: money.display, excel: money.excel };
     }
   }
-  const textPrice = resolveStringRaw(company.UF_CRM_1764156667679);
-  if (textPrice) return { display: textPrice, excel: textPrice };
   return null;
 }
 
 // ─── THE strict current-card whitelist (ordered) ──────────────────────
-// Exact 23-point current-card sequence mirroring the approved Bitrix card layout
+// Exact 24-point current-card sequence mirroring the verified Bitrix card layout
 // (Note: "Тип продукта" UF_CRM_69257BBAB86F6 exists in schema but is absent from the live card layout):
 // 1. Ответственный
 // 2. Контакт
 // 3. Сайт
 // 4. Телефон
-// 5. Годовой оборот
-// 6. Реквизиты
-// 7. Документы
-// 8. Адрес
-// 9. Регион
-// 10. Карточка компании
-// 11. Тип компании
-// 12. Отрасль
-// 13. Направление
-// 14. Используемая марка — ГЕЛЬ
-// 15. Потребление — ГЕЛЬ
-// 16. Используемая марка — ЗОЛЬ
-// 17. Потребление — ЗОЛЬ
-// 18. Фактические цены
-// 19. Комментарий по используемым продуктам
-// 20. Общие комментарии
-// 21. Тестирование образцов (marker, MARKER_ONLY)
-// 22. Дата создания
-// 23. Дата изменения
+// 5. E-mail (verified present on live card between PHONE and REVENUE)
+// 6. Годовой оборот
+// 7. Реквизиты
+// 8. Документы
+// 9. Адрес
+// 10. Регион
+// 11. Карточка компании
+// 12. Тип компании
+// 13. Отрасль
+// 14. Направление
+// 15. Используемая марка — ГЕЛЬ
+// 16. Потребление — ГЕЛЬ
+// 17. Используемая марка — ЗОЛЬ
+// 18. Потребление — ЗОЛЬ
+// 19. Фактические цены
+// 20. Комментарий по используемым продуктам
+// 21. Общие комментарии
+// 22. Тестирование образцов (marker, MARKER_ONLY)
+// 23. Дата создания
+// 24. Дата изменения
 
-export const TOTAL_APPROVED_FIELDS = 23;
+export const TOTAL_APPROVED_FIELDS = 24;
 
 export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] = [
   // 1. Ответственный
@@ -478,7 +496,19 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 5. Годовой оборот
+  // 5. E-mail
+  {
+    id: "EMAIL",
+    label: "E-mail",
+    type: "email",
+    resolve: (company) => {
+      const value = resolveStringRaw(company.EMAIL);
+      return value
+        ? { id: "EMAIL", label: "E-mail", value, rawValue: company.EMAIL, type: "email", excelValue: value }
+        : null;
+    },
+  },
+  // 6. Годовой оборот
   {
     id: "REVENUE",
     label: "Годовой оборот",
@@ -498,7 +528,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 6. Реквизиты
+  // 7. Реквизиты
   {
     id: COMPANY_INN_FIELD_ID,
     label: "Реквизиты",
@@ -517,7 +547,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 7. Документы
+  // 8. Документы
   {
     id: "UF_CRM_1782742600447",
     label: "Документы",
@@ -536,7 +566,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 8. Адрес
+  // 9. Адрес
   {
     id: "ADDRESS",
     label: "Адрес",
@@ -557,7 +587,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 9. Регион
+  // 10. Регион
   {
     id: COMPANY_REGION_FIELD_ID,
     label: "Регион",
@@ -576,7 +606,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 10. Карточка компании
+  // 11. Карточка компании
   {
     id: "UF_CRM_691EB8983DE7D",
     label: "Карточка компании",
@@ -595,7 +625,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 11. Тип компании
+  // 12. Тип компании
   {
     id: "COMPANY_TYPE",
     label: "Тип компании",
@@ -615,7 +645,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 12. Отрасль
+  // 13. Отрасль
   {
     id: COMPANY_INDUSTRY_CURRENT_FIELD_ID,
     label: "Отрасль",
@@ -635,7 +665,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 13. Направление
+  // 14. Направление
   {
     id: COMPANY_DIRECTION_CURRENT_FIELD_ID,
     label: "Направление",
@@ -655,22 +685,20 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 14. Используемая марка — ГЕЛЬ
+  // 15. Используемая марка — ГЕЛЬ
   {
-    id: "UF_CRM_1781806326214",
+    id: COMPANY_GEL_GRADE_CURRENT_FIELD_ID,
     label: "Используемая марка — ГЕЛЬ",
     type: "string",
-    resolve: (company, ctx) => {
-      const raw =
-        company.UF_CRM_1781806326214 ??
-        company.UF_CRM_1764079092 ??
-        company[COMPANY_MARK_GEL_FIELD_ID];
+    resolve: (company) => {
+      const raw = company[COMPANY_GEL_GRADE_CURRENT_FIELD_ID];
+      if (isSentinel(raw)) return null;
       const display = Array.isArray(raw)
-        ? resolveEnumRaw(raw, fieldMeta(COMPANY_MARK_GEL_FIELD_ID, ctx)) ?? raw.join(", ")
+        ? raw.map((v) => resolveStringRaw(v)).filter(Boolean).join(", ")
         : resolveStringRaw(raw);
       return display
         ? {
-            id: "UF_CRM_1781806326214",
+            id: COMPANY_GEL_GRADE_CURRENT_FIELD_ID,
             label: "Используемая марка — ГЕЛЬ",
             value: display,
             rawValue: raw,
@@ -680,17 +708,17 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 15. Потребление — ГЕЛЬ
+  // 16. Потребление — ГЕЛЬ
   {
-    id: "UF_CRM_1781806269703",
+    id: COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
     label: "Потребление — ГЕЛЬ",
     type: "double",
     resolve: (company) => {
-      const raw = company.UF_CRM_1781806269703 ?? company.UF_CRM_1764076968;
+      const raw = company[COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID];
       const res = resolveConsumptionRaw(raw);
       return res
         ? {
-            id: "UF_CRM_1781806269703",
+            id: COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
             label: "Потребление — ГЕЛЬ",
             value: res.display,
             rawValue: raw,
@@ -700,22 +728,20 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 16. Используемая марка — ЗОЛЬ
+  // 17. Используемая марка — ЗОЛЬ
   {
-    id: "UF_CRM_1781806285641",
+    id: COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
     label: "Используемая марка — ЗОЛЬ",
     type: "string",
-    resolve: (company, ctx) => {
-      const raw =
-        company.UF_CRM_1781806285641 ??
-        company.UF_CRM_1764079114 ??
-        company[COMPANY_MARK_SOL_FIELD_ID];
+    resolve: (company) => {
+      const raw = company[COMPANY_SOL_GRADE_CURRENT_FIELD_ID];
+      if (isSentinel(raw)) return null;
       const display = Array.isArray(raw)
-        ? resolveEnumRaw(raw, fieldMeta(COMPANY_MARK_SOL_FIELD_ID, ctx)) ?? raw.join(", ")
+        ? raw.map((v) => resolveStringRaw(v)).filter(Boolean).join(", ")
         : resolveStringRaw(raw);
       return display
         ? {
-            id: "UF_CRM_1781806285641",
+            id: COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
             label: "Используемая марка — ЗОЛЬ",
             value: display,
             rawValue: raw,
@@ -725,17 +751,17 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 17. Потребление — ЗОЛЬ
+  // 18. Потребление — ЗОЛЬ
   {
-    id: "UF_CRM_1781806301447",
+    id: COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
     label: "Потребление — ЗОЛЬ",
     type: "double",
     resolve: (company) => {
-      const raw = company.UF_CRM_1781806301447 ?? company.UF_CRM_1764076998;
+      const raw = company[COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID];
       const res = resolveConsumptionRaw(raw);
       return res
         ? {
-            id: "UF_CRM_1781806301447",
+            id: COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
             label: "Потребление — ЗОЛЬ",
             value: res.display,
             rawValue: raw,
@@ -745,19 +771,19 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 18. Фактические цены
+  // 19. Фактические цены
   {
-    id: "UF_CRM_1782743261289",
+    id: COMPANY_ACTUAL_PRICES_FIELD_ID,
     label: "Фактические цены",
     type: "money",
     resolve: (company) => {
       const res = resolvePricesRaw(company);
       return res
         ? {
-            id: "UF_CRM_1782743261289",
+            id: COMPANY_ACTUAL_PRICES_FIELD_ID,
             label: "Фактические цены",
             value: res.display,
-            rawValue: company.UF_CRM_1782743261289 ?? company.UF_CRM_1764156667679,
+            rawValue: company[COMPANY_ACTUAL_PRICES_FIELD_ID],
             type: "money",
             excelValue: res.excel as any,
           }
@@ -783,7 +809,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 20. Общие комментарии
+  // 21. Общие комментарии
   {
     id: "COMMENTS",
     label: "Комментарий",
@@ -802,7 +828,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 21. Тестирование образцов (marker, MARKER_ONLY)
+  // 22. Тестирование образцов (marker, MARKER_ONLY)
   {
     id: COMPANY_TESTING_MARKER_FIELD_ID,
     label: "Тестирование образцов",
@@ -822,7 +848,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 22. Дата создания
+  // 23. Дата создания
   {
     id: "DATE_CREATE",
     label: "Дата создания",
@@ -842,7 +868,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 23. Дата изменения
+  // 24. Дата изменения
   {
     id: "DATE_MODIFY",
     label: "Дата изменения",

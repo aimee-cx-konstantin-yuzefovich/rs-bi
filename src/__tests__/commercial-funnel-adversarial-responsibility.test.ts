@@ -37,7 +37,6 @@ describe("Commercial Funnel — Adversarial Responsibility Provenance (Section 8
     currencyId: "RUB",
     dateCreate: "2026-08-02",
     sampleTransferStatus: "На испытании",
-    sampleTestingStatus: ["На испытании"],
     sampleSentDate: "2026-08-05", // Sent in August 2026
     productType: ["Гель"],
     direction: [],
@@ -57,7 +56,6 @@ describe("Commercial Funnel — Adversarial Responsibility Provenance (Section 8
     currencyId: "RUB",
     dateCreate: "2026-08-03",
     sampleTransferStatus: "Подошли",
-    sampleTestingStatus: ["Подошли"],
     sampleSentDate: undefined,
     productType: ["Золь"],
     direction: [],

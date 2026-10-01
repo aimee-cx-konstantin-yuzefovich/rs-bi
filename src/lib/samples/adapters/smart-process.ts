@@ -104,8 +104,8 @@ function terminalStageImpliedResult(
  */
 export function resolveSmartProcessResult(
   raw: unknown,
-  resolve: LabelResolver
-): { raw?: string; label?: string; normalized: NormalizedResult; unknownEnumId?: string } {
+  _resolve?: LabelResolver
+): { raw?: string; label?: string; normalized: NormalizedResult } {
   if (isSentinelValue(raw)) {
     return { normalized: "unknown" };
   }
@@ -113,12 +113,7 @@ export function resolveSmartProcessResult(
   if (rawStr === "") {
     return { normalized: "unknown" };
   }
-  const label = resolve(SMART_PROCESS_TEST_RESULT_FIELD_ID ?? "", rawStr);
-  if (label !== rawStr) {
-    // Metadata resolved through dictionary to a human label.
-    return { raw: rawStr, label, normalized: classifyResultValue(label) ?? "unknown" };
-  }
-  // Field is verified string (free text). Preserves raw string verbatim.
+  // Field is verified live string (free text). Preserves raw string verbatim without enum dictionary lookup.
   return { raw: rawStr, label: rawStr, normalized: classifyResultValue(rawStr) ?? "unknown" };
 }
 
@@ -205,14 +200,10 @@ export function adaptSmartProcessSampleEvidence(
   let normalizedResult: NormalizedResult = "unknown";
   if (SMART_PROCESS_TEST_RESULT_FIELD_ID) {
     const resolvedResult = resolveSmartProcessResult(
-      rowValue(row, SMART_PROCESS_TEST_RESULT_FIELD_ID),
-      resolve
+      rowValue(row, SMART_PROCESS_TEST_RESULT_FIELD_ID)
     );
     rawTestResult = resolvedResult.label;
     normalizedResult = resolvedResult.normalized;
-    if (resolvedResult.unknownEnumId) {
-      issues.push("smart_process_unknown_result");
-    }
   }
 
   // Stage/result conflict: terminal stage implies one outcome, explicit

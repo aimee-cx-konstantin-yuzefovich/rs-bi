@@ -21,6 +21,8 @@ import {
   COMPANY_DIRECTION_FIELD_ID,
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TESTING_FIELD_ID,
+  DEAL_SAMPLE_TESTING_LEGACY_FIELD_ID,
+  DEAL_TESTING_MARKER_CURRENT_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
@@ -133,14 +135,20 @@ export const EXPECTED_DEAL_FIELDS: ExpectedBitrixField[] = [
   },
   {
     entity: "deal",
-    id: DEAL_SAMPLE_TESTING_FIELD_ID,
-    name: "Тестирование образцов",
-    required: true,
+    id: DEAL_TESTING_MARKER_CURRENT_FIELD_ID,
+    name: "Тестирование образцов (текущий чекбокс)",
+    required: false,
+    allowedTypes: ["boolean"],
+    expectedMultiple: false,
+    businessMeaning: "Current operational checkbox shown on Deal card (MARKER_ONLY / non-authoritative for sample state)",
+  },
+  {
+    entity: "deal",
+    id: DEAL_SAMPLE_TESTING_LEGACY_FIELD_ID,
+    name: "Тестирование образцов (legacy маркер)",
+    required: false,
     allowedTypes: ["enumeration"],
-    // NOTE (Option 1): Multiplicity is intentionally unconstrained without live Bitrix metadata:
-    // crm-constants notes "enum, possibly multiple", while upstream environments may configure
-    // this field as either single or multiple enum. Business logic normalizes both via toStringArray.
-    businessMeaning: "Sample testing status classification in Commercial Funnel",
+    businessMeaning: "Historical deal marker preserved for legacy data (MARKER_ONLY / non-authoritative for sample state)",
   },
   {
     entity: "deal",
@@ -408,9 +416,13 @@ export const OFFLINE_CONTRACT_SNAPSHOT = {
         isMultiple: false,
         items: [{ ID: "1", VALUE: "Передано" }],
       },
-      [DEAL_SAMPLE_TESTING_FIELD_ID]: {
-        type: "enumeration",
+      [DEAL_TESTING_MARKER_CURRENT_FIELD_ID]: {
+        type: "boolean",
         isMultiple: false,
+      },
+      [DEAL_SAMPLE_TESTING_LEGACY_FIELD_ID]: {
+        type: "enumeration",
+        isMultiple: true,
         items: [{ ID: "2", VALUE: "В работе" }],
       },
       [DEAL_SAMPLE_SENT_DATE_FIELD_ID]: { type: "date", isMultiple: false },

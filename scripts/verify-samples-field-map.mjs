@@ -153,12 +153,23 @@ export const SAMPLES_FIELD_SPECS = [
     acceptedTitles: ["Передача образцов"],
   },
   {
-    role: "Тестирование образцов",
+    role: "Тестирование образцов (legacy маркер)",
     entity: "Deal",
     configuredId: crm.DEAL_SAMPLE_TESTING_FIELD_ID,
     expectedTypes: ["enumeration"],
     acceptedTitles: ["Тестирование образцов"],
   },
+  ...(crm.DEAL_TESTING_MARKER_CURRENT_FIELD_ID
+    ? [
+        {
+          role: "Тестирование образцов (текущий чекбокс)",
+          entity: "Deal",
+          configuredId: crm.DEAL_TESTING_MARKER_CURRENT_FIELD_ID,
+          expectedTypes: ["boolean"],
+          acceptedTitles: ["Тестирование образцов"],
+        },
+      ]
+    : []),
   {
     role: "Дата отправки образцов",
     entity: "Deal",

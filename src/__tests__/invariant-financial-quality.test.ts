@@ -66,7 +66,6 @@ describe("Invariant Financial Quality Contract (Finding B)", () => {
       dateCreate: d.dateCreate || "2026-02-01",
       paymentStatus: d.paymentStatus ?? "113", // Paid
       paymentDate: d.paymentDate ?? "2026-03-01",
-      sampleTestingStatus: [],
       ...d,
     } as CommercialDeal)),
   });

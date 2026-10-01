@@ -127,10 +127,21 @@ export const COMPANY_REGION_FIELD_TITLE = "Регион";
 
 // Company "Комментарий по используемым продуктам" (string)
 export const COMPANY_COMMENTS_PRODUCT_FIELD_ID = "UF_CRM_1753080295792";
-// Company "Марка РусСилика (ГЕЛЬ)" (multi-enum)
-export const COMPANY_MARK_GEL_FIELD_ID = "UF_CRM_1753335892314";
-// Company "Марка РусСилика (ЗОЛЬ)" (multi-enum)
-export const COMPANY_MARK_SOL_FIELD_ID = "UF_CRM_1753335841789";
+
+// Current Company-card product & consumption fields (verified live 2026 schema)
+export const COMPANY_GEL_GRADE_CURRENT_FIELD_ID = "UF_CRM_1781806326214";
+export const COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID = "UF_CRM_1781806269703";
+export const COMPANY_SOL_GRADE_CURRENT_FIELD_ID = "UF_CRM_1781806285641";
+export const COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID = "UF_CRM_1781806301447";
+export const COMPANY_ACTUAL_PRICES_FIELD_ID = "UF_CRM_1782743261289";
+
+// Company legacy "Марка РусСилика (ГЕЛЬ)" (historical multi-enum)
+export const COMPANY_MARK_GEL_LEGACY_FIELD_ID = "UF_CRM_1753335892314";
+export const COMPANY_MARK_GEL_FIELD_ID = COMPANY_MARK_GEL_LEGACY_FIELD_ID;
+// Company legacy "Марка РусСилика (ЗОЛЬ)" (historical multi-enum)
+export const COMPANY_MARK_SOL_LEGACY_FIELD_ID = "UF_CRM_1753335841789";
+export const COMPANY_MARK_SOL_FIELD_ID = COMPANY_MARK_SOL_LEGACY_FIELD_ID;
+
 // Company "ИНН" (string)
 export const COMPANY_INN_FIELD_ID = "UF_CRM_1763116130490";
 

@@ -219,8 +219,8 @@ describe("Phase C — Smart Process adversarial matrix (SP1–SP16)", () => {
 
   it("SP12: stage/result terminal conflict → AMBIGUOUS quality issue", () => {
     const unit = adaptSmartProcessSampleEvidence(
-      spItem({ stageId: "DT1032_15:SUCCESS", [SP_RESULT]: "111" }),
-      (fieldId, raw) => (fieldId === SP_RESULT && raw === "111" ? "Не подошло" : raw)
+      spItem({ stageId: "DT1032_15:SUCCESS", [SP_RESULT]: "Не подошло" }),
+      resolve
     )!;
     expect(unit.issues).toContain("smart_process_stage_result_conflict");
     const c = reconcileCompanySample({

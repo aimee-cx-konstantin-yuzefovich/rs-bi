@@ -134,7 +134,7 @@ export function normalizeDealPreview(
 /** Explicit current Deal card fields whitelist (Section 1B) */
 export const DEAL_PREVIEW_CARD_FIELDS = [
   { id: "TYPE_ID", label: "Тип сделки", role: "type" },
-  { id: DEAL_SAMPLE_TESTING_FIELD_ID, label: "Тестирование образцов", role: "testing" },
+  { id: DEAL_TESTING_MARKER_CURRENT_FIELD_ID, label: "Тестирование образцов", role: "testing" },
   { id: DEAL_SAMPLE_MARK_VOLUME_FIELD_ID, label: "Марка и объём поставки", role: "text" },
   { id: PAYMENT_STATUS_FIELD_ID, label: "Статус оплаты", role: "payment_status" },
   { id: DEAL_PAYMENT_DATE_FIELD_ID, label: "Дата оплаты", role: "payment_date" },
@@ -624,8 +624,8 @@ export function buildDealPreviewModel(
     excelValue: typeDisplay,
   });
 
-  // 9. Тестирование образцов (UF_CRM_1790786438 current, fallback to legacy UF_CRM_1779394379)
-  const rawTesting = deal[DEAL_TESTING_MARKER_CURRENT_FIELD_ID] ?? deal[DEAL_SAMPLE_TESTING_FIELD_ID];
+  // 9. Тестирование образцов (UF_CRM_1790786438 current ONLY — never falls back to legacy marker)
+  const rawTesting = deal[DEAL_TESTING_MARKER_CURRENT_FIELD_ID];
   const testingDisplay = resolveTestingMarker(rawTesting);
   cardFields.push({
     id: DEAL_TESTING_MARKER_CURRENT_FIELD_ID,

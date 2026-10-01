@@ -105,11 +105,19 @@ describe("Live Contract Consistency & Anti-Drift Guard (§30)", () => {
     expect(contract.dealMarkers.legacyMarker.fieldId).toBe(DEAL_SAMPLE_TESTING_LEGACY_FIELD_ID);
   });
 
-  it("5. Company Preview current-card contract has exactly 23 approved fields without Product Type", () => {
-    expect(contract.companyPreview.totalApprovedFields).toBe(23);
-    expect(contract.companyPreview.fields).toHaveLength(23);
-    expect(TOTAL_APPROVED_FIELDS).toBe(23);
-    expect(COMPANY_PREVIEW_CURRENT_FIELDS).toHaveLength(23);
+  it("5. Company Preview current-card contract has exactly 24 approved fields including EMAIL, without Product Type", () => {
+    expect(contract.companyPreview.totalApprovedFields).toBe(24);
+    expect(contract.companyPreview.fields).toHaveLength(24);
+    expect(TOTAL_APPROVED_FIELDS).toBe(24);
+    expect(COMPANY_PREVIEW_CURRENT_FIELDS).toHaveLength(24);
+
+    // Assert EMAIL is at position 5
+    const emailField = contract.companyPreview.fields.find(
+      (f: { fieldId: string }) => f.fieldId === "EMAIL"
+    );
+    expect(emailField).toBeDefined();
+    expect(emailField.order).toBe(5);
+    expect(COMPANY_PREVIEW_CURRENT_FIELDS[4].id).toBe("EMAIL");
 
     // Assert "Тип продукта" (UF_CRM_69257BBAB86F6) is NOT in the current-card field list
     const hasProductType = contract.companyPreview.fields.some(
@@ -121,5 +129,18 @@ describe("Live Contract Consistency & Anti-Drift Guard (§30)", () => {
       (f) => f.id === "UF_CRM_69257BBAB86F6"
     );
     expect(hasProductTypeInDefs).toBe(false);
+
+    // Multiplicity truthfulness on product & consumption fields
+    const multipleFieldIds = [
+      "UF_CRM_1781806326214",
+      "UF_CRM_1781806269703",
+      "UF_CRM_1781806285641",
+      "UF_CRM_1781806301447",
+      "UF_CRM_1782743261289",
+    ];
+    for (const fid of multipleFieldIds) {
+      const match = contract.companyPreview.fields.find((f: { fieldId: string }) => f.fieldId === fid);
+      expect(match?.multiple, `Field ${fid} must have multiple: true`).toBe(true);
+    }
   });
 });

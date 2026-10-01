@@ -50,31 +50,31 @@ describe("Smart Process 1032 — Test Result Free-Text String Semantics", () => 
     expect(res.label).toBe(text);
     expect(res.label).not.toContain("Не классифицировано");
     expect(res.normalized).toBe("unknown");
-    expect(res.unknownEnumId).toBeUndefined();
   });
 
-  it("R6: Metadata dictionary resolution maps ID to label and classifies", () => {
+  it("R6: Numeric string '12345' is treated strictly as free text, never resolved via enum dictionary", () => {
     const dictResolver = (fieldId: string, val: string) => {
-      if (fieldId === SMART_PROCESS_TEST_RESULT_FIELD_ID && val === "501") {
-        return "Успешно подошли";
+      if (fieldId === SMART_PROCESS_TEST_RESULT_FIELD_ID && val === "12345") {
+        return "Фальшивый статус из enum";
       }
       return val;
     };
 
-    const res = resolveSmartProcessResult("501", dictResolver);
-    expect(res.raw).toBe("501");
-    expect(res.label).toBe("Успешно подошли");
-    expect(res.normalized).toBe("positive");
-  });
-
-  it("R7: Numeric string without dictionary is treated as free text (verbatim, never 'Не классифицировано (<id>')", () => {
-    // Because the live field is verified string (free text), numeric text without
-    // a dictionary entry is preserved verbatim and classified as unknown.
-    const res = resolveSmartProcessResult("100", emptyResolver);
-    expect(res.raw).toBe("100");
-    expect(res.label).toBe("100");
+    const res = resolveSmartProcessResult("12345", dictResolver);
+    expect(res.raw).toBe("12345");
+    expect(res.label).toBe("12345");
+    expect(res.label).not.toBe("Фальшивый статус из enum");
     expect(res.label).not.toContain("Не классифицировано");
     expect(res.normalized).toBe("unknown");
-    expect(res.unknownEnumId).toBeUndefined();
+    expect((res as any).unknownEnumId).toBeUndefined();
+  });
+
+  it("R7: 'Клиент тестирует повторно' is preserved verbatim as free text, canonical unknown", () => {
+    const res = resolveSmartProcessResult("Клиент тестирует повторно");
+    expect(res.raw).toBe("Клиент тестирует повторно");
+    expect(res.label).toBe("Клиент тестирует повторно");
+    expect(res.label).not.toContain("Не классифицировано");
+    expect(res.normalized).toBe("unknown");
+    expect((res as any).unknownEnumId).toBeUndefined();
   });
 });

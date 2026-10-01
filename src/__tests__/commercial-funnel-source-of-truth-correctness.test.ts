@@ -78,8 +78,6 @@ function makeDeal(p: Partial<CommercialDeal> & { id: string }): CommercialDeal {
     industryRaw: [],
     direction: [],
     directionRaw: [],
-    sampleTestingStatus: [],
-    sampleTestingStatusRaw: [],
     ...rest,
   } as CommercialDeal;
 }

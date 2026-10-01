@@ -179,7 +179,6 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
           opportunity: 100000,
           currencyId: "RUB",
           dateCreate: "2026-09-17",
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -194,7 +193,6 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
           opportunity: 200000,
           currencyId: "RUB",
           dateCreate: "2026-09-18",
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -350,8 +348,6 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
             dateCreate: "2026-09-10",
             sampleSentDate: "2026-09-10",
             sampleTransferStatus: "На испытании",
-            sampleTestingStatus: [],
-            sampleTestingStatusRaw: [],
             productType: [],
             industry: [],
             direction: [],
@@ -389,8 +385,6 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
             dateCreate: "2026-09-12",
             sampleSentDate: "2026-09-12",
             sampleTransferStatus: "Подошли",
-            sampleTestingStatus: [],
-            sampleTestingStatusRaw: [],
             productType: [],
             industry: [],
             direction: [],
@@ -544,7 +538,6 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
             opportunity: 500_000,
             currencyId: "RUB",
             dateCreate: "2026-08-01", // 54 days before fixedNow (2026-09-24)
-            sampleTestingStatus: [],
             productType: [],
             industry: [],
             direction: [],
@@ -587,7 +580,6 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
             categoryId: "0",
             opportunity: 200_000,
             currencyId: "RUB",
-            sampleTestingStatus: [],
             productType: [],
             industry: [],
             direction: [],
@@ -638,9 +630,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
     };
     const deals = normalizeDeals([rawDeal]);
     expect(deals[0].sampleTransferStatus).toBe("На испытании");
-    expect(deals[0].sampleTestingStatus.some((s) => s.includes("265"))).toBe(true);
-    expect(deals[0].sampleTestingStatus.some((s) => s.includes("267"))).toBe(true);
-    expect(deals[0].sampleTestingStatusRaw).toEqual(["265", "267"]);
+    expect(deals[0].legacyTestingMarkerRaw).toEqual(["265", "267"]);
   });
 
   it("provenance: Case A (Deal shipment date only) -> authoritative Deal date used in period metrics", () => {
@@ -868,7 +858,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           dateCreate: "2026-09-01",
           paymentStatus: "113",
           paymentDate: "2026-09-14", // in period
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -910,7 +899,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           opportunity: 200_000,
           currencyId: "RUB",
           dateCreate: "2026-09-04", // 20 days before fixedNow
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -940,7 +928,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       opportunity: 100_000,
       currencyId: "RUB",
       dateCreate: "2026-08-26",
-      sampleTestingStatus: [],
       productType: [],
       industry: [],
       direction: [],
@@ -957,7 +944,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       opportunity: 100_000,
       currencyId: "RUB",
       dateCreate: "2026-08-25",
-      sampleTestingStatus: [],
       productType: [],
       industry: [],
       direction: [],
@@ -974,7 +960,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       opportunity: 100_000,
       currencyId: "RUB",
       dateCreate: "2026-08-24",
-      sampleTestingStatus: [],
       productType: [],
       industry: [],
       direction: [],
@@ -1066,7 +1051,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           // Marker (UF_CRM_1779394379 → sampleTestingStatus) is MARKER_ONLY.
           // Deal sample evidence for WIP matching is sampleTransferStatus.
           sampleTransferStatus: "На испытании",
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -1080,7 +1064,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           categoryId: "0",
           opportunity: 200_000,
           currencyId: "RUB",
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -1094,7 +1077,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           categoryId: "0",
           opportunity: 300_000,
           currencyId: "RUB",
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -1132,7 +1114,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           categoryId: "0",
           opportunity: 100_000,
           currencyId: "RUB",
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -1146,7 +1127,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           categoryId: "0",
           opportunity: 200_000,
           currencyId: "RUB",
-          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -1200,7 +1180,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           // Marker values stay for raw preview; register row now carries
           // the Deal transfer status (marker is MARKER_ONLY).
           sampleTransferStatus: "На испытании",
-          sampleTestingStatus: ["Не классифицировано (265)"],
           productType: [],
           industry: [],
           direction: [],
@@ -1256,7 +1235,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
             productType: [],
             industry: [],
             direction: [],
-            sampleTestingStatus: [],
           },
         ],
         hasAttention: false,
@@ -1289,7 +1267,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
             productType: [],
             industry: [],
             direction: [],
-            sampleTestingStatus: [],
           },
         ],
         hasAttention: false,
@@ -1322,7 +1299,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
             productType: [],
             industry: [],
             direction: [],
-            sampleTestingStatus: [],
           },
         ],
         hasAttention: false,
@@ -1355,7 +1331,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
             productType: [],
             industry: [],
             direction: [],
-            sampleTestingStatus: [],
           },
         ],
         hasAttention: false,
@@ -1405,7 +1380,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         currencyId: "RUB",
         paymentStatus: "113",
         paymentDate: "2026-09-10", // In current period (2026-08-25 to 2026-09-24)
-        sampleTestingStatus: [],
         productType: [],
         industry: [],
         direction: [],
@@ -1421,7 +1395,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         currencyId: "USD",
         paymentStatus: "113",
         paymentDate: "2026-09-12",
-        sampleTestingStatus: [],
         productType: [],
         industry: [],
         direction: [],
@@ -1438,7 +1411,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         currencyId: "RUB",
         paymentStatus: "113",
         paymentDate: "2026-08-10", // In previous period (2026-07-26 to 2026-08-24)
-        sampleTestingStatus: [],
         productType: [],
         industry: [],
         direction: [],
@@ -1454,7 +1426,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         currencyId: "USD",
         paymentStatus: "113",
         paymentDate: "2026-08-12",
-        sampleTestingStatus: [],
         productType: [],
         industry: [],
         direction: [],
@@ -1470,7 +1441,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         currencyId: "EUR",
         paymentStatus: "113",
         paymentDate: "2026-08-14",
-        sampleTestingStatus: [],
         productType: [],
         industry: [],
         direction: [],
@@ -1582,7 +1552,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         currencyId: currency,
         paymentStatus: "113", // Paid
         paymentDate: "2026-09-10",
-        sampleTestingStatus: [],
         productType: [],
         industry: [],
         direction: [],
@@ -1646,7 +1615,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         currencyId: "RUB",
         paymentStatus: "103", // Unpaid invoice (INVOICE_SENT)
         paymentDate: "2026-09-10",
-        sampleTestingStatus: [],
         productType: [],
         industry: [],
         direction: [],

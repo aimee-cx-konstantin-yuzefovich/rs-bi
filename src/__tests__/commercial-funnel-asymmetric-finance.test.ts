@@ -84,7 +84,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
     // Previous deal: paid in August 2026, opportunity UNKNOWN
     const dealPrevUnknown: CommercialDeal = {
@@ -102,7 +101,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
 
     const comp: CommercialCompany = {
@@ -148,7 +146,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
     // Prior period deal: paid in August 2026, 100k RUB, valid
     const dealPrev: CommercialDeal = {
@@ -166,7 +163,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
 
     const comp: CommercialCompany = {
@@ -211,7 +207,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
     const dealCurrInvalid: CommercialDeal = {
       id: "deal-c-inv",
@@ -228,7 +223,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
     const dealPrevValid: CommercialDeal = {
       id: "deal-c-prev",
@@ -245,7 +239,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
 
     const comp: CommercialCompany = {
@@ -290,7 +283,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
     const dealPrevValid: CommercialDeal = {
       id: "deal-d-prev-val",
@@ -307,7 +299,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
     const dealPrevInvalid: CommercialDeal = {
       id: "deal-d-prev-inv",
@@ -324,7 +315,6 @@ describe("Commercial Funnel — Asymmetric Financial Quality (Section 11)", () =
       productType: [],
       direction: [],
       industry: [],
-      sampleTestingStatus: [],
     };
 
     const comp: CommercialCompany = {

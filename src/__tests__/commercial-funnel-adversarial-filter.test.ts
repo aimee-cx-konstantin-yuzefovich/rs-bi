@@ -47,7 +47,7 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     // (UF_CRM_1779394379 → sampleTestingStatus) is MARKER_ONLY and can no
     // longer create current sample state.
     sampleTransferStatus: "На испытании",
-    sampleTestingStatus: ["На испытании"], // marker preview only
+    legacyTestingMarkerRaw: ["На испытании"], // marker preview only
     sampleSentDate: undefined,
     productType: ["Гель"],
     direction: [],
@@ -66,7 +66,6 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     currencyId: "RUB",
     dateCreate: "2026-08-15",
     sampleTransferStatus: "Подошли",
-    sampleTestingStatus: [],
     sampleSentDate: "2026-09-10", // Sent in September 2026
     productType: ["Золь"],
     direction: [],
@@ -88,7 +87,6 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     paymentStatusLabel: "Оплачен",
     paymentDate: "2026-09-12", // Paid in September 2026
     shipmentDate: "2026-09-15", // Shipped in September 2026
-    sampleTestingStatus: [],
     productType: ["Гель"],
     direction: [],
     industry: [],

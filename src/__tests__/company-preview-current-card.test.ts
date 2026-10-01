@@ -15,6 +15,7 @@ import ExcelJS from "exceljs";
 import {
   buildCompanyPreviewModel,
   COMPANY_PREVIEW_CURRENT_FIELDS,
+  TOTAL_APPROVED_FIELDS,
   decodeHtmlEntities,
 } from "@/lib/company-preview";
 import { createCompanyExcelWorkbook } from "@/lib/export-utils";
@@ -22,6 +23,11 @@ import {
   COMPANY_INDUSTRY_CURRENT_FIELD_ID,
   COMPANY_DIRECTION_CURRENT_FIELD_ID,
   COMPANY_PRODUCT_TYPE_FIELD_ID,
+  COMPANY_GEL_GRADE_CURRENT_FIELD_ID,
+  COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
+  COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
+  COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
+  COMPANY_ACTUAL_PRICES_FIELD_ID,
   COMPANY_MARK_GEL_FIELD_ID,
   COMPANY_MARK_SOL_FIELD_ID,
   COMPANY_COMMENTS_PRODUCT_FIELD_ID,
@@ -39,12 +45,13 @@ import {
   COMPANY_TEST_RESULT_FIELD_ID,
 } from "@/lib/crm-constants";
 
-/** The exact expected current-card field ORDER (approved card mirror, 23 fields). */
+/** The exact expected current-card field ORDER (approved card mirror, 24 fields). */
 const EXPECTED_FIELD_ORDER = [
   "ASSIGNED_BY_ID",
   "CONTACT",
   "WEB",
   "PHONE",
+  "EMAIL",
   "REVENUE",
   COMPANY_INN_FIELD_ID,
   "UF_CRM_1782742600447",
@@ -54,11 +61,11 @@ const EXPECTED_FIELD_ORDER = [
   "COMPANY_TYPE",
   COMPANY_INDUSTRY_CURRENT_FIELD_ID,
   COMPANY_DIRECTION_CURRENT_FIELD_ID,
-  "UF_CRM_1781806326214",
-  "UF_CRM_1781806269703",
-  "UF_CRM_1781806285641",
-  "UF_CRM_1781806301447",
-  "UF_CRM_1782743261289",
+  COMPANY_GEL_GRADE_CURRENT_FIELD_ID,
+  COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
+  COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
+  COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
+  COMPANY_ACTUAL_PRICES_FIELD_ID,
   COMPANY_COMMENTS_PRODUCT_FIELD_ID,
   "COMMENTS",
   COMPANY_TESTING_MARKER_FIELD_ID,
@@ -75,6 +82,7 @@ function adversarialCompany(): Record<string, unknown> {
     CONTACT_ID: "10",
     WEB: "https://russilica.example",
     PHONE: "+7 900 000-00-00",
+    EMAIL: "info@russilica.example",
     REVENUE: "5000000|RUB",
     [COMPANY_INN_FIELD_ID]: "7701234567",
     UF_CRM_1782742600447: ["doc1.pdf"],
@@ -85,13 +93,13 @@ function adversarialCompany(): Record<string, unknown> {
     [COMPANY_INDUSTRY_CURRENT_FIELD_ID]: "1739",
     [COMPANY_DIRECTION_CURRENT_FIELD_ID]: "42",
     [COMPANY_PRODUCT_TYPE_FIELD_ID]: ["101", "102"],
-    UF_CRM_1781806326214: ["201", "202"],
+    [COMPANY_GEL_GRADE_CURRENT_FIELD_ID]: ["КСМГ-9", "КСМГ-12"],
     [COMPANY_MARK_GEL_FIELD_ID]: ["201", "202"],
-    UF_CRM_1781806269703: "100",
-    UF_CRM_1781806285641: ["301"],
+    [COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID]: "100",
+    [COMPANY_SOL_GRADE_CURRENT_FIELD_ID]: ["СКСГ-4"],
     [COMPANY_MARK_SOL_FIELD_ID]: ["301"],
-    UF_CRM_1781806301447: "200",
-    UF_CRM_1782743261289: "150000|RUB",
+    [COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID]: "200",
+    [COMPANY_ACTUAL_PRICES_FIELD_ID]: "150000|RUB",
     [COMPANY_COMMENTS_PRODUCT_FIELD_ID]: "11.03.2025 Испытания образцов &quot;ComposiTherm&quot; — успешно",
     COMMENTS: "Общий комментарий &quot;по клиенту&quot;",
     [COMPANY_TESTING_MARKER_FIELD_ID]: "Y",
@@ -403,5 +411,72 @@ describe("Phase D — Company Preview current-card contract", () => {
       UF_CRM_1782742600447: [{ downloadUrl: "/crm/file/download/303" }],
     });
     expect(dlModel.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value).toBe("Файл прикреплен");
+  });
+
+  it("TOTAL_APPROVED_FIELDS constant is strictly 24", () => {
+    expect(TOTAL_APPROVED_FIELDS).toBe(24);
+    expect(COMPANY_PREVIEW_CURRENT_FIELDS.length).toBe(24);
+  });
+
+  it("zero legacy fallback: current field empty never displays legacy equivalent", () => {
+    // 1. GEL grade empty, legacy populated
+    const gelLegacyOnly = buildCompanyPreviewModel({
+      ID: "101",
+      UF_CRM_1764079092: "Старый гель 1",
+      [COMPANY_MARK_GEL_FIELD_ID]: ["201"],
+    });
+    expect(gelLegacyOnly.fields.some((f) => f.id === COMPANY_GEL_GRADE_CURRENT_FIELD_ID)).toBe(false);
+    expect(gelLegacyOnly.fields.some((f) => String(f.value).includes("Старый гель"))).toBe(false);
+
+    // 2. GEL consumption empty, legacy populated
+    const gelConsLegacyOnly = buildCompanyPreviewModel({
+      ID: "102",
+      UF_CRM_1764076968: "500",
+    });
+    expect(gelConsLegacyOnly.fields.some((f) => f.id === COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID)).toBe(false);
+    expect(gelConsLegacyOnly.fields.some((f) => String(f.value).includes("500"))).toBe(false);
+
+    // 3. SOL grade empty, legacy populated
+    const solLegacyOnly = buildCompanyPreviewModel({
+      ID: "103",
+      UF_CRM_1764079114: "Старый золь 1",
+      [COMPANY_MARK_SOL_FIELD_ID]: ["301"],
+    });
+    expect(solLegacyOnly.fields.some((f) => f.id === COMPANY_SOL_GRADE_CURRENT_FIELD_ID)).toBe(false);
+    expect(solLegacyOnly.fields.some((f) => String(f.value).includes("Старый золь"))).toBe(false);
+
+    // 4. SOL consumption empty, legacy populated
+    const solConsLegacyOnly = buildCompanyPreviewModel({
+      ID: "104",
+      UF_CRM_1764076998: "600",
+    });
+    expect(solConsLegacyOnly.fields.some((f) => f.id === COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID)).toBe(false);
+    expect(solConsLegacyOnly.fields.some((f) => String(f.value).includes("600"))).toBe(false);
+
+    // 5. Actual prices empty, legacy populated
+    const priceLegacyOnly = buildCompanyPreviewModel({
+      ID: "105",
+      UF_CRM_1764156667679: "99000|RUB",
+    });
+    expect(priceLegacyOnly.fields.some((f) => f.id === COMPANY_ACTUAL_PRICES_FIELD_ID)).toBe(false);
+    expect(priceLegacyOnly.fields.some((f) => String(f.value).includes("99000"))).toBe(false);
+  });
+
+  it("PRIVACY: fail-closed contact resolution for arbitrary tokens and UUIDs", () => {
+    for (const token of ["abc123", "contact_42", "a8bab56b-55dd-4327-90f4-c0a3456deac2"]) {
+      const model = buildCompanyPreviewModel({ ID: "1", CONTACT_ID: token }, { contactNames: {} });
+      const contactVal = model.fields.find((f) => f.id === "CONTACT")?.value;
+      expect(contactVal).toBe("Контакт не удалось загрузить");
+      expect(contactVal).not.toContain(token);
+    }
+  });
+
+  it("PRIVACY: file resolution never leaks storage tokens or opaque identifiers", () => {
+    for (const token of ["disk_file_abc123", "storage_789", "attach_999", "deadbeefcafe1234567890abcdef1234"]) {
+      const model = buildCompanyPreviewModel({ ID: "1", UF_CRM_1782742600447: token });
+      const fileVal = model.fields.find((f) => f.id === "UF_CRM_1782742600447")?.value;
+      expect(fileVal).toBe("Файл прикреплен");
+      expect(fileVal).not.toContain(token);
+    }
   });
 });

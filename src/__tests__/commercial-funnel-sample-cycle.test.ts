@@ -28,7 +28,6 @@ function createMockDeal(overrides: Partial<CommercialDeal>): CommercialDeal {
     categoryId: "0",
     opportunity: 0,
     currencyId: "RUB",
-    sampleTestingStatus: [],
     productType: [],
     industry: [],
     direction: [],

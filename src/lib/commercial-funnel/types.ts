@@ -47,8 +47,11 @@ export interface CommercialDeal {
   closeDate?: string;
   sampleTransferStatus?: string;
   sampleTransferStatusRaw?: string;
-  sampleTestingStatus: string[];
-  sampleTestingStatusRaw?: string[];
+  /**
+   * Preserved raw values of legacy deal testing marker for debug/registry inspection only.
+   * MARKER_ONLY: must NEVER be interpreted as sample status or analytical state.
+   */
+  legacyTestingMarkerRaw?: string[];
   sampleSentDate?: string;
   tvlDetails?: string;
   markVolume?: string;

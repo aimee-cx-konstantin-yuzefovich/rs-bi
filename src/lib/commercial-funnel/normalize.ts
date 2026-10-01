@@ -58,6 +58,7 @@ import {
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
   DEAL_SAMPLE_TESTING_FIELD_ID,
+  DEAL_SAMPLE_TESTING_LEGACY_FIELD_ID,
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
   DEAL_SHIPMENT_DATE_FIELD_ID,
@@ -300,7 +301,6 @@ export function normalizeDeals(
 ): CommercialDeal[] {
   const { userNames = {}, statusLabels = {} } = options;
   const dealLabels = statusLabels[DEAL_SAMPLE_TRANSFER_FIELD_ID] || {};
-  const testingLabels = statusLabels[DEAL_SAMPLE_TESTING_FIELD_ID] || {};
   const dealProductLabels = statusLabels[DEAL_PRODUCT_TYPE_FIELD_ID] || {};
   const dealIndustryLabels = statusLabels[DEAL_INDUSTRY_FIELD_ID] || {};
   const dealDirectionLabels = statusLabels[DEAL_DIRECTION_FIELD_ID] || {};
@@ -338,13 +338,10 @@ export function normalizeDeals(
     const sampleTransferStatus = resolveDealSampleStatus(rawTransfer, dealLabels);
     const sampleTransferStatusRaw = rawTransfer;
 
-    const rawTesting = toStringArray(row[DEAL_SAMPLE_TESTING_FIELD_ID]);
-    const sampleTestingStatus = rawTesting.map((val) => {
-      if (testingLabels[val]) return testingLabels[val];
-      if (/^\d+$/.test(val)) return `${UNCLASSIFIED_LABEL} (${val})`;
-      return val;
-    });
-    const sampleTestingStatusRaw = rawTesting.length > 0 ? rawTesting : undefined;
+    const rawTesting = toStringArray(
+      row[DEAL_SAMPLE_TESTING_LEGACY_FIELD_ID] ?? row[DEAL_SAMPLE_TESTING_FIELD_ID]
+    );
+    const legacyTestingMarkerRaw = rawTesting.length > 0 ? rawTesting : undefined;
 
     const sentDates = extractIsoDates(row[DEAL_SAMPLE_SENT_DATE_FIELD_ID]);
     const sampleSentDate = sentDates[0];
@@ -438,8 +435,7 @@ export function normalizeDeals(
       closeDate,
       sampleTransferStatus,
       sampleTransferStatusRaw,
-      sampleTestingStatus,
-      sampleTestingStatusRaw,
+      legacyTestingMarkerRaw,
       sampleSentDate,
       tvlDetails,
       markVolume,
@@ -540,75 +536,7 @@ export function selectRepresentativeDeal(
   return best;
 }
 
-/**
- * Selects the authoritative representative sample deal for the current sample cycle
- * using deterministic non-array-order priority:
- * Priority 1: Deal must carry sample evidence (sampleTransferStatus, sampleTestingStatus, or sampleSentDate).
- * Priority 2: Most recent authoritative sample-related date:
- *             sampleSentDate > activityLast > dateCreate > beginDate > closeDate.
- * Priority 3: Stable numeric-aware Deal ID tie-breaker.
- *
- * Phase C: RETIRED from the analytical path. Current sample state comes
- * from the canonical sample engine (SMART_PROCESS → DEAL → COMPANY →
- * NONE), not from re-selecting deals here. Kept exported only until the
- * last legacy consumer test is migrated; do NOT use in production flows.
- */
-export function selectCurrentSampleDeal(
-  linkedDeals: CommercialDeal[]
-): CommercialDeal | undefined {
-  if (!linkedDeals || linkedDeals.length === 0) return undefined;
 
-  const sampleDeals = linkedDeals.filter(
-    (d) =>
-      Boolean(d.sampleTransferStatus) ||
-      (Array.isArray(d.sampleTestingStatus) && d.sampleTestingStatus.length > 0) ||
-      Boolean(d.sampleSentDate)
-  );
-
-  if (sampleDeals.length === 0) return undefined;
-  if (sampleDeals.length === 1) return sampleDeals[0];
-
-  const getSampleDealTimestamp = (d: CommercialDeal): number => {
-    const dates = [d.sampleSentDate, d.activityLast, d.dateCreate, d.beginDate, d.closeDate];
-    for (const raw of dates) {
-      if (raw) {
-        const ts = Date.parse(raw);
-        if (!isNaN(ts)) return ts;
-      }
-    }
-    return 0;
-  };
-
-  let best = sampleDeals[0];
-  let bestTs = getSampleDealTimestamp(best);
-
-  for (let i = 1; i < sampleDeals.length; i++) {
-    const candidate = sampleDeals[i];
-    const candTs = getSampleDealTimestamp(candidate);
-    if (candTs !== bestTs) {
-      if (candTs > bestTs) {
-        best = candidate;
-        bestTs = candTs;
-      }
-      continue;
-    }
-
-    const numCand = Number(candidate.id);
-    const numBest = Number(best.id);
-    let tieWinner = false;
-    if (!isNaN(numCand) && !isNaN(numBest)) {
-      tieWinner = numCand > numBest;
-    } else {
-      tieWinner = String(candidate.id || "").localeCompare(String(best.id || "")) > 0;
-    }
-    if (tieWinner) {
-      best = candidate;
-      bestTs = candTs;
-    }
-  }
-
-  return best;
-}
 
 /**
  * Projects canonical sample facts (from the ONE canonical sample engine)

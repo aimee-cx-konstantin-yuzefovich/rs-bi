@@ -49,7 +49,6 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
       stageId: d.stageId || "EXECUTING",
       currencyId: "RUB",
       dateCreate: d.dateCreate || "2026-01-01",
-      sampleTestingStatus: [],
       ...d,
     } as CommercialDeal)),
   });
@@ -93,7 +92,6 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
         dateCreate: "2025-12-15", // 100 days old
         activityLast: "2026-03-24", // yesterday!
         activityDataKnown: true,
-        sampleTestingStatus: [],
       } as unknown as CommercialDeal;
 
       const stalledInfo = evaluateStalledDeal(deal, fixedNow);
@@ -112,7 +110,6 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
         activityLast: "2026-02-08", // 45 days before fixedNow
         activityNext: "Перезвонить клиенту",
         activityDataKnown: true,
-        sampleTestingStatus: [],
       } as unknown as CommercialDeal;
 
       const stalledInfo = evaluateStalledDeal(deal, fixedNow);
@@ -133,7 +130,6 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
         currencyId: "RUB",
         dateCreate: "2026-01-24", // 60 days before fixedNow
         activityDataKnown: false, // activities API could not confirm activities
-        sampleTestingStatus: [],
       } as unknown as CommercialDeal;
 
       const stalledInfo = evaluateStalledDeal(deal, fixedNow);
@@ -157,7 +153,6 @@ describe("Invariant Bottleneck Provenance Contract (Finding C)", () => {
         currencyId: "RUB",
         dateCreate: "2026-01-14", // 70 days
         activityDataKnown: false,
-        sampleTestingStatus: [],
       } as unknown as CommercialDeal;
 
       const normalized = normalizeCompanies([rawCompany], [rawDeal], { now: fixedNow });
