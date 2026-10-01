@@ -31,7 +31,6 @@ import {
 import {
   isDealActiveStage,
   isCommercialContinuationStage,
-  isProgressedCommercialStage,
 } from "./stage-utils";
 import type {
   ActionPlanRow,
@@ -363,7 +362,7 @@ export function computeSegmentBreakdown(
     rows.push(buildRow(MISSING_SEGMENT_LABEL, true, missing));
   }
 
-  const isMultiValueDimension = dimension !== "industry";
+  const isMultiValueDimension = dimension === "product";
 
   return {
     dimension,
@@ -589,7 +588,9 @@ export function buildSampleTestingSnapshot(
       companyId: c.id,
       companyTitle: c.title,
       responsibleName:
-        c.sampleResponsibleName || c.responsibleName || "Не назначен",
+        c.sampleResponsibleName ||
+        (c.sampleResponsibleId ? `ID ${c.sampleResponsibleId}` : c.responsibleName) ||
+        "Не назначен",
       productType: (c.productType || []).join(", ") || "—",
       industry: c.industry || "—",
       direction: (c.direction || []).join(", ") || "—",
