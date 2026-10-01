@@ -680,4 +680,140 @@ describe("Commercial Funnel — Excel Export (6-sheet management workbook)", () 
     // Two builds with identical global filters produce identical analytical content.
     expect(snapshot(wb2)).toBe(snapshot(wb1));
   });
+
+  // ─── Phase C §32/§33: Smart-Process-source Sample Testing reconciliation ───
+
+  it("SP-EXCEL: Sample Testing sheet renders SP-source snapshot with exact linked Deal (blank when none)", async () => {
+    const spCompany: CommercialCompany = {
+      id: "c-sp",
+      title: "ООО СП-Компани",
+      responsibleId: "owner-1",
+      responsibleName: "Владелец Компании",
+      dateCreate: "2026-08-01",
+      direction: [],
+      productType: [],
+      // SP current state: item 9001, responsible mgr-1 (NOT the owner),
+      // exact linked Deal d-9001 via sampleRelatedDealId.
+      sampleStatus: "На испытании",
+      sampleStatusSource: "SMART_PROCESS",
+      sampleResponsibleId: "mgr-1",
+      sampleResponsibleName: "Менеджер Процессный",
+      sampleResponsibleProcessItemId: "9001",
+      sampleRelatedDealId: "d-9001",
+      sampleCurrentResolutionQuality: "RESOLVED",
+      sampleShipmentDate: "2026-09-05",
+      sampleAllDates: ["2026-09-05"],
+      gradeGel: ["КСМГ-9"],
+      gradeSol: [],
+      deals: [
+        {
+          id: "d-9001",
+          title: "Сделка по образцам 9001",
+          companyId: "c-sp",
+          responsibleId: "owner-1",
+          stageId: "EXECUTING",
+          categoryId: "0",
+          opportunity: 100000,
+          currencyId: "RUB",
+          dateCreate: "2026-08-10",
+          sampleTestingStatus: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+      ],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const workbook = await createCommercialFunnelWorkbook({
+      companies: [spCompany],
+      deals: spCompany.deals,
+      filters,
+      userNames: { "owner-1": "Владелец Компании", "mgr-1": "Менеджер Процессный" },
+      now: fixedNow,
+    });
+
+    const stSheet = workbook.getWorksheet("Sample Testing")!;
+    let spRow: ExcelJS.Row | undefined;
+    stSheet.eachRow((row) => {
+      const title = String(row.getCell(2).value ?? "");
+      if (title.includes("СП-Компани")) spRow = row;
+    });
+    expect(spRow).toBeDefined();
+    const row = spRow!;
+    // Responsible: SP ASSIGNED_BY_ID, never the Company owner.
+    expect(String(row.getCell(3).value ?? "")).toContain("Менеджер Процессный");
+    // Status human-readable.
+    expect(String(row.getCell(8).value ?? "")).toBe("На испытании");
+    // Exact linked Deal present (not blank).
+    expect(String(row.getCell(11).value ?? "")).toContain("Сделка по образцам 9001");
+    // Marks carried.
+    const rowValues: string[] = [];
+    row.eachCell((cell) => rowValues.push(String(cell.value ?? "")));
+    expect(rowValues.join(" | ")).toContain("КСМГ-9");
+  });
+
+  it("SP-EXCEL-2: SP-source without linked Deal leaves Deal blank (never representative primaryDeal)", async () => {
+    const spCompanyNoDeal: CommercialCompany = {
+      id: "c-sp2",
+      title: "ООО СП-Без-Сделки",
+      responsibleId: "owner-1",
+      responsibleName: "Владелец Компании",
+      dateCreate: "2026-08-01",
+      direction: [],
+      productType: [],
+      sampleStatus: "На испытании",
+      sampleStatusSource: "SMART_PROCESS",
+      sampleResponsibleId: "mgr-1",
+      sampleResponsibleName: "Менеджер Процессный",
+      sampleResponsibleProcessItemId: "9002",
+      sampleRelatedDealId: undefined,
+      sampleCurrentResolutionQuality: "RESOLVED",
+      sampleShipmentDate: "2026-09-06",
+      sampleAllDates: ["2026-09-06"],
+      gradeGel: [],
+      gradeSol: [],
+      // A representative commercial deal EXISTS but must NOT appear as the sample Deal.
+      deals: [
+        {
+          id: "d-rep",
+          title: "Представительская сделка",
+          companyId: "c-sp2",
+          responsibleId: "owner-1",
+          stageId: "C4:WON",
+          categoryId: "0",
+          opportunity: 900000,
+          currencyId: "RUB",
+          dateCreate: "2026-08-10",
+          sampleTestingStatus: [],
+          productType: [],
+          industry: [],
+          direction: [],
+        },
+      ],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    const workbook = await createCommercialFunnelWorkbook({
+      companies: [spCompanyNoDeal],
+      deals: spCompanyNoDeal.deals,
+      filters,
+      userNames: { "owner-1": "Владелец Компании", "mgr-1": "Менеджер Процессный" },
+      now: fixedNow,
+    });
+
+    const stSheet = workbook.getWorksheet("Sample Testing")!;
+    let spRow: ExcelJS.Row | undefined;
+    stSheet.eachRow((row) => {
+      const title = String(row.getCell(2).value ?? "");
+      if (title.includes("СП-Без-Сделки")) spRow = row;
+    });
+    expect(spRow).toBeDefined();
+    const row = spRow!;
+    // Deal column blank — representative deal never substituted.
+    const dealCell = String(row.getCell(11).value ?? "");
+    expect(dealCell).not.toContain("Представительская сделка");
+  });
 });
