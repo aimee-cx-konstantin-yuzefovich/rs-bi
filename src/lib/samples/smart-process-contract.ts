@@ -71,7 +71,7 @@ export const SMART_PROCESS_SENT_DATE_FIELD_ID: string = "UF_CRM_7_1766059943";
 /** «Сделка» — exact linked Deal (relation field: parentId2 / PARENT_ID_2). */
 export const SMART_PROCESS_DEAL_FIELD_ID: string = "parentId2";
 
-/** Custom UF deal relation field in Smart Process (secondary). */
+/** Auxiliary custom UF deal field in Smart Process (unverified; must not determine linkedDealId). */
 export const SMART_PROCESS_DEAL_UF_FIELD_ID: string = "UF_CRM_7_1779385642";
 
 /** «Марка предоставленных образцов (ГЕЛЬ)». */

@@ -131,6 +131,7 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
       productType: [],
       sampleStatus: "На испытании",
       sampleStatusSource: "DEAL",
+      sampleResponsibleDealId: "1",
       sampleShipmentDate: "2026-09-10",
       sampleAllDates: ["2026-09-10"],
       gradeGel: [],

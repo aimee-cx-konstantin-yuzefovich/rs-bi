@@ -31,7 +31,6 @@ import type {
 import {
   isDealActiveStage,
   isCommercialContinuationStage,
-  isProgressedCommercialStage,
   isTerminalStage,
 } from "./stage-utils";
 import {
@@ -628,9 +627,12 @@ export function applyCanonicalSampleDomain(
     }
 
     if (sampleResponsibleId) {
+      const dealMatch = company.deals.find((d) => d.responsibleId === sampleResponsibleId)?.responsibleName;
       sampleResponsibleName =
-        company.deals.find((d) => d.responsibleId === sampleResponsibleId)?.responsibleName ??
-        company.responsibleName;
+        userNames[sampleResponsibleId] ||
+        dealMatch ||
+        (company.responsibleId === sampleResponsibleId ? company.responsibleName : undefined) ||
+        `ID ${sampleResponsibleId}`;
     }
 
     // SP current grades/marks when the item provides the fact.
@@ -784,7 +786,8 @@ export function reprojectCompanyForFilteredGrain(
    * fact from the one sample engine) survives into this filtered grain.
    * Defaults to companyMatches. Independent of companyFactsIncluded.
    */
-  includeCanonicalSampleState: boolean = companyMatches
+  includeCanonicalSampleState: boolean = companyMatches,
+  responsibleFilterId?: string
 ): CommercialCompany {
   // 1. Historical sampleStatusEntries from matchingDeals (display/history
   //    rows only — never the current-state source) + company entries.
@@ -826,26 +829,63 @@ export function reprojectCompanyForFilteredGrain(
     }
   }
 
+  // Historical sent-event filtering is independent of includeCanonicalSampleState (P1-1).
+  const matchingDealIds = new Set(matchingDeals.map((d) => d.id));
+  const sampleSentEvents: SampleSentEvent[] | undefined = company.sampleSentEvents
+    ? company.sampleSentEvents.filter((event) => {
+        if (responsibleFilterId) {
+          if (event.source === "SMART_PROCESS") {
+            return event.responsibleId === responsibleFilterId;
+          }
+          if (event.source === "DEAL") {
+            return (
+              event.responsibleId === responsibleFilterId ||
+              (event.dealId !== undefined && matchingDealIds.has(event.dealId))
+            );
+          }
+          if (event.source === "COMPANY") {
+            return (
+              companyMatches &&
+              (event.responsibleId
+                ? event.responsibleId === responsibleFilterId
+                : company.responsibleId === responsibleFilterId)
+            );
+          }
+          return false;
+        }
+
+        // When no Responsible filter is active: keep all valid canonical sent events
+        if (event.source === "DEAL" && event.dealId !== undefined) {
+          return matchingDealIds.has(event.dealId);
+        }
+        if (event.source === "COMPANY") {
+          return companyMatches;
+        }
+        return true;
+      })
+    : undefined;
+
   // 3. Dates reconciliation with explicit provenance (Section 4 A4).
-  //     Deal-sourced sent events are filtered to matching deals; SP/Company
-  //     events survive per the canonical event filter applied in step 4
-  //     below. Here the union uses only deal-level fields.
   const sampleDealSentDates = Array.from(
     new Set(matchingDeals.map((d) => d.sampleSentDate).filter(Boolean) as string[])
   ).sort();
   const sampleCompanyTransferDates = companyMatches
     ? (company.sampleCompanyTransferDates || [])
     : [];
-  const sampleAllDates = Array.from(
-    new Set([...sampleDealSentDates, ...sampleCompanyTransferDates])
-  ).sort();
+  const sampleAllDates = sampleSentEvents !== undefined
+    ? Array.from(new Set(sampleSentEvents.map((e) => e.date))).sort()
+    : Array.from(
+        new Set([...sampleDealSentDates, ...sampleCompanyTransferDates])
+      ).sort();
 
-  const sampleEventDatesForPeriodMetrics = sampleDealSentDates.length > 0
-    ? sampleDealSentDates
-    : (companyMatches ? sampleCompanyTransferDates : []);
+  const sampleEventDatesForPeriodMetrics = sampleSentEvents !== undefined
+    ? Array.from(new Set(sampleSentEvents.map((e) => e.date))).sort()
+    : (sampleDealSentDates.length > 0
+        ? sampleDealSentDates
+        : (companyMatches ? sampleCompanyTransferDates : []));
 
   // 4. Current sample state: canonical company-level fact survives
-  //    filtering when the company matches; otherwise truthful NONE.
+  //    filtering when includeCanonicalSampleState is true; otherwise truthful NONE.
   //    NEVER recomputed from matching deals (no second engine).
   let sampleStatus = "—";
   let sampleStatusRaw: string | undefined = undefined;
@@ -857,7 +897,6 @@ export function reprojectCompanyForFilteredGrain(
   let sampleResponsibleProcessItemId: string | undefined = undefined;
   let sampleRelatedDealId: string | undefined = undefined;
   let sampleCurrentResolutionQuality: SampleCurrentResolutionQuality = "NONE";
-  let sampleSentEvents: SampleSentEvent[] | undefined = undefined;
   let gradeGel = company.gradeGel;
   let gradeSol = company.gradeSol;
   let sampleTestResult = company.sampleTestResult;
@@ -873,18 +912,6 @@ export function reprojectCompanyForFilteredGrain(
     sampleResponsibleProcessItemId = company.sampleResponsibleProcessItemId;
     sampleRelatedDealId = company.sampleRelatedDealId;
     sampleCurrentResolutionQuality = company.sampleCurrentResolutionQuality ?? "NONE";
-    // Deal-sourced sent events are filtered to matching deals only —
-    // excluded deals must never leak their dates into a filtered slice.
-    // Company-sourced events survive when the company itself matches;
-    // SP events are company-level cycle facts and survive with the company.
-    const matchingDealIds = new Set(matchingDeals.map((d) => d.id));
-    sampleSentEvents = (company.sampleSentEvents ?? []).filter(
-      (event) =>
-        (event.dealId !== undefined && matchingDealIds.has(event.dealId)) ||
-        (event.dealId === undefined &&
-          (event.source === "SMART_PROCESS" ||
-            (event.source === "COMPANY" && companyMatches)))
-    );
     gradeGel = company.gradeGel;
     gradeSol = company.gradeSol;
     sampleTestResult = company.sampleTestResult;
