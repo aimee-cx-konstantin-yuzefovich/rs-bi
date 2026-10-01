@@ -1,8 +1,13 @@
 // src/lib/commercial-funnel/normalize.ts
 // ─────────────────────────────────────────────────────────────────────
 // Authoritative data normalization and reconciliation for Commercial Funnel.
-// Reconciles Deal precedence over Company fallback, maps unknown enums
-// to "Не классифицировано", and deduplicates by authoritative Company ID.
+//
+// Phase C: sample state is NO LONGER resolved here. Commercial Funnel
+// consumes the ONE canonical sample engine (src/lib/samples) via the
+// CanonicalSampleDomain built in the API route. This module only projects
+// canonical facts onto CommercialCompany and keeps Deal-level fields for
+// register/preview. The former second sample engine (deal-based current
+// state selection incl. the marker field) is removed.
 // ─────────────────────────────────────────────────────────────────────
 
 import {
@@ -55,6 +60,13 @@ import {
   PAYMENT_STATUS_FIELD_ID,
 } from "@/lib/crm-constants";
 import type { DealActivityEntry } from "@/lib/bitrix-activities";
+import type {
+  CanonicalSampleDomain,
+} from "@/lib/samples/aggregate";
+import type {
+  SampleCurrentResolutionQuality,
+  SampleSentEvent,
+} from "./types";
 
 export interface NormalizeOptions {
   userNames?: Record<string, string>;
@@ -531,6 +543,11 @@ export function selectRepresentativeDeal(
  * Priority 2: Most recent authoritative sample-related date:
  *             sampleSentDate > activityLast > dateCreate > beginDate > closeDate.
  * Priority 3: Stable numeric-aware Deal ID tie-breaker.
+ *
+ * Phase C: RETIRED from the analytical path. Current sample state comes
+ * from the canonical sample engine (SMART_PROCESS → DEAL → COMPANY →
+ * NONE), not from re-selecting deals here. Kept exported only until the
+ * last legacy consumer test is migrated; do NOT use in production flows.
  */
 export function selectCurrentSampleDeal(
   linkedDeals: CommercialDeal[]
@@ -590,10 +607,238 @@ export function selectCurrentSampleDeal(
 }
 
 /**
+ * Projects canonical sample facts (from the ONE canonical sample engine)
+ * onto a normalized CommercialCompany. This replaces the former second
+ * sample engine: current state, grades, result, shipment date, sent
+ * events and resolution quality all come from the canonical domain.
+ *
+ * Sample-based attention reasons (testing stalled / success without
+ * commercial progression) are recomputed from the canonical state; deal-
+ * level reasons (invoice awaiting, stalled deals) are preserved from the
+ * earlier reprojection.
+ */
+export function applyCanonicalSampleDomain(
+  companies: CommercialCompany[],
+  domain: CanonicalSampleDomain,
+  options: NormalizeOptions = {}
+): CommercialCompany[] {
+  const { userNames = {}, statusLabels = {}, now = new Date() } = options;
+  const companySampleLabels = statusLabels[COMPANY_SAMPLES_FIELD_ID] || {};
+  return companies.map((company) => {
+    const canonical = domain.canonicalByCompany.get(company.id);
+    if (!canonical) return company;
+
+    const state = canonical.currentState;
+
+    // Resolve company enum raw values to human labels via the canonical
+    // CF maps (shared with resolveCompanySampleStatuses).
+    const resolveCompanyLabel = (raw: string): string => {
+      if (COMPANY_SAMPLE_STATUS_MAP[raw]) return COMPANY_SAMPLE_STATUS_MAP[raw];
+      if (companySampleLabels[raw]) return companySampleLabels[raw];
+      if (/^\d+$/.test(raw)) return `${UNCLASSIFIED_LABEL} (${raw})`;
+      return raw;
+    };
+    const resolvedStatusValues = state.statusValues.map(resolveCompanyLabel);
+
+    // Sent events with per-event attribution (SP/Deal/Company provenance).
+    const sampleSentEvents: SampleSentEvent[] = canonical.historicalSentDates.map((s) => ({
+      date: s.date,
+      source:
+        s.source === "SMART_PROCESS"
+          ? ("SMART_PROCESS" as const)
+          : s.source === "DEAL_LEGACY"
+          ? ("DEAL" as const)
+          : ("COMPANY" as const),
+      responsibleId:
+        s.source === "SMART_PROCESS"
+          ? canonical.evidenceUnits.find(
+              (u) => u.source === "SMART_PROCESS" && u.processItemId === s.sourceEntityId
+            )?.responsibleId
+          : s.source === "DEAL_LEGACY"
+          ? company.deals.find((d) => d.id === s.dealId)?.responsibleId
+          : company.responsibleId,
+      dealId: s.source === "DEAL_LEGACY" ? s.dealId : undefined,
+      processItemId: s.source === "SMART_PROCESS" ? s.sourceEntityId : undefined,
+    }));
+
+    // Map canonical source → CF SampleStatusSource.
+    const sampleStatusSource: SampleStatusSource =
+      state.source === "SMART_PROCESS"
+        ? "SMART_PROCESS"
+        : state.source === "DEAL_LEGACY"
+        ? "DEAL"
+        : state.source === "COMPANY_LEGACY"
+        ? "COMPANY"
+        : "NONE";
+
+    // Current responsible per §25: SP → SP ASSIGNED_BY_ID; Deal → Deal
+    // responsible; Company → Company owner. SP item ID never in Deal field.
+    let sampleResponsibleId: string | undefined;
+    let sampleResponsibleName: string | undefined;
+    let sampleResponsibleDealId: string | undefined;
+    let sampleResponsibleProcessItemId: string | undefined;
+    let sampleRelatedDealId: string | undefined;
+
+    if (state.source === "SMART_PROCESS" && state.quality === "RESOLVED") {
+      const spUnit = canonical.evidenceUnits.find(
+        (u) => u.source === "SMART_PROCESS" && u.processItemId === state.processItemId
+      );
+      sampleResponsibleId = spUnit?.responsibleId;
+      sampleResponsibleProcessItemId = state.processItemId;
+      sampleRelatedDealId = state.winningDealId;
+      sampleResponsibleDealId = undefined; // SP provenance is NOT a Deal ID
+    } else if (state.source === "DEAL_LEGACY" && state.winningDealId) {
+      const deal = company.deals.find((d) => d.id === state.winningDealId);
+      sampleResponsibleId = deal?.responsibleId;
+      sampleResponsibleDealId = state.winningDealId;
+    } else if (state.source === "COMPANY_LEGACY") {
+      sampleResponsibleId = company.responsibleId;
+    }
+
+    if (sampleResponsibleId) {
+      sampleResponsibleName =
+        company.deals.find((d) => d.responsibleId === sampleResponsibleId)?.responsibleName ??
+        company.responsibleName;
+    }
+
+    // SP current grades/marks when the item provides the fact.
+    const spUnit =
+      state.source === "SMART_PROCESS" && state.quality === "RESOLVED"
+        ? canonical.evidenceUnits.find(
+            (u) => u.source === "SMART_PROCESS" && u.processItemId === state.processItemId
+          )
+        : undefined;
+    const gradeGel = spUnit?.grades.filter((g) => g.productFamily === "Гель").map((g) => g.value) ?? company.gradeGel;
+    const gradeSol = spUnit?.grades.filter((g) => g.productFamily === "Золь").map((g) => g.value) ?? company.gradeSol;
+
+    // SP manual sent date is the authoritative shipment date for the
+    // current cycle when SP resolved. DEAL source: the winning deal's OWN
+    // sent date (strict provenance — never borrowed from another cycle).
+    // COMPANY source: company transfer date. Legacy values never override SP.
+    const spSentDate = spUnit?.sentDates[0]?.date;
+    const winningDeal =
+      state.source === "DEAL_LEGACY" && state.winningDealId
+        ? company.deals.find((d) => d.id === state.winningDealId)
+        : undefined;
+    const dealSentDate = winningDeal?.sampleSentDate;
+    const companyTransferDate = company.sampleCompanyTransferDates?.[0];
+    const sampleShipmentDate = spSentDate ?? dealSentDate ?? companyTransferDate;
+
+    // SP test result when the item provides the fact.
+    const sampleTestResult = spUnit?.rawTestResult ?? company.sampleTestResult;
+
+    return {
+      ...company,
+      sampleStatus: state.source === "NONE" ? "—" : resolvedStatusValues[0] ?? "—",
+      sampleStatusSource,
+      sampleStatuses: resolvedStatusValues,
+      sampleStatusRawValues: state.statusValues,
+      sampleCurrentResolutionQuality: state.quality,
+      sampleResponsibleId,
+      sampleResponsibleName,
+      sampleResponsibleDealId,
+      sampleResponsibleProcessItemId,
+      sampleRelatedDealId,
+      gradeGel,
+      gradeSol,
+      sampleShipmentDate,
+      sampleTestResult,
+      sampleSentEvents,
+      // Extend the date union with SP sent dates (dedup at Company+date level).
+      sampleAllDates: Array.from(
+        new Set([...company.sampleAllDates, ...sampleSentEvents.map((e) => e.date)])
+      ).sort(),
+      // Provenance rule (unchanged): Deal shipment dates are authoritative
+      // for period metrics when present; Company transfer dates are
+      // fallback only when no Deal date exists. Canonical SP sent events
+      // always participate.
+      sampleEventDatesForPeriodMetrics: (() => {
+        const spDates = sampleSentEvents
+          .filter((e) => e.source === "SMART_PROCESS")
+          .map((e) => e.date);
+        if (spDates.length > 0) {
+          return Array.from(new Set([...spDates, ...sampleSentEvents.filter((e) => e.source !== "COMPANY").map((e) => e.date)])).sort();
+        }
+        const dealDates = sampleSentEvents.filter((e) => e.source === "DEAL").map((e) => e.date);
+        if (dealDates.length > 0) {
+          return Array.from(new Set(dealDates)).sort();
+        }
+        return companyMatchesShipment(company)
+          ? Array.from(new Set(sampleSentEvents.filter((e) => e.source === "COMPANY").map((e) => e.date))).sort()
+          : [];
+      })(),
+      // Recompute canonical sample-based attention reasons from the
+      // canonical current state (never stale pre-canonical status).
+      ...recomputeCanonicalSampleAttention(
+        {
+          ...company,
+          sampleStatus: state.source === "NONE" ? "—" : resolvedStatusValues[0] ?? "—",
+          sampleStatusSource,
+          sampleStatuses: resolvedStatusValues,
+          sampleShipmentDate,
+        },
+        now
+      ),
+    };
+  });
+}
+
+/**
+ * Company-level facts (transfer dates) may serve as period-metric
+ * fallback only when the company facts are included (not filtered out).
+ */
+function companyMatchesShipment(company: CommercialCompany): boolean {
+  return company.companyFactsIncluded !== false;
+}
+
+/**
+ * Recomputes sample-based attention reasons (Bottleneck 1: testing
+ * stalled; Bottleneck 2: success without commercial progression) from the
+ * canonical current state. Deal-level reasons (invoice awaiting, stalled
+ * deals) are preserved from the input company's attentionReasons.
+ */
+function recomputeCanonicalSampleAttention(
+  company: CommercialCompany,
+  now: Date
+): Pick<CommercialCompany, "hasAttention" | "attentionReasons"> {
+  const dealLevelReasons = company.attentionReasons.filter(
+    (reason) =>
+      !reason.startsWith("Образцы на испытании") &&
+      reason !== "Образец подошел, но нет прогресса по коммерческой сделке"
+  );
+
+  const sampleReasons: string[] = [];
+
+  if (company.sampleStatus === "На испытании" && company.sampleShipmentDate) {
+    const days = calculateDaysWaiting(company.sampleShipmentDate, now);
+    if (days !== null && days > COMMERCIAL_THRESHOLDS.SAMPLE_TESTING_ATTENTION_DAYS) {
+      sampleReasons.push(
+        `Образцы на испытании ${days} дн. (порог ${COMMERCIAL_THRESHOLDS.SAMPLE_TESTING_ATTENTION_DAYS} дн.)`
+      );
+    }
+  }
+
+  if (company.sampleStatus === "Подошли") {
+    const hasProgressedDeal = company.deals.some((d) => isProgressedCommercialStage(d.stageId));
+    if (!hasProgressedDeal) {
+      sampleReasons.push("Образец подошел, но нет прогресса по коммерческой сделке");
+    }
+  }
+
+  const attentionReasons = [...dealLevelReasons, ...sampleReasons];
+  return { hasAttention: attentionReasons.length > 0, attentionReasons };
+}
+
+/**
  * Reprojects a normalized company for a filtered dimensional grain.
- * Recalculates deal-derived analytical state (sample status, dates, primaryDeal, attention)
- * strictly from matchingDeals and allowed Company-level fallback (only when companyMatches === true).
- * Ensures excluded deals never leak stale pre-filter state into analytics or KPIs.
+ *
+ * Phase C: current sample state is a CANONICAL COMPANY-LEVEL fact from the
+ * one sample engine. It survives dimensional filtering when the company
+ * itself matches (companyFactsIncluded === true). When only some deals
+ * match, deal-derived historical entries remain as sampleStatusEntries
+ * rows, but current state is NOT recomputed from matching deals (no
+ * second engine at filter time). The canonical sent-event list is kept
+ * only when the company matches.
  */
 export function reprojectCompanyForFilteredGrain(
   company: CommercialCompany,
@@ -601,7 +846,8 @@ export function reprojectCompanyForFilteredGrain(
   companyMatches: boolean,
   now: Date = new Date()
 ): CommercialCompany {
-  // 1. Rebuild sampleStatusEntries from matchingDeals and (if companyMatches) company entries
+  // 1. Historical sampleStatusEntries from matchingDeals (display/history
+  //    rows only — never the current-state source) + company entries.
   const sampleStatusEntries: SampleStatusEntry[] = [];
 
   for (const d of matchingDeals) {
@@ -616,19 +862,8 @@ export function reprojectCompanyForFilteredGrain(
         eventDate,
       });
     }
-    const testingStatuses = Array.isArray(d.sampleTestingStatus) ? d.sampleTestingStatus : [];
-    for (let i = 0; i < testingStatuses.length; i++) {
-      const label = testingStatuses[i];
-      const raw = d.sampleTestingStatusRaw?.[i] || label;
-      sampleStatusEntries.push({
-        rawValue: raw,
-        label,
-        source: "DEAL",
-        fieldId: DEAL_SAMPLE_TESTING_FIELD_ID,
-        dealId: d.id,
-        eventDate,
-      });
-    }
+    // Marker field (UF_CRM_1779394379) is MARKER_ONLY: it is never
+    // emitted into sampleStatusEntries.
   }
 
   if (companyMatches && company.sampleStatusEntries) {
@@ -639,7 +874,7 @@ export function reprojectCompanyForFilteredGrain(
     }
   }
 
-  // 2. Distinct sampleStatuses and raw values
+  // 2. Distinct sampleStatuses and raw values (historical display union)
   const sampleStatuses: string[] = [];
   const sampleStatusRawValues: string[] = [];
   for (const entry of sampleStatusEntries) {
@@ -662,18 +897,13 @@ export function reprojectCompanyForFilteredGrain(
     new Set([...sampleDealSentDates, ...sampleCompanyTransferDates])
   ).sort();
 
-  // Provenance rule:
-  // IF matchingDeals contain valid Deal shipment dates:
-  //     authoritative period sample dates = matching Deal shipment dates
-  // ELSE IF companyMatches === true:
-  //     Company transfer dates may be fallback
-  // ELSE:
-  //     no sample event dates
   const sampleEventDatesForPeriodMetrics = sampleDealSentDates.length > 0
     ? sampleDealSentDates
     : (companyMatches ? sampleCompanyTransferDates : []);
 
-  // 4. Current sample status & shipment date (Section 4 A3)
+  // 4. Current sample state: canonical company-level fact survives
+  //    filtering when the company matches; otherwise truthful NONE.
+  //    NEVER recomputed from matching deals (no second engine).
   let sampleStatus = "—";
   let sampleStatusRaw: string | undefined = undefined;
   let sampleStatusSource: SampleStatusSource = "NONE";
@@ -681,34 +911,29 @@ export function reprojectCompanyForFilteredGrain(
   let sampleResponsibleId: string | undefined = undefined;
   let sampleResponsibleName: string | undefined = undefined;
   let sampleResponsibleDealId: string | undefined = undefined;
+  let sampleResponsibleProcessItemId: string | undefined = undefined;
+  let sampleRelatedDealId: string | undefined = undefined;
+  let sampleCurrentResolutionQuality: SampleCurrentResolutionQuality = "NONE";
+  let sampleSentEvents: SampleSentEvent[] | undefined = undefined;
+  let gradeGel = company.gradeGel;
+  let gradeSol = company.gradeSol;
+  let sampleTestResult = company.sampleTestResult;
 
-  const currentSampleDeal = selectCurrentSampleDeal(matchingDeals);
-  if (currentSampleDeal) {
-    sampleStatusSource = "DEAL";
-    sampleShipmentDate = currentSampleDeal.sampleSentDate || undefined;
-    sampleResponsibleId = currentSampleDeal.responsibleId;
-    sampleResponsibleName =
-      currentSampleDeal.responsibleName ||
-      (currentSampleDeal.responsibleId ? `ID ${currentSampleDeal.responsibleId}` : undefined);
-    sampleResponsibleDealId = currentSampleDeal.id;
-    if (currentSampleDeal.sampleTestingStatus && currentSampleDeal.sampleTestingStatus.length > 0) {
-      sampleStatus = currentSampleDeal.sampleTestingStatus[0];
-      sampleStatusRaw = currentSampleDeal.sampleTestingStatusRaw?.[0] || sampleStatus;
-    } else if (currentSampleDeal.sampleTransferStatus) {
-      sampleStatus = currentSampleDeal.sampleTransferStatus;
-      sampleStatusRaw = currentSampleDeal.sampleTransferStatusRaw;
-    }
-  } else if (companyMatches) {
-    const companyEntries = sampleStatusEntries.filter((e) => e.source === "COMPANY");
-    if (companyEntries.length > 0) {
-      sampleStatus = companyEntries[0].label;
-      sampleStatusRaw = companyEntries[0].rawValue;
-      sampleStatusSource = "COMPANY";
-      sampleShipmentDate = sampleCompanyTransferDates[0] || undefined;
-      sampleResponsibleId = company.responsibleId;
-      sampleResponsibleName = company.responsibleName;
-      sampleResponsibleDealId = undefined;
-    }
+  if (companyMatches) {
+    sampleStatus = company.sampleStatus;
+    sampleStatusRaw = company.sampleStatusRaw;
+    sampleStatusSource = company.sampleStatusSource;
+    sampleShipmentDate = company.sampleShipmentDate;
+    sampleResponsibleId = company.sampleResponsibleId;
+    sampleResponsibleName = company.sampleResponsibleName;
+    sampleResponsibleDealId = company.sampleResponsibleDealId;
+    sampleResponsibleProcessItemId = company.sampleResponsibleProcessItemId;
+    sampleRelatedDealId = company.sampleRelatedDealId;
+    sampleCurrentResolutionQuality = company.sampleCurrentResolutionQuality ?? "NONE";
+    sampleSentEvents = company.sampleSentEvents;
+    gradeGel = company.gradeGel;
+    gradeSol = company.gradeSol;
+    sampleTestResult = company.sampleTestResult;
   }
 
   // 5. Representative deal for commercial overview (Section 4 A5)
@@ -717,7 +942,7 @@ export function reprojectCompanyForFilteredGrain(
   // 6. Attention / Bottlenecks
   const attentionReasons: string[] = [];
 
-  // Bottleneck 1: Sample under testing > 14 days
+  // Bottleneck 1: Sample under testing > 14 days (canonical facts only)
   if (sampleStatus === "На испытании" && sampleShipmentDate) {
     const days = calculateDaysWaiting(sampleShipmentDate, now);
     if (days !== null && days > COMMERCIAL_THRESHOLDS.SAMPLE_TESTING_ATTENTION_DAYS) {
@@ -756,6 +981,13 @@ export function reprojectCompanyForFilteredGrain(
     sampleResponsibleId,
     sampleResponsibleName,
     sampleResponsibleDealId,
+    sampleResponsibleProcessItemId,
+    sampleRelatedDealId,
+    sampleCurrentResolutionQuality,
+    sampleSentEvents,
+    gradeGel,
+    gradeSol,
+    sampleTestResult,
     dateCreate: companyMatches ? company.dateCreate : undefined,
     deals: matchingDeals,
     sampleStatus,
@@ -787,8 +1019,12 @@ export function reprojectCompanyForFilteredGrain(
 
 /**
  * Normalize raw Bitrix Company records and join them with linked deals.
- * Implements deterministic precedence: Deal sample state > Company fallback.
- * Preserves ALL statuses, partitions dates by provenance, and strictly gates bottlenecks.
+ *
+ * Phase C: current sample state is NOT resolved here. Companies are
+ * normalized with truthful "—"/NONE placeholders and canonical facts are
+ * applied afterwards via applyCanonicalSampleDomain (the ONE canonical
+ * sample engine). Deal-level fields remain normalized for the register
+ * and preview only.
  */
 export function normalizeCompanies(
   rawCompanies: Array<Record<string, any>>,

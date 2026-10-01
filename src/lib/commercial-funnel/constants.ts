@@ -48,7 +48,6 @@ export const DEAL_SAMPLE_PROCESS_MAP: Record<string, string> = {
   "DT1032_15:SUCCESS": "Подошли",
   "DT1032_15:FAIL": "Не подошли",
 };
-
 export const UNCLASSIFIED_LABEL = "Не классифицировано";
 
 /** Standardized unified status keys for WIP aggregation */

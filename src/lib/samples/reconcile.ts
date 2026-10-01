@@ -197,7 +197,42 @@ function resolveCurrentState(
   }
 
   if (activeDealCandidates.length > 1) {
-    // Check if the deal candidates agree on status
+    // Dated-cycle selection: deals with factual sent dates form dated
+    // cycles (same principle as SP createdTime). The latest factual sent
+    // date wins; stable Deal ID tie-break ONLY on exact equality.
+    // updatedTime/activityLast are NEVER business chronology.
+    // Deals without sent dates are not dated cycles: if any dated deal
+    // exists, undated deals never win (no date fabrication); if none is
+    // dated, conflicting statuses stay strictly AMBIGUOUS.
+    const dated = activeDealCandidates
+      .filter((d) => d.sentDates.length > 0)
+      .sort((a, b) => {
+        const da = a.sentDates[a.sentDates.length - 1]?.date ?? "";
+        const dbb = b.sentDates[b.sentDates.length - 1]?.date ?? "";
+        if (da !== dbb) return da > dbb ? 1 : -1;
+        // Exact equality: stable numeric-aware Deal ID tie-break.
+        const na = Number(a.dealId);
+        const nb = Number(b.dealId);
+        if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+        return String(a.dealId).localeCompare(String(b.dealId));
+      });
+
+    if (dated.length > 0) {
+      const winning = dated[dated.length - 1];
+      return {
+        resolution: {
+          source: "DEAL_LEGACY",
+          quality: "RESOLVED",
+          evidenceId: winning.id,
+          winningDealId: winning.dealId,
+          statusValues: winning.statusEvidence,
+          normalizedResult: winning.normalizedResult ?? "unknown",
+        },
+      };
+    }
+
+    // No dated cycles: agreeing statuses resolve; conflicting statuses
+    // are strictly AMBIGUOUS (never guess highest Deal ID).
     const allStatuses = dedupe(activeDealCandidates.flatMap((d) => d.statusEvidence));
     const firstSet = new Set(activeDealCandidates[0].statusEvidence.map((s) => s.toLowerCase()));
     const allAgree = activeDealCandidates.every(
@@ -219,7 +254,6 @@ function resolveCurrentState(
       };
     }
 
-    // Conflicting deals: strictly AMBIGUOUS, never guess highest Deal ID
     return {
       resolution: {
         source: "DEAL_LEGACY",

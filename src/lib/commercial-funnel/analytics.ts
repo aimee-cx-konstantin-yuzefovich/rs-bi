@@ -570,10 +570,13 @@ export const NEXT_ACTION_MISSING_LABEL = "Следующий шаг не ука�
  * normalization — NOT from the raw buildSampleRegister (which intentionally
  * emits granular sample-Deal rows and historical/fallback records).
  *
- *   A. sampleStatusSource === "DEAL"   → row from the Deal identified by
+ *   A. sampleStatusSource === "SMART_PROCESS" → row from the current SP
+ *      item facts; exact linked Deal via sampleRelatedDealId when factual
+ *      (blank otherwise — never a representative primaryDeal).
+ *   B. sampleStatusSource === "DEAL"   → row from the Deal identified by
  *                                        sampleResponsibleDealId.
- *   B. sampleStatusSource === "COMPANY" → Company fallback state.
- *   C. sampleStatusSource === "NONE" or sampleStatus === "—" → no row.
+ *   C. sampleStatusSource === "COMPANY" → Company fallback state.
+ *   D. sampleStatusSource === "NONE" or sampleStatus === "—" → no row.
  *
  * Historical sibling sample Deals that are not the selected current cycle
  * never appear merely because the register contains them. The dedicated
@@ -590,9 +593,11 @@ export function buildSampleTestingSnapshot(
     if (c.sampleStatusSource === "NONE") continue;
 
     // Resolve the authoritative current-cycle sample Deal (same provenance
-    // rule as computeBottlenecks — Defect D chain).
+    // rule as computeBottlenecks — Defect D chain, Phase C extended).
     const sampleDeal =
-      c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
+      c.sampleStatusSource === "SMART_PROCESS" && c.sampleRelatedDealId
+        ? c.deals.find((d) => d.id === c.sampleRelatedDealId)
+        : c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
         ? c.deals.find((d) => d.id === c.sampleResponsibleDealId)
         : undefined;
 
@@ -616,7 +621,7 @@ export function buildSampleTestingSnapshot(
       testingStatus: c.sampleStatus,
       testResult: c.sampleTestResult || "—",
       nextActionOrComment:
-        (c.sampleStatusSource === "DEAL" ? sampleDeal?.activityNext : undefined) ||
+        (sampleDeal?.activityNext) ||
         NEXT_ACTION_MISSING_LABEL,
       dealId: sampleDeal?.id,
       dealTitle: sampleDeal?.title,

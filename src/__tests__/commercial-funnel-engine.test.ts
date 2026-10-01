@@ -23,8 +23,28 @@ import {
   normalizeCurrencyCode,
   normalizeDeals,
 } from "@/lib/commercial-funnel/normalize";
+import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
+import { applyCanonicalSampleDomain } from "@/lib/commercial-funnel/normalize";
 import type { CommercialCompany, CommercialDeal, CommercialFilters } from "@/lib/commercial-funnel/types";
 import { COMMERCIAL_TIMEZONE, PAYMENT_AMOUNT_LABEL } from "@/lib/commercial-funnel/constants";
+
+/**
+ * Phase C re-contract helper: production pipeline over raw rows —
+ * normalizeDeals → normalizeCompanies → buildCanonicalSampleDomain →
+ * applyCanonicalSampleDomain. Current sample state comes from the ONE
+ * canonical sample engine; normalizeCompanies alone no longer resolves it.
+ */
+function canonicalNormalize(
+  rawCompanies: Array<Record<string, unknown>>,
+  rawDeals: Array<Record<string, unknown>>,
+  spItems: Array<Record<string, unknown>> = [],
+  options: { userNames?: Record<string, string>; statusLabels?: Record<string, Record<string, string>>; now?: Date } = {}
+): CommercialCompany[] {
+  const deals = normalizeDeals(rawDeals as any, options as any);
+  const companies = normalizeCompanies(rawCompanies as any, deals, options as any);
+  const domain = buildCanonicalSampleDomain(rawCompanies as any, rawDeals as any, spItems as any);
+  return applyCanonicalSampleDomain(companies, domain, options as any);
+}
 
 describe("Commercial Funnel — Date Utilities & Safe Deltas", () => {
   it("safeDeltaPercent handles zero denominator safely", () => {
@@ -75,8 +95,7 @@ describe("Commercial Funnel — Normalization & Precedence", () => {
       UF_CRM_1779386185: "DT1032_15:CLIENT", // "На испытании"
     };
 
-    const deals = normalizeDeals([rawDeal]);
-    const companies = normalizeCompanies([rawCompany], deals);
+    const companies = canonicalNormalize([rawCompany], [rawDeal]);
 
     expect(companies).toHaveLength(1);
     expect(companies[0].sampleStatus).toBe("На испытании");
@@ -91,7 +110,7 @@ describe("Commercial Funnel — Normalization & Precedence", () => {
       UF_CRM_1753187313314: ["261"], // "Образцы отправлены"
     };
 
-    const companies = normalizeCompanies([rawCompany], []);
+    const companies = canonicalNormalize([rawCompany], []);
     expect(companies).toHaveLength(1);
     expect(companies[0].sampleStatus).toBe("Образцы отправлены");
     expect(companies[0].sampleStatusSource).toBe("COMPANY");
@@ -105,7 +124,7 @@ describe("Commercial Funnel — Normalization & Precedence", () => {
       UF_CRM_1753187313314: ["265"], // Unclassified
     };
 
-    const companies = normalizeCompanies([rawCompany], []);
+    const companies = canonicalNormalize([rawCompany], []);
     expect(companies).toHaveLength(1);
     expect(companies[0].sampleStatus).toContain("Не классифицировано");
     expect(companies[0].sampleStatus).toContain("265");
@@ -123,8 +142,7 @@ describe("Commercial Funnel — Normalization & Precedence", () => {
       { ID: "602", TITLE: "Сделка 2", COMPANY_ID: "200", OPPORTUNITY: "300000" },
     ];
 
-    const deals = normalizeDeals(rawDeals);
-    const companies = normalizeCompanies([rawCompany], deals);
+    const companies = canonicalNormalize([rawCompany], rawDeals);
 
     expect(companies).toHaveLength(1);
     expect(companies[0].deals).toHaveLength(2);
@@ -384,12 +402,12 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
     ];
 
     // Q20: the corrected fixture must be producible through normalizeCompanies.
-    const normalized = normalizeCompanies(
+    const normalized = canonicalNormalize(
       [
         { ID: "1", TITLE: "C1", ASSIGNED_BY_ID: "user-1", DATE_CREATE: "2026-09-10" },
         { ID: "2", TITLE: "C2", ASSIGNED_BY_ID: "user-2", DATE_CREATE: "2026-09-12" },
       ],
-      normalizeDeals([
+      [
         {
           ID: "D1",
           TITLE: "Сделка D1",
@@ -414,7 +432,8 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
           UF_CRM_1779386185: "DT1032_15:SUCCESS", // "Подошли"
           UF_CRM_1774879952785: "2026-09-12",
         },
-      ]),
+      ],
+      [],
       { now: fixedNow }
     );
     expect(normalized[0].sampleStatusSource).toBe("DEAL");
@@ -423,7 +442,7 @@ describe("Commercial Funnel — Pure Analytics & Unique Company Counting", () =>
     expect(normalized[1].sampleResponsibleDealId).toBe("D2");
 
     const scorecard = computeManagerScorecard(
-      companies,
+      normalized,
       bounds,
       [],
       { "user-1": "Анна С.", "user-2": "Борис П." }
@@ -600,7 +619,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       ASSIGNED_BY_ID: "1",
       UF_CRM_1753187313314: ["261", "2695"], // 261 = "Образцы отправлены", 2695 = "Подошли"
     };
-    const companies = normalizeCompanies([rawCompany], []);
+    const companies = canonicalNormalize([rawCompany], []);
     expect(companies).toHaveLength(1);
     expect(companies[0].sampleStatuses).toBeDefined();
     expect(companies[0].sampleStatuses).toContain("Образцы отправлены");
@@ -638,8 +657,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       UF_CRM_1779386185: "DT1032_15:CLIENT",
       UF_CRM_1774879952785: "2026-09-10", // DEAL_SAMPLE_SENT_DATE_FIELD_ID
     };
-    const deals = normalizeDeals([rawDeal]);
-    const companies = normalizeCompanies([rawCompany], deals);
+    const companies = canonicalNormalize([rawCompany], [rawDeal]);
     expect(companies[0].sampleShipmentDate).toBe("2026-09-10");
     expect(companies[0].sampleStatusSource).toBe("DEAL");
     expect(companies[0].sampleDealSentDates).toContain("2026-09-10");
@@ -660,7 +678,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       UF_CRM_1753187313314: ["261"],
       UF_CRM_1764156557536: ["2026-09-12"], // COMPANY_SAMPLES_DATE_MULTI_FIELD_ID
     };
-    const companies = normalizeCompanies([rawCompany], []);
+    const companies = canonicalNormalize([rawCompany], []);
     expect(companies[0].sampleShipmentDate).toBe("2026-09-12");
     expect(companies[0].sampleStatusSource).toBe("COMPANY");
     expect(companies[0].sampleCompanyTransferDates).toContain("2026-09-12");
@@ -689,8 +707,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       UF_CRM_1779386185: "DT1032_15:CLIENT",
       UF_CRM_1774879952785: "2026-09-15", // Recent deal shipment date inside current period
     };
-    const deals = normalizeDeals([rawDeal]);
-    const companies = normalizeCompanies([rawCompany], deals);
+    const companies = canonicalNormalize([rawCompany], [rawDeal]);
 
     // Authoritative date is Deal shipment date (2026-09-15)
     expect(companies[0].sampleShipmentDate).toBe("2026-09-15");
@@ -712,7 +729,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       ASSIGNED_BY_ID: "1",
       UF_CRM_1753187313314: ["2695"], // "Подошли" without date
     };
-    const companies = normalizeCompanies([rawCompany], []);
+    const companies = canonicalNormalize([rawCompany], []);
     expect(companies[0].sampleShipmentDate).toBeUndefined();
     expect(companies[0].sampleEventDatesForPeriodMetrics).toEqual([]);
 
@@ -1046,7 +1063,10 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           categoryId: "0",
           opportunity: 100_000,
           currencyId: "RUB",
-          sampleTestingStatus: ["На испытании"],
+          // Marker (UF_CRM_1779394379 → sampleTestingStatus) is MARKER_ONLY.
+          // Deal sample evidence for WIP matching is sampleTransferStatus.
+          sampleTransferStatus: "На испытании",
+          sampleTestingStatus: [],
           productType: [],
           industry: [],
           direction: [],
@@ -1177,7 +1197,10 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
           categoryId: "0",
           opportunity: 150_000,
           currencyId: "RUB",
-          sampleTestingStatus: ["На испытании", "Не классифицировано (265)"],
+          // Marker values stay for raw preview; register row now carries
+          // the Deal transfer status (marker is MARKER_ONLY).
+          sampleTransferStatus: "На испытании",
+          sampleTestingStatus: ["Не классифицировано (265)"],
           productType: [],
           industry: [],
           direction: [],
@@ -1192,7 +1215,6 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
     expect(register[0].dealId).toBe("deal-testing-only");
     expect(register[0].statusSource).toBe("DEAL");
     expect(register[0].statuses).toContain("На испытании");
-    expect(register[0].statuses).toContain("Не классифицировано (265)");
   });
 
   describe("Multi-Currency Monetary Correctness (P1 Invariants)", () => {
@@ -1697,8 +1719,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         LAST_ACTIVITY_TIME: "2026-03-20T15:00:00Z",
       };
 
-      const dealsCaseA = normalizeDeals([rawDealRubOlder, rawDealUsdNewer]);
-      const companiesCaseA = normalizeCompanies([rawCompany], dealsCaseA);
+      const companiesCaseA = canonicalNormalize([rawCompany], [rawDealRubOlder, rawDealUsdNewer]);
       expect(companiesCaseA[0].primaryDealId).toBe("deal-usd-newer");
       expect(companiesCaseA[0].primaryDealOpportunity).toBe(50_000);
       expect(companiesCaseA[0].primaryDealCurrencyId).toBe("USD");
@@ -1727,8 +1748,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         DATE_CREATE: "2026-01-01T10:00:00Z",
       };
 
-      const dealsCaseB = normalizeDeals([rawDealWonLarge, rawDealActiveSmall]);
-      const companiesCaseB = normalizeCompanies([rawCompany], dealsCaseB);
+      const companiesCaseB = canonicalNormalize([rawCompany], [rawDealWonLarge, rawDealActiveSmall]);
       expect(companiesCaseB[0].primaryDealId).toBe("deal-active-small");
       expect(companiesCaseB[0].primaryDealOpportunity).toBe(10_000);
       expect(companiesCaseB[0].primaryDealCurrencyId).toBe("USD");
@@ -1754,8 +1774,7 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
         CURRENCY_ID: "EUR",
       };
 
-      const dealsCaseC = normalizeDeals([rawDealNoDate1, rawDealNoDate2]);
-      const companiesCaseC = normalizeCompanies([rawCompany], dealsCaseC);
+      const companiesCaseC = canonicalNormalize([rawCompany], [rawDealNoDate1, rawDealNoDate2]);
       // Stable tie-breaker selects deal-20 consistently
       expect(companiesCaseC[0].primaryDealId).toBe("deal-20");
       expect(companiesCaseC[0].primaryDealOpportunity).toBe(1000);

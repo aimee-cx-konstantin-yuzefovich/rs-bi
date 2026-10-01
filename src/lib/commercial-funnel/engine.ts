@@ -143,13 +143,18 @@ export function computePeriodMetrics(
   }
 
   // 2. Образцы отправлены (Sample shipment date in period, unique companies)
-  // Provenance rule: Deal shipment date is authoritative when present;
-  // Company transfer date is only fallback when no Deal shipment date exists.
+  // Phase C: canonical sampleSentEvents (per-event provenance from the ONE
+  // sample engine: Smart Process manual date, Deal legacy date, Company
+  // legacy date) are the event source; the legacy date-union fields remain
+  // as a fallback for datasets not yet carrying canonical events.
   const currentSampleSentCompanyIds = new Set<string>();
   const prevSampleSentCompanyIds = new Set<string>();
 
   for (const c of companies) {
-    const eventDates = c.sampleEventDatesForPeriodMetrics || c.sampleAllDates || [];
+    const eventDates =
+      c.sampleSentEvents && c.sampleSentEvents.length > 0
+        ? c.sampleSentEvents.map((e) => e.date)
+        : (c.sampleEventDatesForPeriodMetrics || c.sampleAllDates || []);
     const hasCurrentShipment = eventDates.some((d) => isDateInPeriod(d, currentStart, currentEnd));
     if (hasCurrentShipment) {
       currentSampleSentCompanyIds.add(c.id);
@@ -456,6 +461,11 @@ export function computePeriodMetrics(
 
 /**
  * Check if a Deal has sample evidence matching a specific WIP status key.
+ *
+ * Phase C (marker isolation): the navigation marker
+ * (UF_CRM_1779394379 → deal.sampleTestingStatus) is MARKER_ONLY and never
+ * contributes to analytical status matching. Deal evidence is
+ * sampleTransferStatus + sampleSentDate only.
  */
 function isDealMatchingSampleStatus(deal: CommercialDeal, targetKey: string): boolean {
   if (deal.sampleTransferStatus) {
@@ -463,14 +473,8 @@ function isDealMatchingSampleStatus(deal: CommercialDeal, targetKey: string): bo
       return true;
     }
   }
-  if (deal.sampleTestingStatus && deal.sampleTestingStatus.length > 0) {
-    if (deal.sampleTestingStatus.some((s) => s === targetKey || s.startsWith(targetKey))) {
-      return true;
-    }
-  }
   if (targetKey === UNCLASSIFIED_LABEL) {
     if (deal.sampleTransferStatus?.startsWith(UNCLASSIFIED_LABEL)) return true;
-    if (deal.sampleTestingStatus?.some((s) => s.startsWith(UNCLASSIFIED_LABEL))) return true;
   }
   return false;
 }
@@ -560,23 +564,39 @@ export function computeBottlenecks(
 
   for (const c of companies) {
     // Resolve the authoritative current-cycle sample Deal (Defect D provenance).
+    // Phase C: SMART_PROCESS source uses the exact factual linked sample
+    // Deal (sampleRelatedDealId) when one exists — never a representative
+    // primaryDeal, and never the SP item id misread as a Deal ID.
     const sampleDeal =
-      c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
+      c.sampleStatusSource === "SMART_PROCESS" && c.sampleRelatedDealId
+        ? c.deals.find((d) => d.id === c.sampleRelatedDealId)
+        : c.sampleStatusSource === "DEAL" && c.sampleResponsibleDealId
         ? c.deals.find((d) => d.id === c.sampleResponsibleDealId)
         : undefined;
+
+    // Sample bottleneck responsible: canonical current sample responsible
+    // (SP → SP ASSIGNED_BY_ID; Deal → Deal responsible; Company → owner).
+    const sampleRespId =
+      c.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE"
+        ? undefined
+        : (c.sampleStatusSource === "SMART_PROCESS" || c.sampleStatusSource === "DEAL") &&
+          c.sampleResponsibleId
+        ? c.sampleResponsibleId
+        : c.responsibleId;
+    const sampleRespName =
+      c.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE"
+        ? undefined
+        : (c.sampleStatusSource === "SMART_PROCESS" || c.sampleStatusSource === "DEAL") &&
+          c.sampleResponsibleName
+        ? c.sampleResponsibleName
+        : c.responsibleName || `ID ${c.responsibleId}`;
 
     // 1. Sample testing stalled (> 14 days)
     if (c.sampleStatus === "На испытании" && c.sampleShipmentDate) {
       const days = calculateDaysWaiting(c.sampleShipmentDate, now);
       if (days !== null && days > COMMERCIAL_THRESHOLDS.SAMPLE_TESTING_ATTENTION_DAYS) {
-        const respId =
-          c.sampleStatusSource === "DEAL" && c.sampleResponsibleId
-            ? c.sampleResponsibleId
-            : c.responsibleId;
-        const respName =
-          c.sampleStatusSource === "DEAL" && c.sampleResponsibleName
-            ? c.sampleResponsibleName
-            : c.responsibleName || `ID ${c.responsibleId}`;
+        const respId = sampleRespId ?? c.responsibleId;
+        const respName = sampleRespName ?? (c.responsibleName || `ID ${c.responsibleId}`);
         items.push({
           id: `bottleneck-testing-${c.id}`,
           companyId: c.id,
@@ -605,14 +625,8 @@ export function computeBottlenecks(
         // Authoritative current-cycle sample date only! Never fallback to c.dateCreate!
         const refDate = c.sampleShipmentDate || undefined;
         const days = refDate ? calculateDaysWaiting(refDate, now) : null;
-        const respId =
-          c.sampleStatusSource === "DEAL" && c.sampleResponsibleId
-            ? c.sampleResponsibleId
-            : c.responsibleId;
-        const respName =
-          c.sampleStatusSource === "DEAL" && c.sampleResponsibleName
-            ? c.sampleResponsibleName
-            : c.responsibleName || `ID ${c.responsibleId}`;
+        const respId = sampleRespId ?? c.responsibleId;
+        const respName = sampleRespName ?? (c.responsibleName || `ID ${c.responsibleId}`);
         items.push({
           id: `bottleneck-success-${c.id}`,
           companyId: c.id,
@@ -788,10 +802,14 @@ export function computeManagerScorecard(
   // when companyFactsIncluded !== false). Only a REAL current sample state
   // counts: NONE / blank / "—" are excluded — exact parity with the
   // Segments-side sample predicate of isActivePortfolioCompany.
+  // Phase C: SMART_PROCESS source attributes to the SP item's own
+  // responsible (sampleResponsibleId); AMBIGUOUS_MULTIPLE_ACTIVE never
+  // fabricates one current manager (no attribution).
   for (const c of companies) {
     if (!c.sampleStatus || c.sampleStatus === "—" || c.sampleStatusSource === "NONE") continue;
+    if (c.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE") continue;
     const sampleMgrId =
-      c.sampleStatusSource === "DEAL"
+      c.sampleStatusSource === "SMART_PROCESS" || c.sampleStatusSource === "DEAL"
         ? c.sampleResponsibleId
         : c.sampleStatusSource === "COMPANY" && c.companyFactsIncluded !== false
         ? c.responsibleId
@@ -842,9 +860,14 @@ export function computeManagerScorecard(
     }
 
     // Current WIP: sample status
-    // DEAL-derived -> sampleResponsibleId; COMPANY fallback -> c.responsibleId (if companyFactsIncluded !== false)
+    // SMART_PROCESS/DEAL-derived -> sampleResponsibleId (SP attribution is
+    // the SP item's own ASSIGNED_BY_ID, never the Company owner);
+    // COMPANY fallback -> c.responsibleId (if companyFactsIncluded !== false).
+    // AMBIGUOUS_MULTIPLE_ACTIVE: no arbitrary current manager attribution.
     const sampleWipMgrId =
-      c.sampleStatusSource === "DEAL"
+      c.sampleCurrentResolutionQuality === "AMBIGUOUS_MULTIPLE_ACTIVE"
+        ? undefined
+        : c.sampleStatusSource === "SMART_PROCESS" || c.sampleStatusSource === "DEAL"
         ? c.sampleResponsibleId
         : c.sampleStatusSource === "COMPANY" && c.companyFactsIncluded !== false
         ? c.responsibleId
@@ -870,33 +893,32 @@ export function computeManagerScorecard(
       }
     }
 
-    // Dated: samples sent in period (strictly using authoritative date provenance)
-    const dealSampleSenders = new Set<string>();
-    let hasAnyDealSampleSent = false;
-    for (const d of c.deals) {
-      if (d.sampleSentDate) {
-        hasAnyDealSampleSent = true;
-        if (isDateInPeriod(d.sampleSentDate, currentStart, currentEnd)) {
-          const mgr = d.responsibleId || c.responsibleId;
-          if (mgr) dealSampleSenders.add(mgr);
-        }
+    // Dated: samples sent in period (strictly per-event attribution).
+    // Phase C: canonical sampleSentEvents carry per-event provenance —
+    // SP event → SP ASSIGNED_BY_ID; Deal event → Deal responsible;
+    // Company event → Company owner. The same Company may legitimately
+    // count under two managers when separate factual events in the
+    // period were owned by different managers (union reconciles to the
+    // attributable global population).
+    const eventManagers = new Set<string>();
+    let hasAnySampleSentEvent = false;
+    for (const event of c.sampleSentEvents ?? []) {
+      if (!event.date) continue;
+      hasAnySampleSentEvent = true;
+      if (isDateInPeriod(event.date, currentStart, currentEnd)) {
+        const mgr =
+          event.source === "SMART_PROCESS" || event.source === "DEAL"
+            ? event.responsibleId
+            : c.companyFactsIncluded !== false
+            ? event.responsibleId ?? c.responsibleId
+            : undefined;
+        if (mgr) eventManagers.add(mgr);
       }
     }
 
-    if (hasAnyDealSampleSent) {
-      // Deal-authoritative sample events: attribute to each unique Deal manager for this Company
-      for (const mgrId of dealSampleSenders) {
+    if (hasAnySampleSentEvent) {
+      for (const mgrId of eventManagers) {
         const row = getOrCreate(mgrId);
-        row.samplesSent++;
-        if (!row.companyIds.includes(c.id)) {
-          row.companyIds.push(c.id);
-        }
-      }
-    } else if (c.companyFactsIncluded !== false) {
-      // No Deal shipment date exists, use Company fallback transfer date
-      const compDates = c.sampleCompanyTransferDates || [];
-      if (compDates.some((d) => isDateInPeriod(d, currentStart, currentEnd))) {
-        const row = getOrCreate(c.responsibleId);
         row.samplesSent++;
         if (!row.companyIds.includes(c.id)) {
           row.companyIds.push(c.id);
@@ -1012,9 +1034,41 @@ export function buildSampleRegister(
   const rows: SampleRegisterRow[] = [];
 
   for (const c of companies) {
+    // SP-source current state: one canonical register row for the current
+    // Smart Process item (exact provenance; linked Deal only when factual).
+    if (c.sampleStatusSource === "SMART_PROCESS" && c.sampleStatus !== "—") {
+      const linkedDeal =
+        c.sampleRelatedDealId && c.sampleRelatedDealId !== c.sampleResponsibleProcessItemId
+          ? c.deals.find((d) => d.id === c.sampleRelatedDealId)
+          : undefined;
+      rows.push({
+        id: `sample-sp-${c.sampleResponsibleProcessItemId ?? c.id}`,
+        companyId: c.id,
+        companyTitle: c.title,
+        responsibleId: c.sampleResponsibleId ?? c.responsibleId,
+        responsibleName: c.sampleResponsibleName || c.responsibleName || "Не назначен",
+        dealId: linkedDeal?.id,
+        dealTitle: linkedDeal?.title,
+        productType: linkedDeal?.productType.join(", ") || c.productType.join(", ") || "—",
+        status: c.sampleStatus,
+        statuses: c.sampleStatuses && c.sampleStatuses.length > 0 ? c.sampleStatuses : [c.sampleStatus],
+        statusRawValues: c.sampleStatusRawValues ?? [],
+        statusSource: "SMART_PROCESS",
+        shipmentDate: c.sampleShipmentDate,
+        daysSinceSent: calculateDaysWaiting(c.sampleShipmentDate, now) ?? undefined,
+        testResult: c.sampleTestResult,
+        gradeGel: c.gradeGel.join(", ") || undefined,
+        gradeSol: c.gradeSol.join(", ") || undefined,
+        qtyGel: c.qtyGel !== undefined ? `${c.qtyGel} кг` : undefined,
+        qtySol: c.qtySol !== undefined ? `${c.qtySol} л` : undefined,
+        nextAction: linkedDeal?.activityNext || undefined,
+      });
+      continue;
+    }
+
     // If company has sample-related deals, emit a row for each sample deal
     const sampleDeals = c.deals.filter((d) =>
-      Boolean(d.sampleTransferStatus || d.sampleSentDate || (d.sampleTestingStatus && d.sampleTestingStatus.length > 0))
+      Boolean(d.sampleTransferStatus || d.sampleSentDate)
     );
 
     if (sampleDeals.length > 0) {
@@ -1025,8 +1079,8 @@ export function buildSampleRegister(
         // Strict Deal-scoped provenance: never borrow company or other deal's shipment date or activity
         const shipmentDate = d.sampleSentDate || undefined;
         const days = calculateDaysWaiting(shipmentDate, now);
-        const dealStatuses = [d.sampleTransferStatus, ...d.sampleTestingStatus].filter(Boolean) as string[];
-        const dealStatusRaw = [d.sampleTransferStatusRaw, ...(d.sampleTestingStatusRaw || [])].filter(Boolean) as string[];
+        const dealStatuses = [d.sampleTransferStatus].filter(Boolean) as string[];
+        const dealStatusRaw = [d.sampleTransferStatusRaw].filter(Boolean) as string[];
         const statusDisplay = dealStatuses.join(", ") || d.sampleTransferStatus || "—";
 
         rows.push({
