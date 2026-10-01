@@ -171,11 +171,18 @@ The Commercial Funnel (`/commercial-funnel`) is a **management analytics layer**
 
 ### Segment semantics
 - All Commercial Funnel views and exports share one global analytical slice.
+- **Strict Company dimension grain**: Segment breakdowns (Industry, Direction, Product, Region) evaluate strictly from authoritative Company fields (`getCompanyDimensionValues`). Deal fields never substitute or override Company dimensions.
+- **Non-pruning dimensional filtering**: Filters for Product, Industry, Direction, and Region evaluate strictly on Company fields. Once a Company matches, its child Deals are **not pruned** by deal-level dimensions, preventing hidden undercounts in financial and operational KPIs.
 - **Same-dimension filter constraint**: When a global filter is active on a dimension, the segment breakdown for that same dimension must contain only the selected filter value (e.g. Product = Gel must not emit Sol).
 - **Cross-dimension analysis**: Filtering on one dimension (e.g. Product = Gel) does not collapse other dimensions (Industries and Directions display all relevant values within the Gel slice).
 - Multi-valued dimensions (Product, Direction) allow a company to appear in multiple rows; table totals represent the union of unique Company IDs, not row sums.
 - «Не указано» represents genuinely missing CRM dimension data, not records filtered out by active filters.
 - Never mutate factual CRM fields to implement analytical segmentation.
+
+### Commercial continuation and Deal terminal semantics
+- **Commercial continuation stages**: Evaluated canonically via `isCommercialContinuationStage(stageId, categoryId)` in `src/lib/stage-utils.ts`. For Category 0 («Общая воронка»), recognized continuation stages are `8`, `PREPARATION`, `5`, `6`, `9`, `10`, `11`, `7`, and `WON`. Testing stage `UC_SP94UZ`, `NEW`, `EXECUTING`, and terminal apology/failure stages are excluded. Non-zero categories return `false`.
+- **Full terminal apology stages**: Deal apology/lost stages across Category 0 (`1`, `2`, `4`), Category 1 (`C1:3..6`), Category 3 (`C3:2..3`), Category 5 (`C5:APOLOGY`), and Category 7 (`C7:LOSE`) are canonically terminal (`isTerminalLostStage`/`isTerminalStage`), never active, and never create stalled deal bottlenecks.
+- **Sample WIP Deal count**: In `computeWipMetrics`, `dealCount` strictly counts the Deal attached to the current canonical sample cycle (`sampleRelatedDealId` for Smart Process, `sampleResponsibleDealId` for Deal legacy, and `0` for Company legacy fallback). Sibling deals are never summed into sample WIP deal count.
 
 ### Financial quality and currency isolation
 - Aggregate financial amount data-quality states:

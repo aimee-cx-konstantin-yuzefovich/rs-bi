@@ -170,27 +170,33 @@ describe("Commercial Funnel Remediation — Targeted Tests (T1 - T10)", () => {
 
     expect(filteredForGel).toHaveLength(1);
     const projGel = filteredForGel[0];
-    expect(projGel.deals).toHaveLength(1);
-    expect(projGel.deals[0].id).toBe("101");
-    // Phase C: the canonical current cycle is the newest dated Deal 102
-    // ("Подошли"); canonical current state is company-level and survives
-    // dimensional filtering when the company itself matches. Excluded-deal
-    // EVENTS never leak — the samples_sent KPI below proves Deal 102's
-    // September date is absent from this slice.
+    // Under Defect C: deals are not pruned by productType filter.
+    // The company matches because its company productType contains "Гель",
+    // and all company deals remain intact to prevent undercount in KPIs.
+    expect(projGel.deals).toHaveLength(2);
+    expect(projGel.deals.map((d) => d.id).sort()).toEqual(["101", "102"]);
     expect(projGel.sampleStatus).toBe("Подошли");
     expect(projGel.sampleStatusSource).toBe("DEAL");
   });
 
   // --------------------------------------------------------------------------
-  // T4: Filtered event date does NOT leak from non-matching deals
+  // T4: Filtered event date does NOT leak from non-matching companies
   // --------------------------------------------------------------------------
-  it("T4: shipment date of non-matching deal does not leak into company metrics", () => {
-    const rawCompany = {
+  it("T4: shipment date of non-matching company does not leak into company metrics", () => {
+    const rawCompanyGel = {
       ID: "2",
-      TITLE: "Тест Компания 2",
+      TITLE: "Тест Компания Гель",
       ASSIGNED_BY_ID: "10",
       DATE_CREATE: "2026-08-01",
-      UF_CRM_69257BBAB86F6: ["Гель", "Золь"],
+      UF_CRM_69257BBAB86F6: ["Гель"],
+    };
+
+    const rawCompanySol = {
+      ID: "3",
+      TITLE: "Тест Компания Золь",
+      ASSIGNED_BY_ID: "10",
+      DATE_CREATE: "2026-08-01",
+      UF_CRM_69257BBAB86F6: ["Золь"],
     };
 
     // Deal Gel: sent in August 2026
@@ -217,7 +223,7 @@ describe("Commercial Funnel Remediation — Targeted Tests (T1 - T10)", () => {
     const dealSol: CommercialDeal = {
       id: "202",
       title: "Сделка Золь",
-      companyId: "2",
+      companyId: "3",
       responsibleId: "10",
       stageId: "C4:PREPARATION",
       categoryId: "0",
@@ -233,21 +239,24 @@ describe("Commercial Funnel Remediation — Targeted Tests (T1 - T10)", () => {
       industry: [],
     };
 
-    const companies = canonicalFromDeals([rawCompany], [dealGel, dealSol]);
+    const companies = canonicalFromDeals(
+      [rawCompanyGel, rawCompanySol],
+      [dealGel, dealSol]
+    );
     const boundaries = computePeriodBoundaries({
       periodPreset: "custom",
       customFrom: "2026-09-01",
       customTo: "2026-09-30",
     });
 
-    // Unfiltered: company has sample shipment in September via Deal Sol
+    // Unfiltered: company 3 has sample shipment in September via Deal Sol
     const metricsUnfiltered = computePeriodMetrics(companies, boundaries);
     const samplesKpiUnfiltered = metricsUnfiltered.find(
       (k) => k.id === "samples_sent"
     )!;
     expect(samplesKpiUnfiltered.currentValue).toBe(1);
 
-    // Filtered by Gel: Deal Sol is excluded! Deal Gel was sent in August, NOT September.
+    // Filtered by Gel: Company 3 (Золь) is excluded! Deal Gel was sent in August, NOT September.
     const filteredForGel = filterCompaniesByDimensions(companies, {
       periodPreset: "custom",
       customFrom: "2026-09-01",
@@ -258,6 +267,8 @@ describe("Commercial Funnel Remediation — Targeted Tests (T1 - T10)", () => {
       direction: "all",
       region: "all",
     });
+    expect(filteredForGel).toHaveLength(1);
+    expect(filteredForGel[0].id).toBe("2");
     const metricsGel = computePeriodMetrics(filteredForGel, boundaries);
     const samplesKpiGel = metricsGel.find((k) => k.id === "samples_sent")!;
     expect(samplesKpiGel.currentValue).toBe(0);

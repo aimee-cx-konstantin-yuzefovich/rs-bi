@@ -197,9 +197,8 @@ describe("Commercial Funnel — Mandatory Reconciliation Tests", () => {
 
     const wip = computeWipMetrics([multiDealCompany]);
     const inTestingWip = wip.find((w) => w.id === "На испытании")!;
-    expect(inTestingWip.companyCount).toBe(1);
-    // Only the 2 deals matching the sample testing status are counted, excluding unrelated deal 3
-    expect(inTestingWip.dealCount).toBe(2);
+    // Defect F: only the Deal attached to the current canonical sample cycle is counted once (no historical sibling summation)
+    expect(inTestingWip.dealCount).toBe(1);
     expect(inTestingWip.companyIds).toEqual(["999"]);
   });
 

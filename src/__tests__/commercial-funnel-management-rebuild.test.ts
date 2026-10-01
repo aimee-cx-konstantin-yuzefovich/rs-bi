@@ -84,7 +84,7 @@ describe("computeFunnelView — event vs snapshot isolation (T03, T04)", () => {
       id: "1",
       sampleStatus: "Подошли",
       sampleStatusSource: "DEAL",
-      deals: [deal({ id: "d1", stageId: "C4:EXECUTING" })],
+      deals: [deal({ id: "d1", stageId: "PREPARATION" })],
     });
     const noDeal = company({ id: "2", sampleStatus: "Подошли", sampleStatusSource: "COMPANY" });
     const view = computeFunnelView([c, noDeal], bounds);

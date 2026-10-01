@@ -24,7 +24,7 @@ import { getCurrencyUniverse } from "./currency";
 import { compareCompanyIds } from "./analytics-helpers";
 
 export { getCurrencyUniverse } from "./currency";
-import { isDealActiveStage, isProgressedCommercialStage } from "./stage-utils";
+import { isDealActiveStage, isCommercialContinuationStage, isProgressedCommercialStage } from "./stage-utils";
 import { evaluateStalledDeal } from "./bottlenecks";
 import type {
   AggregateAmountQuality,
@@ -92,30 +92,25 @@ export function filterCompaniesByDimensions(
   const result: CommercialCompany[] = [];
 
   for (const company of companies) {
-    // 1. Filter child deals to only those matching all active dimension filters
-    const matchingDeals = company.deals.filter((deal) => {
-      if (hasRespFilter && deal.responsibleId !== filters.responsibleId) return false;
-      if (hasProdFilter && !deal.productType.includes(filters.productType!)) return false;
-      if (hasIndFilter && !deal.industry.includes(filters.industry!)) return false;
-      if (hasDirFilter && !deal.direction.includes(filters.direction!)) return false;
-      if (hasRegFilter && deal.region !== filters.region) return false;
-      return true;
-    });
+    // 1. Company classification dimensions check (Company-only grain, Defect C)
+    // Child deals must NOT rescue, exclude, or alter Company classification slice.
+    if (hasProdFilter && !company.productType.includes(filters.productType!)) continue;
+    if (hasIndFilter && company.industry !== filters.industry) continue;
+    if (hasDirFilter && !company.direction.includes(filters.direction!)) continue;
+    if (hasRegFilter && company.region !== filters.region) continue;
 
-    // 2. Check if company itself matches at company level
-    let companyMatches = true;
-    if (hasRespFilter && company.responsibleId !== filters.responsibleId) companyMatches = false;
-    if (hasProdFilter && !company.productType.includes(filters.productType!)) companyMatches = false;
-    if (hasIndFilter && company.industry !== filters.industry) companyMatches = false;
-    if (hasDirFilter && !company.direction.includes(filters.direction!)) companyMatches = false;
-    if (hasRegFilter && company.region !== filters.region) companyMatches = false;
+    // 2. Responsible scoping (Section 6)
+    // Very important: DO NOT prune deals by Deal product/industry/direction/region!
+    // Deals retain full facts for the segment; only prune by responsibleId if active.
+    const matchingDeals = hasRespFilter
+      ? company.deals.filter((deal) => deal.responsibleId === filters.responsibleId)
+      : company.deals;
 
-    // Phase C: when a responsible filter is active, the canonical current
-    // sample state (a company-level fact from the one sample engine) is
-    // attributed to a specific manager. It surfaces in this slice only
-    // when that manager matches the filter (or the company itself
-    // matches); otherwise it becomes truthful NONE for this grain (no
-    // recomputation from the filtered deal subset; no second engine).
+    const companyMatches = hasRespFilter
+      ? company.responsibleId === filters.responsibleId
+      : true;
+
+    // Current sample state attribution under responsible filter
     let includeCanonicalSampleState = companyMatches;
     if (hasRespFilter && !companyMatches && company.sampleStatusSource !== "NONE") {
       const sampleMgrId =
@@ -127,18 +122,24 @@ export function filterCompaniesByDimensions(
       includeCanonicalSampleState = sampleMgrId === filters.responsibleId;
     }
 
-    // Retain company if company itself matches OR it has matching child deals
-    if (companyMatches || matchingDeals.length > 0) {
-      result.push(
-        reprojectCompanyForFilteredGrain(
-          company,
-          matchingDeals,
-          companyMatches,
-          undefined,
-          includeCanonicalSampleState
-        )
+    if (hasRespFilter) {
+      const hasSentEvent = (company.sampleSentEvents ?? []).some(
+        (e) => e.responsibleId === filters.responsibleId
       );
+      if (!companyMatches && matchingDeals.length === 0 && !includeCanonicalSampleState && !hasSentEvent) {
+        continue;
+      }
     }
+
+    result.push(
+      reprojectCompanyForFilteredGrain(
+        company,
+        matchingDeals,
+        companyMatches,
+        undefined,
+        includeCanonicalSampleState
+      )
+    );
   }
 
   return result;
@@ -484,25 +485,6 @@ export function computePeriodMetrics(
   ];
 }
 
-/**
- * Check if a Deal has sample evidence matching a specific WIP status key.
- *
- * Phase C (marker isolation): the navigation marker
- * (UF_CRM_1779394379 → deal.sampleTestingStatus) is MARKER_ONLY and never
- * contributes to analytical status matching. Deal evidence is
- * sampleTransferStatus + sampleSentDate only.
- */
-function isDealMatchingSampleStatus(deal: CommercialDeal, targetKey: string): boolean {
-  if (deal.sampleTransferStatus) {
-    if (deal.sampleTransferStatus === targetKey || deal.sampleTransferStatus.startsWith(targetKey)) {
-      return true;
-    }
-  }
-  if (targetKey === UNCLASSIFIED_LABEL) {
-    if (deal.sampleTransferStatus?.startsWith(UNCLASSIFIED_LABEL)) return true;
-  }
-  return false;
-}
 
 /**
  * Calculate Current State / WIP KPIs (WHERE COMPANIES/DEALS ARE NOW).
@@ -529,9 +511,20 @@ export function computeWipMetrics(companies: CommercialCompany[]): WipKpi[] {
       const entry = map.get(targetKey) || map.get(UNCLASSIFIED_LABEL)!;
       entry.companyIds.add(c.id);
 
-      // Only count deals that actually carry sample evidence for this status
-      const matchingDeals = c.deals.filter((d) => isDealMatchingSampleStatus(d, targetKey));
-      entry.dealCount += matchingDeals.length;
+      // Defect F: count the Deal attached to the CURRENT canonical sample cycle
+      if (c.sampleStatusSource === "SMART_PROCESS" && c.sampleRelatedDealId) {
+        if (c.deals.some((d) => d.id === c.sampleRelatedDealId)) {
+          entry.dealCount += 1;
+        }
+      } else if (c.sampleStatusSource === "DEAL") {
+        const targetDealId =
+          c.sampleResponsibleDealId ||
+          c.deals.find((d) => d.sampleTransferStatus && (d.sampleTransferStatus === targetKey || d.sampleTransferStatus.startsWith(targetKey)))?.id;
+        if (targetDealId && c.deals.some((d) => d.id === targetDealId)) {
+          entry.dealCount += 1;
+        }
+      }
+      // COMPANY_LEGACY or NONE: 0 (no authoritative current Deal)
     }
   }
 
@@ -645,7 +638,7 @@ export function computeBottlenecks(
 
     // 2. Sample succeeded but no commercial progression
     if (c.sampleStatus === "Подошли") {
-      const hasProgressed = c.deals.some((d) => isProgressedCommercialStage(d.stageId));
+      const hasProgressed = c.deals.some((d) => isCommercialContinuationStage(d.stageId, d.categoryId));
       if (!hasProgressed) {
         // Authoritative current-cycle sample date only! Never fallback to c.dateCreate!
         const refDate = c.sampleShipmentDate || undefined;

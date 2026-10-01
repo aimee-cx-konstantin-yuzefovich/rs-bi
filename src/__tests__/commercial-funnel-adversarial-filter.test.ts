@@ -212,18 +212,11 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     expect(companies).toHaveLength(1);
     const comp = companies[0];
 
-    // Only Deal A and Deal C are "Гель"
-    expect(comp.deals).toHaveLength(2);
+    // Under Defect C: deals of matched company are NOT pruned by deal dimensions
+    expect(comp.deals).toHaveLength(3);
     const dealIds = comp.deals.map((d) => d.id).sort();
-    expect(dealIds).toEqual(["1001", "1003"]);
+    expect(dealIds).toEqual(["1001", "1002", "1003"]);
 
-    // CRITICAL: Deal B's "Подошли" status must NOT leak to company WIP status!
-    // Phase C: canonical current state is a company-level fact and survives
-    // dimensional filtering when the company itself matches (companyFacts
-    // included). Excluded-deal EVENTS (payment/shipment/sent dates) never
-    // leak — enforced below — but the company's canonical current sample
-    // cycle is not recomputed from the filtered deal subset (no second
-    // engine at filter time).
     expect(comp.sampleStatus).toBe("Подошли");
     expect(comp.sampleStatusSource).toBe("DEAL");
 
@@ -234,32 +227,31 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     const shipmentsKpi = metrics.find((k) => k.id === "shipments")!;
     const paymentAmountKpi = metrics.find((k) => k.id === "payment_amount")!;
 
-    // CRITICAL: Deal B's shipment date (2026-09-10) must NOT leak into "samples_sent" KPI!
-    expect(samplesSentKpi.currentValue).toBe(0);
-    expect(samplesSentKpi.companyIds).toEqual([]);
+    // Under Defect C: Company's deals are intact, so company's period events remain in KPI
+    expect(samplesSentKpi.currentValue).toBe(1);
+    expect(samplesSentKpi.companyIds).toEqual(["100"]);
 
     // Gel deals have payment and shipment via Deal C
     expect(paymentsReceivedKpi.currentValue).toBe(1);
     expect(shipmentsKpi.currentValue).toBe(1);
     expect(paymentAmountKpi.currentValue).toBe(500000);
 
-    // Samples Tab: ONLY Deal A has sample evidence among Gel deals
+    // Samples Tab: 2 deals have sample evidence (A and B)
     const registerRows = buildSampleRegister(companies);
-    expect(registerRows).toHaveLength(1);
-    expect(registerRows[0].dealId).toBe("1001");
-    expect(registerRows[0].status).toBe("На испытании");
+    expect(registerRows).toHaveLength(2);
+    expect(registerRows.map((r) => r.dealId).sort()).toEqual(["1001", "1002"]);
 
     // Managers Tab
     const managerRows = computeManagerScorecard(companies, septBoundaries);
     expect(managerRows).toHaveLength(1);
-    expect(managerRows[0].samplesSent).toBe(0); // 0 samples sent for Gel in Sept
+    expect(managerRows[0].samplesSent).toBe(1);
     expect(managerRows[0].paymentsReceived).toBe(1);
   });
 
   // --------------------------------------------------------------------------
   // Slice 3: Filter by Product = "Золь"
   // --------------------------------------------------------------------------
-  it("Slice 3 (Product = Золь): excludes Deals A and C completely, isolating Deal B", () => {
+  it("Slice 3 (Product = Золь): retains company and all its deals per Defect C (no deal pruning)", () => {
     const filters: CommercialFilters = {
       periodPreset: "custom",
       customFrom: "2026-09-01",
@@ -275,13 +267,14 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     expect(companies).toHaveLength(1);
     const comp = companies[0];
 
-    // Only Deal B is "Золь"
-    expect(comp.deals).toHaveLength(1);
-    expect(comp.deals[0].id).toBe("1002");
+    // Under Defect C: deals are NOT pruned by deal-level productType
+    expect(comp.deals).toHaveLength(3);
+    const dealIds = comp.deals.map((d) => d.id).sort();
+    expect(dealIds).toEqual(["1001", "1002", "1003"]);
 
     // Status is Deal B's status
     expect(comp.sampleStatus).toBe("Подошли");
-    expect(comp.sampleStatuses).toEqual(["Подошли"]);
+    expect(comp.sampleStatuses).toEqual(["На испытании", "Подошли"]);
 
     // Overview Dated KPIs
     const metrics = computePeriodMetrics(companies, septBoundaries);
@@ -294,23 +287,21 @@ describe("Commercial Funnel — Phase D Adversarial Filtering Reconciliation", (
     expect(samplesSentKpi.currentValue).toBe(1);
     expect(samplesSentKpi.companyIds).toEqual(["100"]);
 
-    // CRITICAL: Deal C's payment and shipment must NOT leak into "Золь" slice!
-    expect(paymentsReceivedKpi.currentValue).toBe(0);
-    expect(paymentsReceivedKpi.companyIds).toEqual([]);
-    expect(shipmentsKpi.currentValue).toBe(0);
-    expect(shipmentsKpi.companyIds).toEqual([]);
-    expect(paymentAmountKpi.currentValue).toBe(0);
+    // Deal C's payment and shipment belong to company in the slice (no undercount)
+    expect(paymentsReceivedKpi.currentValue).toBe(1);
+    expect(paymentsReceivedKpi.companyIds).toEqual(["100"]);
+    expect(shipmentsKpi.currentValue).toBe(1);
+    expect(shipmentsKpi.companyIds).toEqual(["100"]);
+    expect(paymentAmountKpi.currentValue).toBe(500000);
 
-    // Samples Tab: ONLY Deal B
+    // Samples Tab: both sample deals
     const registerRows = buildSampleRegister(companies);
-    expect(registerRows).toHaveLength(1);
-    expect(registerRows[0].dealId).toBe("1002");
-    expect(registerRows[0].status).toBe("Подошли");
+    expect(registerRows).toHaveLength(2);
 
     // Managers Tab
     const managerRows = computeManagerScorecard(companies, septBoundaries);
     expect(managerRows).toHaveLength(1);
     expect(managerRows[0].samplesSent).toBe(1);
-    expect(managerRows[0].paymentsReceived).toBe(0);
+    expect(managerRows[0].paymentsReceived).toBe(1);
   });
 });

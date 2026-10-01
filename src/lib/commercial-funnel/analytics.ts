@@ -30,6 +30,7 @@ import {
 } from "./engine";
 import {
   isDealActiveStage,
+  isCommercialContinuationStage,
   isProgressedCommercialStage,
 } from "./stage-utils";
 import type {
@@ -209,7 +210,7 @@ export function computeFunnelView(
   for (const c of companies) {
     if (c.sampleStatus === "Подошли") {
       positiveIds.push(c.id);
-      if (c.deals.some((d) => isProgressedCommercialStage(d.stageId))) {
+      if (c.deals.some((d) => isCommercialContinuationStage(d.stageId, d.categoryId))) {
         continuationIds.push(c.id);
       }
     }
@@ -249,47 +250,23 @@ function getCompanyDimensionValues(
 }
 
 /**
- * EFFECTIVE SEGMENT PROVENANCE (Defect G fix).
+ * Authoritative Segment Value Derivation (Section 7).
  *
- * Global dimensional filters retain a Company when EITHER its factual
- * Company-level dimension matched OR a child Deal matched
- * (companyFactsIncluded === false means only the Deal path matched).
- * Reading raw factual fields alone would then place such a Company under a
- * factual value that the global filter excluded — the Segment view would
- * contradict the very filter that retained the Company.
+ * For Segments:
+ *   Industry → Company Industry
+ *   Direction → Company Direction
+ *   Product → Company Product
+ * always.
  *
- * Contract:
- *   1. companyFactsIncluded !== false (Company matched the filter itself)
- *      → the Company's factual dimension values are used.
- *   2. companyFactsIncluded === false (retained only via matching Deals)
- *      → the union of the surviving (filtered) Deals' dimension values is
- *      used. Multi-value union semantics are explicit: a Company may appear
- *      in several rows, but the grand total counts unique companies once.
- *
- * Factual Company fields are NEVER mutated — this is a separate analytical
- * derivation. Company inclusion is unchanged from canonical filtering.
+ * Even if a Company enters the Responsible slice only because the selected
+ * manager owns a Deal, its Industry/Direction/Product remains the factual
+ * Company dimensions (never substituted by Deal-derived dimensions).
  */
 export function getAnalyticalSegmentValues(
   c: CommercialCompany,
   dimension: SegmentDimension
 ): string[] {
-  if (c.companyFactsIncluded !== false) {
-    return getCompanyDimensionValues(c, dimension);
-  }
-  // Deal-retained slice: derive the effective segment from the surviving deals.
-  const values = new Set<string>();
-  for (const d of c.deals) {
-    const dealValues =
-      dimension === "industry"
-        ? d.industry || []
-        : dimension === "direction"
-        ? d.direction || []
-        : d.productType || [];
-    for (const v of dealValues) {
-      if (v) values.add(v);
-    }
-  }
-  return Array.from(values);
+  return getCompanyDimensionValues(c, dimension);
 }
 
 /**

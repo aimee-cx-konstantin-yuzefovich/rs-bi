@@ -30,6 +30,7 @@ import type {
 } from "./types";
 import {
   isDealActiveStage,
+  isCommercialContinuationStage,
   isProgressedCommercialStage,
   isTerminalStage,
 } from "./stage-utils";
@@ -822,7 +823,9 @@ function recomputeCanonicalSampleAttention(
   }
 
   if (company.sampleStatus === "Подошли") {
-    const hasProgressedDeal = company.deals.some((d) => isProgressedCommercialStage(d.stageId));
+    const hasProgressedDeal = company.deals.some((d) =>
+      isCommercialContinuationStage(d.stageId, d.categoryId)
+    );
     if (!hasProgressedDeal) {
       sampleReasons.push("Образец подошел, но нет прогресса по коммерческой сделке");
     }
@@ -977,7 +980,9 @@ export function reprojectCompanyForFilteredGrain(
 
   // Bottleneck 2: Sample succeeded but no commercial deal progress in matching deals
   if (sampleStatus === "Подошли") {
-    const hasProgressedDeal = matchingDeals.some((d) => isProgressedCommercialStage(d.stageId));
+    const hasProgressedDeal = matchingDeals.some((d) =>
+      isCommercialContinuationStage(d.stageId, d.categoryId)
+    );
     if (!hasProgressedDeal) {
       attentionReasons.push("Образец подошел, но нет прогресса по коммерческой сделке");
     }
@@ -1059,8 +1064,8 @@ export function normalizeCompanies(
 ): CommercialCompany[] {
   const { userNames = {}, statusLabels = {}, now = new Date() } = options;
   const companySampleLabels = statusLabels[COMPANY_SAMPLES_FIELD_ID] || {};
-  const companyIndustryLabels = statusLabels[COMPANY_INDUSTRY_CURRENT_FIELD_ID] || statusLabels["INDUSTRY"] || {};
-  const companyDirectionLabels = statusLabels[COMPANY_DIRECTION_CURRENT_FIELD_ID] || statusLabels[COMPANY_DIRECTION_FIELD_ID] || {};
+  const companyIndustryLabels = statusLabels[COMPANY_INDUSTRY_CURRENT_FIELD_ID] || {};
+  const companyDirectionLabels = statusLabels[COMPANY_DIRECTION_CURRENT_FIELD_ID] || {};
   const companyProductLabels = statusLabels[COMPANY_PRODUCT_TYPE_FIELD_ID] || {};
 
   // Group deals by company ID
