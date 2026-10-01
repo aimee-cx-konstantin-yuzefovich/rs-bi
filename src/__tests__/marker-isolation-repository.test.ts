@@ -44,7 +44,12 @@ import { isActivePortfolioCompany } from "@/lib/commercial-funnel/analytics";
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
 import { DEAL_SAMPLE_TESTING_FIELD_ID, DEAL_SAMPLE_TRANSFER_FIELD_ID, DEAL_SAMPLE_SENT_DATE_FIELD_ID } from "@/lib/crm-constants";
 
-const ROOT = path.resolve(__dirname, "..");
+// __dirname is src/__tests__; the repository root is exactly one level up
+// from the tests directory's parent only when tests live at src/__tests__.
+// The grep contract MUST run from the repository root (where src/ and
+// scripts/ both exist) — resolving it to src/ makes `grep src scripts`
+// fail silently and the contract check nothing.
+const ROOT = path.resolve(__dirname, "..", "..");
 
 describe("Phase C — Marker isolation (§45)", () => {
   it("A. grep contract: UF_CRM_1779394379 appears only in sanctioned paths", () => {
@@ -72,6 +77,24 @@ describe("Phase C — Marker isolation (§45)", () => {
       [...output.split("\n"), ...constantFiles.split("\n")].map((f) => f.trim()).filter(Boolean)
     );
 
+    // Guard against a silently no-op grep (e.g. wrong cwd): the contract
+    // must observe at least the central definition and the MARKER_ONLY
+    // adapter, otherwise it proves nothing.
+    expect(
+      files.has("src/lib/crm-constants.ts"),
+      "grep contract found no files — ROOT/cwd is wrong and the check is a no-op"
+    ).toBe(true);
+    expect(
+      files.has("src/lib/samples/adapters/deal-legacy.ts"),
+      "grep contract did not observe the MARKER_ONLY adapter"
+    ).toBe(true);
+    expect(files.size).toBeGreaterThanOrEqual(10);
+
+    // SANCTIONED PATHS — each entry audited as marker/preview/display/
+    // SELECT/comment-only. Every file was manually verified to use
+    // UF_CRM_1779394379 exclusively for: the central ID definition,
+    // re-exports, fixed SELECT clauses, preview drawer display, doc
+    // comments, or test fixtures — never as an analytical input.
     const sanctioned = new Set(
       [
         "src/lib/crm-constants.ts", // central ID definition
@@ -79,6 +102,13 @@ describe("Phase C — Marker isolation (§45)", () => {
         "src/lib/samples/adapters/deal-legacy.ts", // MARKER_ONLY classification
         "src/lib/samples/bitrix-fetch.ts", // SELECT (raw fetch for preview)
         "src/lib/commercial-funnel/normalize.ts", // raw preview payload on CommercialDeal
+        "src/lib/commercial-funnel/engine.ts", // doc comment only (MARKER_ONLY note)
+        "src/lib/deal-preview.ts", // preview drawer display only
+        "src/lib/samples/project.ts", // marker passthrough for preview inspection
+        "src/lib/samples/reconcile.ts", // doc comment only
+        "src/lib/samples/model.ts", // doc comment only
+        "src/lib/samples/aggregate.ts", // doc comment only
+        "src/lib/bitrix-contract-spec.ts", // contract schema metadata (SELECT spec)
         "src/app/api/bitrix/samples/route.ts", // fixed SELECT
         "src/app/api/bitrix/commercial-funnel/route.ts", // fixed SELECT
         "src/__tests__/marker-isolation-repository.test.ts",
@@ -87,6 +117,16 @@ describe("Phase C — Marker isolation (§45)", () => {
         "src/__tests__/samples-api.test.ts",
         "src/__tests__/commercial-funnel-engine.test.ts",
         "src/__tests__/commercial-funnel-sample-cycle.test.ts",
+        "src/__tests__/samples-aggregate.test.ts",
+        "src/__tests__/commercial-funnel-adversarial-filter.test.ts",
+        "src/__tests__/commercial-funnel-golden-reconciliation.test.ts",
+        "src/__tests__/commercial-funnel-benchmark.test.ts",
+        "src/__tests__/samples-characterization.test.ts",
+        "src/__tests__/samples-sentinel-activity.test.ts",
+        "src/__tests__/deal-preview-contract.test.tsx",
+        "src/__tests__/ingress-to-domain-e2e.test.ts",
+        "src/__tests__/global-adversarial-reconciliation.test.ts",
+        "src/__tests__/bitrix-contract.test.ts",
         "scripts/verify-bitrix-contract.mjs",
         "scripts/verify-samples-field-map.mjs",
       ]
