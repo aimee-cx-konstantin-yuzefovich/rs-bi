@@ -68,24 +68,44 @@ describe("Live Contract Consistency & Anti-Drift Guard (§30)", () => {
   });
 
   it("3. Company product and marker fields match contract", () => {
-    const cardFields: Array<{ order: number; concept: string; fieldId: string }> =
+    const cardFields: Array<{ order: number; concept: string; fieldId: string; type?: string; multiple?: boolean; sourceMultiple?: boolean }> =
       contract.companyPreview.fields;
 
     const gel = cardFields.find((f) => f.concept === "Используемая марка — ГЕЛЬ");
+    expect(gel, "UF_CRM_1781806326214 must exist in contract").toBeDefined();
     expect(COMPANY_GEL_GRADE_USED_FIELD_ID).toBe(gel?.fieldId);
     expect(COMPANY_GEL_GRADE_USED_FIELD_ID).toBe("UF_CRM_1781806326214");
+    expect(gel?.type).toBe("string");
+    expect(gel?.multiple).toBe(true);
+    expect(gel?.sourceMultiple).toBe(true);
 
     const gelCons = cardFields.find((f) => f.concept === "Потребление — ГЕЛЬ");
+    expect(gelCons, "UF_CRM_1781806269703 must exist in contract").toBeDefined();
     expect(gelCons?.fieldId).toBe("UF_CRM_1781806269703");
+    expect(gelCons?.type).toBe("string");
+    expect(gelCons?.multiple).toBe(true);
+    expect(gelCons?.sourceMultiple).toBe(true);
 
     const sol = cardFields.find((f) => f.concept === "Используемая марка — ЗОЛЬ");
+    expect(sol, "UF_CRM_1781806285641 must exist in contract").toBeDefined();
     expect(sol?.fieldId).toBe("UF_CRM_1781806285641");
+    expect(sol?.type).toBe("string");
+    expect(sol?.multiple).toBe(true);
+    expect(sol?.sourceMultiple).toBe(true);
 
     const solCons = cardFields.find((f) => f.concept === "Потребление — ЗОЛЬ");
+    expect(solCons, "UF_CRM_1781806301447 must exist in contract").toBeDefined();
     expect(solCons?.fieldId).toBe("UF_CRM_1781806301447");
+    expect(solCons?.type).toBe("string");
+    expect(solCons?.multiple).toBe(true);
+    expect(solCons?.sourceMultiple).toBe(true);
 
     const prices = cardFields.find((f) => f.concept === "Фактические цены");
+    expect(prices, "UF_CRM_1782743261289 must exist in contract").toBeDefined();
     expect(prices?.fieldId).toBe("UF_CRM_1782743261289");
+    expect(prices?.type).toBe("money");
+    expect(prices?.multiple).toBe(true);
+    expect(prices?.sourceMultiple).toBe(true);
 
     const prodComm = cardFields.find((f) => f.concept === "Комментарий по используемым продуктам");
     expect(COMPANY_COMMENTS_PRODUCT_FIELD_ID).toBe(prodComm?.fieldId);
@@ -139,8 +159,29 @@ describe("Live Contract Consistency & Anti-Drift Guard (§30)", () => {
       "UF_CRM_1782743261289",
     ];
     for (const fid of multipleFieldIds) {
-      const match = contract.companyPreview.fields.find((f: { fieldId: string }) => f.fieldId === fid);
+      const match = contract.companyPreview.fields.find((f: { fieldId: string; multiple?: boolean; sourceMultiple?: boolean }) => f.fieldId === fid);
       expect(match?.multiple, `Field ${fid} must have multiple: true`).toBe(true);
+      expect(match?.sourceMultiple, `Field ${fid} must have sourceMultiple: true`).toBe(true);
+    }
+  });
+
+  it("6. Explicit separation of Company Preview row structure vs upstream Bitrix source multiplicity (§30)", () => {
+    const cardFields: Array<{ fieldId: string; concept: string; multiple: boolean; sourceMultiple?: boolean }> =
+      contract.companyPreview.fields;
+
+    // Upstream multi-value fields rendered as a single UI row in Company Preview
+    const singleRowMultiSource = [
+      { fieldId: "CONTACT", concept: "Контакт" },
+      { fieldId: "WEB", concept: "Сайт" },
+      { fieldId: "PHONE", concept: "Телефон" },
+      { fieldId: "EMAIL", concept: "E-mail" },
+    ];
+
+    for (const item of singleRowMultiSource) {
+      const f = cardFields.find((f) => f.fieldId === item.fieldId);
+      expect(f, `Field ${item.fieldId} must be present in companyPreview`).toBeDefined();
+      expect(f?.multiple, `Preview row for ${item.fieldId} must remain single (multiple: false)`).toBe(false);
+      expect(f?.sourceMultiple, `Upstream CRM source for ${item.fieldId} must be declared multiple (sourceMultiple: true)`).toBe(true);
     }
   });
 });

@@ -463,11 +463,14 @@ describe("Phase D — Company Preview current-card contract", () => {
   });
 
   it("PRIVACY: fail-closed contact resolution for arbitrary tokens and UUIDs", () => {
-    for (const token of ["abc123", "contact_42", "a8bab56b-55dd-4327-90f4-c0a3456deac2"]) {
+    for (const token of ["123", 123, "42", 42, "abc123", "contact_42", "a8bab56b-55dd-4327-90f4-c0a3456deac2"]) {
       const model = buildCompanyPreviewModel({ ID: "1", CONTACT_ID: token }, { contactNames: {} });
       const contactVal = model.fields.find((f) => f.id === "CONTACT")?.value;
       expect(contactVal).toBe("Контакт не удалось загрузить");
-      expect(contactVal).not.toContain(token);
+      expect(contactVal).not.toContain(String(token));
+      expect(contactVal).not.toBe(String(token));
+      expect(contactVal).not.toBe(`#${token}`);
+      expect(contactVal).not.toBe(`Контакт #${token}`);
     }
   });
 

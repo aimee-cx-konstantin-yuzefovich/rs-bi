@@ -49,6 +49,8 @@ export function normalizeCompanyPreview(item: Record<string, unknown>) {
     revenue: "REVENUE", currencyId: "CURRENCY_ID", industry: "INDUSTRY",
     companyType: "COMPANY_TYPE", employees: "EMPLOYEES", comments: "COMMENTS",
     web: "WEB", companyId2: "COMPANY_ID",
+    contactId: "CONTACT_ID", CONTACT_ID: "CONTACT_ID",
+    contactName: "CONTACT_NAME", CONTACT_NAME: "CONTACT_NAME",
   };
   for (const [key, value] of Object.entries(item)) {
     if (key.startsWith("UF_CRM_")) company[key] = value;

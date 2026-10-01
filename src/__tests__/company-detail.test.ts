@@ -8,6 +8,7 @@ vi.mock("@/lib/config.server", () => config);
 vi.mock("@/lib/auth-guard", () => ({ ...auth, isAuthError: (value: unknown) => value instanceof NextResponse }));
 import { GET } from "@/app/api/bitrix/companies/[id]/route";
 import { bitrixPost } from "@/lib/bitrix";
+import { buildCompanyPreviewModel } from "@/lib/company-preview";
 
 const webhook = "https://portal.bitrix24.ru/rest/1/SECRET_TOKEN";
 const fetchMock = vi.fn();
@@ -84,5 +85,43 @@ describe("company detail endpoint through the real Bitrix client", () => {
     vi.stubEnv("BITRIX_WEBHOOK_URL", "http://portal.example/rest/1/token");
     expect((await request()).status).toBe(502);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("contact relation integration: preserves contactId, resolves human name when known, and fails closed without leaking raw ID", async () => {
+    upstream({
+      result: {
+        item: {
+          id: 42,
+          title: "Компания с контактом",
+          assignedById: 7,
+          contactId: 123,
+          createdTime: "2026-01-01T10:00:00Z",
+        },
+      },
+    });
+
+    const response = await request();
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.company.CONTACT_ID).toBe(123);
+
+    // Resolvable contact relation yields human name
+    const resolvedModel = buildCompanyPreviewModel(body.company, {
+      contactNames: { "123": "Иван Смирнов" },
+    });
+    const resolvedContact = resolvedModel.fields.find((f) => f.id === "CONTACT");
+    expect(resolvedContact?.value).toBe("Иван Смирнов");
+
+    // Unresolvable contact relation fails closed and never leaks naked ID
+    const unresolvableModel = buildCompanyPreviewModel(body.company, {
+      contactNames: {},
+    });
+    const unresolvableContact = unresolvableModel.fields.find((f) => f.id === "CONTACT");
+    expect(unresolvableContact?.value).toBe("Контакт не удалось загрузить");
+    expect(unresolvableContact?.value).not.toContain("123");
+    expect(unresolvableContact?.value).not.toContain("#");
+    expect(unresolvableContact?.value).not.toBe("123");
+    expect(unresolvableContact?.value).not.toBe("#123");
+    expect(unresolvableContact?.value).not.toBe("Контакт #123");
   });
 });
