@@ -143,6 +143,7 @@ export interface CompanyPreviewResolveContext {
   fields: CompanyFieldMeta[];
   userNames: Record<string, string>;
   usersCoverage?: DatasetCoverage | null;
+  contactNames?: Record<string, string>;
 }
 
 // ─── Shared resolvers ─────────────────────────────────────────────────
@@ -240,13 +241,157 @@ function resolveStringRaw(raw: unknown, decodeEntities = false): string | null {
   return decodeEntities ? decodeHtmlEntities(s) : s;
 }
 
+/** Address resolution: formats Bitrix address objects or strings, stripping pipe delimiters. */
+export function resolveAddressRaw(raw: unknown): string | null {
+  if (isSentinel(raw)) return null;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes("|;|")) {
+      const parts = trimmed.split("|;|").map((p) => p.trim()).filter((p) => p && !/^\d+$/.test(p));
+      return parts.length > 0 ? parts.join(", ") : trimmed.split("|;|")[0].trim();
+    }
+    return trimmed;
+  }
+  if (typeof raw === "object") {
+    const parts = Object.values(raw as Record<string, unknown>).filter(
+      (v): v is string => typeof v === "string" && v.trim().length > 0
+    );
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+  return String(raw).trim() || null;
+}
+
+/** File field resolution: returns human-readable file title or link label. Never raw JSON. */
+export function resolveFileRaw(raw: unknown): string | null {
+  if (isSentinel(raw)) return null;
+  if (Array.isArray(raw)) {
+    const valid = raw.map(resolveFileRaw).filter(Boolean);
+    return valid.length > 0 ? valid.join(", ") : null;
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    if (obj.name && typeof obj.name === "string") return obj.name.trim();
+    if (obj.showUrl || obj.downloadUrl) return "Файл прикреплен";
+    if (obj.id) return `Файл #${obj.id}`;
+    return null;
+  }
+  const str = String(raw).trim();
+  if (!str) return null;
+  if (/^\d+$/.test(str)) return `Файл #${str}`;
+  return str;
+}
+
+/** Consumption quantity (annual) with explicit unit «тн/год». */
+export function resolveConsumptionRaw(raw: unknown): { display: string; excel: number | string | null } | null {
+  if (isSentinel(raw)) return null;
+  if (Array.isArray(raw)) {
+    const valid = raw.map(resolveConsumptionRaw).filter(Boolean);
+    if (!valid.length) return null;
+    return {
+      display: valid.map((v) => v!.display).join(", "),
+      excel: valid.map((v) => v!.display).join(", "),
+    };
+  }
+  const str = String(raw).trim();
+  if (!str) return null;
+  const num = Number(str.replace(",", "."));
+  if (Number.isFinite(num)) {
+    return {
+      display: `${num.toLocaleString("ru-RU")} тн/год`,
+      excel: num,
+    };
+  }
+  return {
+    display: str.toLowerCase().includes("тн") ? str : `${str} тн/год`,
+    excel: str,
+  };
+}
+
+/** Contact display resolution: directory name > custom contact string > contact title. */
+export function resolveContactRaw(
+  company: Record<string, unknown>,
+  ctx: CompanyPreviewResolveContext
+): string | null {
+  const customContact = resolveStringRaw(company.UF_CRM_1764858571);
+  if (customContact) return customContact;
+  const directName = resolveStringRaw(company.CONTACT_NAME ?? company.CONTACT_TITLE);
+  if (directName) return directName;
+  const contactId = company.CONTACT_ID ?? company.contactId;
+  if (contactId && !isSentinel(contactId)) {
+    const idStr = String(Array.isArray(contactId) ? contactId[0] : contactId).trim();
+    if (ctx.contactNames && ctx.contactNames[idStr]) {
+      return ctx.contactNames[idStr];
+    }
+    if (/^\d+$/.test(idStr)) {
+      return `Контакт #${idStr}`;
+    }
+    return idStr;
+  }
+  return null;
+}
+
+/** Requisites resolution: banking details or INN. */
+export function resolveRequisitesRaw(company: Record<string, unknown>): string | null {
+  const inn = resolveStringRaw(company[COMPANY_INN_FIELD_ID]);
+  const banking = resolveStringRaw(company.BANKING_DETAILS);
+  if (inn && banking) return `ИНН ${inn}, ${banking}`;
+  if (inn) return `ИНН ${inn}`;
+  if (banking) return banking;
+  return null;
+}
+
+/** Price fields resolution: formatted money or price text. */
+export function resolvePricesRaw(company: Record<string, unknown>): { display: string; excel: unknown } | null {
+  const rawMoney = company.UF_CRM_1782743261289;
+  if (!isSentinel(rawMoney)) {
+    if (Array.isArray(rawMoney)) {
+      const parts = rawMoney.map(resolveMoneyRaw).filter(Boolean);
+      if (parts.length > 0) {
+        return {
+          display: parts.map((p) => p!.display).join(", "),
+          excel: parts.map((p) => p!.display).join(", "),
+        };
+      }
+    } else {
+      const money = resolveMoneyRaw(rawMoney);
+      if (money) return { display: money.display, excel: money.excel };
+    }
+  }
+  const textPrice = resolveStringRaw(company.UF_CRM_1764156667679);
+  if (textPrice) return { display: textPrice, excel: textPrice };
+  return null;
+}
+
 // ─── THE strict current-card whitelist (ordered) ──────────────────────
-// Order mirrors the approved Company card as closely as possible;
-// Date Created / Date Modified close the card block. Legacy sample
-// fields (§9 of the contract) are deliberately ABSENT — they remain in
-// backend/canonical analytics only.
+// Exact 24-point current-card sequence mirroring the approved Bitrix card:
+// 1. Ответственный
+// 2. Контакт
+// 3. Сайт
+// 4. Телефон
+// 5. Годовой оборот
+// 6. Реквизиты
+// 7. Документы
+// 8. Адрес
+// 9. Регион
+// 10. Карточка компании
+// 11. Тип компании
+// 12. Отрасль
+// 13. Направление
+// 14. Тип продукта
+// 15. Используемая марка — ГЕЛЬ
+// 16. Потребление — ГЕЛЬ
+// 17. Используемая марка — ЗОЛЬ
+// 18. Потребление — ЗОЛЬ
+// 19. Фактические цены
+// 20. Комментарий по используемым продуктам
+// 21. Общие комментарии
+// 22. Тестирование образцов (marker, MARKER_ONLY)
+// 23. Дата создания
+// 24. Дата изменения
 
 export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] = [
+  // 1. Ответственный
   {
     id: "ASSIGNED_BY_ID",
     label: "Ответственный",
@@ -255,27 +400,37 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
       const raw = company.ASSIGNED_BY_ID;
       if (isSentinel(raw)) return null;
       const id = String(raw);
+      const display = resolveResponsibleDisplay(id, ctx.userNames, ctx.usersCoverage);
       return {
         id: "ASSIGNED_BY_ID",
         label: "Ответственный",
-        value: resolveResponsibleDisplay(id, ctx.userNames, ctx.usersCoverage),
+        value: display,
         rawValue: raw,
         type: "user",
-        excelValue: resolveResponsibleDisplay(id, ctx.userNames, ctx.usersCoverage),
+        excelValue: display,
       };
     },
   },
+  // 2. Контакт
   {
-    id: "PHONE",
-    label: "Телефон",
-    type: "phone",
-    resolve: (company) => {
-      const value = resolveStringRaw(company.PHONE);
-      return value
-        ? { id: "PHONE", label: "Телефон", value, rawValue: company.PHONE, type: "phone", excelValue: value }
+    id: "CONTACT",
+    label: "Контакт",
+    type: "contact",
+    resolve: (company, ctx) => {
+      const display = resolveContactRaw(company, ctx);
+      return display
+        ? {
+            id: "CONTACT",
+            label: "Контакт",
+            value: display,
+            rawValue: company.CONTACT_ID ?? company.UF_CRM_1764858571,
+            type: "contact",
+            excelValue: display,
+          }
         : null;
     },
   },
+  // 3. Сайт
   {
     id: "WEB",
     label: "Сайт",
@@ -287,18 +442,31 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
+  // 4. Телефон
+  {
+    id: "PHONE",
+    label: "Телефон",
+    type: "phone",
+    resolve: (company) => {
+      const value = resolveStringRaw(company.PHONE);
+      return value
+        ? { id: "PHONE", label: "Телефон", value, rawValue: company.PHONE, type: "phone", excelValue: value }
+        : null;
+    },
+  },
+  // 5. Годовой оборот
   {
     id: "REVENUE",
     label: "Годовой оборот",
     type: "money",
     resolve: (company) => {
-      const resolved = resolveMoneyRaw(company.REVENUE);
+      const resolved = resolveMoneyRaw(company.REVENUE ?? company.UF_CRM_1777324548);
       return resolved
         ? {
             id: "REVENUE",
             label: "Годовой оборот",
             value: resolved.display,
-            rawValue: company.REVENUE,
+            rawValue: company.REVENUE ?? company.UF_CRM_1777324548,
             type: "money",
             excelValue: resolved.excel,
             isMoney: resolved.excel !== null,
@@ -306,17 +474,66 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
+  // 6. Реквизиты
   {
     id: COMPANY_INN_FIELD_ID,
-    label: "ИНН",
+    label: "Реквизиты",
     type: "string",
     resolve: (company) => {
-      const value = resolveStringRaw(company[COMPANY_INN_FIELD_ID]);
+      const value = resolveRequisitesRaw(company);
       return value
-        ? { id: COMPANY_INN_FIELD_ID, label: "ИНН", value, rawValue: company[COMPANY_INN_FIELD_ID], type: "string", excelValue: value }
+        ? {
+            id: COMPANY_INN_FIELD_ID,
+            label: "Реквизиты",
+            value,
+            rawValue: company.BANKING_DETAILS ?? company[COMPANY_INN_FIELD_ID],
+            type: "string",
+            excelValue: value,
+          }
         : null;
     },
   },
+  // 7. Документы
+  {
+    id: "UF_CRM_1782742600447",
+    label: "Документы",
+    type: "file",
+    resolve: (company) => {
+      const value = resolveFileRaw(company.UF_CRM_1782742600447);
+      return value
+        ? {
+            id: "UF_CRM_1782742600447",
+            label: "Документы",
+            value,
+            rawValue: company.UF_CRM_1782742600447,
+            type: "file",
+            excelValue: value,
+          }
+        : null;
+    },
+  },
+  // 8. Адрес
+  {
+    id: "ADDRESS",
+    label: "Адрес",
+    type: "address",
+    resolve: (company) => {
+      const value = resolveAddressRaw(
+        company.ADDRESS ?? company.REG_ADDRESS ?? company.UF_CRM_1763116930
+      );
+      return value
+        ? {
+            id: "ADDRESS",
+            label: "Адрес",
+            value,
+            rawValue: company.ADDRESS ?? company.REG_ADDRESS ?? company.UF_CRM_1763116930,
+            type: "address",
+            excelValue: value,
+          }
+        : null;
+    },
+  },
+  // 9. Регион
   {
     id: COMPANY_REGION_FIELD_ID,
     label: "Регион",
@@ -324,10 +541,37 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
     resolve: (company) => {
       const value = resolveStringRaw(company[COMPANY_REGION_FIELD_ID]);
       return value
-        ? { id: COMPANY_REGION_FIELD_ID, label: "Регион", value, rawValue: company[COMPANY_REGION_FIELD_ID], type: "string", excelValue: value }
+        ? {
+            id: COMPANY_REGION_FIELD_ID,
+            label: "Регион",
+            value,
+            rawValue: company[COMPANY_REGION_FIELD_ID],
+            type: "string",
+            excelValue: value,
+          }
         : null;
     },
   },
+  // 10. Карточка компании
+  {
+    id: "UF_CRM_691EB8983DE7D",
+    label: "Карточка компании",
+    type: "file",
+    resolve: (company) => {
+      const value = resolveFileRaw(company.UF_CRM_691EB8983DE7D);
+      return value
+        ? {
+            id: "UF_CRM_691EB8983DE7D",
+            label: "Карточка компании",
+            value,
+            rawValue: company.UF_CRM_691EB8983DE7D,
+            type: "file",
+            excelValue: value,
+          }
+        : null;
+    },
+  },
+  // 11. Тип компании
   {
     id: "COMPANY_TYPE",
     label: "Тип компании",
@@ -336,17 +580,23 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
       const raw = company.COMPANY_TYPE;
       const display = resolveEnumRaw(raw, fieldMeta("COMPANY_TYPE", ctx));
       return display
-        ? { id: "COMPANY_TYPE", label: "Тип компании", value: display, rawValue: raw, type: "crm_status", excelValue: display }
+        ? {
+            id: "COMPANY_TYPE",
+            label: "Тип компании",
+            value: display,
+            rawValue: raw,
+            type: "crm_status",
+            excelValue: display,
+          }
         : null;
     },
   },
+  // 12. Отрасль
   {
     id: COMPANY_INDUSTRY_CURRENT_FIELD_ID,
     label: "Отрасль",
     type: "enumeration",
     resolve: (company, ctx) => {
-      // ONLY the current approved field. Legacy INDUSTRY (crm_status) and
-      // the retired «Отрасль (не использовать)» never override it.
       const raw = company[COMPANY_INDUSTRY_CURRENT_FIELD_ID];
       const display = resolveEnumRaw(raw, fieldMeta(COMPANY_INDUSTRY_CURRENT_FIELD_ID, ctx));
       return display
@@ -361,6 +611,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
+  // 13. Направление
   {
     id: COMPANY_DIRECTION_CURRENT_FIELD_ID,
     label: "Направление",
@@ -380,6 +631,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
+  // 14. Тип продукта
   {
     id: COMPANY_PRODUCT_TYPE_FIELD_ID,
     label: "Тип продукта",
@@ -399,44 +651,116 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
+  // 15. Используемая марка — ГЕЛЬ
   {
-    id: COMPANY_MARK_GEL_FIELD_ID,
+    id: "UF_CRM_1781806326214",
     label: "Используемая марка — ГЕЛЬ",
-    type: "enumeration",
+    type: "string",
     resolve: (company, ctx) => {
-      const raw = company[COMPANY_MARK_GEL_FIELD_ID];
-      const display = resolveEnumRaw(raw, fieldMeta(COMPANY_MARK_GEL_FIELD_ID, ctx));
+      const raw =
+        company.UF_CRM_1781806326214 ??
+        company.UF_CRM_1764079092 ??
+        company[COMPANY_MARK_GEL_FIELD_ID];
+      const display = Array.isArray(raw)
+        ? resolveEnumRaw(raw, fieldMeta(COMPANY_MARK_GEL_FIELD_ID, ctx)) ?? raw.join(", ")
+        : resolveStringRaw(raw);
       return display
         ? {
-            id: COMPANY_MARK_GEL_FIELD_ID,
+            id: "UF_CRM_1781806326214",
             label: "Используемая марка — ГЕЛЬ",
             value: display,
             rawValue: raw,
-            type: "enumeration",
+            type: "string",
             excelValue: display,
           }
         : null;
     },
   },
+  // 16. Потребление — ГЕЛЬ
   {
-    id: COMPANY_MARK_SOL_FIELD_ID,
+    id: "UF_CRM_1781806269703",
+    label: "Потребление — ГЕЛЬ",
+    type: "double",
+    resolve: (company) => {
+      const raw = company.UF_CRM_1781806269703 ?? company.UF_CRM_1764076968;
+      const res = resolveConsumptionRaw(raw);
+      return res
+        ? {
+            id: "UF_CRM_1781806269703",
+            label: "Потребление — ГЕЛЬ",
+            value: res.display,
+            rawValue: raw,
+            type: "double",
+            excelValue: res.excel,
+          }
+        : null;
+    },
+  },
+  // 17. Используемая марка — ЗОЛЬ
+  {
+    id: "UF_CRM_1781806285641",
     label: "Используемая марка — ЗОЛЬ",
-    type: "enumeration",
+    type: "string",
     resolve: (company, ctx) => {
-      const raw = company[COMPANY_MARK_SOL_FIELD_ID];
-      const display = resolveEnumRaw(raw, fieldMeta(COMPANY_MARK_SOL_FIELD_ID, ctx));
+      const raw =
+        company.UF_CRM_1781806285641 ??
+        company.UF_CRM_1764079114 ??
+        company[COMPANY_MARK_SOL_FIELD_ID];
+      const display = Array.isArray(raw)
+        ? resolveEnumRaw(raw, fieldMeta(COMPANY_MARK_SOL_FIELD_ID, ctx)) ?? raw.join(", ")
+        : resolveStringRaw(raw);
       return display
         ? {
-            id: COMPANY_MARK_SOL_FIELD_ID,
+            id: "UF_CRM_1781806285641",
             label: "Используемая марка — ЗОЛЬ",
             value: display,
             rawValue: raw,
-            type: "enumeration",
+            type: "string",
             excelValue: display,
           }
         : null;
     },
   },
+  // 18. Потребление — ЗОЛЬ
+  {
+    id: "UF_CRM_1781806301447",
+    label: "Потребление — ЗОЛЬ",
+    type: "double",
+    resolve: (company) => {
+      const raw = company.UF_CRM_1781806301447 ?? company.UF_CRM_1764076998;
+      const res = resolveConsumptionRaw(raw);
+      return res
+        ? {
+            id: "UF_CRM_1781806301447",
+            label: "Потребление — ЗОЛЬ",
+            value: res.display,
+            rawValue: raw,
+            type: "double",
+            excelValue: res.excel,
+          }
+        : null;
+    },
+  },
+  // 19. Фактические цены
+  {
+    id: "UF_CRM_1782743261289",
+    label: "Фактические цены",
+    type: "money",
+    resolve: (company) => {
+      const res = resolvePricesRaw(company);
+      return res
+        ? {
+            id: "UF_CRM_1782743261289",
+            label: "Фактические цены",
+            value: res.display,
+            rawValue: company.UF_CRM_1782743261289 ?? company.UF_CRM_1764156667679,
+            type: "money",
+            excelValue: res.excel as any,
+          }
+        : null;
+    },
+  },
+  // 20. Комментарий по используемым продуктам
   {
     id: COMPANY_COMMENTS_PRODUCT_FIELD_ID,
     label: "Комментарий по используемым продуктам",
@@ -455,28 +779,86 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // «Тестирование образцов» Company marker — appended by the model builder
-  // ONLY when the live-discovered ID exists (never guessed).
-];
-
-/** The Company testing marker definition (live-gated). */
-const TESTING_MARKER_FIELD: CompanyPreviewFieldDef = {
-  id: COMPANY_TESTING_MARKER_FIELD_ID ?? "__unverified_marker__",
-  label: "Тестирование образцов",
-  type: "boolean",
-  resolve: (company) => {
-    if (!COMPANY_TESTING_MARKER_FIELD_ID || !COMPANY_HAS_DISCOVERED_CARD_CONTRACT) return null;
-    const display = resolveBoolRaw(company[COMPANY_TESTING_MARKER_FIELD_ID]) ?? "Нет";
-    return {
-      id: COMPANY_TESTING_MARKER_FIELD_ID,
-      label: "Тестирование образцов",
-      value: display,
-      rawValue: company[COMPANY_TESTING_MARKER_FIELD_ID],
-      type: "boolean",
-      excelValue: display,
-    };
+  // 21. Общие комментарии
+  {
+    id: "COMMENTS",
+    label: "Комментарий",
+    type: "string",
+    resolve: (company) => {
+      const value = resolveStringRaw(company.COMMENTS, true);
+      return value
+        ? {
+            id: "COMMENTS",
+            label: "Комментарий",
+            value,
+            rawValue: company.COMMENTS,
+            type: "string",
+            excelValue: value,
+          }
+        : null;
+    },
   },
-};
+  // 22. Тестирование образцов (marker, MARKER_ONLY)
+  {
+    id: COMPANY_TESTING_MARKER_FIELD_ID,
+    label: "Тестирование образцов",
+    type: "boolean",
+    resolve: (company) => {
+      if (!COMPANY_TESTING_MARKER_FIELD_ID || !COMPANY_HAS_DISCOVERED_CARD_CONTRACT) return null;
+      const display = resolveBoolRaw(company[COMPANY_TESTING_MARKER_FIELD_ID]);
+      return display !== null
+        ? {
+            id: COMPANY_TESTING_MARKER_FIELD_ID,
+            label: "Тестирование образцов",
+            value: display,
+            rawValue: company[COMPANY_TESTING_MARKER_FIELD_ID],
+            type: "boolean",
+            excelValue: display,
+          }
+        : null;
+    },
+  },
+  // 23. Дата создания
+  {
+    id: "DATE_CREATE",
+    label: "Дата создания",
+    type: "date",
+    resolve: (company) => {
+      const res = resolveDateRaw(company.DATE_CREATE, { id: "DATE_CREATE", type: "date" });
+      return res
+        ? {
+            id: "DATE_CREATE",
+            label: "Дата создания",
+            value: res.display,
+            rawValue: company.DATE_CREATE,
+            type: "date",
+            excelValue: res.excel,
+            isDate: true,
+          }
+        : null;
+    },
+  },
+  // 24. Дата изменения
+  {
+    id: "DATE_MODIFY",
+    label: "Дата изменения",
+    type: "date",
+    resolve: (company) => {
+      const res = resolveDateRaw(company.DATE_MODIFY, { id: "DATE_MODIFY", type: "date" });
+      return res
+        ? {
+            id: "DATE_MODIFY",
+            label: "Дата изменения",
+            value: res.display,
+            rawValue: company.DATE_MODIFY,
+            type: "date",
+            excelValue: res.excel,
+            isDate: true,
+          }
+        : null;
+    },
+  },
+];
 
 /**
  * Builds the ONE resolved Company Preview model consumed by both the UI
@@ -489,37 +871,33 @@ export function buildCompanyPreviewModel(
     fields?: CompanyFieldMeta[];
     userNames?: Record<string, string>;
     usersCoverage?: DatasetCoverage | null;
+    contactNames?: Record<string, string>;
   } = {}
 ): CompanyPreviewModel {
   const ctx: CompanyPreviewResolveContext = {
     fields: options.fields ?? [],
     userNames: options.userNames ?? {},
     usersCoverage: options.usersCoverage,
+    contactNames: options.contactNames ?? {},
   };
 
-  const defs = [...COMPANY_PREVIEW_CURRENT_FIELDS, TESTING_MARKER_FIELD];
   const fields: CompanyPreviewResolvedField[] = [];
-  for (const def of defs) {
+  for (const def of COMPANY_PREVIEW_CURRENT_FIELDS) {
     const resolved = def.resolve(company, ctx);
     if (resolved) fields.push(resolved);
   }
 
-  // Comments (general Company comment) — retained per user requirement.
-  const commentsRaw = resolveStringRaw(company.COMMENTS, true);
-
-  // Date Created / Date Modified — retained per user requirement.
-  // Contract: DATE_CREATE/DATE_MODIFY display as DATE ONLY in the card
-  // (existing regression contract: "formats Дата изменения as date only").
-  const created = resolveDateRaw(company.DATE_CREATE, { id: "DATE_CREATE", type: "date" });
-  const modified = resolveDateRaw(company.DATE_MODIFY, { id: "DATE_MODIFY", type: "date" });
+  const createdField = fields.find((f) => f.id === "DATE_CREATE");
+  const modifiedField = fields.find((f) => f.id === "DATE_MODIFY");
+  const commentsField = fields.find((f) => f.id === "COMMENTS");
 
   return {
     title: String(company.TITLE ?? "").trim() || "Без названия",
     companyId: String(company.ID ?? ""),
     fields,
-    createdAt: created ? created.display : null,
-    modifiedAt: modified ? modified.display : null,
-    comments: commentsRaw,
+    createdAt: createdField?.value ?? null,
+    modifiedAt: modifiedField?.value ?? null,
+    comments: commentsField?.value ?? null,
   };
 }
 
@@ -665,17 +1043,20 @@ export function defaultCompanyFields(
   sampleFieldIds.add("LAST_ACTIVITY_BY");
   sampleFieldIds.add("COMMENTS");
 
-  for (const [key, val] of Object.entries(company)) {
-    if (key.startsWith("UF_CRM_") && !sampleFieldIds.has(key) && val !== null && val !== "" && val !== undefined) {
-      const fType = typeOf(key)?.toLowerCase();
+  // Render ONLY explicitly configured metadata fields — no generic UF_CRM dump
+  for (const f of fields) {
+    if (sampleFieldIds.has(f.id)) continue;
+    const raw = company[f.id] ?? company[`COMPANY_${f.id}`];
+    if (raw !== null && raw !== "" && raw !== undefined) {
+      const fType = typeOf(f.id)?.toLowerCase();
       const isBool = fType === "boolean" || fType === "char";
-      const s = String(val).trim();
-      const isSentinel = !isBool && (val === false || s.toLowerCase() === "false" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined");
+      const s = String(raw).trim();
+      const isSentinel = !isBool && (raw === false || s.toLowerCase() === "false" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined");
       if (!isSentinel) {
         out.push({
-          id: key,
-          label: key,
-          value: typeof val === "object" ? JSON.stringify(val) : s,
+          id: f.id,
+          label: f.title || f.id,
+          value: typeof raw === "object" ? JSON.stringify(raw) : s,
           type: fType,
         });
       }

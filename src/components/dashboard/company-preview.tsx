@@ -318,20 +318,20 @@ export function CompanyPreview({
                 {/* Date Created / Date Modified — retained per current-card
                     contract; rendered from the resolved model only when the
                     model drives the card (no fieldsFor override). */}
-                {!fieldsFor && resolvedModel?.createdAt && (
+                {!fieldsFor && resolvedModel?.createdAt && !cardFields.some((f) => f.id === "DATE_CREATE") && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Дата создания</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.createdAt}</dd>
                   </div>
                 )}
-                {!fieldsFor && resolvedModel?.modifiedAt && (
+                {!fieldsFor && resolvedModel?.modifiedAt && !cardFields.some((f) => f.id === "DATE_MODIFY") && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Дата изменения</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.modifiedAt}</dd>
                   </div>
                 )}
                 {/* General Company comments — retained per current-card contract */}
-                {!fieldsFor && resolvedModel?.comments && (
+                {!fieldsFor && resolvedModel?.comments && !cardFields.some((f) => f.id === "COMMENTS") && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Комментарий</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.comments}</dd>
@@ -344,14 +344,16 @@ export function CompanyPreview({
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                   Образцы
                 </h4>
-                <dl className="space-y-4 text-sm">
-                  {activeSampleFieldsFor(state.company).map((field) => (
-                    <div key={field.id}>
-                      <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                      <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value, field.type === "boolean" || field.type === "char")}</dd>
-                    </div>
-                  ))}
-                </dl>
+                {sampleFieldsFor && (
+                  <dl className="space-y-4 text-sm mb-4">
+                    {activeSampleFieldsFor(state.company).map((field) => (
+                      <div key={field.id}>
+                        <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                        <dd className="mt-1 whitespace-pre-wrap break-words">{formatPreviewValue(field.value, field.type === "boolean" || field.type === "char")}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
 
                 {/* Compact «Образцы» analytics block (Samples v1 cross-nav).
                     Lazy-fetched summary from the authoritative Samples API. */}

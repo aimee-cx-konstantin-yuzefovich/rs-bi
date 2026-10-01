@@ -27,6 +27,7 @@ import {
   COMPANY_COMMENTS_PRODUCT_FIELD_ID,
   COMPANY_INN_FIELD_ID,
   COMPANY_REGION_FIELD_ID,
+  COMPANY_TESTING_MARKER_FIELD_ID,
   // Legacy sample fields (§9) — present in raw input, absent from card:
   COMPANY_SAMPLES_FIELD_ID,
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
@@ -41,18 +42,29 @@ import {
 /** The exact expected current-card field ORDER (approved card mirror). */
 const EXPECTED_FIELD_ORDER = [
   "ASSIGNED_BY_ID",
-  "PHONE",
+  "CONTACT",
   "WEB",
+  "PHONE",
   "REVENUE",
   COMPANY_INN_FIELD_ID,
+  "UF_CRM_1782742600447",
+  "ADDRESS",
   COMPANY_REGION_FIELD_ID,
+  "UF_CRM_691EB8983DE7D",
   "COMPANY_TYPE",
   COMPANY_INDUSTRY_CURRENT_FIELD_ID,
   COMPANY_DIRECTION_CURRENT_FIELD_ID,
   COMPANY_PRODUCT_TYPE_FIELD_ID,
-  COMPANY_MARK_GEL_FIELD_ID,
-  COMPANY_MARK_SOL_FIELD_ID,
+  "UF_CRM_1781806326214",
+  "UF_CRM_1781806269703",
+  "UF_CRM_1781806285641",
+  "UF_CRM_1781806301447",
+  "UF_CRM_1782743261289",
   COMPANY_COMMENTS_PRODUCT_FIELD_ID,
+  "COMMENTS",
+  COMPANY_TESTING_MARKER_FIELD_ID,
+  "DATE_CREATE",
+  "DATE_MODIFY",
 ] as const;
 
 /** Adversarial fixture: current fields + ALL legacy sample fields + obsolete fields + one unknown UF. */
@@ -61,19 +73,31 @@ function adversarialCompany(): Record<string, unknown> {
     ID: "42",
     TITLE: "ООО РусСилика Тест",
     ASSIGNED_BY_ID: "7",
-    PHONE: "+7 900 000-00-00",
+    CONTACT_ID: "10",
     WEB: "https://russilica.example",
+    PHONE: "+7 900 000-00-00",
     REVENUE: "5000000|RUB",
     [COMPANY_INN_FIELD_ID]: "7701234567",
+    UF_CRM_1782742600447: ["doc1.pdf"],
+    ADDRESS: "г. Москва, ул. Ленина, д. 1",
     [COMPANY_REGION_FIELD_ID]: "Москва",
+    UF_CRM_691EB8983DE7D: "card.pdf",
     COMPANY_TYPE: "2",
     [COMPANY_INDUSTRY_CURRENT_FIELD_ID]: "1739",
     [COMPANY_DIRECTION_CURRENT_FIELD_ID]: "42",
     [COMPANY_PRODUCT_TYPE_FIELD_ID]: ["101", "102"],
+    UF_CRM_1781806326214: ["201", "202"],
     [COMPANY_MARK_GEL_FIELD_ID]: ["201", "202"],
+    UF_CRM_1781806269703: "100",
+    UF_CRM_1781806285641: ["301"],
     [COMPANY_MARK_SOL_FIELD_ID]: ["301"],
+    UF_CRM_1781806301447: "200",
+    UF_CRM_1782743261289: "150000|RUB",
     [COMPANY_COMMENTS_PRODUCT_FIELD_ID]: "11.03.2025 Испытания образцов &quot;ComposiTherm&quot; — успешно",
     COMMENTS: "Общий комментарий &quot;по клиенту&quot;",
+    [COMPANY_TESTING_MARKER_FIELD_ID]: "Y",
+    DATE_CREATE: "2025-12-15T14:00:00Z",
+    DATE_MODIFY: "2026-07-01T11:59:00Z",
 
     // ─── Legacy sample fields (§9) — MUST NOT appear as card rows ───
     [COMPANY_SAMPLES_FIELD_ID]: ["261"],
@@ -106,6 +130,7 @@ describe("Phase D — Company Preview current-card contract", () => {
     const model = buildCompanyPreviewModel(adversarialCompany(), {
       fields: FIELDS_META,
       userNames: { "7": "Анна Иванова" },
+      contactNames: { "10": "Иван Смирнов" },
     });
 
     const ids = model.fields.map((f) => f.id);
@@ -129,6 +154,7 @@ describe("Phase D — Company Preview current-card contract", () => {
     const model = buildCompanyPreviewModel(adversarialCompany(), {
       fields: FIELDS_META,
       userNames: { "7": "Анна Иванова" },
+      contactNames: { "10": "Иван Смирнов" },
     });
 
     const byId = new Map(model.fields.map((f) => [f.id, f]));
@@ -142,9 +168,9 @@ describe("Phase D — Company Preview current-card contract", () => {
     // Company Type raw 2 → «Конкурент».
     expect(byId.get("COMPANY_TYPE")!.value).toBe("Конкурент");
     // Multi-enum Gel grades resolved element-wise.
-    expect(byId.get(COMPANY_MARK_GEL_FIELD_ID)!.value).toBe("КСМГ-9, КСМГ-12");
+    expect(byId.get("UF_CRM_1781806326214")!.value).toBe("КСМГ-9, КСМГ-12");
     // Sol grades.
-    expect(byId.get(COMPANY_MARK_SOL_FIELD_ID)!.value).toBe("СКСГ-4");
+    expect(byId.get("UF_CRM_1781806285641")!.value).toBe("СКСГ-4");
     // Product types.
     expect(byId.get(COMPANY_PRODUCT_TYPE_FIELD_ID)!.value).toBe("Гель, Золь");
 
@@ -228,6 +254,7 @@ describe("Phase D — Company Preview current-card contract", () => {
     const model = buildCompanyPreviewModel(company, {
       fields: FIELDS_META,
       userNames: { "7": "Анна Иванова" },
+      contactNames: { "10": "Иван Смирнов" },
     });
 
     // UI values = model field values.
@@ -268,6 +295,7 @@ describe("Phase D — Company Preview current-card contract", () => {
     //    an apostrophe (phone numbers);
     //  - Date Created / Date Modified serialize as native Date cells (§27).
     for (const [label, value] of uiValues) {
+      if (label === "Дата создания" || label === "Дата изменения") continue;
       const expected = /^[=\-+\@]/.test(value) ? `'${value}` : value;
       expect(excelPairs.get(label), `Excel parity for ${label}`).toBe(expected);
     }

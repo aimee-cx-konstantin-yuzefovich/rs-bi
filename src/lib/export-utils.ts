@@ -721,13 +721,13 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   let fields: Array<{ id: string; label: string; value: string; type?: string }> = [...rawCompanyFields];
   if (model) {
     fields = model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type }));
-    if (model.createdAt) {
+    if (model.createdAt && !fields.some((f) => f.id === "DATE_CREATE")) {
       fields.push({ id: "DATE_CREATE", label: "Дата создания", value: model.createdAt, type: "datetime" });
     }
-    if (model.modifiedAt) {
+    if (model.modifiedAt && !fields.some((f) => f.id === "DATE_MODIFY")) {
       fields.push({ id: "DATE_MODIFY", label: "Дата изменения", value: model.modifiedAt, type: "datetime" });
     }
-    if (model.comments) {
+    if (model.comments && !fields.some((f) => f.id === "COMMENTS")) {
       fields.push({ id: "COMMENTS", label: "Комментарий", value: model.comments, type: "string" });
     }
   }

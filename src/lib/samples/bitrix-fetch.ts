@@ -305,8 +305,12 @@ export async function fetchSmartProcessSampleItems(
     "crm.item.list",
     {
       entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
+      useOriginalUfNames: "Y",
+      select: SMART_PROCESS_ITEM_SELECT,
       SELECT: SMART_PROCESS_ITEM_SELECT,
+      filter,
       FILTER: filter,
+      order: { id: "ASC" },
       ORDER: { id: "ASC" },
     },
     "id"
@@ -351,7 +355,17 @@ export async function fetchFieldLabelMaps(): Promise<FieldLabelMaps> {
           }
         > | null;
       }>(method, method === "crm.item.fields" ? { entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID, useOriginalUfNames: "Y" } : {});
-      const fields = data.result;
+      const rawResult = data.result;
+      const fields =
+        rawResult && typeof rawResult === "object" && (rawResult as Record<string, unknown>).fields
+          ? ((rawResult as Record<string, unknown>).fields as Record<
+              string,
+              {
+                items?: Array<{ ID: string; VALUE: string }>;
+                statusType?: string;
+              }
+            >)
+          : rawResult;
       if (!fields || typeof fields !== "object") continue;
       for (const [fieldId, meta] of Object.entries(fields)) {
         if (meta && Array.isArray(meta.items)) {

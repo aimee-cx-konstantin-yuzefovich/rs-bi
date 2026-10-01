@@ -57,7 +57,7 @@ const REQUIRED_FIELD_ROLES = [
   {
     role: "Сделка (Deal relation)",
     acceptedTitles: ["сделка"],
-    expectedTypes: ["integer"],
+    expectedTypes: ["integer", "crm_entity"],
     required: true,
   },
   {
@@ -214,7 +214,13 @@ async function main() {
   try {
     // 1. Verify the Smart Process type exists with expected title/entityTypeId.
     const types = await callReadOnly(webhookUrl, "crm.type.list", {});
-    const typeList = Array.isArray(types?.items) ? types.items : Array.isArray(types) ? types : [];
+    const typeList = Array.isArray(types?.types)
+      ? types.types
+      : Array.isArray(types?.items)
+      ? types.items
+      : Array.isArray(types)
+      ? types
+      : [];
     const spType = typeList.find(
       (t) => Number(t?.entityTypeId) === EXPECTED_ENTITY_TYPE_ID
     );
@@ -245,10 +251,14 @@ async function main() {
     console.log(`Category confirmed: id=${category.id} name="${category.name ?? ""}"`);
 
     // 3. Field metadata with ORIGINAL UF names.
-    const fields = await callReadOnly(webhookUrl, "crm.item.fields", {
+    const rawFields = await callReadOnly(webhookUrl, "crm.item.fields", {
       entityTypeId: EXPECTED_ENTITY_TYPE_ID,
       useOriginalUfNames: "Y",
     });
+    const fields =
+      rawFields?.fields && typeof rawFields.fields === "object"
+        ? rawFields.fields
+        : rawFields;
     if (!fields || typeof fields !== "object") {
       console.error("crm.item.fields returned no usable metadata");
       console.log("DISCOVERY_STATUS=FAIL");

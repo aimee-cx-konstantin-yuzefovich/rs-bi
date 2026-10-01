@@ -23,6 +23,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import type {
+  BitrixFieldValue,
   BitrixRow,
   LabelResolver,
   NormalizedResult,
@@ -38,23 +39,46 @@ import {
   SMART_PROCESS_GRADE_GEL_FIELD_ID,
   SMART_PROCESS_GRADE_SOL_FIELD_ID,
   SMART_PROCESS_TEST_RESULT_FIELD_ID,
+  SMART_PROCESS_DEAL_UF_FIELD_ID,
   isSmartProcessActiveStage,
   isSmartProcessTerminalStage,
   smartProcessStageSemantic,
   SMART_PROCESS_STAGE_LABELS,
 } from "../smart-process-contract";
-import { extractDates, isSentinelValue, resolveValue, classifyResultValue } from "../normalize";
+import {
+  extractDates,
+  isSentinelValue,
+  resolveValue,
+  classifyResultValue,
+  parseQuantity,
+} from "../normalize";
 import { PRODUCT_FAMILY_GEL, PRODUCT_FAMILY_SOL } from "../constants";
 
 function firstString(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "number") value = String(value);
   if (typeof value !== "string") return undefined;
   if (isSentinelValue(value)) return undefined;
   const trimmed = value.trim();
   return trimmed !== "" ? trimmed : undefined;
 }
 
-function rowString(row: BitrixRow, key: string): string | undefined {
-  return firstString(row[key]);
+function rowValue(row: BitrixRow, key: string | null | undefined): BitrixFieldValue {
+  if (!key) return undefined;
+  if (row[key] !== undefined) return row[key];
+  const upper = key.toUpperCase();
+  if (row[upper] !== undefined) return row[upper];
+  // UF_CRM_7_... <-> ufCrm7_...
+  const m = key.match(/^UF_CRM_(\d+)_(.+)$/i);
+  if (m) {
+    const camel = `ufCrm${m[1]}_${m[2]}`;
+    if (row[camel] !== undefined) return row[camel];
+  }
+  return undefined;
+}
+
+function rowString(row: BitrixRow, key: string | null | undefined): string | undefined {
+  return firstString(rowValue(row, key));
 }
 
 /** Terminal semantic → the result meaning the stage implies. */
@@ -119,22 +143,31 @@ export function adaptSmartProcessSampleEvidence(
   const issues: SampleDataIssue[] = [];
 
   // ── Company relation: direct verified relation first ──
-  const directCompanyId = rowString(row, "companyId");
+  const rawDirect = rowString(row, "companyId") ?? rowString(row, "COMPANY_ID");
+  const directCompanyId = rawDirect && rawDirect !== "0" ? rawDirect : undefined;
 
-  // ── Deal relation: exact verified relation only ──
-  const linkedDealId = SMART_PROCESS_DEAL_FIELD_ID
-    ? rowString(row, SMART_PROCESS_DEAL_FIELD_ID)
-    : undefined;
+  // ── Deal relation: primary parentId2, secondary UF_CRM_7_1779385642 ──
+  let linkedDealId = rowString(row, SMART_PROCESS_DEAL_FIELD_ID);
+  if (!linkedDealId || linkedDealId === "0") {
+    linkedDealId = rowString(row, SMART_PROCESS_DEAL_UF_FIELD_ID);
+  }
+  if (linkedDealId === "0") linkedDealId = undefined;
+
+  let companyId = directCompanyId ?? "";
 
   // Relation conflict: direct Company relation and linked Deal's COMPANY_ID disagree.
   if (directCompanyId && linkedDealId && context.dealCompanyById) {
     const dealCompanyId = context.dealCompanyById.get(linkedDealId);
-    if (dealCompanyId && dealCompanyId !== directCompanyId) {
+    if (dealCompanyId && dealCompanyId !== "0" && dealCompanyId !== directCompanyId) {
       issues.push("smart_process_relation_conflict");
     }
+  } else if (!directCompanyId && linkedDealId && context.dealCompanyById) {
+    // Fallback to linked Deal's COMPANY_ID when direct relation is missing
+    const dealCompanyId = context.dealCompanyById.get(linkedDealId);
+    if (dealCompanyId && dealCompanyId !== "0") {
+      companyId = dealCompanyId;
+    }
   }
-
-  const companyId = directCompanyId ?? "";
 
   // ── Stage ──
   const stageId = rowString(row, "stageId");
@@ -146,7 +179,7 @@ export function adaptSmartProcessSampleEvidence(
   // ── Manual «Дата отправки»: the ONLY dated sent event ──
   const sentDates: SampleSentEvidence[] = [];
   if (SMART_PROCESS_SENT_DATE_FIELD_ID) {
-    const manualDates = extractDates(row[SMART_PROCESS_SENT_DATE_FIELD_ID]);
+    const manualDates = extractDates(rowValue(row, SMART_PROCESS_SENT_DATE_FIELD_ID));
     for (const date of manualDates) {
       sentDates.push({
         date,
@@ -173,7 +206,7 @@ export function adaptSmartProcessSampleEvidence(
   let normalizedResult: NormalizedResult = "unknown";
   if (SMART_PROCESS_TEST_RESULT_FIELD_ID) {
     const resolvedResult = resolveSmartProcessResult(
-      row[SMART_PROCESS_TEST_RESULT_FIELD_ID],
+      rowValue(row, SMART_PROCESS_TEST_RESULT_FIELD_ID),
       resolve
     );
     rawTestResult = resolvedResult.label;
@@ -186,27 +219,41 @@ export function adaptSmartProcessSampleEvidence(
   // Stage/result conflict: terminal stage implies one outcome, explicit
   // result classifies to the opposite — AMBIGUOUS, no silent winner.
   const implied = terminalStageImpliedResult(semantic);
-  if (
-    implied &&
-    normalizedResult !== "unknown" &&
-    normalizedResult !== implied
-  ) {
-    issues.push("smart_process_stage_result_conflict");
+  if (implied) {
+    if (normalizedResult !== "unknown" && normalizedResult !== implied) {
+      issues.push("smart_process_stage_result_conflict");
+      normalizedResult = "unknown";
+    } else if (normalizedResult === "unknown") {
+      normalizedResult = implied;
+    }
   }
 
   // ── Grades (marks) ──
   const grades: SampleEvidenceUnit["grades"] = [];
-  const gelGrades = SMART_PROCESS_GRADE_GEL_FIELD_ID
-    ? resolveValue(SMART_PROCESS_GRADE_GEL_FIELD_ID, row[SMART_PROCESS_GRADE_GEL_FIELD_ID], resolve)
+  const rawGel = rowValue(row, SMART_PROCESS_GRADE_GEL_FIELD_ID);
+  const gelGrades = SMART_PROCESS_GRADE_GEL_FIELD_ID && rawGel !== undefined
+    ? resolveValue(SMART_PROCESS_GRADE_GEL_FIELD_ID, rawGel, resolve)
     : undefined;
   if (gelGrades) {
     for (const value of gelGrades) grades.push({ productFamily: PRODUCT_FAMILY_GEL, value });
   }
-  const solGrades = SMART_PROCESS_GRADE_SOL_FIELD_ID
-    ? resolveValue(SMART_PROCESS_GRADE_SOL_FIELD_ID, row[SMART_PROCESS_GRADE_SOL_FIELD_ID], resolve)
+  const rawSol = rowValue(row, SMART_PROCESS_GRADE_SOL_FIELD_ID);
+  const solGrades = SMART_PROCESS_GRADE_SOL_FIELD_ID && rawSol !== undefined
+    ? resolveValue(SMART_PROCESS_GRADE_SOL_FIELD_ID, rawSol, resolve)
     : undefined;
   if (solGrades) {
     for (const value of solGrades) grades.push({ productFamily: PRODUCT_FAMILY_SOL, value });
+  }
+
+  // ── Quantities ──
+  const quantities: SampleEvidenceUnit["quantities"] = [];
+  const rawGelQty = parseQuantity(rowValue(row, "UF_CRM_7_1766136470"));
+  if (rawGelQty !== undefined) {
+    quantities.push({ productFamily: PRODUCT_FAMILY_GEL, value: rawGelQty, unit: "кг" });
+  }
+  const rawSolQty = parseQuantity(rowValue(row, "UF_CRM_7_1766136546"));
+  if (rawSolQty !== undefined) {
+    quantities.push({ productFamily: PRODUCT_FAMILY_SOL, value: rawSolQty, unit: "л" });
   }
 
   // ── Status evidence: stage label (display) + stage semantic marker ──
@@ -240,7 +287,7 @@ export function adaptSmartProcessSampleEvidence(
     linkedDealId,
     productFamilies: [],
     grades,
-    quantities: [],
+    quantities,
     sentDates,
     statusEvidence,
     rawTestResult,

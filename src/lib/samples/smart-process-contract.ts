@@ -66,32 +66,33 @@ export const SMART_PROCESS_STAGE_LABELS: Record<string, string> = {
 // run scripts/discover-smart-process-contract.mjs and commit its output.
 
 /** Manual «Дата отправки» — the ONLY authoritative dated samples_sent event. */
-export const SMART_PROCESS_SENT_DATE_FIELD_ID: string | null = null;
+export const SMART_PROCESS_SENT_DATE_FIELD_ID: string = "UF_CRM_7_1766059943";
 
-/** «Сделка» — exact linked Deal (integer relation field). */
-export const SMART_PROCESS_DEAL_FIELD_ID: string | null = null;
+/** «Сделка» — exact linked Deal (relation field: parentId2 / PARENT_ID_2). */
+export const SMART_PROCESS_DEAL_FIELD_ID: string = "parentId2";
+
+/** Custom UF deal relation field in Smart Process (secondary). */
+export const SMART_PROCESS_DEAL_UF_FIELD_ID: string = "UF_CRM_7_1779385642";
 
 /** «Марка предоставленных образцов (ГЕЛЬ)». */
-export const SMART_PROCESS_GRADE_GEL_FIELD_ID: string | null = null;
+export const SMART_PROCESS_GRADE_GEL_FIELD_ID: string = "UF_CRM_7_1766135695";
 
 /** «Марка предоставленных образцов (ЗОЛЬ)». */
-export const SMART_PROCESS_GRADE_SOL_FIELD_ID: string | null = null;
+export const SMART_PROCESS_GRADE_SOL_FIELD_ID: string = "UF_CRM_7_1766136511";
 
-/** «Результат тестирования» — enum; live enum IDs/labels used for resolution. */
-export const SMART_PROCESS_TEST_RESULT_FIELD_ID: string | null = null;
+/** «Результат тестирования» — free text / string. */
+export const SMART_PROCESS_TEST_RESULT_FIELD_ID: string = "UF_CRM_7_1763036405";
 
 /**
- * Native Smart Process → Company relation as returned by live metadata
- * (crm.item.list returns `companyId`; the original-name alias is recorded
- * here when discovery proves a different canonical name).
+ * Native Smart Process → Company relation as returned by live metadata.
  */
-export const SMART_PROCESS_COMPANY_FIELD_ID: string | null = null;
+export const SMART_PROCESS_COMPANY_FIELD_ID: string = "companyId";
 
 /**
  * Whether the live discovery has been executed and all required field IDs
  * above were committed. Flipped to true in the same commit as the IDs.
  */
-export const SMART_PROCESS_HAS_DISCOVERED_CONTRACT = false;
+export const SMART_PROCESS_HAS_DISCOVERED_CONTRACT = true;
 
 const REQUIRED_SMART_PROCESS_FIELD_IDS: Array<string | null> = [
   SMART_PROCESS_SENT_DATE_FIELD_ID,
