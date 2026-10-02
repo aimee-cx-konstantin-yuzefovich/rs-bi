@@ -78,10 +78,59 @@ export function isTerminalStage(stageId?: string | null): boolean {
 }
 
 /**
- * Checks whether a deal stage is active (in-progress, not terminal WON or LOST/APOLOGY).
+ * Verified known active base stages across pipelines.
+ */
+const KNOWN_ACTIVE_BASE_STAGES = new Set([
+  "NEW",
+  "EXECUTING",
+  "UC_SP94UZ",
+  "8",
+  "PREPARATION",
+  "5",
+  "6",
+  "9",
+  "10",
+  "11",
+  "7",
+  "PREPAYMENT_INVOICE",
+  "FINAL_INVOICE",
+  "INVOICE_SENT",
+  "IN_PROGRESS",
+  "PROCESS",
+]);
+
+export type DealStageSemantics = "ACTIVE" | "TERMINAL_WON" | "TERMINAL_LOST" | "UNKNOWN";
+
+/**
+ * Checks whether a stage is a verified known active stage.
+ */
+export function isKnownActiveStage(stageId?: string | null): boolean {
+  if (!stageId || typeof stageId !== "string" || !stageId.trim()) return false;
+  const s = stageId.trim().toUpperCase();
+  if (isTerminalStage(s)) return false;
+  const colonIdx = s.lastIndexOf(":");
+  const key = colonIdx !== -1 ? s.slice(colonIdx + 1) : s;
+  return KNOWN_ACTIVE_BASE_STAGES.has(key);
+}
+
+/**
+ * Evaluates canonical stage semantics: ACTIVE, TERMINAL_WON, TERMINAL_LOST, or UNKNOWN.
+ * Unknown or empty stages fail closed to "UNKNOWN".
+ */
+export function getDealStageSemantics(stageId?: string | null): DealStageSemantics {
+  if (!stageId || typeof stageId !== "string" || !stageId.trim()) return "UNKNOWN";
+  if (isTerminalWonStage(stageId)) return "TERMINAL_WON";
+  if (isTerminalLostStage(stageId)) return "TERMINAL_LOST";
+  if (isKnownActiveStage(stageId)) return "ACTIVE";
+  return "UNKNOWN";
+}
+
+/**
+ * Checks whether a deal stage is active (in-progress).
+ * Fail-closed: only known ACTIVE stages evaluate to true; unknown or empty stages return false.
  */
 export function isDealActiveStage(stageId?: string | null): boolean {
-  return !isTerminalStage(stageId);
+  return isKnownActiveStage(stageId);
 }
 
 /**

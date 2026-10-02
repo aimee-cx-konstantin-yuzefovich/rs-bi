@@ -10,7 +10,10 @@ export {
   isTerminalWonStage,
   isTerminalLostStage,
   isTerminalStage,
+  isKnownActiveStage,
+  getDealStageSemantics,
   isDealActiveStage,
   isCommercialContinuationStage,
   isProgressedCommercialStage,
+  type DealStageSemantics,
 } from "../stage-utils";
