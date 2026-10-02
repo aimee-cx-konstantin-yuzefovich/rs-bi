@@ -48,7 +48,7 @@ interface FilterBarProps {
   onToggleCollapse?: () => void;
 }
 
-const PERIOD_PRESETS: Array<{ value: PeriodPreset; label: string }> = [
+export const PERIOD_PRESETS: Array<{ value: PeriodPreset; label: string }> = [
   { value: "7days", label: "7 дней" },
   { value: "14days", label: "14 дней" },
   { value: "30days", label: "30 дней" },

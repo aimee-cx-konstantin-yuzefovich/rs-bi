@@ -72,6 +72,9 @@ export function buildDealTypeRegistry(
   if (!items || !Array.isArray(items)) return registry;
 
   for (const item of items) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
     if (item.ENTITY_ID && item.ENTITY_ID !== "DEAL_TYPE") {
       continue;
     }

@@ -63,7 +63,7 @@ export const DEFAULT_SAMPLES_FILTERS: SamplesFilters = {
   result: "all",
 };
 
-const PERIOD_OPTIONS: Array<{ value: SamplesPeriodPreset; label: string }> = [
+export const PERIOD_OPTIONS: Array<{ value: SamplesPeriodPreset; label: string }> = [
   { value: "7days", label: "7 дней" },
   { value: "14days", label: "14 дней" },
   { value: "30days", label: "30 дней" },

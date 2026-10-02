@@ -122,6 +122,19 @@ export interface BuildExcelOptions {
   extraWarnings?: string[];
 }
 
+export function formatPeriodPresetToRussian(preset: string): string {
+  switch (preset) {
+    case "7days": return "7 дней";
+    case "14days": return "14 дней";
+    case "30days": return "30 дней";
+    case "90days": return "90 дней";
+    case "quarter": return "Квартал";
+    case "custom": return "Указать вручную";
+    case "all": return "За всё время";
+    default: return preset;
+  }
+}
+
 /**
  * Builds the authoritative branded 6-sheet RusSilica Commercial Funnel workbook.
  * Sheets (fixed order): Executive Summary, Funnel, Segments, Sample Testing,
@@ -189,19 +202,6 @@ export async function createCommercialFunnelWorkbook(
     };
     return sheet;
   };
-
-function formatPeriodPresetToRussian(preset: string): string {
-  switch (preset) {
-    case "7days": return "7 дней";
-    case "14days": return "14 дней";
-    case "30days": return "30 дней";
-    case "90days": return "90 дней";
-    case "quarter": return "Квартал";
-    case "custom": return "Указать вручную";
-    case "all": return "За всё время";
-    default: return preset;
-  }
-}
 
   const periodLabel = boundaries.isAllTime
     ? `За всё время (по ${boundaries.currentEndStr})`
