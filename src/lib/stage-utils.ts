@@ -78,6 +78,19 @@ export function isTerminalStage(stageId?: string | null): boolean {
 }
 
 /**
+ * Verified known active stages with category-specific codes.
+ */
+const KNOWN_ACTIVE_STAGES = new Set([
+  "C1:1",
+  "C1:2",
+  "C3:1",
+  "C3:4",
+  "C5:1",
+  "C5:2",
+  "C7:1",
+]);
+
+/**
  * Verified known active base stages across pipelines.
  */
 const KNOWN_ACTIVE_BASE_STAGES = new Set([
@@ -108,6 +121,7 @@ export function isKnownActiveStage(stageId?: string | null): boolean {
   if (!stageId || typeof stageId !== "string" || !stageId.trim()) return false;
   const s = stageId.trim().toUpperCase();
   if (isTerminalStage(s)) return false;
+  if (KNOWN_ACTIVE_STAGES.has(s)) return true;
   const colonIdx = s.lastIndexOf(":");
   const key = colonIdx !== -1 ? s.slice(colonIdx + 1) : s;
   return KNOWN_ACTIVE_BASE_STAGES.has(key);
