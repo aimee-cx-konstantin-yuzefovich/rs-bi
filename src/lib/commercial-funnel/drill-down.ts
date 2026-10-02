@@ -18,6 +18,7 @@ import { calculateDaysWaiting, isDateInPeriod } from "./date-utils";
 import { normalizeCurrencyCode } from "./normalize";
 import { isDealActiveStage, isCommercialContinuationStage } from "./stage-utils";
 import { evaluateStalledDeal, isActiveDealMissingNextStep } from "./bottlenecks";
+import { compareCompanyIds } from "./analytics-helpers";
 import type {
   CommercialCompany,
   CommercialDrillDownEvidence,
@@ -60,7 +61,7 @@ export function buildActiveDealsDrillDown(
   return {
     title: "Активные коммерческие сделки",
     subtitle: `Компании с активными (не терминальными) сделками (${matchingCompanyIds.length}) · Сделок: ${dealCount}`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
     expectedDealCount: dealCount,
@@ -98,7 +99,7 @@ export function buildAwaitingPaymentDrillDown(
   return {
     title: "Ожидают оплаты",
     subtitle: `Компании со счетами, ожидающими оплату (${matchingCompanyIds.length}) · Сделок: ${dealCount}`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
     expectedDealCount: dealCount,
@@ -138,7 +139,7 @@ export function buildDealsCreatedDrillDown(
   return {
     title: "Создано сделок за период",
     subtitle: `Компании с созданными сделками в выбранном периоде (${matchingCompanyIds.length}) · Сделок: ${dealCount}`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
     expectedDealCount: dealCount,
@@ -185,7 +186,7 @@ export function buildPaymentsReceivedDrillDown(
   return {
     title: `Получена оплата за период${curLabel}`,
     subtitle: `Компании с оплаченными сделками в выбранном периоде (${matchingCompanyIds.length}) · Сделок: ${dealCount}`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
     expectedDealCount: dealCount,
@@ -227,7 +228,7 @@ export function buildShipmentsDrillDown(
   return {
     title: "Отгрузки за период",
     subtitle: `Компании с подтверждёнными отгрузками в выбранном периоде (${matchingCompanyIds.length}) · Сделок: ${dealCount}`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
     expectedDealCount: dealCount,
@@ -262,7 +263,7 @@ export function buildNewCompaniesDrillDown(
   return {
     title: "Новые компании за период",
     subtitle: `Компании, созданные в выбранном периоде (${matchingCompanyIds.length})`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
   };
@@ -316,7 +317,7 @@ export function buildSamplesSentDrillDown(
   return {
     title: "Компании с отправленными образцами",
     subtitle: `Компании с подтверждённым фактом отправки образцов за период (${matchingCompanyIds.length})`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
   };
@@ -389,7 +390,7 @@ export function buildSampleStageDrillDown(
     subtitle: isUnclassified
       ? `Компании с неоднозначным или неклассифицированным статусом образцов (${matchingCompanyIds.length})`
       : `Компании в текущем состоянии «${stageLabel}» (${matchingCompanyIds.length})`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
   };
@@ -441,7 +442,7 @@ export function buildContinuationDrillDown(
     return {
       title: "Положительный результат испытаний",
       subtitle: `Компании с текущим статусом «Подошли» (${matchingCompanyIds.length})`,
-      companyIds: matchingCompanyIds,
+      companyIds: matchingCompanyIds.sort(compareCompanyIds),
       evidence,
       expectedCompanyCount: matchingCompanyIds.length,
     };
@@ -450,7 +451,7 @@ export function buildContinuationDrillDown(
   return {
     title: "Коммерческое продолжение",
     subtitle: `Компании с «Подошли» и продвинутой коммерческой сделкой (${matchingCompanyIds.length}) · Сделок: ${continuationDealCount}`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
     expectedDealCount: continuationDealCount,
@@ -529,7 +530,7 @@ export function buildSignalDrillDown(
           });
         }
       }
-    } else if (signalId === "sample_success_no_deal") {
+    } else if (signalId === "sample_success_no_deal" || signalId === "success_no_continuation") {
       if (
         c.sampleStatus === "Подошли" &&
         !c.deals.some((d) => isCommercialContinuationStage(d.stageId, d.categoryId))
@@ -547,7 +548,7 @@ export function buildSignalDrillDown(
   return {
     title: signalLabel,
     subtitle: `Компании, подпадающие под сигнал (${matchingCompanyIds.length})`,
-    companyIds: matchingCompanyIds,
+    companyIds: matchingCompanyIds.sort(compareCompanyIds),
     evidence,
     expectedCompanyCount: matchingCompanyIds.length,
   };

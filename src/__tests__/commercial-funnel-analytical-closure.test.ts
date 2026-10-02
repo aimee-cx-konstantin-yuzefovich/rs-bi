@@ -39,6 +39,7 @@ import {
 } from "@/lib/commercial-funnel/normalize";
 import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
 import { isActiveDealMissingNextStep } from "@/lib/commercial-funnel/bottlenecks";
+import { compareCompanyIds } from "@/lib/commercial-funnel/analytics-helpers";
 import type {
   CommercialCompany,
   CommercialDeal,
@@ -780,5 +781,146 @@ describe("Section 18: Exact Drill-Down Reconciliation Tests", () => {
     expect(drillDown.expectedCompanyCount).toBe(1);
     expect(drillDown.expectedDealCount).toBe(1);
     expect(drillDown.evidence[0].dealId).toBe("D1");
+  });
+
+  // ───────────────────────────────────────────────────────────────────
+  // SECTION 19: Management Signal & Continuation Drill-Down Reconciliation
+  // ───────────────────────────────────────────────────────────────────
+  it("reconciles Management Signal drill-down for success_no_continuation / sample_success_no_deal", () => {
+    const company = mockCompany({
+      id: "C1",
+      sampleStatus: "Подошли",
+      deals: [
+        mockDeal({ id: "D1", stageId: "UC_SP94UZ" }), // Not a continuation stage
+      ],
+    });
+
+    const companies = [company];
+    const signals = computeManagementSignals(companies, testNow);
+    const signal = signals.find((s) => s.id === "success_no_continuation");
+    expect(signal).toBeDefined();
+    expect(signal?.companyCount).toBe(1);
+    expect(signal?.companyIds).toEqual(["C1"]);
+
+    // Test drill-down with signal key emitted by computeManagementSignals
+    const drillDownBySignalId = buildSignalDrillDown(
+      companies,
+      "success_no_continuation",
+      signal!.label,
+      testNow
+    );
+    expect(drillDownBySignalId.companyIds).toEqual(["C1"]);
+    expect(drillDownBySignalId.expectedCompanyCount).toBe(1);
+    expect(drillDownBySignalId.evidence.length).toBe(1);
+    expect(drillDownBySignalId.evidence[0].kind).toBe("COMPANY");
+
+    // Also verify backward compatibility with bottleneck item type
+    const drillDownByBottleneckType = buildSignalDrillDown(
+      companies,
+      "sample_success_no_deal",
+      signal!.label,
+      testNow
+    );
+    expect(drillDownByBottleneckType.companyIds).toEqual(["C1"]);
+    expect(drillDownByBottleneckType.expectedCompanyCount).toBe(1);
+  });
+
+  it("reconciles all management signals 1:1 between computeManagementSignals and buildSignalDrillDown", () => {
+    const companies = [
+      // 1. testing_stalled
+      mockCompany({
+        id: "C_TESTING",
+        sampleStatus: "На испытании",
+        sampleShipmentDate: "2026-01-01T10:00:00+03:00",
+      }),
+      // 2. success_no_continuation
+      mockCompany({
+        id: "C_SUCCESS_NO_CONT",
+        sampleStatus: "Подошли",
+        deals: [],
+      }),
+      // 3. deals_stalled
+      mockCompany({
+        id: "C_STALLED",
+        deals: [
+          mockDeal({
+            id: "D_STALLED",
+            stageId: "PREPARATION",
+            activityDataKnown: true,
+            activityLast: "2026-01-01T10:00:00+03:00",
+          }),
+        ],
+      }),
+      // 4. deals_unknown_activity
+      mockCompany({
+        id: "C_UNKNOWN",
+        deals: [
+          mockDeal({
+            id: "D_UNKNOWN",
+            stageId: "PREPARATION",
+            activityDataKnown: false,
+            dateCreate: "2025-01-01T10:00:00+03:00",
+          }),
+        ],
+      }),
+      // 5. no_next_step
+      mockCompany({
+        id: "C_NO_STEP",
+        deals: [
+          mockDeal({
+            id: "D_NO_STEP",
+            stageId: "PREPARATION",
+            activityDataKnown: true,
+            activityLast: "2026-03-30T10:00:00+03:00",
+            activityNext: undefined,
+          }),
+        ],
+      }),
+    ];
+
+    const signals = computeManagementSignals(companies, testNow);
+    expect(signals.length).toBe(5);
+
+    for (const signal of signals) {
+      const drillDown = buildSignalDrillDown(companies, signal.id, signal.label, testNow);
+      expect(drillDown.companyIds).toEqual(signal.companyIds);
+      expect(drillDown.expectedCompanyCount).toBe(signal.companyCount);
+      expect(drillDown.evidence.length).toBeGreaterThanOrEqual(signal.companyCount);
+      const evidenceCompanyIds = Array.from(
+        new Set(drillDown.evidence.map((e) => e.companyId))
+      ).sort(compareCompanyIds);
+      expect(evidenceCompanyIds).toEqual(signal.companyIds);
+    }
+  });
+
+  it("reconciles Positive Result and Commercial Continuation drill-downs with computeFunnelView", () => {
+    const companies = [
+      mockCompany({
+        id: "C1",
+        sampleStatus: "Подошли",
+        deals: [mockDeal({ id: "D1", stageId: "8", categoryId: "0" })], // continuation
+      }),
+      mockCompany({
+        id: "C2",
+        sampleStatus: "Подошли",
+        deals: [mockDeal({ id: "D2", stageId: "NEW", categoryId: "0" })], // not continuation
+      }),
+      mockCompany({
+        id: "C3",
+        sampleStatus: "На испытании",
+      }),
+    ];
+
+    const funnel = computeFunnelView(companies, boundaries);
+    const posDrillDown = buildContinuationDrillDown(companies, "positive");
+    const contDrillDown = buildContinuationDrillDown(companies, "continuation");
+
+    expect(posDrillDown.companyIds).toEqual(funnel.continuation.positiveResult.companyIds);
+    expect(posDrillDown.expectedCompanyCount).toBe(funnel.continuation.positiveResult.count);
+
+    expect(contDrillDown.companyIds).toEqual(funnel.continuation.withCommercialContinuation.companyIds);
+    expect(contDrillDown.expectedCompanyCount).toBe(funnel.continuation.withCommercialContinuation.count);
+    expect(contDrillDown.expectedDealCount).toBe(1);
+    expect(contDrillDown.evidence[0].dealId).toBe("D1");
   });
 });
