@@ -30,6 +30,8 @@ import type {
 } from "@/lib/commercial-funnel/types";
 import { DEFAULT_COMMERCIAL_FILTERS } from "@/lib/commercial-funnel/constants";
 
+import { normalizeCommercialPeriodPreset } from "@/lib/commercial-funnel/date-utils";
+
 interface FilterBarProps {
   filters: CommercialFilters;
   onFiltersChange: (newFilters: CommercialFilters) => void;
@@ -48,11 +50,10 @@ interface FilterBarProps {
 
 const PERIOD_PRESETS: Array<{ value: PeriodPreset; label: string }> = [
   { value: "7days", label: "7 дней" },
+  { value: "14days", label: "14 дней" },
   { value: "30days", label: "30 дней" },
   { value: "90days", label: "90 дней" },
-  { value: "quarter", label: "Квартал" },
-  { value: "all", label: "За всё время" },
-  { value: "custom", label: "Произвольный" },
+  { value: "custom", label: "Указать вручную" },
 ];
 
 function isNumericId(str: string): boolean {
@@ -164,7 +165,7 @@ export function CommercialFilterBar({
           {/* 1. Period Dropdown (single dropdown with calendar icon, matching Deals page) */}
           <div className="flex items-center gap-1">
             <Select
-              value={filters.periodPreset}
+              value={normalizeCommercialPeriodPreset(filters.periodPreset)}
               onValueChange={(val) =>
                 onFiltersChange({ ...filters, periodPreset: val as PeriodPreset })
               }

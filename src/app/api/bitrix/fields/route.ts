@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { bitrixGet, isSystemField, type BitrixFieldsResponse, type BitrixField } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
+import { buildDealTypeRegistry } from "@/lib/deal-type";
 
 export const dynamic = "force-dynamic";
 
@@ -195,6 +196,23 @@ export async function GET() {
       statusEntityIds.add("DEAL_STAGE");
     }
 
+    // Ensure TYPE_ID is included so its listValues can be resolved authoritatively via DEAL_TYPE
+    let typeFieldIndex = cleanFields.findIndex((f) => f.id === "TYPE_ID");
+    if (typeFieldIndex === -1) {
+      cleanFields.push({
+        id: "TYPE_ID",
+        title: "Тип сделки",
+        type: "crm_status",
+        isMultiple: false,
+        isSortable: true,
+      });
+      typeFieldIndex = cleanFields.length - 1;
+    }
+    if (!pendingStatusFields.some((p) => p.index === typeFieldIndex)) {
+      pendingStatusFields.push({ index: typeFieldIndex, entityId: "DEAL_TYPE" });
+      statusEntityIds.add("DEAL_TYPE");
+    }
+
     // Also collect deal category stage entities if categories exist
     try {
       const categoryData = await bitrixGet<{ result?: { categories?: Array<{ id: number }> } }>(
@@ -307,9 +325,13 @@ export async function GET() {
       isSortable: false,
     });
 
+    const typeField = cleanFields.find((f) => f.id === "TYPE_ID");
+    const dealTypes = buildDealTypeRegistry(typeField?.listValues);
+
     return NextResponse.json({
       success: true,
       fields: cleanFields,
+      dealTypes: Object.keys(dealTypes).length > 0 ? dealTypes : undefined,
       total: cleanFields.length,
       partial,
       missingSources: missingSources.length > 0 ? missingSources : undefined,

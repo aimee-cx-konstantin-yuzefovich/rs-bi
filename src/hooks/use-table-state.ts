@@ -8,11 +8,13 @@ import {
 } from "@/lib/crm-constants";
 import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
 import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
+import { resolveDealType } from "@/lib/deal-type";
 
 export function useTableState() {
   const {
     deals,
     fields,
+    dealTypeRegistry,
     selectedColumns,
     searchQuery,
     columnSort,
@@ -25,6 +27,7 @@ export function useTableState() {
   } = useDashboardStore(useShallow((state) => ({
     deals: state.deals,
     fields: state.fields,
+    dealTypeRegistry: state.dealTypeRegistry,
     selectedColumns: state.selectedColumns,
     searchQuery: state.searchQuery,
     columnSort: state.columnSort,
@@ -191,6 +194,10 @@ export function useTableState() {
         return getDealStageDisplayLabel(val);
       }
 
+      if (colId === "TYPE_ID") {
+        return resolveDealType(raw, dealTypeRegistry, field);
+      }
+
       if (colId === RESPONSIBLE_FIELD_ID) {
         const id = String(raw);
         const dealName = String(deal.ASSIGNED_BY_NAME || "").trim();
@@ -232,7 +239,7 @@ export function useTableState() {
 
       return String(raw);
     },
-    [fieldMap, userNames, companiesData, activitiesData, usersCoverage]
+    [fieldMap, userNames, companiesData, activitiesData, usersCoverage, dealTypeRegistry]
   );
 
   const getSortValue = useCallback(
@@ -264,6 +271,10 @@ export function useTableState() {
         // Strict date parsing: invalid/missing never sort as epoch (0).
         const d = parseStrictDate(String(raw), { mode: "DATETIME_BUSINESS_TIMEZONE" });
         return d ? d.getTime() : "";
+      }
+
+      if (colId === "TYPE_ID") {
+        return resolveValue(deal, colId).toLowerCase();
       }
 
       if (field?.listValues && raw) {

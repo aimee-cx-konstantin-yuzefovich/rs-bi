@@ -45,7 +45,7 @@ export function DealPreview({
   const [attempt, setAttempt] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
 
-  const { userNames, fields, activitiesData, usersCoverage } = useDashboardStore();
+  const { userNames, fields, activitiesData, usersCoverage, dealTypeRegistry } = useDashboardStore();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -108,6 +108,7 @@ export function DealPreview({
     state.status === "success"
       ? buildDealPreviewModel(state.deal, {
           fields,
+          dealTypeRegistry,
           userNames: userNames || {},
           usersCoverage,
           activity: activitiesData[id]?.last,
@@ -277,20 +278,16 @@ export function DealPreview({
                 </div>
               </div>
 
-              {/* TIMELINE Attributes (5 to 6) */}
+              {/* TIMELINE Attributes */}
               <div className="pt-3 space-y-2">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Дата создания сделки</dt>
-                  <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                    {model.timelineFields[0].value}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Последнее касание</dt>
-                  <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                    {model.timelineFields[1].value}
-                  </dd>
-                </div>
+                {model.timelineFields.map((field) => (
+                  <div key={field.id}>
+                    <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                    <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                      {field.value}
+                    </dd>
+                  </div>
+                ))}
               </div>
 
               {/* ACTIVITY Attribute (7) */}

@@ -1,10 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────
 // Samples period contract — fixed inclusive business-calendar semantics.
-// 30days = current Moscow calendar day + previous 29 (90/365 analogous).
+// 7days = current Moscow calendar day + previous 6 (14/30/90 analogous).
 // Pure predicate accepts injected `now`; boundary cases below.
 // ─────────────────────────────────────────────────────────────────────
 import { describe, expect, it } from "vitest";
-import { matchesPeriod, samplesPeriodWindow, type SamplesFilters } from "@/components/dashboard/samples/samples-filters";
+import {
+  matchesPeriod,
+  normalizeSamplesPeriodPreset,
+  samplesPeriodWindow,
+  type SamplesFilters,
+} from "@/components/dashboard/samples/samples-filters";
 import type { SampleSummary } from "@/lib/samples/types";
 
 function summaryWithDates(dates: string[]): SampleSummary {
@@ -16,7 +21,7 @@ function filters(period: SamplesFilters["period"], extra?: Partial<SamplesFilter
 }
 
 const DEFAULT_BASE: SamplesFilters = {
-  period: "all",
+  period: "30days",
   companyQuery: "",
   responsibleId: "all",
   productFamily: "all",
@@ -30,6 +35,20 @@ const DEFAULT_BASE: SamplesFilters = {
 const NOW = new Date("2026-09-26T12:00:00Z");
 
 describe("samples period contract", () => {
+  it("7days includes today and 6 days ago; excludes 7 days ago", () => {
+    const f = filters("7days");
+    expect(matchesPeriod(summaryWithDates(["2026-09-26"]), f, NOW)).toBe(true);
+    expect(matchesPeriod(summaryWithDates(["2026-09-20"]), f, NOW)).toBe(true); // 6 days before 09-26
+    expect(matchesPeriod(summaryWithDates(["2026-09-19"]), f, NOW)).toBe(false); // 7 days before — outside
+  });
+
+  it("14days includes today and 13 days ago; excludes 14 days ago", () => {
+    const f = filters("14days");
+    expect(matchesPeriod(summaryWithDates(["2026-09-26"]), f, NOW)).toBe(true);
+    expect(matchesPeriod(summaryWithDates(["2026-09-13"]), f, NOW)).toBe(true); // 13 days before 09-26
+    expect(matchesPeriod(summaryWithDates(["2026-09-12"]), f, NOW)).toBe(false); // 14 days before — outside
+  });
+
   it("30days includes today and 29 days ago; excludes 30 days ago", () => {
     const f = filters("30days");
     expect(matchesPeriod(summaryWithDates(["2026-09-26"]), f, NOW)).toBe(true);
@@ -37,12 +56,19 @@ describe("samples period contract", () => {
     expect(matchesPeriod(summaryWithDates(["2026-08-27"]), f, NOW)).toBe(false); // 30 days before — outside
   });
 
-  it("window is exactly 30 calendar days inclusive", () => {
-    const { from, to } = samplesPeriodWindow(filters("30days"), NOW);
-    expect(from).not.toBeNull();
-    expect(to).not.toBeNull();
-    const days = Math.round((to!.getTime() - from!.getTime()) / 86400000) + 1;
-    expect(days).toBe(30);
+  it("window spans exact calendar day counts inclusive", () => {
+    const checkDays = (preset: SamplesFilters["period"], expectedCount: number) => {
+      const { from, to } = samplesPeriodWindow(filters(preset), NOW);
+      expect(from).not.toBeNull();
+      expect(to).not.toBeNull();
+      const days = Math.round((to!.getTime() - from!.getTime()) / 86400000);
+      expect(days).toBe(expectedCount);
+    };
+
+    checkDays("7days", 7);
+    checkDays("14days", 14);
+    checkDays("30days", 30);
+    checkDays("90days", 90);
   });
 
   it("month boundary: August 31 inside a 30-day window ending Sep 26? — no; Sep 1 yes", () => {
@@ -60,11 +86,17 @@ describe("samples period contract", () => {
     expect(matchesPeriod(summaryWithDates(["2026-06-28"]), f, NOW)).toBe(false);
   });
 
-  it("365days includes previous 364 days (leap-day semantics: 2024-02-29 valid)", () => {
-    const f = filters("365days");
-    // Window: 2025-09-27 .. 2026-09-26
-    expect(matchesPeriod(summaryWithDates(["2025-09-27"]), f, NOW)).toBe(true);
-    expect(matchesPeriod(summaryWithDates(["2025-09-26"]), f, NOW)).toBe(false);
+  it("obsolete presets (all, 365days, unknown) normalize safely to 30days", () => {
+    expect(normalizeSamplesPeriodPreset("all")).toBe("30days");
+    expect(normalizeSamplesPeriodPreset("365days")).toBe("30days");
+    expect(normalizeSamplesPeriodPreset("unknown" as any)).toBe("30days");
+
+    const fLegacy = filters("all" as any);
+    const { from, to } = samplesPeriodWindow(fLegacy, NOW);
+    expect(from).not.toBeNull();
+    expect(to).not.toBeNull();
+    const days = Math.round((to!.getTime() - from!.getTime()) / 86400000);
+    expect(days).toBe(30);
   });
 
   it("leap day 2024-02-29 is a valid date and never rolls to Mar 1", () => {
@@ -74,12 +106,21 @@ describe("samples period contract", () => {
     expect(matchesPeriod(summaryWithDates(["2023-02-29"]), f, NOW)).toBe(false);
   });
 
-  it("custom inclusive from/to includes both endpoints", () => {
+  it("custom inclusive from/to includes both endpoints and swaps inverted boundaries", () => {
     const f = filters("custom", { customFrom: "2026-09-01", customTo: "2026-09-30" });
     expect(matchesPeriod(summaryWithDates(["2026-09-01"]), f, NOW)).toBe(true);
     expect(matchesPeriod(summaryWithDates(["2026-09-30"]), f, NOW)).toBe(true);
     expect(matchesPeriod(summaryWithDates(["2026-08-31"]), f, NOW)).toBe(false);
     expect(matchesPeriod(summaryWithDates(["2026-10-01"]), f, NOW)).toBe(false);
+
+    // Inverted range customFrom > customTo swaps safely
+    const fInverted = filters("custom", { customFrom: "2026-09-30", customTo: "2026-09-01" });
+    expect(matchesPeriod(summaryWithDates(["2026-09-15"]), fInverted, NOW)).toBe(true);
+  });
+
+  it("custom with missing boundaries does NOT match any sent dates (truthful empty state)", () => {
+    const fMissing = filters("custom", {});
+    expect(matchesPeriod(summaryWithDates(["2026-09-15"]), fMissing, NOW)).toBe(false);
   });
 
   it("invalid custom dates and impossible sent dates never match", () => {
@@ -93,11 +134,6 @@ describe("samples period contract", () => {
   it("impossible datetime 2026-09-01T25:00:00 is invalid, not 01:00 next day", () => {
     const f = filters("custom", { customFrom: "2026-09-01", customTo: "2026-09-02" });
     expect(matchesPeriod(summaryWithDates(["2026-09-01T25:00:00"]), f, NOW)).toBe(false);
-  });
-
-  it("period=all matches everything including empty sent dates", () => {
-    const f = filters("all");
-    expect(matchesPeriod(summaryWithDates([]), f, NOW)).toBe(true);
   });
 
   it("empty sentDates never matches a bounded period", () => {

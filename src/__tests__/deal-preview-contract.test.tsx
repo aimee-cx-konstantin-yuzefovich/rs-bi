@@ -128,7 +128,8 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
 
     // Whitelist timeline dates present
     expect(screen.getByText("Дата создания сделки")).toBeInTheDocument();
-    expect(screen.getByText("Последнее касание")).toBeInTheDocument();
+    expect(screen.getByText("Последнее касание с клиентом")).toBeInTheDocument();
+    expect(screen.getByText("Последнее изменение сделки")).toBeInTheDocument();
     expect(screen.getByText("Последняя активность")).toBeInTheDocument();
 
     // Current deal-card fields present
@@ -223,9 +224,9 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TEST D & TEST E: Two-Date Timeline Model
+  // TEST D & TEST E: Timeline Model (Creation, Client Touch, Deal Modification)
   // ─────────────────────────────────────────────────────────────────────────
-  it("TEST D: Renders exactly two timeline dates: 'Дата создания сделки' = A, 'Последнее касание' = E; excludes DATE_MODIFY, BEGINDATE, CLOSEDATE", async () => {
+  it("TEST D: Renders timeline dates: 'Дата создания сделки' = A, 'Последнее касание с клиентом' = E, 'Последнее изменение сделки' = DATE_MODIFY; excludes BEGINDATE, CLOSEDATE", async () => {
     mockStore.activitiesData = {
       "504": {
         last: {
@@ -243,7 +244,7 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
           ID: "504",
           TITLE: "Сделка 504",
           DATE_CREATE: "2026-09-30T07:49:00Z", // A
-          DATE_MODIFY: "2026-09-30T18:00:00Z", // B (must not be used)
+          DATE_MODIFY: "2026-09-30T18:00:00Z", // B (separate modification date)
           BEGINDATE: "2026-09-01", // C (must not be displayed)
           CLOSEDATE: "2026-09-30", // D (must not be displayed)
         },
@@ -256,15 +257,15 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
 
     expect(screen.getByText("Дата создания сделки")).toBeInTheDocument();
-    expect(screen.getByText("Последнее касание")).toBeInTheDocument();
+    expect(screen.getByText("Последнее касание с клиентом")).toBeInTheDocument();
+    expect(screen.getByText("Последнее изменение сделки")).toBeInTheDocument();
     expect(screen.getByText("Последняя активность")).toBeInTheDocument();
 
-    expect(screen.queryByText("Дата изменения")).not.toBeInTheDocument();
     expect(screen.queryByText("Дата начала")).not.toBeInTheDocument();
     expect(screen.queryByText("Дата завершения")).not.toBeInTheDocument();
   });
 
-  it("TEST E: No authoritative activity timestamp -> 'Последнее касание' displays '–', NEVER DATE_MODIFY", async () => {
+  it("TEST E: No authoritative activity timestamp -> 'Последнее касание с клиентом' displays '–', NEVER DATE_MODIFY", async () => {
     mockStore.activitiesData = {};
 
     fetchMock.mockResolvedValue({
@@ -285,10 +286,14 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     render(<DealPreview id="505" onClose={() => {}} />);
     await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
 
-    const lastTouchDt = screen.getByText("Последнее касание");
+    const lastTouchDt = screen.getByText("Последнее касание с клиентом");
     const lastTouchDd = lastTouchDt.nextElementSibling;
     expect(lastTouchDd).toHaveTextContent("–");
     expect(lastTouchDd).not.toHaveTextContent("18:00");
+
+    const lastModDt = screen.getByText("Последнее изменение сделки");
+    const lastModDd = lastModDt.nextElementSibling;
+    expect(lastModDd).toHaveTextContent("21:00"); // 18:00 UTC = 21:00 MSK
   });
 
   // ─────────────────────────────────────────────────────────────────────────

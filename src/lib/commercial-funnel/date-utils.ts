@@ -7,7 +7,7 @@
 
 import { COMMERCIAL_TIMEZONE } from "./constants";
 import { isValidCalendarDate, parseStrictDate } from "@/lib/date-safety";
-import type { CommercialFilters, PeriodBoundaries } from "./types";
+import type { CommercialFilters, PeriodBoundaries, PeriodPreset } from "./types";
 
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
@@ -134,16 +134,33 @@ export function parseDateTimestamp(
 }
 
 /**
+ * Normalizes any obsolete or invalid period preset to canonical 30days.
+ */
+export function normalizeCommercialPeriodPreset(preset?: string | null): PeriodPreset {
+  if (
+    preset === "7days" ||
+    preset === "14days" ||
+    preset === "30days" ||
+    preset === "90days" ||
+    preset === "custom"
+  ) {
+    return preset;
+  }
+  return "30days";
+}
+
+/**
  * Calculate the exact start and end dates for both the current selected period
  * and the immediately preceding period of equal duration.
  * Normalized to the business timezone.
  */
 export function computePeriodBoundaries(
-  filters: CommercialFilters,
+  filters: Pick<CommercialFilters, "periodPreset" | "customFrom" | "customTo"> | { periodPreset?: string; customFrom?: string; customTo?: string },
   now: Date = new Date(),
   timeZone: string = COMMERCIAL_TIMEZONE
 ): PeriodBoundaries {
-  const { periodPreset, customFrom, customTo } = filters;
+  const { customFrom, customTo } = filters;
+  const rawPreset = filters.periodPreset ?? "30days";
   const nowParts = getZonedCalendarParts(now, timeZone);
 
   let currentStart: Date;
@@ -158,7 +175,7 @@ export function computePeriodBoundaries(
     timeZone
   );
 
-  if (periodPreset === "all") {
+  if (rawPreset === "all") {
     return {
       currentStart: null,
       currentEnd,
@@ -173,7 +190,22 @@ export function computePeriodBoundaries(
     };
   }
 
-  if (periodPreset === "custom" && customFrom && customTo) {
+  if (rawPreset === "custom") {
+    if (!customFrom || !customTo) {
+      return {
+        currentStart: null,
+        currentEnd: createZonedDate(1970, 0, 1, 0, 0, 0, 0, timeZone),
+        previousStart: null,
+        previousEnd: null,
+        currentStartStr: "",
+        currentEndStr: "",
+        previousStartStr: "",
+        previousEndStr: "",
+        isAllTime: false,
+        comparisonAvailable: false,
+      };
+    }
+
     // Validate boundaries strictly against calendar rules
     const parsedFrom = parseStrictDate(customFrom, { mode: "DATE_ONLY" });
     const parsedTo = parseStrictDate(customTo, { mode: "DATE_ONLY" });
@@ -211,7 +243,7 @@ export function computePeriodBoundaries(
       999,
       timeZone
     );
-  } else if (periodPreset === "quarter") {
+  } else if (rawPreset === "quarter") {
     const quarterIndex = Math.floor(nowParts.monthIndex / 3); // 0, 1, 2, 3
     const qStartMonth = quarterIndex * 3;
     currentStart = createZonedDate(nowParts.year, qStartMonth, 1, 0, 0, 0, 0, timeZone);
@@ -219,12 +251,14 @@ export function computePeriodBoundaries(
     const lastDay = new Date(Date.UTC(nowParts.year, qEndMonth + 1, 0)).getUTCDate();
     currentEnd = createZonedDate(nowParts.year, qEndMonth, lastDay, 23, 59, 59, 999, timeZone);
   } else {
+    const preset = normalizeCommercialPeriodPreset(rawPreset);
     const daysMap: Record<string, number> = {
       "7days": 7,
+      "14days": 14,
       "30days": 30,
       "90days": 90,
     };
-    const days = daysMap[periodPreset] || 30;
+    const days = daysMap[preset] || 30;
     // Exactly N whole days ending at currentEnd
     const durationMs = (days * 24 * 60 * 60 * 1000) - 1000;
     const rawStart = new Date(currentEnd.getTime() - durationMs);

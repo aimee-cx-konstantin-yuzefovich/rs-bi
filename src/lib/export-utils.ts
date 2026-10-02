@@ -56,6 +56,7 @@ import {
   type DealPreviewModel,
   type DealPreviewResolvedField,
 } from "./deal-preview";
+import type { DealTypeRegistry } from "./deal-type";
 
 export interface WysiwygExportOptions {
   sheetName?: string;
@@ -939,6 +940,7 @@ export async function exportCompanyToExcel(options: ExportCompanyOptions): Promi
 export interface ExportDealOptions {
   deal: Record<string, unknown>;
   fields?: Array<{ id: string; title?: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }>;
+  dealTypeRegistry?: DealTypeRegistry | null;
   userNames?: Record<string, string>;
   usersCoverage?: DatasetCoverage | null;
   activity?: { SUBJECT?: string; CREATED?: string; DEADLINE?: string } | null;
@@ -959,6 +961,7 @@ export function createDealExcelWorkbook(options: ExportDealOptions): ExcelJS.Wor
     options.dealModel ||
     buildDealPreviewModel(options.deal, {
       fields: options.fields,
+      dealTypeRegistry: options.dealTypeRegistry,
       userNames: options.userNames,
       usersCoverage: options.usersCoverage,
       activity: options.activity,

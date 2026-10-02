@@ -23,6 +23,7 @@ import {
   COMPANIES_FAILED_WARNING,
 } from "@/lib/enrichment-coverage";
 import { USERS_DIRECTORY_CAP } from "@/lib/crm-constants";
+import { type DealTypeRegistry, buildDealTypeRegistry } from "@/lib/deal-type";
 
 // ─── Client-side fetch timeout (prevents infinite loading spinner) ───
 // Server-side bitrix helpers already have 15s/30s timeouts,
@@ -102,6 +103,7 @@ interface DashboardState {
 
   // Fields
   fields: FieldInfo[];
+  dealTypeRegistry: DealTypeRegistry;
   fieldsLoading: boolean;
   fieldsError: string | null;
 
@@ -326,6 +328,7 @@ export const useDashboardStore = create<DashboardState>()(
 
       // Fields
       fields: [],
+      dealTypeRegistry: { SALE: "Продажа силикагеля" },
       fieldsLoading: false,
       fieldsError: null,
 
@@ -458,10 +461,20 @@ export const useDashboardStore = create<DashboardState>()(
           }
 
           if (data.fields.length === 0) {
-            set({ fields: DEMO_FIELDS, fieldsLoading: false, isDemoMode: true });
+            set({
+              fields: DEMO_FIELDS,
+              dealTypeRegistry: { SALE: "Продажа силикагеля" },
+              fieldsLoading: false,
+              isDemoMode: true,
+            });
           } else {
+            const dealTypeRegistry =
+              data.dealTypes ||
+              buildDealTypeRegistry(data.fields?.find((f: FieldInfo) => f.id === "TYPE_ID")?.listValues);
+
             set({
               fields: data.fields,
+              dealTypeRegistry,
               fieldsLoading: false,
               isDemoMode: false,
               isConfigured: true,
@@ -610,6 +623,7 @@ export const useDashboardStore = create<DashboardState>()(
         const demoDeals = generateDemoDeals(150);
         set({
           fields: DEMO_FIELDS,
+          dealTypeRegistry: { SALE: "Продажа силикагеля" },
           allDeals: demoDeals,
           dealsTotal: demoDeals.length,
           isDemoMode: true,

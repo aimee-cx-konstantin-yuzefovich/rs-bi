@@ -20,11 +20,24 @@ import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import { parseStrictDate, BUSINESS_TIMEZONE } from "@/lib/scalar-safety";
 
 export type SamplesPeriodPreset =
-  | "all"
+  | "7days"
+  | "14days"
   | "30days"
   | "90days"
-  | "365days"
   | "custom";
+
+export function normalizeSamplesPeriodPreset(preset?: string | null): SamplesPeriodPreset {
+  if (
+    preset === "7days" ||
+    preset === "14days" ||
+    preset === "30days" ||
+    preset === "90days" ||
+    preset === "custom"
+  ) {
+    return preset;
+  }
+  return "30days";
+}
 
 export interface SamplesFilters {
   period: SamplesPeriodPreset;
@@ -40,7 +53,7 @@ export interface SamplesFilters {
 }
 
 export const DEFAULT_SAMPLES_FILTERS: SamplesFilters = {
-  period: "all",
+  period: "30days",
   companyQuery: "",
   responsibleId: "all",
   productFamily: "all",
@@ -51,59 +64,79 @@ export const DEFAULT_SAMPLES_FILTERS: SamplesFilters = {
 };
 
 const PERIOD_OPTIONS: Array<{ value: SamplesPeriodPreset; label: string }> = [
-  { value: "all", label: "За всё время" },
+  { value: "7days", label: "7 дней" },
+  { value: "14days", label: "14 дней" },
   { value: "30days", label: "30 дней" },
   { value: "90days", label: "90 дней" },
-  { value: "365days", label: "Год" },
-  { value: "custom", label: "Период…" },
+  { value: "custom", label: "Указать вручную" },
 ];
 
 /**
  * Computes the inclusive business-calendar window for a period preset.
  * Pure function: `now` is injectable for deterministic tests. Semantics are
  * fixed calendar days in the business timezone:
- *   30days  = current Europe/Moscow calendar day + previous 29 calendar days
+ *   7days   = current Europe/Moscow calendar day + previous 6 calendar days
+ *   14days  = current day + previous 13
+ *   30days  = current day + previous 29
  *   90days  = current day + previous 89
- *   365days = current day + previous 364
+ * Ends at 23:59:59.999 of the current Moscow calendar day.
  * Never compares calendar dates to an arbitrary rolling clock timestamp.
  */
 export function samplesPeriodWindow(
   filters: Pick<SamplesFilters, "period" | "customFrom" | "customTo">,
   now: Date = new Date()
 ): { from: Date | null; to: Date | null } {
-  if (filters.period === "all") return { from: null, to: null };
+  const period = normalizeSamplesPeriodPreset(filters.period);
 
-  if (filters.period === "custom") {
+  if (period === "custom") {
     let from: Date | null = null;
     let to: Date | null = null;
     if (filters.customFrom) {
       from = parseStrictDate(`${filters.customFrom}T00:00:00`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
     }
     if (filters.customTo) {
-      to = parseStrictDate(`${filters.customTo}T23:59:59`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      to = parseStrictDate(`${filters.customTo}T23:59:59.999`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    }
+    if (from && to && from.getTime() > to.getTime()) {
+      const tempFrom = parseStrictDate(`${filters.customTo}T00:00:00`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      const tempTo = parseStrictDate(`${filters.customFrom}T23:59:59.999`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+      from = tempFrom;
+      to = tempTo;
     }
     return { from, to };
   }
 
-  const daysBack = { "30days": 29, "90days": 89, "365days": 364 }[
-    filters.period as "30days" | "90days" | "365days"
-  ];
+  const daysBackMap: Record<string, number> = {
+    "7days": 6,
+    "14days": 13,
+    "30days": 29,
+    "90days": 89,
+  };
+  const daysBack = daysBackMap[period];
   if (daysBack === undefined) return { from: null, to: null };
 
-  // Current Moscow calendar day, expressed at 00:00 Moscow = 21:00 UTC prev day.
-  const moscowNow = parseStrictDate(
-    new Intl.DateTimeFormat("en-CA", {
-      timeZone: BUSINESS_TIMEZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(now) + "T00:00:00",
+  // Current Moscow calendar day, expressed at 00:00 Moscow and 23:59:59.999 Moscow
+  const moscowDayStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+
+  const moscowStartOfDay = parseStrictDate(
+    `${moscowDayStr}T00:00:00`,
     { mode: "DATETIME_BUSINESS_TIMEZONE" }
   );
-  if (!moscowNow) return { from: null, to: null };
+  if (!moscowStartOfDay) return { from: null, to: null };
 
-  const from = new Date(moscowNow.getTime() - daysBack * 24 * 60 * 60 * 1000);
-  return { from, to: moscowNow };
+  const moscowEndOfDay = parseStrictDate(
+    `${moscowDayStr}T23:59:59.999`,
+    { mode: "DATETIME_BUSINESS_TIMEZONE" }
+  );
+  if (!moscowEndOfDay) return { from: null, to: null };
+
+  const from = new Date(moscowStartOfDay.getTime() - daysBack * 24 * 60 * 60 * 1000);
+  return { from, to: moscowEndOfDay };
 }
 
 /** Returns true when the company matches the period by ≥1 sent date. */
@@ -112,10 +145,10 @@ export function matchesPeriod(
   filters: SamplesFilters,
   now: Date = new Date()
 ): boolean {
-  if (filters.period === "all") return true;
   if (summary.sentDates.length === 0) return false;
 
   const { from, to } = samplesPeriodWindow(filters, now);
+  if (filters.period === "custom" && !from && !to) return false;
 
   return summary.sentDates.some((dateStr) => {
     // Strict parsing: "2026-02-31" never rolls to another valid date.
@@ -191,8 +224,8 @@ export function SamplesFilterBar({
       {/* Period — по дате передачи образцов */}
       <div className="flex items-center gap-1.5">
         <SelectFilter
-          value={filters.period}
-          onChange={(v) => set({ period: v as SamplesPeriodPreset })}
+          value={normalizeSamplesPeriodPreset(filters.period)}
+          onChange={(v) => set({ period: normalizeSamplesPeriodPreset(v) })}
           placeholder="Период"
           options={PERIOD_OPTIONS.map((p) => ({ value: p.value, label: p.label }))}
         />
@@ -203,7 +236,8 @@ export function SamplesFilterBar({
               value={filters.customFrom ?? ""}
               onChange={(e) => set({ customFrom: e.target.value })}
               className="h-8 w-[130px] text-xs"
-              aria-label="Дата передачи с"
+              aria-label="Дата с"
+              placeholder="Дата с"
             />
             <span className="text-xs text-muted-foreground">–</span>
             <Input
@@ -211,7 +245,8 @@ export function SamplesFilterBar({
               value={filters.customTo ?? ""}
               onChange={(e) => set({ customTo: e.target.value })}
               className="h-8 w-[130px] text-xs"
-              aria-label="Дата передачи по"
+              aria-label="Дата по"
+              placeholder="Дата по"
             />
           </div>
         )}

@@ -129,6 +129,7 @@ The Commercial Funnel (`/commercial-funnel`) is a **management analytics layer**
 ### Event vs Snapshot / WIP model
 - **Dated Event metrics**: Metrics tied to dated occurrences within the selected analytical period (e.g. new companies created, samples shipped, deals created, payments received, shipments).
 - **Snapshot / WIP metrics**: Current operational portfolio state (e.g. companies in sample stages, active deals, awaiting payment, bottlenecks). Current WIP is **never truncated** by the selected period date range.
+- **Aligned period presets**: Samples and Commercial Funnel period selectors expose exactly five options: `7 дней` (`7days`), `14 дней` (`14days`), `30 дней` (`30days`, default), `90 дней` (`90days`), and `Указать вручную` (`custom`). Incomplete custom boundaries evaluate strictly to null/empty without silent fallback to 30 days.
 - Period count KPIs count unique Company IDs unless explicitly documented otherwise.
 - **Historical stage transitions are NOT implemented**: The system does not track historical stage movement logs. Never invent stage transition counts (A → B), stage velocity, historical conversion rates, or cohort retention.
 

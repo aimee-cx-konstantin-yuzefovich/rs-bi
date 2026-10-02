@@ -8,7 +8,9 @@ import type { FieldInfo } from "@/store/dashboard-store";
 export const DEMO_FIELDS: FieldInfo[] = [
   // Standard informative fields
   { id: "TITLE", title: "Название", type: "string", isMultiple: false, isSortable: true },
-  { id: "TYPE_ID", title: "Тип", type: "crm_status", isMultiple: false, isSortable: true },
+  { id: "TYPE_ID", title: "Тип", type: "crm_status", isMultiple: false, isSortable: true, listValues: [
+    { ID: "SALE", VALUE: "Продажа силикагеля" },
+  ] },
   { id: "CATEGORY_ID", title: "Воронка", type: "crm_category", isMultiple: false, isSortable: true },
   { id: "STAGE_ID", title: "Стадия сделки", type: "crm_status", isMultiple: false, isSortable: true, listValues: [
     { ID: "NEW", VALUE: "Новая" },

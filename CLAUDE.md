@@ -217,8 +217,9 @@ The Segments view ([`src/components/commercial-funnel/segments-tab.tsx`](src/com
 #### Period & timezone semantics
 
 - All period boundary, date comparison, and day-age calculations are normalized to the business timezone: `Europe/Moscow` (`COMMERCIAL_TIMEZONE`, UTC+3).
-- **Quarter preset (`quarter`)**: Always represents the **full calendar quarter** (start of month 1 to end of month 3 of the quarter), not silently converted to quarter-to-date (QTD).
-- **All-Time preset (`all`)**: Evaluates all valid dated historical events up to the current instant; comparison with a previous period is disabled (`comparisonAvailable: false`).
+- **Aligned period presets**: Exactly five options are exposed across Samples and Commercial Funnel: `7 дней` (`7days`), `14 дней` (`14days`), `30 дней` (`30days`, default in both), `90 дней` (`90days`), and `Указать вручную` (`custom`).
+- Rolling presets represent inclusive calendar days ending at 23:59:59.999 in Moscow: 7d (today + 6 days prior), 14d (today + 13 days prior), 30d (today + 29 days prior), 90d (today + 89 days prior).
+- **Manual period (`custom`)**: Evaluates inclusive Moscow calendar day bounds `start 00:00:00` to `end 23:59:59.999`. If boundaries are incomplete or missing, returns null bounds without fallback to 30 days. Obsolete legacy presets (`all`, `quarter`, `year`) normalize to `30days`.
 - Previous comparison periods have duration exactly equal to the current period (`currentEnd - currentStart`).
 
 #### One analysis clock (`analysisNow`)

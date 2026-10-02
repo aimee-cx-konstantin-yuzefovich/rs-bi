@@ -197,7 +197,7 @@ function formatPeriodPresetToRussian(preset: string): string {
     case "30days": return "30 дней";
     case "90days": return "90 дней";
     case "quarter": return "Квартал";
-    case "custom": return "Пользовательский период";
+    case "custom": return "Указать вручную";
     case "all": return "За всё время";
     default: return preset;
   }

@@ -4,10 +4,11 @@
 // All analytics metrics and Excel sheets consume these types.
 // ─────────────────────────────────────────────────────────────────────
 
-export type PeriodPreset = "7days" | "30days" | "90days" | "quarter" | "custom" | "all";
+export type PeriodPreset = "7days" | "14days" | "30days" | "90days" | "custom";
+export type LegacyPeriodPreset = "all" | "quarter" | "year";
 
 export interface CommercialFilters {
-  periodPreset: PeriodPreset;
+  periodPreset: PeriodPreset | LegacyPeriodPreset;
   customFrom?: string; // YYYY-MM-DD
   customTo?: string;   // YYYY-MM-DD
   responsibleId?: string; // "all" or specific ID

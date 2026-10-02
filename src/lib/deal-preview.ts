@@ -24,6 +24,7 @@ import {
   type DatasetCoverage,
 } from "./enrichment-coverage";
 import { NUMFMT, getMoneyNumFmt } from "./excel-brand";
+import { resolveDealType, type DealTypeRegistry } from "./deal-type";
 
 export function isDealId(id: string): boolean {
   return /^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id));
@@ -167,13 +168,14 @@ export interface DealPreviewModel {
   bitrixUrl: string | null;
   companyBitrixUrl: string | null;
   mainFields: DealPreviewResolvedField[];     // 1. Стадия, 2. Сумма, 3. Ответственный, 4. Компания
-  timelineFields: DealPreviewResolvedField[]; // 5. Дата создания сделки, 6. Последнее касание
-  activityField: DealPreviewResolvedField;    // 7. Последняя активность
-  cardFields: DealPreviewResolvedField[];     // 8. Тип сделки ... 16. Адрес доставки
+  timelineFields: DealPreviewResolvedField[]; // 5. Дата создания сделки, 6. Последнее касание с клиентом, 7. Последнее изменение сделки
+  activityField: DealPreviewResolvedField;    // 8. Последняя активность
+  cardFields: DealPreviewResolvedField[];     // 9. Тип сделки ... 17. Адрес доставки
 }
 
 export interface BuildDealPreviewModelOptions {
   fields?: Array<{ id: string; title?: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }>;
+  dealTypeRegistry?: DealTypeRegistry | null;
   userNames?: Record<string, string>;
   usersCoverage?: DatasetCoverage | null;
   activity?: { SUBJECT?: string; CREATED?: string; DEADLINE?: string } | null;
@@ -463,6 +465,7 @@ export function buildDealPreviewModel(
 ): DealPreviewModel {
   const {
     fields,
+    dealTypeRegistry,
     userNames = {},
     usersCoverage,
     activity,
@@ -581,7 +584,7 @@ export function buildDealPreviewModel(
   const lastTouchParsed = resolveDateTime(rawLastTouch);
   const lastTouchField: DealPreviewResolvedField = {
     id: "LAST_TOUCH",
-    label: "Последнее касание",
+    label: "Последнее касание с клиентом",
     value: lastTouchParsed.display,
     rawValue: rawLastTouch,
     type: "datetime",
@@ -590,13 +593,27 @@ export function buildDealPreviewModel(
     isDate: true,
   };
 
-  const timelineFields = [createField, lastTouchField];
+  // 7. Последнее изменение сделки (from DATE_MODIFY)
+  const rawModify = deal.DATE_MODIFY ?? deal.updatedTime;
+  const modifyParsed = resolveDateTime(rawModify);
+  const modifyField: DealPreviewResolvedField = {
+    id: "DATE_MODIFY",
+    label: "Последнее изменение сделки",
+    value: modifyParsed.display,
+    rawValue: rawModify,
+    type: "datetime",
+    excelValue: modifyParsed.date,
+    excelNumFmt: NUMFMT.DATETIME,
+    isDate: true,
+  };
+
+  const timelineFields = [createField, lastTouchField, modifyField];
 
   // ─────────────────────────────────────────────────────────────
-  // 3. ACTIVITY Attribute (7)
+  // 3. ACTIVITY Attribute (8)
   // ─────────────────────────────────────────────────────────────
 
-  // 7. Последняя активность
+  // 8. Последняя активность
   const rawSubject = activity?.SUBJECT?.trim() ?? "";
   const activityField: DealPreviewResolvedField = {
     id: "ACTIVITY_LAST",
@@ -608,13 +625,14 @@ export function buildDealPreviewModel(
   };
 
   // ─────────────────────────────────────────────────────────────
-  // 4. CURRENT DEAL CARD FIELDS (8 to 16)
+  // 4. CURRENT DEAL CARD FIELDS (9 to 17)
   // ─────────────────────────────────────────────────────────────
   const cardFields: DealPreviewResolvedField[] = [];
 
-  // 8. Тип сделки (TYPE_ID)
+  // 9. Тип сделки (TYPE_ID)
   const rawTypeId = deal.TYPE_ID ?? deal.typeId;
-  const typeDisplay = resolveEnumField(rawTypeId, "TYPE_ID", fields);
+  const typeFieldMeta = fields?.find((f) => f.id === "TYPE_ID");
+  const typeDisplay = resolveDealType(rawTypeId, dealTypeRegistry, typeFieldMeta);
   cardFields.push({
     id: "TYPE_ID",
     label: "Тип сделки",
