@@ -255,7 +255,7 @@ function resolveDealSampleStatus(
     return labels[cleaned];
   }
   if (/^\d+$/.test(cleaned)) {
-    return `${UNCLASSIFIED_LABEL} (${cleaned})`;
+    return UNCLASSIFIED_LABEL;
   }
   return cleaned;
 }
@@ -279,7 +279,7 @@ export function resolveCompanySampleStatuses(
     } else if (labels && labels[raw]) {
       label = labels[raw];
     } else if (/^\d+$/.test(raw)) {
-      label = `${UNCLASSIFIED_LABEL} (${raw})`;
+      label = UNCLASSIFIED_LABEL;
     } else {
       label = raw;
     }
@@ -427,7 +427,7 @@ export function normalizeDeals(
     const resolvedStageName = resolveDealStage(stageId, stageFieldsMock, categoryId);
     const stageName =
       resolvedStageName &&
-      !resolvedStageName.startsWith("Не классифицировано (") &&
+      resolvedStageName !== UNCLASSIFIED_LABEL &&
       resolvedStageName !== stageId &&
       resolvedStageName !== "—"
         ? resolvedStageName
@@ -582,7 +582,7 @@ export function applyCanonicalSampleDomain(
     const resolveCompanyLabel = (raw: string): string => {
       if (COMPANY_SAMPLE_STATUS_MAP[raw]) return COMPANY_SAMPLE_STATUS_MAP[raw];
       if (companySampleLabels[raw]) return companySampleLabels[raw];
-      if (/^\d+$/.test(raw)) return `${UNCLASSIFIED_LABEL} (${raw})`;
+      if (/^\d+$/.test(raw)) return UNCLASSIFIED_LABEL;
       return raw;
     };
     const resolvedStatusValues = state.statusValues.map(resolveCompanyLabel);
@@ -1076,19 +1076,19 @@ export function normalizeCompanies(
     const industryRaw = cleanCrmClassificationString(row[COMPANY_INDUSTRY_CURRENT_FIELD_ID]);
     const industry = industryRaw
       ? companyIndustryLabels[industryRaw] ||
-        (/^\d+$/.test(industryRaw) ? `${UNCLASSIFIED_LABEL} (${industryRaw})` : industryRaw)
+        (/^\d+$/.test(industryRaw) ? UNCLASSIFIED_LABEL : industryRaw)
       : undefined;
 
     const directionRaw = toStringArray(row[COMPANY_DIRECTION_CURRENT_FIELD_ID]);
     const direction = directionRaw.map((v) =>
-      companyDirectionLabels[v] || (/^\d+$/.test(v) ? `${UNCLASSIFIED_LABEL} (${v})` : v)
+      companyDirectionLabels[v] || (/^\d+$/.test(v) ? UNCLASSIFIED_LABEL : v)
     );
 
     const region = cleanCrmClassificationString(row[COMPANY_REGION_FIELD_ID]);
 
     const productTypeRaw = toStringArray(row[COMPANY_PRODUCT_TYPE_FIELD_ID]);
     const productType = productTypeRaw.map((v) =>
-      companyProductLabels[v] || (/^\d+$/.test(v) ? `${UNCLASSIFIED_LABEL} (${v})` : v)
+      companyProductLabels[v] || (/^\d+$/.test(v) ? UNCLASSIFIED_LABEL : v)
     );
 
     // Application: verified actual field UF_CRM_69257337B8025 (COMPANY_APPLICATION_FIELD_ID).

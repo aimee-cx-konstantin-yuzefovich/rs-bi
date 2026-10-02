@@ -33,9 +33,9 @@ describe("Deal Stage — Category-Safe Disambiguation Contract", () => {
 
   it("Returns truthful unknown classification when base ID is ambiguous across categories and no categoryId is provided", () => {
     // Stage '10' exists in both C1 and C2. Without categoryId, must NOT pick first candidate arbitrarily!
-    expect(resolveDealStage("10", fields)).toBe("Не классифицировано (10)");
-    expect(resolveDealStage("10", fields, null)).toBe("Не классифицировано (10)");
-    expect(resolveDealStage("10", fields, "")).toBe("Не классифицировано (10)");
+    expect(resolveDealStage("10", fields)).toBe("Не классифицировано");
+    expect(resolveDealStage("10", fields, null)).toBe("Не классифицировано");
+    expect(resolveDealStage("10", fields, "")).toBe("Не классифицировано");
   });
 
   it("Allows base-ID fallback when exactly ONE candidate across all categories matches the base ID", () => {

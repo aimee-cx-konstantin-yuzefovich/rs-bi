@@ -237,6 +237,8 @@ export const DEAL_STAGE_DISPLAY_LABELS: Record<string, string> = {
   INVOICE_SENT: "Счёт выставлен",
 };
 
+export const UNCLASSIFIED_LABEL = "Не классифицировано";
+
 /**
  * Returns user-facing Russian display label for a deal stage,
  * supporting category-prefixed Bitrix stages (e.g. C1:WON, C2:LOSE).

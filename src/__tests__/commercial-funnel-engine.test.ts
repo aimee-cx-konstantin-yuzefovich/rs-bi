@@ -126,8 +126,8 @@ describe("Commercial Funnel — Normalization & Precedence", () => {
 
     const companies = canonicalNormalize([rawCompany], []);
     expect(companies).toHaveLength(1);
-    expect(companies[0].sampleStatus).toContain("Не классифицировано");
-    expect(companies[0].sampleStatus).toContain("265");
+    expect(companies[0].sampleStatus).toBe("Не классифицировано");
+    expect(companies[0].sampleStatusRawValues).toContain("265");
   });
 
   it("Multiple deals for one company are grouped under that company", () => {
@@ -1153,7 +1153,8 @@ describe("Commercial Funnel — Remediation & Provenance Hardening", () => {
       UF_CRM_1779386185: "9999", // Unknown numeric enum
     };
     const deals = normalizeDeals([rawDeal]);
-    expect(deals[0].sampleTransferStatus).toBe("Не классифицировано (9999)");
+    expect(deals[0].sampleTransferStatus).toBe("Не классифицировано");
+    expect(deals[0].sampleTransferStatusRaw).toBe("9999");
   });
 
   it("sample register includes deal having only sampleTestingStatus", () => {

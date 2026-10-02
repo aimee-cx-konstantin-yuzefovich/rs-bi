@@ -66,9 +66,9 @@ describe("Commercial Funnel Authoritative Taxonomy and 4 Segments", () => {
     const normalized = normalizeCompanies(rawCompanies as any, [], {});
     const c = normalized[0];
 
-    expect(c.industry).toBe("Не классифицировано (1801)");
-    expect(c.direction).toEqual(["Не классифицировано (1841)"]);
-    expect(c.productType).toEqual(["Не классифицировано (1849)"]);
+    expect(c.industry).toBe("Не классифицировано");
+    expect(c.direction).toEqual(["Не классифицировано"]);
+    expect(c.productType).toEqual(["Не классифицировано"]);
     expect(c.region).toBe("Сибирь");
   });
 

@@ -341,11 +341,11 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     const payField = model.cardFields.find((f) => f.id === PAYMENT_STATUS_FIELD_ID);
     const stageField = model.mainFields.find((f) => f.id === "STAGE_ID");
 
-    expect(payField?.value).toBe("Не классифицировано (999999)");
-    expect(payField?.excelValue).toBe("Не классифицировано (999999)");
+    expect(payField?.value).toBe("Не классифицировано");
+    expect(payField?.excelValue).toBe("Не классифицировано");
 
-    expect(stageField?.value).toBe("Не классифицировано (888888)");
-    expect(stageField?.excelValue).toBe("Не классифицировано (888888)");
+    expect(stageField?.value).toBe("Не классифицировано");
+    expect(stageField?.excelValue).toBe("Не классифицировано");
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -525,7 +525,7 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     expect(resolveDealStage("10", fields, "2")).toBe("Тестирование (Воронка 2)");
 
     // Unprefixed input ambiguous across multiple categories without categoryId
-    expect(resolveDealStage("10", fields)).toBe("Не классифицировано (10)");
+    expect(resolveDealStage("10", fields)).toBe("Не классифицировано");
   });
 
   it("AUDIT REGRESSION 2: Multi-enum array falls back gracefully even when fields metadata is missing", () => {

@@ -197,7 +197,7 @@ describe("Phase D — Company Preview current-card contract", () => {
       userNames: { "7": "Анна Иванова" },
     });
     const industry = model.fields.find((f) => f.id === COMPANY_INDUSTRY_CURRENT_FIELD_ID)!;
-    expect(industry.value).toBe("Не классифицировано (999999)");
+    expect(industry.value).toBe("Не классифицировано");
   });
 
   it("approved-industry regression: current field wins over INDUSTRY and the retired field", () => {

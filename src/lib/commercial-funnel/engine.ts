@@ -709,7 +709,7 @@ export function computeBottlenecks(
         const rawStageDisplay = d.stageName || (d.stageId ? resolveDealStage(d.stageId, undefined, d.categoryId) : UNCLASSIFIED_LABEL);
         const currentState =
           rawStageDisplay &&
-          !rawStageDisplay.startsWith("Не классифицировано (") &&
+          rawStageDisplay !== UNCLASSIFIED_LABEL &&
           rawStageDisplay !== d.stageId &&
           rawStageDisplay !== "—"
             ? rawStageDisplay

@@ -16,6 +16,7 @@ import {
   DEAL_DELIVERY_COST_FIELD_ID,
   DEAL_DELIVERY_ADDRESS_FIELD_ID,
   DELIVERY_TYPE_ENUM_SEMANTICS,
+  UNCLASSIFIED_LABEL,
 } from "./crm-constants";
 import { PAYMENT_STATUS_ENUM_SEMANTICS } from "./bitrix-contract-spec";
 import { BUSINESS_TIMEZONE, parseStrictDate, parseStrictNumber } from "./scalar-safety";
@@ -261,7 +262,7 @@ export function resolveDealStage(
     } else if (baseCandidates.length > 1) {
       // Ambiguous across multiple categories without category context:
       // Do NOT pick the first matching category arbitrarily!
-      return `Не классифицировано (${str})`;
+      return UNCLASSIFIED_LABEL;
     }
   }
 
@@ -281,7 +282,7 @@ export function resolveDealStage(
   }
 
   // 3. Fallback: truthful unknown classification (never naked internal ID like "10" or "999999")
-  return `Не классифицировано (${str})`;
+  return UNCLASSIFIED_LABEL;
 }
 
 /**
@@ -346,7 +347,7 @@ function resolveEnumField(
     return fallbackMap[s];
   }
 
-  return `Не классифицировано (${s})`;
+  return UNCLASSIFIED_LABEL;
 }
 
 /**

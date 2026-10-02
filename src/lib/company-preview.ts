@@ -32,6 +32,7 @@ import {
   COMPANY_REGION_FIELD_ID,
   COMPANY_TESTING_MARKER_FIELD_ID,
   COMPANY_HAS_DISCOVERED_CARD_CONTRACT,
+  UNCLASSIFIED_LABEL,
 } from "./crm-constants";
 import { NUMFMT } from "./excel-brand";
 
@@ -182,7 +183,7 @@ function resolveEnumRaw(
     if (isSentinel(v)) continue;
     const s = String(v).trim();
     const found = meta?.listValues?.find((lv) => lv.ID === s);
-    resolved.push(found ? found.VALUE : `Не классифицировано (${s})`);
+    resolved.push(found ? found.VALUE : UNCLASSIFIED_LABEL);
   }
   return resolved.length > 0 ? resolved.join(", ") : null;
 }
