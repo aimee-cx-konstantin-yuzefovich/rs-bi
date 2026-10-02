@@ -806,4 +806,62 @@ describe("Commercial Funnel — Excel Export (6-sheet management workbook)", () 
     const dealCell = String(row.getCell(11).value ?? "");
     expect(dealCell).not.toContain("Представительская сделка");
   });
+
+  describe("Commercial Excel Export Guards (Defect 7: E1 to E4)", () => {
+    it("E1: incomplete custom period does not export a report with fake dates", async () => {
+      await expect(
+        createCommercialFunnelWorkbook({
+          companies: demoData.companies,
+          deals: demoData.deals,
+          filters: { ...filters, periodPreset: "custom", customFrom: "2026-09-01" },
+          userNames: demoData.userNames,
+          now: fixedNow,
+        })
+      ).rejects.toThrow(/неполный или некорректный пользовательский период/);
+    });
+
+    it("E2: invalid custom calendar dates do not crash and reject corrupt export", async () => {
+      await expect(
+        createCommercialFunnelWorkbook({
+          companies: demoData.companies,
+          deals: demoData.deals,
+          filters: {
+            ...filters,
+            periodPreset: "custom",
+            customFrom: "2026-02-31",
+            customTo: "2026-03-10",
+          },
+          userNames: demoData.userNames,
+          now: fixedNow,
+        })
+      ).rejects.toThrow(/неполный или некорректный пользовательский период/);
+    });
+
+    it("E3: empty dataset export produces truthful safe structure without crash", async () => {
+      const workbook = await createCommercialFunnelWorkbook({
+        companies: [],
+        deals: [],
+        filters,
+        userNames: {},
+        now: fixedNow,
+      });
+
+      expect(workbook.worksheets.length).toBe(6);
+      const summary = workbook.getWorksheet("Executive Summary")!;
+      expect(summary).toBeDefined();
+    });
+
+    it("E4: demo mode blocks export from generating misleading report", async () => {
+      await expect(
+        createCommercialFunnelWorkbook({
+          companies: demoData.companies,
+          deals: demoData.deals,
+          filters,
+          userNames: demoData.userNames,
+          now: fixedNow,
+          isDemoMode: true,
+        })
+      ).rejects.toThrow(/демонстрационные данные не могут использоваться/);
+    });
+  });
 });

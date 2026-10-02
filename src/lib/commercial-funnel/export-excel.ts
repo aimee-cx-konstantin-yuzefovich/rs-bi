@@ -1462,10 +1462,11 @@ export async function downloadCommercialFunnelExcel(
   const a = document.createElement("a");
   a.href = url;
   const dateStr = formatReportDateForFilename(options.now || new Date());
+  const normPreset = normalizeCommercialPeriodPreset(options.filters?.periodPreset);
   const periodPart =
-    options.filters.periodPreset === "custom" && options.filters.customFrom && options.filters.customTo
+    normPreset === "custom" && options.filters?.customFrom && options.filters?.customTo
       ? `${options.filters.customFrom}_${options.filters.customTo}`
-      : options.filters.periodPreset.replace("days", "дней");
+      : normPreset.replace("days", "дней");
   a.download = `РусСилика_Коммерческая_воронка_${periodPart}_${dateStr}.xlsx`;
   a.click();
   window.URL.revokeObjectURL(url);
