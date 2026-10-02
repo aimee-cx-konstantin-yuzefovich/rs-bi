@@ -82,21 +82,23 @@ describe("Invariant Date & Datetime Contract (Finding A)", () => {
     const fixedNow = new Date("2026-09-15T12:00:00Z");
 
     it("rejects impossible custom boundary date (customFrom = 2026-02-31)", () => {
-      expect(() =>
-        computePeriodBoundaries(
-          { periodPreset: "custom", customFrom: "2026-02-31", customTo: "2026-03-31" },
-          fixedNow
-        )
-      ).toThrowError(/Invalid custom period boundaries/);
+      const boundaries = computePeriodBoundaries(
+        { periodPreset: "custom", customFrom: "2026-02-31", customTo: "2026-03-31" },
+        fixedNow
+      );
+      expect(boundaries.currentStart).toBeNull();
+      expect(boundaries.currentEnd).toBeNull();
+      expect(boundaries.comparisonAvailable).toBe(false);
     });
 
     it("rejects impossible custom boundary date (customTo = 2026-04-31)", () => {
-      expect(() =>
-        computePeriodBoundaries(
-          { periodPreset: "custom", customFrom: "2026-04-01", customTo: "2026-04-31" },
-          fixedNow
-        )
-      ).toThrowError(/Invalid custom period boundaries/);
+      const boundaries = computePeriodBoundaries(
+        { periodPreset: "custom", customFrom: "2026-04-01", customTo: "2026-04-31" },
+        fixedNow
+      );
+      expect(boundaries.currentStart).toBeNull();
+      expect(boundaries.currentEnd).toBeNull();
+      expect(boundaries.comparisonAvailable).toBe(false);
     });
 
     it("reorders inverted valid custom range chronologically without rollover", () => {
@@ -107,7 +109,7 @@ describe("Invariant Date & Datetime Contract (Finding A)", () => {
 
       expect(boundaries.currentStartStr).toBe("2026-03-01");
       expect(boundaries.currentEndStr).toBe("2026-03-31");
-      expect(boundaries.currentStart!.getTime()).toBeLessThan(boundaries.currentEnd.getTime());
+      expect(boundaries.currentStart!.getTime()).toBeLessThan(boundaries.currentEnd!.getTime());
     });
 
     it("spans full start and end days for valid range", () => {

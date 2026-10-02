@@ -243,9 +243,12 @@ function CommercialFunnelContent() {
     setDrillDownOpen(true);
   };
 
+  const isCustomIncomplete =
+    filters.periodPreset === "custom" && (!boundaries.currentStart || !boundaries.currentEnd);
+
   const handleExportExcel = async () => {
     // Demo data must never become a detached management report (Option A).
-    if (isDemoMode || isUnavailable || companies.length === 0) return;
+    if (isDemoMode || isUnavailable || companies.length === 0 || isCustomIncomplete) return;
     setExportingExcel(true);
     try {
       await downloadCommercialFunnelExcel({
@@ -359,7 +362,7 @@ function CommercialFunnelContent() {
           userNames={userNames}
           onExportExcel={handleExportExcel}
           exportingExcel={exportingExcel}
-          exportDisabled={isUnavailable || companies.length === 0}
+          exportDisabled={isUnavailable || companies.length === 0 || isCustomIncomplete}
           isDemoMode={isDemoMode}
           onRefresh={reload}
           refreshing={loading || Boolean(refreshing)}

@@ -382,11 +382,10 @@ describe("Commercial Funnel Remediation — Targeted Tests (T1 - T10)", () => {
       ],
     };
 
-    const allTimeBoundaries = computePeriodBoundaries({ periodPreset: "all" });
-    expect(allTimeBoundaries.isAllTime).toBe(true);
-    expect(allTimeBoundaries.comparisonAvailable).toBe(false);
+    const unavailableBoundaries = computePeriodBoundaries({ periodPreset: "custom", customFrom: "2026-05-01" });
+    expect(unavailableBoundaries.comparisonAvailable).toBe(false);
 
-    const metrics = computePeriodMetrics([comp], allTimeBoundaries);
+    const metrics = computePeriodMetrics([comp], unavailableBoundaries);
     for (const kpi of metrics) {
       expect(kpi.delta).toBeNull();
       expect(kpi.deltaPercent).toBeNull();

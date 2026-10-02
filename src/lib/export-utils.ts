@@ -57,6 +57,10 @@ import {
   type DealPreviewResolvedField,
 } from "./deal-preview";
 import type { DealTypeRegistry } from "./deal-type";
+import {
+  formatSamplesPeriodLabel,
+  type SamplesFilters,
+} from "@/components/dashboard/samples/samples-filters";
 
 export interface WysiwygExportOptions {
   sheetName?: string;
@@ -1138,6 +1142,7 @@ export interface ExportSamplesOptions {
   userNames?: Record<string, string>;
   usersCoverage?: DatasetCoverage | null;
   period?: string;
+  filters?: Pick<SamplesFilters, "period" | "customFrom" | "customTo">;
   filtersText?: string;
   coverage?: DatasetCoverage | null;
   extraWarnings?: string[];
@@ -1154,11 +1159,25 @@ export async function buildSamplesWorkbook(
     summaries,
     userNames = {},
     usersCoverage,
-    period = "Все",
     filtersText = "Все",
     coverage,
     extraWarnings,
   } = options;
+
+  let period: string;
+  if (options.period) {
+    period = options.period;
+  } else if (options.filters) {
+    const derived = formatSamplesPeriodLabel(options.filters);
+    if (!derived && options.filters.period === "custom") {
+      throw new Error(
+        "Экспорт отключён: указан неполный или некорректный пользовательский период."
+      );
+    }
+    period = derived || "Все";
+  } else {
+    period = "Все";
+  }
 
   const columns = [
     "№",
@@ -1252,6 +1271,9 @@ export async function exportSamplesToExcel(
   options: ExportSamplesOptions
 ): Promise<void> {
   if (options.summaries.length === 0) return;
+  if (options.filters?.period === "custom" && !options.period && !formatSamplesPeriodLabel(options.filters)) {
+    return;
+  }
 
   const workbook = await buildSamplesWorkbook(options);
   const buffer = await workbook.xlsx.writeBuffer();

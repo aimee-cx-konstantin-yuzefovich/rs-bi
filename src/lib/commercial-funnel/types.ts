@@ -5,10 +5,9 @@
 // ─────────────────────────────────────────────────────────────────────
 
 export type PeriodPreset = "7days" | "14days" | "30days" | "90days" | "custom";
-export type LegacyPeriodPreset = "all" | "quarter" | "year";
 
 export interface CommercialFilters {
-  periodPreset: PeriodPreset | LegacyPeriodPreset;
+  periodPreset: PeriodPreset;
   customFrom?: string; // YYYY-MM-DD
   customTo?: string;   // YYYY-MM-DD
   responsibleId?: string; // "all" or specific ID
@@ -20,14 +19,13 @@ export interface CommercialFilters {
 
 export interface PeriodBoundaries {
   currentStart: Date | null;
-  currentEnd: Date;
+  currentEnd: Date | null;
   previousStart: Date | null;
   previousEnd: Date | null;
   currentStartStr: string;
   currentEndStr: string;
   previousStartStr: string;
   previousEndStr: string;
-  isAllTime?: boolean;
   comparisonAvailable?: boolean;
 }
 

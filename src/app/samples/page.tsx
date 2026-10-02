@@ -22,6 +22,7 @@ import { SamplesKpiCards } from "@/components/dashboard/samples/samples-kpi-card
 import {
   SamplesFilterBar,
   matchesPeriod,
+  formatSamplesPeriodLabel,
   DEFAULT_SAMPLES_FILTERS,
   type SamplesFilters,
 } from "@/components/dashboard/samples/samples-filters";
@@ -180,6 +181,13 @@ function SamplesContent() {
   // Unavailable state: API loading failed and no cached snapshot exists
   const isUnavailable = !loading && Boolean(error) && samples.length === 0;
 
+  // Period label for truthful export disclosure and custom range validation
+  const periodLabel = useMemo(
+    () => formatSamplesPeriodLabel(filters),
+    [filters]
+  );
+  const isPeriodValid = periodLabel !== null;
+
   // KPIs follow the FILTERED set (user decision) — company grain.
   const kpis = useMemo(() => computeSampleKpis(filtered), [filtered]);
 
@@ -324,14 +332,17 @@ function SamplesContent() {
               statusOptions={statusOptions}
               showKpis={showKpis}
               onToggleKpis={() => setShowKpis((v) => !v)}
-              onExport={() =>
+              onExport={() => {
+                if (!isPeriodValid || filtered.length === 0 || isUnavailable) return;
                 exportSamplesToExcel({
                   summaries: filtered,
                   userNames,
                   usersCoverage,
-                })
-              }
-              exportDisabled={filtered.length === 0 || isUnavailable}
+                  period: periodLabel,
+                  filters,
+                });
+              }}
+              exportDisabled={filtered.length === 0 || isUnavailable || !isPeriodValid}
               totalCount={filtered.length}
             />
           </div>

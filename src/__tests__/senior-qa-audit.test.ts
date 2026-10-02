@@ -254,10 +254,10 @@ describe("Senior QA Audit: Combined BI Fix Verification Suite", () => {
 
       // 7 days window: today + 6 prior calendar days
       const bounds7d = computePeriodBoundaries({ periodPreset: "7days" }, fixedNow);
-      expect(bounds7d.currentEnd.getUTCHours()).toBe(20); // 23:59:59.999 MSK = 20:59:59.999 UTC
-      expect(bounds7d.currentEnd.getUTCMinutes()).toBe(59);
-      expect(bounds7d.currentEnd.getUTCSeconds()).toBe(59);
-      expect(bounds7d.currentEnd.getUTCMilliseconds()).toBe(999);
+      expect(bounds7d.currentEnd!.getUTCHours()).toBe(20); // 23:59:59.999 MSK = 20:59:59.999 UTC
+      expect(bounds7d.currentEnd!.getUTCMinutes()).toBe(59);
+      expect(bounds7d.currentEnd!.getUTCSeconds()).toBe(59);
+      expect(bounds7d.currentEnd!.getUTCMilliseconds()).toBe(999);
 
       // Samples window checks
       const samples7d = samplesPeriodWindow({ period: "7days" }, fixedNow);

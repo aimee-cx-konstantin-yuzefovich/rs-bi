@@ -1,6 +1,6 @@
 /**
  * Deal-only normalization and preview field contract for RusSilica BI Terminal.
- * Implements the current Deal card explicit whitelist, two-date timeline model,
+ * Implements the current Deal card explicit whitelist, three-date timeline model (DATE_CREATE, LAST_TOUCH, DATE_MODIFY),
  * human-readable classification resolution, and unified UI/Excel model.
  */
 
@@ -555,7 +555,7 @@ export function buildDealPreviewModel(
   const mainFields = [stageField, oppField, respField, companyField];
 
   // ─────────────────────────────────────────────────────────────
-  // 2. TIMELINE Attributes (5 to 6)
+  // 2. TIMELINE Attributes (5 to 7)
   // ─────────────────────────────────────────────────────────────
 
   // 5. Дата создания сделки (from DATE_CREATE)

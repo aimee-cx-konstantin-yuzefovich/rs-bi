@@ -3,7 +3,7 @@ import {
   computePeriodBoundaries,
   normalizeCommercialPeriodPreset,
 } from "@/lib/commercial-funnel/date-utils";
-import { computeWipMetrics } from "@/lib/commercial-funnel/engine";
+import { computeWipMetrics, computePeriodMetrics } from "@/lib/commercial-funnel/engine";
 import type { CommercialCompany } from "@/lib/commercial-funnel/types";
 
 describe("Commercial Funnel Period Filter Alignment (Part B)", () => {
@@ -20,8 +20,21 @@ describe("Commercial Funnel Period Filter Alignment (Part B)", () => {
     expect(normalizeCommercialPeriodPreset("all")).toBe("30days");
     expect(normalizeCommercialPeriodPreset("quarter")).toBe("30days");
     expect(normalizeCommercialPeriodPreset("year")).toBe("30days");
+    expect(normalizeCommercialPeriodPreset("365days")).toBe("30days");
     expect(normalizeCommercialPeriodPreset("unknown" as any)).toBe("30days");
     expect(normalizeCommercialPeriodPreset(null)).toBe("30days");
+  });
+
+  it("legacy presets (all, quarter, year, 365days, unknown) produce identical boundaries as 30days", () => {
+    const b30 = computePeriodBoundaries({ periodPreset: "30days" }, FIXED_NOW);
+    for (const legacy of ["all", "quarter", "year", "365days", "unknown", null, undefined]) {
+      const bLegacy = computePeriodBoundaries({ periodPreset: legacy as any }, FIXED_NOW);
+      expect(bLegacy.currentStartStr).toBe(b30.currentStartStr);
+      expect(bLegacy.currentEndStr).toBe(b30.currentEndStr);
+      expect(bLegacy.previousStartStr).toBe(b30.previousStartStr);
+      expect(bLegacy.previousEndStr).toBe(b30.previousEndStr);
+      expect(bLegacy.comparisonAvailable).toBe(true);
+    }
   });
 
   it("7days boundary spans 7 calendar days with 7 days preceding comparison", () => {
@@ -84,6 +97,7 @@ describe("Commercial Funnel Period Filter Alignment (Part B)", () => {
   it("custom mode with incomplete boundaries returns empty/null boundaries and NEVER falls back to 30 days", () => {
     const missingBoth = computePeriodBoundaries({ periodPreset: "custom" }, FIXED_NOW);
     expect(missingBoth.currentStart).toBeNull();
+    expect(missingBoth.currentEnd).toBeNull();
     expect(missingBoth.previousStart).toBeNull();
     expect(missingBoth.previousEnd).toBeNull();
     expect(missingBoth.currentStartStr).toBe("");
@@ -95,6 +109,7 @@ describe("Commercial Funnel Period Filter Alignment (Part B)", () => {
       FIXED_NOW
     );
     expect(missingTo.currentStart).toBeNull();
+    expect(missingTo.currentEnd).toBeNull();
     expect(missingTo.currentStartStr).toBe("");
     expect(missingTo.currentEndStr).toBe("");
     expect(missingTo.comparisonAvailable).toBe(false);
@@ -104,9 +119,33 @@ describe("Commercial Funnel Period Filter Alignment (Part B)", () => {
       FIXED_NOW
     );
     expect(missingFrom.currentStart).toBeNull();
+    expect(missingFrom.currentEnd).toBeNull();
     expect(missingFrom.currentStartStr).toBe("");
     expect(missingFrom.currentEndStr).toBe("");
     expect(missingFrom.comparisonAvailable).toBe(false);
+  });
+
+  it("custom mode with invalid dates (e.g. 2026-02-31) returns null boundaries without throwing uncaught errors", () => {
+    expect(() => {
+      const invalidFrom = computePeriodBoundaries(
+        { periodPreset: "custom", customFrom: "2026-02-31", customTo: "2026-03-20" },
+        FIXED_NOW
+      );
+      expect(invalidFrom.currentStart).toBeNull();
+      expect(invalidFrom.currentEnd).toBeNull();
+      expect(invalidFrom.currentStartStr).toBe("");
+      expect(invalidFrom.currentEndStr).toBe("");
+      expect(invalidFrom.comparisonAvailable).toBe(false);
+    }).not.toThrow();
+
+    expect(() => {
+      const invalidTo = computePeriodBoundaries(
+        { periodPreset: "custom", customFrom: "2026-03-01", customTo: "2026-02-31" },
+        FIXED_NOW
+      );
+      expect(invalidTo.currentStart).toBeNull();
+      expect(invalidTo.currentEnd).toBeNull();
+    }).not.toThrow();
   });
 
   it("WIP metrics remain strictly independent of period filtering", () => {
@@ -149,5 +188,41 @@ describe("Commercial Funnel Period Filter Alignment (Part B)", () => {
     const wip = computeWipMetrics(testCompanies);
     expect(wip.find((k) => k.id === "На испытании")?.companyCount).toBe(1);
     expect(wip.find((k) => k.id === "На испытании")?.dealCount).toBe(1);
+  });
+
+  it("Defect 8 Regression Fixture: sample sent 60 days ago, current WIP = 1, sent-in-period KPI = 0", () => {
+    // FIXED_NOW: 2026-10-02 MSK
+    // Sample sent 60 days ago: 2026-08-03
+    // Selected period: 7days (2026-09-26 to 2026-10-02)
+    const bounds7d = computePeriodBoundaries({ periodPreset: "7days" }, FIXED_NOW);
+
+    const companyWithOlderSample: CommercialCompany = {
+      id: "c-old-sample",
+      title: "Компания с образцом 60 дней назад",
+      responsibleId: "u-1",
+      companyFactsIncluded: true,
+      sampleStatus: "На испытании",
+      sampleStatusSource: "SMART_PROCESS",
+      sampleShipmentDate: "2026-08-03", // 60 days before 2026-10-02
+      sampleRelatedDealId: "d-old",
+      deals: [],
+      productType: [],
+      direction: [],
+      gradeGel: [],
+      gradeSol: [],
+      sampleAllDates: ["2026-08-03"],
+      hasAttention: false,
+      attentionReasons: [],
+    };
+
+    // 1. Current WIP metric evaluates truthfully to 1 (not truncated by period)
+    const wip = computeWipMetrics([companyWithOlderSample]);
+    const testingWip = wip.find((k) => k.id === "На испытании");
+    expect(testingWip?.companyCount).toBe(1);
+
+    // 2. Dated event KPI for samples sent in period evaluates truthfully to 0
+    const datedMetrics = computePeriodMetrics([companyWithOlderSample], bounds7d);
+    const sentKpi = datedMetrics.find((k) => k.id === "samples_sent");
+    expect(sentKpi?.currentValue).toBe(0);
   });
 });

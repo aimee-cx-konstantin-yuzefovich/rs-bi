@@ -84,23 +84,25 @@ describe("Fix E & Fix F: Canonical Date & Scalar Safety Authorities", () => {
 
   describe("Custom period boundary calendar validation", () => {
     it("fails closed on impossible customFrom calendar date (2026-02-31)", () => {
-      expect(() => {
-        computePeriodBoundaries({
-          periodPreset: "custom",
-          customFrom: "2026-02-31",
-          customTo: "2026-03-10",
-        });
-      }).toThrow(/contains an impossible calendar date/);
+      const b = computePeriodBoundaries({
+        periodPreset: "custom",
+        customFrom: "2026-02-31",
+        customTo: "2026-03-10",
+      });
+      expect(b.currentStart).toBeNull();
+      expect(b.currentEnd).toBeNull();
+      expect(b.comparisonAvailable).toBe(false);
     });
 
     it("fails closed on impossible customTo calendar date (2026-04-31)", () => {
-      expect(() => {
-        computePeriodBoundaries({
-          periodPreset: "custom",
-          customFrom: "2026-04-01",
-          customTo: "2026-04-31",
-        });
-      }).toThrow(/contains an impossible calendar date/);
+      const b = computePeriodBoundaries({
+        periodPreset: "custom",
+        customFrom: "2026-04-01",
+        customTo: "2026-04-31",
+      });
+      expect(b.currentStart).toBeNull();
+      expect(b.currentEnd).toBeNull();
+      expect(b.comparisonAvailable).toBe(false);
     });
   });
 

@@ -155,12 +155,12 @@ export function normalizeCommercialPeriodPreset(preset?: string | null): PeriodP
  * Normalized to the business timezone.
  */
 export function computePeriodBoundaries(
-  filters: Pick<CommercialFilters, "periodPreset" | "customFrom" | "customTo"> | { periodPreset?: string; customFrom?: string; customTo?: string },
+  filters: Pick<CommercialFilters, "periodPreset" | "customFrom" | "customTo"> | { periodPreset?: string | null; customFrom?: string | null; customTo?: string | null },
   now: Date = new Date(),
   timeZone: string = COMMERCIAL_TIMEZONE
 ): PeriodBoundaries {
   const { customFrom, customTo } = filters;
-  const rawPreset = filters.periodPreset ?? "30days";
+  const preset = normalizeCommercialPeriodPreset(filters.periodPreset);
   const nowParts = getZonedCalendarParts(now, timeZone);
 
   let currentStart: Date;
@@ -175,33 +175,17 @@ export function computePeriodBoundaries(
     timeZone
   );
 
-  if (rawPreset === "all") {
-    return {
-      currentStart: null,
-      currentEnd,
-      previousStart: null,
-      previousEnd: null,
-      currentStartStr: "",
-      currentEndStr: toISODate(currentEnd, timeZone),
-      previousStartStr: "",
-      previousEndStr: "",
-      isAllTime: true,
-      comparisonAvailable: false,
-    };
-  }
-
-  if (rawPreset === "custom") {
+  if (preset === "custom") {
     if (!customFrom || !customTo) {
       return {
         currentStart: null,
-        currentEnd: createZonedDate(1970, 0, 1, 0, 0, 0, 0, timeZone),
+        currentEnd: null,
         previousStart: null,
         previousEnd: null,
         currentStartStr: "",
         currentEndStr: "",
         previousStartStr: "",
         previousEndStr: "",
-        isAllTime: false,
         comparisonAvailable: false,
       };
     }
@@ -211,9 +195,17 @@ export function computePeriodBoundaries(
     const parsedTo = parseStrictDate(customTo, { mode: "DATE_ONLY" });
 
     if (!parsedFrom || !parsedTo) {
-      throw new Error(
-        `Invalid custom period boundaries: '${customFrom}' to '${customTo}' contains an impossible calendar date`
-      );
+      return {
+        currentStart: null,
+        currentEnd: null,
+        previousStart: null,
+        previousEnd: null,
+        currentStartStr: "",
+        currentEndStr: "",
+        previousStartStr: "",
+        previousEndStr: "",
+        comparisonAvailable: false,
+      };
     }
 
     let earlier = parsedFrom;
@@ -243,15 +235,7 @@ export function computePeriodBoundaries(
       999,
       timeZone
     );
-  } else if (rawPreset === "quarter") {
-    const quarterIndex = Math.floor(nowParts.monthIndex / 3); // 0, 1, 2, 3
-    const qStartMonth = quarterIndex * 3;
-    currentStart = createZonedDate(nowParts.year, qStartMonth, 1, 0, 0, 0, 0, timeZone);
-    const qEndMonth = qStartMonth + 2;
-    const lastDay = new Date(Date.UTC(nowParts.year, qEndMonth + 1, 0)).getUTCDate();
-    currentEnd = createZonedDate(nowParts.year, qEndMonth, lastDay, 23, 59, 59, 999, timeZone);
   } else {
-    const preset = normalizeCommercialPeriodPreset(rawPreset);
     const daysMap: Record<string, number> = {
       "7days": 7,
       "14days": 14,
@@ -280,14 +264,12 @@ export function computePeriodBoundaries(
     currentEndStr: toISODate(currentEnd, timeZone),
     previousStartStr: toISODate(previousStart, timeZone),
     previousEndStr: toISODate(previousEnd, timeZone),
-    isAllTime: false,
     comparisonAvailable: true,
   };
 }
 
 /**
  * Check if a date string falls within [startDate, endDate] inclusive.
- * If startDate is omitted (e.g. all-time), validates valid calendar date up to endDate.
  */
 export function isDateInPeriod(
   dateStr?: string | null,
@@ -295,11 +277,10 @@ export function isDateInPeriod(
   endDate?: Date | null,
   timeZone: string = COMMERCIAL_TIMEZONE
 ): boolean {
-  if (!dateStr || !endDate) return false;
+  if (!dateStr || !startDate || !endDate) return false;
   const ts = parseDateTimestamp(dateStr, timeZone);
   if (ts === null) return false;
-  if (startDate && ts < startDate.getTime()) return false;
-  return ts <= endDate.getTime();
+  return ts >= startDate.getTime() && ts <= endDate.getTime();
 }
 
 /**

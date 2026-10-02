@@ -123,12 +123,71 @@ describe("samples period contract", () => {
     expect(matchesPeriod(summaryWithDates(["2026-09-15"]), fMissing, NOW)).toBe(false);
   });
 
-  it("invalid custom dates and impossible sent dates never match", () => {
-    const f = filters("custom", { customFrom: "2026-02-31", customTo: "2026-03-31" });
-    // Invalid from → window open-ended at to; invalid sent date never matches.
-    expect(matchesPeriod(summaryWithDates(["2026-02-31"]), f, NOW)).toBe(false);
-    expect(matchesPeriod(summaryWithDates(["2026-04-31"]), f, NOW)).toBe(false);
-    expect(matchesPeriod(summaryWithDates(["2026-03-15"]), f, NOW)).toBe(true);
+  describe("Required Defect B Regression Matrix (B1 to B8: All-or-Nothing Custom Period)", () => {
+    it("B1 both missing -> null/null -> no match", () => {
+      const f = filters("custom", {});
+      const { from, to } = samplesPeriodWindow(f, NOW);
+      expect(from).toBeNull();
+      expect(to).toBeNull();
+      expect(matchesPeriod(summaryWithDates(["2026-09-15"]), f, NOW)).toBe(false);
+    });
+
+    it("B2 From only -> null/null -> no match", () => {
+      const f = filters("custom", { customFrom: "2026-09-10" });
+      const { from, to } = samplesPeriodWindow(f, NOW);
+      expect(from).toBeNull();
+      expect(to).toBeNull();
+      expect(matchesPeriod(summaryWithDates(["2026-09-15"]), f, NOW)).toBe(false);
+    });
+
+    it("B3 To only -> null/null -> no match", () => {
+      const f = filters("custom", { customTo: "2026-09-20" });
+      const { from, to } = samplesPeriodWindow(f, NOW);
+      expect(from).toBeNull();
+      expect(to).toBeNull();
+      expect(matchesPeriod(summaryWithDates(["2026-09-15"]), f, NOW)).toBe(false);
+    });
+
+    it("B4 impossible From (2026-02-31) -> null/null -> no match", () => {
+      const f = filters("custom", { customFrom: "2026-02-31", customTo: "2026-03-20" });
+      const { from, to } = samplesPeriodWindow(f, NOW);
+      expect(from).toBeNull();
+      expect(to).toBeNull();
+      expect(matchesPeriod(summaryWithDates(["2026-03-15"]), f, NOW)).toBe(false);
+    });
+
+    it("B5 impossible To (2026-02-31) -> null/null -> no match", () => {
+      const f = filters("custom", { customFrom: "2026-02-01", customTo: "2026-02-31" });
+      const { from, to } = samplesPeriodWindow(f, NOW);
+      expect(from).toBeNull();
+      expect(to).toBeNull();
+      expect(matchesPeriod(summaryWithDates(["2026-02-15"]), f, NOW)).toBe(false);
+    });
+
+    it("B6 valid reversed range swaps", () => {
+      const f = filters("custom", { customFrom: "2026-09-20", customTo: "2026-09-10" });
+      const { from, to } = samplesPeriodWindow(f, NOW);
+      expect(from).not.toBeNull();
+      expect(to).not.toBeNull();
+      expect(from!.getTime()).toBeLessThan(to!.getTime());
+      expect(matchesPeriod(summaryWithDates(["2026-09-15"]), f, NOW)).toBe(true);
+    });
+
+    it("B7 valid boundaries are inclusive", () => {
+      const f = filters("custom", { customFrom: "2026-09-10", customTo: "2026-09-20" });
+      expect(matchesPeriod(summaryWithDates(["2026-09-10"]), f, NOW)).toBe(true);
+      expect(matchesPeriod(summaryWithDates(["2026-09-20"]), f, NOW)).toBe(true);
+      expect(matchesPeriod(summaryWithDates(["2026-09-09"]), f, NOW)).toBe(false);
+      expect(matchesPeriod(summaryWithDates(["2026-09-21"]), f, NOW)).toBe(false);
+    });
+
+    it("B8 one Company with multiple sentDates still counts once", () => {
+      const f = filters("custom", { customFrom: "2026-09-10", customTo: "2026-09-20" });
+      const multiSummary = summaryWithDates(["2026-09-10", "2026-09-15", "2026-09-20"]);
+      expect(matchesPeriod(multiSummary, f, NOW)).toBe(true);
+      const filtered = [multiSummary].filter((s) => matchesPeriod(s, f, NOW));
+      expect(filtered.length).toBe(1);
+    });
   });
 
   it("impossible datetime 2026-09-01T25:00:00 is invalid, not 01:00 next day", () => {

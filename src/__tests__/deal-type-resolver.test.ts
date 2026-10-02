@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveDealType, buildDealTypeRegistry, type DealTypeRegistry } from "@/lib/deal-type";
 import { buildDealPreviewModel } from "@/lib/deal-preview";
 import { createDealExcelWorkbook } from "@/lib/export-utils";
+import { useDashboardStore } from "@/store/dashboard-store";
+import { getDemoDealTypeRegistry, DEMO_FIELDS } from "@/lib/demo-data";
 
 describe("Deal Type Resolution Contract (A1 to A8)", () => {
   const metadataWithTypeField = {
@@ -127,5 +129,101 @@ describe("Deal Type Resolution Contract (A1 to A8)", () => {
     // Resolver performs synchronous resolution from shared in-memory registry
     const resolvedTypes = deals.map((d) => resolveDealType(d.TYPE_ID, registry));
     expect(resolvedTypes).toEqual(["Тип 1", "Тип 2", "Тип 3", "Тип 1"]);
+  });
+
+  describe("Required Defect A Regression Matrix (A1 to A6)", () => {
+    it("A1. fresh production store registry = {}", () => {
+      // In production startup, initial store registry must be empty
+      const freshRegistry = useDashboardStore.getInitialState().dealTypeRegistry;
+      expect(freshRegistry).toEqual({});
+    });
+
+    it("A2. SALE + empty registry + no metadata -> Не классифицировано", () => {
+      const resolved = resolveDealType("SALE", {}, null);
+      expect(resolved).toBe("Не классифицировано");
+      expect(resolved).not.toContain("SALE");
+    });
+
+    it("A3. live registry SALE -> 'Новое название' -> 'Новое название'", () => {
+      const liveRegistry: DealTypeRegistry = { SALE: "Новое название" };
+      const resolved = resolveDealType("SALE", liveRegistry, null);
+      expect(resolved).toBe("Новое название");
+    });
+
+    it("A4. demo registry is derived from DEMO_FIELDS", () => {
+      const derivedRegistry = getDemoDealTypeRegistry();
+      const expectedFromFields = buildDealTypeRegistry(
+        DEMO_FIELDS.find((f) => f.id === "TYPE_ID")?.listValues
+      );
+      expect(derivedRegistry).toEqual(expectedFromFields);
+      expect(derivedRegistry["SALE"]).toBe("Продажа силикагеля");
+    });
+
+    it("A5. demo -> live cannot leak demo Deal Type names", async () => {
+      // Set store in demo mode
+      useDashboardStore.setState({
+        isDemoMode: true,
+        dealTypeRegistry: getDemoDealTypeRegistry(),
+      });
+      expect(useDashboardStore.getState().dealTypeRegistry["SALE"]).toBe("Продажа силикагеля");
+
+      // Mock live fetchFields where Bitrix returns live fields without DEAL_TYPE registry
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          success: true,
+          fields: [{ id: "TITLE", title: "Название", type: "string" }], // live fields, no TYPE_ID listValues
+          dealTypes: {}, // no live deal types
+        }),
+      } as any);
+
+      try {
+        await useDashboardStore.getState().fetchFields();
+        expect(useDashboardStore.getState().isDemoMode).toBe(false);
+        // The demo registry MUST NOT leak into production
+        expect(useDashboardStore.getState().dealTypeRegistry).toEqual({});
+        const resolved = resolveDealType("SALE", useDashboardStore.getState().dealTypeRegistry, null);
+        expect(resolved).toBe("Не классифицировано");
+        expect(resolved).not.toBe("Продажа силикагеля");
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("A6. Preview = table = Excel parity for TYPE_ID", () => {
+      const liveRegistry: DealTypeRegistry = {
+        SALE: "Кастомная поставка",
+      };
+      const rawDeal = {
+        ID: "42",
+        TITLE: "Сделка 42",
+        TYPE_ID: "SALE",
+        DATE_CREATE: "2026-10-01T10:00:00Z",
+      };
+
+      // 1. Preview Model
+      const previewModel = buildDealPreviewModel(rawDeal, {
+        dealTypeRegistry: liveRegistry,
+      });
+      const previewField = previewModel.cardFields.find((f) => f.id === "TYPE_ID");
+      expect(previewField?.value).toBe("Кастомная поставка");
+      expect(previewField?.excelValue).toBe("Кастомная поставка");
+
+      // 2. Excel Workbook
+      const workbook = createDealExcelWorkbook({
+        deal: rawDeal,
+        dealModel: previewModel,
+      });
+      const sheet = workbook.getWorksheet("Отчёт по сделке");
+      let excelVal = "";
+      sheet?.eachRow((row) => {
+        if (String(row.getCell(1).value || "") === "Тип сделки") {
+          excelVal = String(row.getCell(2).value || "");
+        }
+      });
+      expect(excelVal).toBe("Кастомная поставка");
+      expect(excelVal).toBe(previewField?.value);
+    });
   });
 });

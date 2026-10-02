@@ -211,12 +211,11 @@ describe("Q04: Segments use real PeriodBoundaries (no synthetic adapter)", () =>
     );
   });
 
-  it("Q04b: all-time boundaries propagate (no implicit new Date() end)", () => {
-    const allTime = computePeriodBoundaries({ periodPreset: "all" }, FIXED_NOW);
-    const c = company({ id: "1", industry: "ЛКМ", dateCreate: "2020-01-01" });
-    const bd = computeSegmentBreakdown([c], allTime, "industry");
-    // All-time: every dated event is inside the open-ended period
-    expect(bd.rows[0].period.newCompanies.count).toBe(1);
+  it("Q04b: legacy period presets safely normalize to 30days in segment breakdown", () => {
+    const legacyAll = computePeriodBoundaries({ periodPreset: "all" as any }, FIXED_NOW);
+    const thirtyDays = computePeriodBoundaries({ periodPreset: "30days" }, FIXED_NOW);
+    expect(legacyAll.currentStartStr).toBe(thirtyDays.currentStartStr);
+    expect(legacyAll.currentEndStr).toBe(thirtyDays.currentEndStr);
   });
 });
 
@@ -243,21 +242,21 @@ describe("Q05: frozen analysisNow produces identical UI/Excel boundaries across 
     expect(staleSystemBoundaries.currentEndStr).not.toBe(uiBoundaries.currentEndStr);
   });
 
-  it("Q05b: quarter boundaries stay stable with frozen clock", () => {
-    const analysisNow = new Date("2026-09-30T20:59:59Z"); // last minute of Q3 MSK
-    const ui = computePeriodBoundaries({ periodPreset: "quarter" }, analysisNow);
-    const excel = computePeriodBoundaries({ periodPreset: "quarter" }, analysisNow);
-    expect(excel.currentStartStr).toBe(ui.currentStartStr);
-    expect(excel.currentEndStr).toBe(ui.currentEndStr);
-    expect(ui.currentEndStr).toBe("2026-09-30"); // Q3 ends Sep 30, not Oct 1
+  it("Q05b: legacy quarter preset safely normalizes to 30days with frozen clock", () => {
+    const analysisNow = new Date("2026-09-30T20:59:59Z");
+    const ui = computePeriodBoundaries({ periodPreset: "quarter" as any }, analysisNow);
+    const expected = computePeriodBoundaries({ periodPreset: "30days" }, analysisNow);
+    expect(ui.currentStartStr).toBe(expected.currentStartStr);
+    expect(ui.currentEndStr).toBe(expected.currentEndStr);
   });
 
-  it("Q05c: all-time boundaries remain unchanged by clock", () => {
+  it("Q05c: legacy all-time preset safely normalizes to 30days", () => {
     const analysisNow = new Date("2026-09-30T20:59:59Z");
-    const ui = computePeriodBoundaries({ periodPreset: "all" }, analysisNow);
-    expect(ui.isAllTime).toBe(true);
-    expect(ui.currentStart).toBeNull();
-    expect(ui.previousStart).toBeNull();
+    const ui = computePeriodBoundaries({ periodPreset: "all" as any }, analysisNow);
+    const expected = computePeriodBoundaries({ periodPreset: "30days" }, analysisNow);
+    expect(ui.currentStartStr).toBe(expected.currentStartStr);
+    expect(ui.currentEndStr).toBe(expected.currentEndStr);
+    expect(ui.comparisonAvailable).toBe(true);
   });
 });
 

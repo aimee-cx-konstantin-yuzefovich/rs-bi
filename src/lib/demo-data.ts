@@ -1,4 +1,5 @@
 import type { FieldInfo } from "@/store/dashboard-store";
+import { buildDealTypeRegistry, type DealTypeRegistry } from "@/lib/deal-type";
 
 /**
  * Demo data based on real Bitrix24 CRM deal fields schema.
@@ -322,4 +323,13 @@ export function generateDemoDeals(count: number = 150): Record<string, string | 
   deals.sort((a, b) => String(b.DATE_CREATE || "").localeCompare(String(a.DATE_CREATE || "")));
 
   return deals;
+}
+
+/**
+ * Derives the demo Deal Type registry dynamically from DEMO_FIELDS listValues.
+ * Guarantees no duplicate static mapping exists.
+ */
+export function getDemoDealTypeRegistry(): DealTypeRegistry {
+  const typeField = DEMO_FIELDS.find((f) => f.id === "TYPE_ID");
+  return buildDealTypeRegistry(typeField?.listValues);
 }

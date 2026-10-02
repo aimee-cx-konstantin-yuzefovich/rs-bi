@@ -163,7 +163,7 @@ export function CommercialOverviewTab({
   const { commercial, continuation, sampleTestingStages } = funnelView;
   const stage = (id: string) => sampleTestingStages.find((s) => s.id === id);
 
-  const isAllTime = boundaries.isAllTime;
+  const isComparisonAvailable = boundaries.comparisonAvailable !== false;
 
   const periodRows = PERIOD_KPI_IDS.map((id) => findKpi(datedKpis, id)).filter(
     (k): k is DatedKpi => Boolean(k)
@@ -176,14 +176,14 @@ export function CommercialOverviewTab({
         <div className="flex items-baseline justify-between gap-2 mb-3">
           <h3 className="text-sm font-semibold">Результаты за период</h3>
           <span className="text-[11px] text-muted-foreground">
-            {isAllTime ? "За всё время · сравнение недоступно" : "События выбранного периода"}
+            {isComparisonAvailable ? "События выбранного периода" : "Сравнение недоступно"}
           </span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
           {periodRows.map((kpi) => {
             const isSelected = selectedKpiId === kpi.id;
             const delta =
-              !isAllTime && kpi.comparisonAvailable !== false && kpi.delta !== null
+              isComparisonAvailable && kpi.comparisonAvailable !== false && kpi.delta !== null
                 ? `${kpi.delta > 0 ? "+" : ""}${kpi.delta}`
                 : "—";
             return (
@@ -232,7 +232,7 @@ export function CommercialOverviewTab({
                   <span className="text-lg font-semibold tabular-nums">
                     {unavailable ? "—" : kpi.isCurrency && kpi.currentValue === null ? "—" : (kpi.currentValue ?? 0)}
                   </span>
-                  {!isAllTime && (
+                  {isComparisonAvailable && (
                     <span
                       className={`text-[10px] tabular-nums ${
                         !unavailable && kpi.delta !== null && kpi.delta > 0

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { DEMO_FIELDS, generateDemoDeals } from "@/lib/demo-data";
+import { DEMO_FIELDS, generateDemoDeals, getDemoDealTypeRegistry } from "@/lib/demo-data";
 import {
   DEAL_TABLE_DEFAULT_COLUMNS,
   RESPONSIBLE_FIELD_ID,
@@ -328,7 +328,7 @@ export const useDashboardStore = create<DashboardState>()(
 
       // Fields
       fields: [],
-      dealTypeRegistry: { SALE: "Продажа силикагеля" },
+      dealTypeRegistry: {},
       fieldsLoading: false,
       fieldsError: null,
 
@@ -444,6 +444,11 @@ export const useDashboardStore = create<DashboardState>()(
       },
 
       fetchFields: async () => {
+        const wasDemo = get().isDemoMode;
+        if (wasDemo) {
+          // Transitioning from demo mode: clear demo registry so demo labels never leak into production
+          set({ dealTypeRegistry: {}, isDemoMode: false });
+        }
         set({ fieldsLoading: true, fieldsError: null });
         try {
           const response = await fetchWithTimeout("/api/bitrix/fields");
@@ -463,7 +468,7 @@ export const useDashboardStore = create<DashboardState>()(
           if (data.fields.length === 0) {
             set({
               fields: DEMO_FIELDS,
-              dealTypeRegistry: { SALE: "Продажа силикагеля" },
+              dealTypeRegistry: getDemoDealTypeRegistry(),
               fieldsLoading: false,
               isDemoMode: true,
             });
@@ -474,7 +479,7 @@ export const useDashboardStore = create<DashboardState>()(
 
             set({
               fields: data.fields,
-              dealTypeRegistry,
+              dealTypeRegistry: dealTypeRegistry || {},
               fieldsLoading: false,
               isDemoMode: false,
               isConfigured: true,
@@ -506,6 +511,7 @@ export const useDashboardStore = create<DashboardState>()(
           if (isDemoMode) {
             set({
               fields: DEMO_FIELDS,
+              dealTypeRegistry: getDemoDealTypeRegistry(),
               fieldsLoading: false,
               fieldsError: null,
             });
@@ -623,7 +629,7 @@ export const useDashboardStore = create<DashboardState>()(
         const demoDeals = generateDemoDeals(150);
         set({
           fields: DEMO_FIELDS,
-          dealTypeRegistry: { SALE: "Продажа силикагеля" },
+          dealTypeRegistry: getDemoDealTypeRegistry(),
           allDeals: demoDeals,
           dealsTotal: demoDeals.length,
           isDemoMode: true,

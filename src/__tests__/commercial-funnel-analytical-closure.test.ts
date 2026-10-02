@@ -59,7 +59,6 @@ function createMockBoundaries(
     currentEndStr: endStr,
     previousStartStr: "2026-01-29T00:00:00+03:00",
     previousEndStr: "2026-02-28T23:59:59+03:00",
-    isAllTime: false,
   };
 }
 

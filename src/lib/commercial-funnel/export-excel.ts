@@ -31,6 +31,7 @@ import {
   createZonedDate,
   getZonedCalendarParts,
   isDateInPeriod,
+  normalizeCommercialPeriodPreset,
   safeDeltaPercent,
 } from "./date-utils";
 import { normalizeCurrencyCode } from "./normalize";
@@ -122,16 +123,15 @@ export interface BuildExcelOptions {
   extraWarnings?: string[];
 }
 
-export function formatPeriodPresetToRussian(preset: string): string {
-  switch (preset) {
+export function formatPeriodPresetToRussian(preset?: string | null): string {
+  const normalized = normalizeCommercialPeriodPreset(preset);
+  switch (normalized) {
     case "7days": return "7 дней";
     case "14days": return "14 дней";
     case "30days": return "30 дней";
     case "90days": return "90 дней";
-    case "quarter": return "Квартал";
     case "custom": return "Указать вручную";
-    case "all": return "За всё время";
-    default: return preset;
+    default: return "30 дней";
   }
 }
 
@@ -154,6 +154,13 @@ export async function createCommercialFunnelWorkbook(
   }
 
   const boundaries = computePeriodBoundaries(filters, now);
+
+  if (filters.periodPreset === "custom" && (!boundaries.currentStart || !boundaries.currentEnd)) {
+    throw new Error(
+      "Экспорт отключён: указан неполный или некорректный пользовательский период."
+    );
+  }
+
   const filteredCompanies = filterCompaniesByDimensions(companies, filters);
 
   const datedKpis = computePeriodMetrics(filteredCompanies, boundaries);
@@ -203,9 +210,7 @@ export async function createCommercialFunnelWorkbook(
     return sheet;
   };
 
-  const periodLabel = boundaries.isAllTime
-    ? `За всё время (по ${boundaries.currentEndStr})`
-    : `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${formatPeriodPresetToRussian(filters.periodPreset)})`;
+  const periodLabel = `${boundaries.currentStartStr} — ${boundaries.currentEndStr} (${formatPeriodPresetToRussian(filters.periodPreset)})`;
   const respLabel =
     filters.responsibleId && filters.responsibleId !== "all"
       ? userNames[filters.responsibleId] || `ID ${filters.responsibleId}`
@@ -261,7 +266,7 @@ export async function createCommercialFunnelWorkbook(
 
   const paramRows: [string, string][] = [
     ["Период анализа:", periodLabel],
-    ["Предыдущий период для сравнения:", boundaries.isAllTime ? "—" : `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
+    ["Предыдущий период для сравнения:", boundaries.comparisonAvailable === false ? "—" : `${boundaries.previousStartStr} — ${boundaries.previousEndStr}`],
     ["Бизнес-часовой пояс:", `Москва (${COMMERCIAL_TIMEZONE}, UTC+3)`],
     ["Дата и время формирования:", `${formatReportDateTime(now)} (Москва, UTC+3)`],
     ["Ответственный:", respLabel],
@@ -553,7 +558,7 @@ export async function createCommercialFunnelWorkbook(
         }
 
         const isComparisonValid =
-          !boundaries.isAllTime &&
+          boundaries.comparisonAvailable !== false &&
           curQuality === "COMPLETE" &&
           prevQuality === "COMPLETE" &&
           typeof currAmt === "number" &&
@@ -564,7 +569,7 @@ export async function createCommercialFunnelWorkbook(
         const deltaAmt: number | string = isComparisonValid ? numCurr - numPrev : "—";
         const pct = isComparisonValid ? safeDeltaPercent(numCurr, numPrev) : null;
         const pctStr = pct !== null ? `${pct > 0 ? "+" : ""}${pct}%` : "—";
-        const prevDisplayAmt: number | string = boundaries.isAllTime ? "—" : prevAmt;
+        const prevDisplayAmt: number | string = boundaries.comparisonAvailable === false ? "—" : prevAmt;
         const compCount =
           k.currencyCompanyIds?.current?.[cur]?.length ??
           filteredCompanies.filter((c) =>
@@ -626,7 +631,7 @@ export async function createCommercialFunnelWorkbook(
           (cur && k.currencyBreakdownQuality?.current?.[cur]) || k.amountQuality || "COMPLETE";
         const previousQuality: AggregateAmountQuality =
           (cur && k.currencyBreakdownQuality?.previous?.[cur]) ||
-          (boundaries.isAllTime ? "UNKNOWN" : "COMPLETE");
+          (boundaries.comparisonAvailable === false ? "UNKNOWN" : "COMPLETE");
 
         const formatCell = (
           rawVal: number | null,
@@ -648,10 +653,10 @@ export async function createCommercialFunnelWorkbook(
         const prevCell = formatCell(k.previousValue, previousQuality);
 
         const currVal = currCell.val;
-        const prevDisplayVal: number | string = boundaries.isAllTime ? "—" : prevCell.val;
+        const prevDisplayVal: number | string = boundaries.comparisonAvailable === false ? "—" : prevCell.val;
 
         const isComparisonValid =
-          !boundaries.isAllTime &&
+          boundaries.comparisonAvailable !== false &&
           currentQuality === "COMPLETE" &&
           previousQuality === "COMPLETE" &&
           typeof currVal === "number" &&
@@ -703,7 +708,7 @@ export async function createCommercialFunnelWorkbook(
         if (currCell.isNote) {
           row.getCell(2).note = "Неполные данные: присутствуют сделки с некорректной суммой";
         }
-        if (prevCell.isNote && !boundaries.isAllTime) {
+        if (prevCell.isNote && boundaries.comparisonAvailable !== false) {
           row.getCell(3).note = "Неполные данные: присутствуют сделки с некорректной суммой";
         }
       } else {
@@ -711,7 +716,7 @@ export async function createCommercialFunnelWorkbook(
         const currVal = k.currentValue ?? 0;
         const prevVal = k.previousValue ?? 0;
         const isComparisonValid =
-          !boundaries.isAllTime &&
+          boundaries.comparisonAvailable !== false &&
           k.comparisonAvailable !== false &&
           typeof currVal === "number" &&
           typeof prevVal === "number";
@@ -721,7 +726,7 @@ export async function createCommercialFunnelWorkbook(
           isComparisonValid && k.deltaPercent !== null
             ? `${k.deltaPercent > 0 ? "+" : ""}${k.deltaPercent}%`
             : "—";
-        const prevDisplayVal: number | string = boundaries.isAllTime ? "—" : prevVal;
+        const prevDisplayVal: number | string = boundaries.comparisonAvailable === false ? "—" : prevVal;
 
         const row = summarySheet.addRow([
           k.label,

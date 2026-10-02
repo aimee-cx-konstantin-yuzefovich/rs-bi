@@ -89,15 +89,15 @@ export function samplesPeriodWindow(
   const period = normalizeSamplesPeriodPreset(filters.period);
 
   if (period === "custom") {
-    let from: Date | null = null;
-    let to: Date | null = null;
-    if (filters.customFrom) {
-      from = parseStrictDate(`${filters.customFrom}T00:00:00`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    if (!filters.customFrom || !filters.customTo) {
+      return { from: null, to: null };
     }
-    if (filters.customTo) {
-      to = parseStrictDate(`${filters.customTo}T23:59:59.999`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    let from = parseStrictDate(`${filters.customFrom}T00:00:00`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    let to = parseStrictDate(`${filters.customTo}T23:59:59.999`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
+    if (!from || !to) {
+      return { from: null, to: null };
     }
-    if (from && to && from.getTime() > to.getTime()) {
+    if (from.getTime() > to.getTime()) {
       const tempFrom = parseStrictDate(`${filters.customTo}T00:00:00`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
       const tempTo = parseStrictDate(`${filters.customFrom}T23:59:59.999`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
       from = tempFrom;
@@ -148,16 +148,53 @@ export function matchesPeriod(
   if (summary.sentDates.length === 0) return false;
 
   const { from, to } = samplesPeriodWindow(filters, now);
-  if (filters.period === "custom" && !from && !to) return false;
+  if (!from || !to) return false;
 
   return summary.sentDates.some((dateStr) => {
     // Strict parsing: "2026-02-31" never rolls to another valid date.
     const d = parseStrictDate(`${dateStr}T00:00:00`, { mode: "DATETIME_BUSINESS_TIMEZONE" });
     if (!d) return false;
-    if (from && d < from) return false;
-    if (to && d > to) return false;
-    return true;
+    return d.getTime() >= from.getTime() && d.getTime() <= to.getTime();
   });
+}
+
+/**
+ * Returns a truthful, human-readable period disclosure label for Samples.
+ * Pure function: formats presets as "7 дней", "14 дней", "30 дней", "90 дней",
+ * and valid custom periods as "DD.MM.YYYY — DD.MM.YYYY" using the normalized window.
+ * Returns null if custom period is incomplete or invalid.
+ */
+export function formatSamplesPeriodLabel(
+  filters: Pick<SamplesFilters, "period" | "customFrom" | "customTo">,
+  now: Date = new Date()
+): string | null {
+  const period = normalizeSamplesPeriodPreset(filters.period);
+  switch (period) {
+    case "7days":
+      return "7 дней";
+    case "14days":
+      return "14 дней";
+    case "30days":
+      return "30 дней";
+    case "90days":
+      return "90 дней";
+    case "custom": {
+      const { from, to } = samplesPeriodWindow(filters, now);
+      if (!from || !to) return null;
+      const formatRu = (d: Date) => {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: BUSINESS_TIMEZONE,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(d).split("-"); // [YYYY, MM, DD]
+        return `${parts[2]}.${parts[1]}.${parts[0]}`;
+      };
+      return `${formatRu(from)} — ${formatRu(to)}`;
+    }
+    default:
+      return "30 дней";
+  }
 }
 
 function SelectFilter({

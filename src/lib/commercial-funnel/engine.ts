@@ -308,8 +308,7 @@ export function computePeriodMetrics(
     }
   }
 
-  const isComparisonAvailable =
-    boundaries.comparisonAvailable !== false && !boundaries.isAllTime;
+  const isComparisonAvailable = boundaries.comparisonAvailable !== false;
 
   const buildKpi = (
     id: string,
