@@ -107,11 +107,14 @@ The Commercial Funnel provides management insight across exactly five permanent 
 - [`src/lib/commercial-funnel/normalize.ts`](src/lib/commercial-funnel/normalize.ts): Ingests raw CRM companies and deals, establishes Deal precedence over Company fallback, preserves explicit sample provenance (`sampleStatusSource`, `sampleResponsibleDealId`, `sampleResponsibleId`), and handles clean scalar string/enum sanitization.
 - [`src/lib/commercial-funnel/engine.ts`](src/lib/commercial-funnel/engine.ts): Core analytical engine. Computes dated period activity KPIs, current WIP metrics, manager scorecards, objective bottlenecks, and evaluates financial data quality.
 - [`src/lib/commercial-funnel/analytics.ts`](src/lib/commercial-funnel/analytics.ts): Management projections derived from canonical engine metrics. Builds the two-track Funnel view, Segment breakdowns, Action Plan rows, Sample Testing snapshots, and Management Signals.
-- [`src/lib/commercial-funnel/stage-utils.ts`](src/lib/commercial-funnel/stage-utils.ts) & [`src/lib/stage-utils.ts`](src/lib/stage-utils.ts): Canonical stage semantic helpers (`isDealActiveStage`, `isTerminalWonStage`, `isTerminalLostStage`, `isProgressedCommercialStage`).
-- [`src/lib/commercial-funnel/date-utils.ts`](src/lib/commercial-funnel/date-utils.ts): Business timezone normalization (`Europe/Moscow`), calendar part extraction, full quarter and all-time boundary derivation, and safe delta percent calculations.
+- [`src/lib/commercial-funnel/stage-utils.ts`](src/lib/commercial-funnel/stage-utils.ts) & [`src/lib/stage-utils.ts`](src/lib/stage-utils.ts): Canonical stage semantic helpers (`isDealActiveStage` fail-closed, `isKnownActiveStage`, `KNOWN_ACTIVE_STAGES`, `getDealStageSemantics`, `isTerminalWonStage`, `isTerminalLostStage`, `isProgressedCommercialStage`).
+- [`src/lib/commercial-funnel/date-utils.ts`](src/lib/commercial-funnel/date-utils.ts): Business timezone normalization (`Europe/Moscow`), calendar part extraction, boundary derivation, and safe delta percent calculations.
 - [`src/lib/commercial-funnel/currency.ts`](src/lib/commercial-funnel/currency.ts): Multi-currency universe derivation, currency normalization, and formatted symbol helpers.
 - [`src/lib/commercial-funnel/export-excel.ts`](src/lib/commercial-funnel/export-excel.ts): Generates the authoritative 6-sheet management Excel workbook consuming the exact same filtered population, boundaries, and analytical rules as the UI.
 - [`src/app/commercial-funnel/page.tsx`](src/app/commercial-funnel/page.tsx): Subsystem orchestrator managing the frozen `analysisNow` clock, global filter bar, filtered analytical slice, tab navigation, and drill-down sheet dispatch.
+- [`src/lib/deal-type.ts`](src/lib/deal-type.ts): Authoritative Deal Type registry (`buildDealTypeRegistry`) and shared resolver (`resolveDealType`) consuming Bitrix `crm.status.list` (`ENTITY_ID = DEAL_TYPE`).
+- [`src/lib/deal-preview.ts`](src/lib/deal-preview.ts): Shared Deal Preview model (`buildDealPreviewModel`) for drawer and Deal Excel export; enforces strict timeline mapping (`DATE_MODIFY` is never customer touch).
+- [`src/lib/company-preview.ts`](src/lib/company-preview.ts): Shared Company Preview model (`buildCompanyPreviewModel`), 24-field whitelist (`COMPANY_PREVIEW_CURRENT_FIELDS`), consumed identically by UI drawer and Company Excel export.
 
 #### Natural-grain filtering & re-projection model
 
@@ -222,11 +225,76 @@ The Segments view ([`src/components/commercial-funnel/segments-tab.tsx`](src/com
 - **Manual period (`custom`)**: Evaluates inclusive Moscow calendar day bounds `start 00:00:00` to `end 23:59:59.999`. If boundaries are incomplete or missing, returns null bounds without fallback to 30 days. Obsolete legacy presets (`all`, `quarter`, `year`) normalize to `30days`.
 - Previous comparison periods have duration exactly equal to the current period (`currentEnd - currentStart`).
 
+#### Analytical data-trust & error-state lifecycle
+
+The system distinguishes five conceptual analytical lifecycle states across Samples (`useSamplesData`) and Commercial Funnel (`useCommercialFunnelData`):
+1. `loading`: Initial or background fetch active.
+2. `ready`: Data loaded successfully and verified complete.
+3. `partial`: Business records loaded successfully, but CRM dictionary metadata or activity logs returned partial/degraded (`metadataPartial === true`).
+4. `refresh_failed`: Background revalidation failed after a prior successful snapshot (`isStale === true`). Cached companies, deals, samples, and `loadedAt` are preserved. UI displays a prominent warning with the last successful load time (`HH:MM:SS`) and a Retry button.
+5. `failed` (`unavailable`): Initial load failed with zero items available.
+
+**Hard invariants**:
+- **Truthful zero vs unavailable**: Real empty response from API (`ready` with `[]`) evaluates truthfully to business KPI `0`. Initial failure (`failed` / `isUnavailable`) renders `—` (dash), suppressing deceptive zero counts across all tabs (`overview`, `funnel`, `segments`, `managers`, `bottlenecks`).
+- **Cached snapshot preservation**: Refresh failure never wipes cached data, never injects zeroes, and never silently presents stale numbers as fresh.
+- **Export guardrail**: Excel export is disabled (`exportDisabled = true`) during initial load failure or empty datasets. Stale snapshots exported to Excel stamp `STALE_SNAPSHOT_DISCLOSURE`. Degraded metadata stamps `METADATA_PARTIAL_DISCLOSURE`.
+
 #### One analysis clock (`analysisNow`)
 
-- The Commercial Funnel UI and Excel export share a single frozen analytical timestamp (`analysisNow`) initialized when data finishes loading.
+- The Commercial Funnel UI and Excel export share a single frozen analytical timestamp (`analysisNow`) initialized strictly from the active successful snapshot's `loadedAt` (`useMemo(() => loadedAt ? new Date(loadedAt) : new Date(), [loadedAt])`).
 - `analysisNow` is passed directly to `computePeriodBoundaries`, `computeBottlenecks`, and `export-excel.ts`.
+- **Clock preservation across failed refreshes**: When a refresh fails, `analysisNow` remains frozen to the timestamp of the surviving snapshot. It does not tick, advance, or drift across Moscow midnight.
 - UI-initiated Excel export never generates an independent `new Date()`. This guarantees strict parity between UI tables and exported spreadsheets even across midnight or month/quarter boundaries.
+
+#### Deal stage fail-closed architecture
+
+- Deal stage classification evaluates across three conceptual states via `getDealStageSemantics` in `src/lib/stage-utils.ts`: `ACTIVE`, `TERMINAL`, and `UNKNOWN`.
+- **Fail-closed active evaluation**: `isDealActiveStage(stageId)` returns `false` for unknown, unmapped, blank, or undefined stage IDs. Unrecognized stages are never assumed active merely because they are not terminal.
+- **Active metrics authority**: Only positively recognized active stages (`isKnownActiveStage(stageId)`) contribute to active-stage metrics («Активные сделки», stalled deals, missing next step). Category-prefixed active stages (`C1:1`, `C1:2`, `C3:1`, `C3:4`, `C5:1`, `C5:2`, `C7:1`) are registered canonically in `KNOWN_ACTIVE_STAGES`.
+- Known terminal won (`isTerminalWonStage`) and terminal lost/apology stages (`isTerminalLostStage`) remain terminal and never active.
+
+#### CRM metadata completeness & enum sanitization
+
+- CRM enum/status metadata is part of analytical data quality. Missing or failed dictionaries flag `metadataPartial = true` in API envelopes.
+- **Neutral fallback**: When an enum/status label is unresolvable, normal UI and Excel cells display strictly the neutral label: **`Не классифицировано`** (`UNCLASSIFIED_LABEL` from `src/lib/crm-constants.ts` / `src/lib/commercial-funnel/constants.ts`).
+- **Prohibition on raw ID leakage**: Raw numeric IDs, technical tokens (e.g. `2695`), and composite strings like `Не классифицировано (2695)` must **NEVER** leak to user-facing UI or normal Excel columns. Raw IDs are preserved exclusively in internal provenance/diagnostic objects (`rawResult`, `rawStageId`).
+
+#### Shared Deal Type resolution subsystem
+
+- Deal `TYPE_ID` user-facing titles resolve from the Bitrix Deal Type status registry: `crm.status.list` with `ENTITY_ID = DEAL_TYPE`.
+- Raw technical codes (e.g. `SALE`) are internal status identifiers, never user-facing titles.
+- **Architecture**: Bitrix `DEAL_TYPE` registry (`buildDealTypeRegistry`) → shared resolver (`resolveDealType` in `src/lib/deal-type.ts`) → UI drawer and Excel exports.
+- **Invariants**:
+  - Never hardcode a static `SALE → business name` mapping as the single source of truth.
+  - Deal Type metadata is loaded centrally in fields/status envelopes, not fetched per individual deal.
+  - Fallback order: current `DEAL_TYPE` registry → valid `TYPE_ID` field `listValues` → `Не классифицировано` (or `–` if absent). Raw `TYPE_ID` must never leak to UI or Excel.
+
+#### Deal Preview timeline architecture
+
+- The Deal Preview model (`buildDealPreviewModel` in `src/lib/deal-preview.ts`) enforces strict timeline attribute mappings:
+  - `Дата создания сделки` → Deal `DATE_CREATE`.
+  - `Последнее касание с клиентом` → factual CRM/customer activity timestamp according to canonical activity model (`lastTouchTimestamp` / `activity.CREATED` / `deal.LAST_ACTIVITY_TIME`, null if absent).
+  - `Последнее изменение сделки` → Deal `DATE_MODIFY` (`deal.DATE_MODIFY` / `deal.updatedTime`).
+  - `Последняя активность` → factual activity subject/description (`activity.SUBJECT`).
+- **Critical invariant**: `DATE_MODIFY` is **NEVER** a fallback for customer touch (`Последнее касание с клиентом`). Field edits (payment date, stage, amounts, internal notes) update `DATE_MODIFY` without representing interaction with the customer.
+- UI drawer and Deal Excel export consume the exact same shared Deal Preview model.
+
+#### Company Preview architecture
+
+- The Company Preview model (`buildCompanyPreviewModel` in `src/lib/company-preview.ts`) governs all company inspection surfaces (drawer and Company Excel export):
+  - **ONE approved current-card whitelist**: strictly 24 fields (`COMPANY_PREVIEW_CURRENT_FIELDS`) mirroring the live Bitrix Company card layout; no page-specific field lists; no generic `UF_CRM_*` iteration.
+  - **Current fields authoritative**: Current approved fields (`UF_CRM_1784195884554` Industry, `UF_CRM_1784200275341` Direction, `UF_CRM_69259C45D3399` Region) are authoritative; legacy `Сфера деятельности` and retired fields must never substitute.
+  - Product type is analytical, separate from Company card preview.
+  - Legacy sample fields remain in canonical analytics, never rendering as individual current-card rows.
+  - BI-specific sample analytics and related Deals render in dedicated sections below the native card fields.
+
+#### Samples ambiguity semantics
+
+- The ambiguous Samples population (`ambiguous` / «С неоднозначными данными») in `src/lib/samples/` (`buildCanonicalSampleDomain`) covers all canonical ambiguity causes:
+  - conflicting legacy evidence across Deal and Company fields;
+  - multiple active Smart Process items for a single company (`AMBIGUOUS_MULTIPLE_ACTIVE`);
+  - mixed result evidence across sample cycles (`MIXED`).
+- User-facing descriptions and hints must truthfully reflect this complete population and must not be reduced solely to "conflicting sources".
 
 #### Financial quality and multi-currency architecture
 
@@ -252,6 +320,7 @@ The Excel exporter ([`src/lib/commercial-funnel/export-excel.ts`](src/lib/commer
 6. `Action Plan`: Objective bottlenecks requiring management intervention.
 
 - **Demo mode guard**: Workbook export throws immediately if invoked in demo mode (`isDemoMode: true`), preventing mock data from being circulated as executive reports.
+- **Data trust guardrails**: Export button is disabled (`exportDisabled = true`) during initial load failures or empty datasets. Stale snapshots exported to Excel stamp `STALE_SNAPSHOT_DISCLOSURE`. Partial metadata stamps `METADATA_PARTIAL_DISCLOSURE`.
 
 #### Explicit out-of-scope / non-goals
 
