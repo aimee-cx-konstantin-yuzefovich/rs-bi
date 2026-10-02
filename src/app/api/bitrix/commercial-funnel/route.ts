@@ -276,7 +276,8 @@ export async function POST() {
     return respond({
       success: true,
       isDemoMode: false,
-      partial: activitiesResult.partial,
+      partial: activitiesResult.partial || Boolean(fieldLabelMaps.partial),
+      metadataPartial: Boolean(fieldLabelMaps.partial),
       activityPartial: activitiesResult.partial,
       activityWarning: activitiesResult.warning,
       failedActivityDealIds: activitiesResult.failedDealIds,

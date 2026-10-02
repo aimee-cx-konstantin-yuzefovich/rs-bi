@@ -23,6 +23,7 @@ export interface CommercialFunnelSnapshotData {
   statusLabels: Record<string, Record<string, string>>;
   isDemoMode: boolean;
   partial?: boolean;
+  metadataPartial?: boolean;
   activityPartial?: boolean;
   activityWarning?: string;
   failedActivityDealIds?: string[];
@@ -30,6 +31,7 @@ export interface CommercialFunnelSnapshotData {
   totalCompanies?: number;
   totalDeals?: number;
   smartProcess?: { qualityCounts?: Record<string, number> };
+  timestamp?: number;
 }
 
 export interface CommercialFunnelSnapshot extends CommercialFunnelSnapshotData {
@@ -87,7 +89,7 @@ export function setCachedCommercialFunnel(
   currentPrincipal = principal;
   currentCache = {
     ...data,
-    timestamp: Date.now(),
+    timestamp: data.timestamp ?? Date.now(),
   };
 }
 
@@ -177,6 +179,7 @@ export async function fetchCommercialFunnelWithDeduplication(
         };
       }
 
+      const nowTs = Date.now();
       const snapshotData: CommercialFunnelSnapshotData = {
         companies: data.companies as CommercialCompany[],
         deals: (data.deals || []) as CommercialDeal[],
@@ -184,6 +187,7 @@ export async function fetchCommercialFunnelWithDeduplication(
         statusLabels: data.statusLabels || {},
         isDemoMode: Boolean(data.isDemoMode),
         partial: Boolean(data.partial),
+        metadataPartial: Boolean(data.metadataPartial),
         activityPartial: Boolean(data.activityPartial),
         activityWarning: data.activityWarning,
         failedActivityDealIds: data.failedActivityDealIds,
@@ -191,6 +195,7 @@ export async function fetchCommercialFunnelWithDeduplication(
         totalCompanies: data.totalCompanies,
         totalDeals: data.totalDeals,
         smartProcess: data.smartProcess,
+        timestamp: nowTs,
       };
 
       // Store in cache only if principal is still active

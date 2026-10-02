@@ -385,6 +385,7 @@ export interface FieldLabelMaps {
   labels: Record<string, Record<string, string>>;
   /** crm_status entity ids still needing crm.status.list resolution. */
   statusTypes: Record<string, string>;
+  partial?: boolean;
 }
 
 /**
@@ -395,6 +396,7 @@ export interface FieldLabelMaps {
 export async function fetchFieldLabelMaps(): Promise<FieldLabelMaps> {
   const labels: Record<string, Record<string, string>> = {};
   const statusTypes: Record<string, string> = {};
+  let partial = false;
 
   const targets: Array<{ method: string; prefix: string }> = [
     { method: "crm.company.fields", prefix: "" },
@@ -446,6 +448,7 @@ export async function fetchFieldLabelMaps(): Promise<FieldLabelMaps> {
       }
     } catch {
       // Non-fatal: raw values pass through, quality flags surface the gap.
+      partial = true;
     }
   }
 
@@ -464,10 +467,11 @@ export async function fetchFieldLabelMaps(): Promise<FieldLabelMaps> {
       }
     } catch {
       // Non-fatal.
+      partial = true;
     }
   }
 
-  return { labels, statusTypes };
+  return { labels, statusTypes, ...(partial ? { partial: true } : {}) };
 }
 
 /** Builds a LabelResolver over fetched label maps (identity fallback). */

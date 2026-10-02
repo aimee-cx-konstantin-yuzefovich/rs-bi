@@ -37,17 +37,35 @@ export function financialInvalidDisclosure(currencyLabel: string): string {
   return `Ошибка финансовых данных (${currencyLabel}): все суммы сделок с оплатой некорректны — значение не вычисляется.`;
 }
 
+/** Warning shown when snapshot data is served from stale cache after refresh failure. */
+export const STALE_SNAPSHOT_DISCLOSURE =
+  "Не удалось обновить данные. Показаны данные последней успешной загрузки.";
+
+/** Warning shown when CRM enum/status metadata is partially unavailable. */
+export const METADATA_PARTIAL_DISCLOSURE =
+  "Справочники CRM загружены не полностью: некоторые статусы отображаются как «Не классифицировано».";
+
 /**
  * Build the Excel `extraWarnings` list from the shared rule.
  * activityPartial: activity data incomplete (affects next-action columns).
  * financialQualities: per-currency aggregate qualities of the current view.
+ * isStale: cached data shown after failed refresh.
+ * metadataPartial: CRM metadata incompletely fetched.
  */
 export function buildExcelExtraWarnings(options: {
   activityPartial?: boolean;
   activityWarning?: string;
   financialQualitiesByCurrency?: Record<string, string>;
+  isStale?: boolean;
+  metadataPartial?: boolean;
 }): string[] {
   const warnings: string[] = [];
+  if (options.isStale) {
+    warnings.push(STALE_SNAPSHOT_DISCLOSURE);
+  }
+  if (options.metadataPartial) {
+    warnings.push(METADATA_PARTIAL_DISCLOSURE);
+  }
   if (options.activityPartial) {
     warnings.push(options.activityWarning || ACTIVITY_PARTIAL_DISCLOSURE);
   }
