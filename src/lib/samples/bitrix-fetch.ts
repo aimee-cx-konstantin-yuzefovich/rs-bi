@@ -34,6 +34,8 @@ import {
   DEAL_SAMPLE_TVL_DETAILS_FIELD_ID,
   DEAL_SAMPLE_MARK_VOLUME_FIELD_ID,
   DEAL_DIRECTION_FIELD_ID,
+  isDictionaryBackedSampleField,
+  UNCLASSIFIED_LABEL,
 } from "./constants";
 import {
   SMART_PROCESS_ENTITY_TYPE_ID,
@@ -474,13 +476,20 @@ export async function fetchFieldLabelMaps(): Promise<FieldLabelMaps> {
   return { labels, statusTypes, ...(partial ? { partial: true } : {}) };
 }
 
-/** Builds a LabelResolver over fetched label maps (identity fallback). */
+/** Builds a LabelResolver over fetched label maps (with fail-closed unclassified fallback for dictionary fields). */
 export function makeLabelResolver(
   labels: Record<string, Record<string, string>>
 ): (fieldId: string, rawValue: string) => string {
   return (fieldId, rawValue) => {
     const map = labels[fieldId];
-    if (!map) return rawValue;
-    return map[rawValue] ?? rawValue;
+    if (map && map[rawValue] !== undefined) {
+      return map[rawValue];
+    }
+    if (isDictionaryBackedSampleField(fieldId)) {
+      if (map && Object.keys(map).length > 0 && /^\d+$/.test(rawValue)) {
+        return UNCLASSIFIED_LABEL;
+      }
+    }
+    return rawValue;
   };
 }

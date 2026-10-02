@@ -123,6 +123,19 @@ export interface SamplesResponseMeta {
   statusLabels: Record<string, Record<string, string>>;
 }
 
+export interface SamplesApiResponse {
+  success: boolean;
+  samples: SampleSummary[];
+  total: number;
+  orphanDealCount: number;
+  metadataPartial: boolean;
+  smartProcess?: { qualityCounts: Record<string, number> };
+  meta?: SamplesResponseMeta;
+  issueLabels?: Record<string, string>;
+  error?: string;
+  code?: string;
+}
+
 export interface SamplesKpis {
   /** Every row in the dataset is a company with sample activity. */
   total: number;

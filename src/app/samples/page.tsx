@@ -10,7 +10,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { AlertTriangle, RefreshCw, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SectionNav } from "@/components/dashboard/section-nav";
 import { TerminalBrand } from "@/components/dashboard/terminal-brand";
@@ -23,6 +23,7 @@ import {
   SamplesFilterBar,
   matchesPeriod,
   formatSamplesPeriodLabel,
+  isSamplesPeriodValid,
   DEFAULT_SAMPLES_FILTERS,
   type SamplesFilters,
 } from "@/components/dashboard/samples/samples-filters";
@@ -34,6 +35,11 @@ import { isSentinelValue } from "@/lib/samples/normalize";
 import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
 import { isCompanyId } from "@/lib/company-preview";
 import { isDealId } from "@/lib/deal-preview";
+import {
+  buildExcelExtraWarnings,
+  METADATA_PARTIAL_DISCLOSURE,
+} from "@/lib/commercial-funnel/disclosure";
+import { UNCLASSIFIED_LABEL } from "@/lib/samples/constants";
 import type { SampleSummary } from "@/lib/samples/types";
 
 function SamplesContent() {
@@ -52,6 +58,8 @@ function SamplesContent() {
     refreshError,
     dataState,
     loadedAt,
+    isStale,
+    metadataPartial,
     reload,
   } = useSamplesData();
 
@@ -125,12 +133,20 @@ function SamplesContent() {
     [samples]
   );
 
+  const sanitizeStatus = (v: string): string => {
+    const trimmed = v.trim();
+    if (/^\d+$/.test(trimmed) || /^DT1032_/i.test(trimmed)) {
+      return UNCLASSIFIED_LABEL;
+    }
+    return trimmed;
+  };
+
   const statusOptions = useMemo(() => {
     const observed = new Set<string>();
     for (const s of samples) {
       for (const v of [...s.sampleIndicators, ...s.processStatuses]) {
         if (v && !isSentinelValue(v)) {
-          observed.add(v.trim());
+          observed.add(sanitizeStatus(v));
         }
       }
     }
@@ -168,8 +184,8 @@ function SamplesContent() {
         return false;
       if (
         filters.status !== "all" &&
-        !s.sampleIndicators.includes(filters.status) &&
-        !s.processStatuses.includes(filters.status)
+        !s.sampleIndicators.map(sanitizeStatus).includes(filters.status) &&
+        !s.processStatuses.map(sanitizeStatus).includes(filters.status)
       )
         return false;
       if (filters.result !== "all" && s.normalizedResult !== filters.result)
@@ -186,7 +202,12 @@ function SamplesContent() {
     () => formatSamplesPeriodLabel(filters),
     [filters]
   );
-  const isPeriodValid = periodLabel !== null;
+  const isPeriodValid = isSamplesPeriodValid(filters);
+
+  const extraWarnings = useMemo(
+    () => buildExcelExtraWarnings({ isStale, metadataPartial }),
+    [isStale, metadataPartial]
+  );
 
   // KPIs follow the FILTERED set (user decision) — company grain.
   const kpis = useMemo(() => computeSampleKpis(filtered), [filtered]);
@@ -293,6 +314,16 @@ function SamplesContent() {
           </div>
         )}
 
+        {metadataPartial && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 shrink-0"
+            data-testid="metadata-partial-banner"
+          >
+            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>{METADATA_PARTIAL_DISCLOSURE}</span>
+          </div>
+        )}
+
         {orphanDealCount > 0 && !orphanDismissed && (
           <div className="flex items-center justify-between px-3 py-2 rounded-md bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-300 shrink-0">
             <div>
@@ -338,8 +369,9 @@ function SamplesContent() {
                   summaries: filtered,
                   userNames,
                   usersCoverage,
-                  period: periodLabel,
+                  period: periodLabel || undefined,
                   filters,
+                  extraWarnings,
                 });
               }}
               exportDisabled={filtered.length === 0 || isUnavailable || !isPeriodValid}

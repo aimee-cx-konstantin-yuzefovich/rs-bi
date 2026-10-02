@@ -335,12 +335,36 @@ describe("Data Trust & Analytical Closure — 17 Mandatory Verification Cases", 
       expect(bIncomplete.currentStart).toBeNull();
       expect(bIncomplete.currentStartStr).toBe("");
 
-      // Samples custom window: missing dates evaluate to null boundaries
+      // Samples custom window: missing dates evaluate to null boundaries (all-or-nothing)
       const sIncomplete = samplesPeriodWindow(
         { period: "custom", customFrom: "2026-09-01" },
         now
       );
+      expect(sIncomplete.from).toBeNull();
       expect(sIncomplete.to).toBeNull();
+
+      const dummySummary: SampleSummary = {
+        companyId: "c1",
+        companyTitle: "Test",
+        responsibleId: "u1",
+        productFamilies: [],
+        grades: [],
+        quantities: [],
+        sentDates: ["2026-09-15"],
+        sampleIndicators: [],
+        processStatuses: [],
+        normalizedResult: "unknown",
+        relatedDeals: [],
+        sourceQuality: "structured",
+        dataIssues: [],
+      };
+      expect(
+        matchesPeriod(
+          dummySummary,
+          { ...DEFAULT_SAMPLES_FILTERS, period: "custom", customFrom: "2026-09-01" },
+          now
+        )
+      ).toBe(false);
     });
   });
 

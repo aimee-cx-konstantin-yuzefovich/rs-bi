@@ -20,6 +20,7 @@ export interface SamplesCacheSnapshot {
   samples: SampleSummary[];
   meta: SamplesResponseMeta | null;
   orphanDealCount: number;
+  metadataPartial?: boolean;
   timestamp: number;
 }
 
@@ -28,6 +29,7 @@ export interface SamplesFetchSuccess {
   samples: SampleSummary[];
   meta: SamplesResponseMeta | null;
   orphanDealCount: number;
+  metadataPartial: boolean;
   timestamp: number;
 }
 
@@ -62,6 +64,7 @@ export function setCachedSamples(
     samples: SampleSummary[];
     meta: SamplesResponseMeta | null;
     orphanDealCount: number;
+    metadataPartial?: boolean;
     timestamp?: number;
   }
 ): void {
@@ -71,6 +74,7 @@ export function setCachedSamples(
     samples: data.samples,
     meta: data.meta,
     orphanDealCount: data.orphanDealCount,
+    metadataPartial: Boolean(data.metadataPartial),
     timestamp: data.timestamp ?? Date.now(),
   };
 }
@@ -160,6 +164,7 @@ export async function fetchSamplesWithDeduplication(
         samples: data.samples as SampleSummary[],
         meta: (data.meta as SamplesResponseMeta) ?? null,
         orphanDealCount: Number(data.orphanDealCount ?? 0),
+        metadataPartial: Boolean(data.metadataPartial),
         timestamp: nowTs,
       };
 

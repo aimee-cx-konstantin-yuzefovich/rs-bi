@@ -34,6 +34,7 @@ export interface SamplesLoadState {
   dataState: AnalyticalDataState;
   loadedAt: number | null;
   isStale: boolean;
+  metadataPartial: boolean;
   reload: () => void;
 }
 
@@ -54,6 +55,7 @@ export function useSamplesData(): SamplesLoadState {
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const [isStale, setIsStale] = useState<boolean>(false);
+  const [metadataPartial, setMetadataPartial] = useState<boolean>(false);
   const [dataState, setDataState] = useState<AnalyticalDataState>("loading");
 
   const [attempt, setAttempt] = useState<number>(0);
@@ -79,6 +81,7 @@ export function useSamplesData(): SamplesLoadState {
         setSamples([]);
         setMeta(null);
         setOrphanDealCount(0);
+        setMetadataPartial(false);
         setLoading(false);
         setRefreshing(false);
         setError(null);
@@ -95,6 +98,7 @@ export function useSamplesData(): SamplesLoadState {
       setSamples([]);
       setMeta(null);
       setOrphanDealCount(0);
+      setMetadataPartial(false);
     }
     previousPrincipalRef.current = principal;
 
@@ -106,12 +110,14 @@ export function useSamplesData(): SamplesLoadState {
     const hasCachedData = cached !== null;
 
     if (hasCachedData && cached) {
+      const isPart = Boolean(cached.metadataPartial);
       setSamples(cached.samples);
       setMeta(cached.meta);
       setOrphanDealCount(cached.orphanDealCount);
+      setMetadataPartial(isPart);
       setLoadedAt(cached.timestamp);
       setIsStale(false);
-      setDataState("ready");
+      setDataState(isPart ? "partial" : "ready");
       setLoading(false);
       setRefreshing(true);
       setError(null);
@@ -119,6 +125,7 @@ export function useSamplesData(): SamplesLoadState {
     } else {
       setLoadedAt(null);
       setIsStale(false);
+      setMetadataPartial(false);
       setDataState("loading");
       setLoading(true);
       setRefreshing(false);
@@ -137,9 +144,10 @@ export function useSamplesData(): SamplesLoadState {
           setSamples(result.samples);
           setMeta(result.meta);
           setOrphanDealCount(result.orphanDealCount);
+          setMetadataPartial(result.metadataPartial);
           setLoadedAt(result.timestamp);
           setIsStale(false);
-          setDataState("ready");
+          setDataState(result.metadataPartial ? "partial" : "ready");
           setLoading(false);
           setRefreshing(false);
           setError(null);
@@ -159,6 +167,7 @@ export function useSamplesData(): SamplesLoadState {
             setError(result.error);
             setLoadedAt(null);
             setIsStale(false);
+            setMetadataPartial(false);
             setDataState("failed");
             setIsDemoMode(result.isDemoMode);
           }
@@ -178,6 +187,7 @@ export function useSamplesData(): SamplesLoadState {
           setError(msg);
           setLoadedAt(null);
           setIsStale(false);
+          setMetadataPartial(false);
           setDataState("failed");
         }
       });
@@ -199,6 +209,7 @@ export function useSamplesData(): SamplesLoadState {
     dataState,
     loadedAt,
     isStale,
+    metadataPartial,
     reload,
   };
 }

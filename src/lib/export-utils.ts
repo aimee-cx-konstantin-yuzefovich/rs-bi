@@ -43,6 +43,7 @@ import {
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
   COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
+  UNCLASSIFIED_LABEL,
 } from "./crm-constants";
 import { isValidCalendarDate, parseStrictDate, parseStrictNumber } from "./scalar-safety";
 import {
@@ -59,6 +60,7 @@ import {
 import type { DealTypeRegistry } from "./deal-type";
 import {
   formatSamplesPeriodLabel,
+  isSamplesPeriodValid,
   type SamplesFilters,
 } from "@/components/dashboard/samples/samples-filters";
 
@@ -1174,9 +1176,9 @@ export async function buildSamplesWorkbook(
         "Экспорт отключён: указан неполный или некорректный пользовательский период."
       );
     }
-    period = derived || "Все";
+    period = derived || formatSamplesPeriodLabel({ period: "30days" })!;
   } else {
-    period = "Все";
+    period = formatSamplesPeriodLabel({ period: "30days" })!;
   }
 
   const columns = [
@@ -1230,7 +1232,12 @@ export async function buildSamplesWorkbook(
       s.sentDates.length > 0
         ? s.sentDates.map(formatIsoDateToRu).join(", ")
         : null;
-    const statusesList = [...s.sampleIndicators, ...s.processStatuses];
+    const statusesList = [...s.sampleIndicators, ...s.processStatuses].map((st) => {
+      if (/^\d+$/.test(st) || /^DT1032_/i.test(st)) {
+        return UNCLASSIFIED_LABEL;
+      }
+      return st;
+    });
     const statuses = statusesList.length > 0 ? statusesList.join(", ") : null;
     const result = RESULT_LABELS[s.normalizedResult] || "Неизвестно";
     const deals =
@@ -1271,7 +1278,7 @@ export async function exportSamplesToExcel(
   options: ExportSamplesOptions
 ): Promise<void> {
   if (options.summaries.length === 0) return;
-  if (options.filters?.period === "custom" && !options.period && !formatSamplesPeriodLabel(options.filters)) {
+  if (options.filters && !isSamplesPeriodValid(options.filters) && !options.period) {
     return;
   }
 

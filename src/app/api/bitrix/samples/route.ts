@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
       samples: summaries,
       total: summaries.length,
       orphanDealCount: orphanDeals.length,
+      metadataPartial: Boolean(fieldMetadata.partial),
       smartProcess: { qualityCounts },
       meta,
       issueLabels: SAMPLE_DATA_ISSUE_LABELS,

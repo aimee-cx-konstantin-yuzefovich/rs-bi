@@ -160,8 +160,8 @@ export function matchesPeriod(
 
 /**
  * Returns a truthful, human-readable period disclosure label for Samples.
- * Pure function: formats presets as "7 дней", "14 дней", "30 дней", "90 дней",
- * and valid custom periods as "DD.MM.YYYY — DD.MM.YYYY" using the normalized window.
+ * Pure function: formats presets as "DD.MM.YYYY — DD.MM.YYYY (N дней)"
+ * and valid custom periods as "DD.MM.YYYY — DD.MM.YYYY (Указать вручную)" using the normalized window.
  * Returns null if custom period is incomplete or invalid.
  */
 export function formatSamplesPeriodLabel(
@@ -169,32 +169,43 @@ export function formatSamplesPeriodLabel(
   now: Date = new Date()
 ): string | null {
   const period = normalizeSamplesPeriodPreset(filters.period);
+  const { from, to } = samplesPeriodWindow(filters, now);
+  if (!from || !to) return null;
+
+  const formatRu = (d: Date) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: BUSINESS_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d).split("-"); // [YYYY, MM, DD]
+    return `${parts[2]}.${parts[1]}.${parts[0]}`;
+  };
+
+  const datesPart = `${formatRu(from)} — ${formatRu(to)}`;
+
   switch (period) {
     case "7days":
-      return "7 дней";
+      return `${datesPart} (7 дней)`;
     case "14days":
-      return "14 дней";
+      return `${datesPart} (14 дней)`;
     case "30days":
-      return "30 дней";
+      return `${datesPart} (30 дней)`;
     case "90days":
-      return "90 дней";
-    case "custom": {
-      const { from, to } = samplesPeriodWindow(filters, now);
-      if (!from || !to) return null;
-      const formatRu = (d: Date) => {
-        const parts = new Intl.DateTimeFormat("en-CA", {
-          timeZone: BUSINESS_TIMEZONE,
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        }).format(d).split("-"); // [YYYY, MM, DD]
-        return `${parts[2]}.${parts[1]}.${parts[0]}`;
-      };
-      return `${formatRu(from)} — ${formatRu(to)}`;
-    }
+      return `${datesPart} (90 дней)`;
+    case "custom":
+      return `${datesPart} (Указать вручную)`;
     default:
-      return "30 дней";
+      return `${datesPart} (30 дней)`;
   }
+}
+
+/** Returns true when the samples period is valid (complete calendar boundaries). */
+export function isSamplesPeriodValid(
+  filters: Pick<SamplesFilters, "period" | "customFrom" | "customTo">,
+  now: Date = new Date()
+): boolean {
+  return formatSamplesPeriodLabel(filters, now) !== null;
 }
 
 function SelectFilter({
