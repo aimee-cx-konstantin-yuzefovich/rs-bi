@@ -14,6 +14,13 @@ import {
   syncCommercialFunnelPrincipal,
 } from "@/lib/commercial-funnel/commercial-funnel-cache";
 
+export type AnalyticalDataState =
+  | "loading"
+  | "ready"
+  | "partial"
+  | "refresh_failed"
+  | "failed";
+
 export interface CommercialFunnelDataState {
   companies: CommercialCompany[];
   deals: CommercialDeal[];
@@ -25,8 +32,12 @@ export interface CommercialFunnelDataState {
   refreshError?: string | null;
   isDemoMode: boolean;
   partial?: boolean;
+  metadataPartial?: boolean;
   activityPartial?: boolean;
   activityWarning?: string;
+  dataState: AnalyticalDataState;
+  loadedAt: number | null;
+  isStale: boolean;
   reload: () => void;
 }
 
@@ -47,8 +58,12 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [partial, setPartial] = useState<boolean | undefined>(undefined);
+  const [metadataPartial, setMetadataPartial] = useState<boolean>(false);
   const [activityPartial, setActivityPartial] = useState<boolean | undefined>(undefined);
   const [activityWarning, setActivityWarning] = useState<string | undefined>(undefined);
+  const [dataState, setDataState] = useState<AnalyticalDataState>("loading");
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
 
   const [attempt, setAttempt] = useState(0);
   const isMountedRef = useRef(true);
@@ -75,6 +90,10 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
         setRefreshing(false);
         setError(null);
         setRefreshError(null);
+        setLoadedAt(null);
+        setIsStale(false);
+        setDataState("loading");
+        setMetadataPartial(false);
       }
       return;
     }
@@ -87,6 +106,10 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
       setDeals([]);
       setUserNames({});
       setStatusLabels({});
+      setLoadedAt(null);
+      setIsStale(false);
+      setDataState("loading");
+      setMetadataPartial(false);
     }
     previousPrincipalRef.current = principal;
 
@@ -100,13 +123,21 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
       setStatusLabels(cached.statusLabels);
       setIsDemoMode(cached.isDemoMode);
       setPartial(cached.partial);
+      setMetadataPartial(Boolean(cached.metadataPartial));
       setActivityPartial(cached.activityPartial);
       setActivityWarning(cached.activityWarning);
+      setLoadedAt(cached.timestamp ?? null);
+      setIsStale(false);
+      setDataState(cached.partial || cached.metadataPartial ? "partial" : "ready");
       setLoading(false);
       setRefreshing(attempt > 0);
       setError(null);
       setRefreshError(null);
     } else {
+      setLoadedAt(null);
+      setIsStale(false);
+      setDataState("loading");
+      setMetadataPartial(false);
       setLoading(true);
       setRefreshing(false);
       setError(null);
@@ -128,8 +159,12 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
           setStatusLabels(data.statusLabels);
           setIsDemoMode(data.isDemoMode);
           setPartial(data.partial);
+          setMetadataPartial(Boolean(data.metadataPartial));
           setActivityPartial(data.activityPartial);
           setActivityWarning(data.activityWarning);
+          setLoadedAt(data.timestamp ?? Date.now());
+          setIsStale(false);
+          setDataState(data.partial || data.metadataPartial ? "partial" : "ready");
           setLoading(false);
           setRefreshing(false);
           setError(null);
@@ -139,11 +174,16 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
           if (hasCachedData) {
             setRefreshing(false);
             setRefreshError(result.error);
+            setIsStale(true);
+            setDataState("refresh_failed");
             setIsDemoMode(result.isDemoMode);
           } else {
             setLoading(false);
             setRefreshing(false);
             setError(result.error);
+            setLoadedAt(null);
+            setIsStale(false);
+            setDataState("failed");
             setIsDemoMode(result.isDemoMode);
           }
         }
@@ -154,10 +194,15 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
         if (hasCachedData) {
           setRefreshing(false);
           setRefreshError(msg);
+          setIsStale(true);
+          setDataState("refresh_failed");
         } else {
           setLoading(false);
           setRefreshing(false);
           setError(msg);
+          setLoadedAt(null);
+          setIsStale(false);
+          setDataState("failed");
         }
       });
 
@@ -177,8 +222,12 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
     refreshError,
     isDemoMode,
     partial,
+    metadataPartial,
     activityPartial,
     activityWarning,
+    dataState,
+    loadedAt,
+    isStale,
     reload,
   };
 }

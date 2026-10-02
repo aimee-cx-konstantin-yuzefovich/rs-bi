@@ -14,6 +14,7 @@ import { useSession } from "next-auth/react";
 import { useLoginRedirect } from "@/hooks/use-login-redirect";
 import { useDashboardStore } from "@/store/dashboard-store";
 import {
+  AlertCircle,
   AlertTriangle,
   Filter,
   LayoutDashboard,
@@ -21,6 +22,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { SectionNav } from "@/components/dashboard/section-nav";
 import { TerminalBrand } from "@/components/dashboard/terminal-brand";
 import { ProductFooter } from "@/components/dashboard/footer";
@@ -51,7 +53,11 @@ import {
 } from "@/lib/commercial-funnel/analytics";
 import { computePeriodBoundaries } from "@/lib/commercial-funnel/date-utils";
 import { downloadCommercialFunnelExcel } from "@/lib/commercial-funnel/export-excel";
-import { buildExcelExtraWarnings } from "@/lib/commercial-funnel/disclosure";
+import {
+  ACTIVITY_PARTIAL_DISCLOSURE,
+  METADATA_PARTIAL_DISCLOSURE,
+  buildExcelExtraWarnings,
+} from "@/lib/commercial-funnel/disclosure";
 import type {
   CommercialDrillDownPayload,
   CommercialFilters,
@@ -96,12 +102,20 @@ function CommercialFunnelContent() {
     deals,
     userNames,
     loading,
+    refreshing,
     error,
+    refreshError,
     isDemoMode,
     activityPartial,
     activityWarning,
+    metadataPartial,
+    dataState,
+    loadedAt,
+    isStale,
     reload,
   } = useCommercialFunnelData();
+
+  const isUnavailable = !loading && Boolean(error) && companies.length === 0;
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("overview");
   const [filters, setFilters] = useState<CommercialFilters>(DEFAULT_COMMERCIAL_FILTERS);
@@ -123,15 +137,14 @@ function CommercialFunnelContent() {
 
   // ─── ONE ANALYSIS CLOCK (Defect C fix) ───
   // analysisNow is the frozen analytical timestamp for the current view.
-  // It refreshes ONLY when a fresh analytical view lands (initial load or
-  // reload completion) — never per render, never ticking. UI boundaries,
-  // bottleneck day-counts, action plan and the Excel export all consume the
-  // SAME instant, so "what I see is what I export" holds even across a
-  // calendar-day / quarter / midnight boundary.
-  const [analysisNow, setAnalysisNow] = useState<Date>(() => new Date());
-  useEffect(() => {
-    if (!loading) setAnalysisNow(new Date());
-  }, [loading]);
+  // It is bound strictly to the successful snapshot's loadedAt timestamp.
+  // It NEVER advances on a failed refresh, nor does it tick on every render.
+  // UI boundaries, bottleneck day-counts, action plan and the Excel export all
+  // consume the SAME instant, ensuring strict reconciliation even across
+  // midnight and calendar boundaries.
+  const analysisNow = useMemo(() => {
+    return loadedAt ? new Date(loadedAt) : new Date();
+  }, [loadedAt]);
 
   // ─── ONE GLOBAL ANALYTICAL SLICE ───
   // Every tab and the Excel export consume the SAME filtered population and
@@ -205,8 +218,10 @@ function CommercialFunnelContent() {
       activityPartial,
       activityWarning,
       financialQualitiesByCurrency: paymentKpi?.currencyBreakdownQuality?.current,
+      isStale,
+      metadataPartial,
     });
-  }, [datedKpis, activityPartial, activityWarning]);
+  }, [datedKpis, activityPartial, activityWarning, isStale, metadataPartial]);
 
   const handleOpenDrillDown = (
     titleOrPayload: string | CommercialDrillDownPayload,
@@ -230,7 +245,7 @@ function CommercialFunnelContent() {
 
   const handleExportExcel = async () => {
     // Demo data must never become a detached management report (Option A).
-    if (isDemoMode) return;
+    if (isDemoMode || isUnavailable || companies.length === 0) return;
     setExportingExcel(true);
     try {
       await downloadCommercialFunnelExcel({
@@ -296,6 +311,45 @@ function CommercialFunnelContent() {
           </div>
         )}
 
+        {/* Stale refresh banner */}
+        {refreshError && (
+          <div
+            className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300"
+            data-testid="stale-refresh-banner"
+          >
+            <span className="flex-1">
+              Не удалось обновить данные: {refreshError}. Показаны данные последней успешной загрузки
+              {loadedAt
+                ? ` (${new Date(loadedAt).toLocaleTimeString("ru-RU", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })})`
+                : ""}.
+            </span>
+            <button
+              type="button"
+              onClick={reload}
+              className="text-xs font-medium underline hover:text-amber-950 dark:hover:text-amber-100 cursor-pointer"
+            >
+              Повторить
+            </button>
+          </div>
+        )}
+
+        {/* Metadata-partial disclosure */}
+        {metadataPartial && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"
+            data-testid="metadata-partial-banner"
+          >
+            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="text-xs text-amber-700 dark:text-amber-400">
+              {METADATA_PARTIAL_DISCLOSURE}
+            </span>
+          </div>
+        )}
+
         {/* Global Filter Bar */}
         <CommercialFilterBar
           filters={filters}
@@ -305,9 +359,10 @@ function CommercialFunnelContent() {
           userNames={userNames}
           onExportExcel={handleExportExcel}
           exportingExcel={exportingExcel}
+          exportDisabled={isUnavailable || companies.length === 0}
           isDemoMode={isDemoMode}
           onRefresh={reload}
-          refreshing={loading}
+          refreshing={loading || refreshing}
           collapsed={isFilterCollapsed}
           onToggleCollapse={() => setIsFilterCollapsed((v) => !v)}
         />
@@ -316,14 +371,15 @@ function CommercialFunnelContent() {
         <div className="flex items-center border-b border-border/80 gap-1 overflow-x-auto" data-testid="funnel-tabs">
           {COMMERCIAL_FUNNEL_TABS.map(({ id, label }) => {
             const Icon = TAB_ICONS[id];
-            const badge =
-              id === "managers"
-                ? managerScorecard.length
-                : id === "bottlenecks"
-                ? bottlenecks.length
-                : id === "segments"
-                ? filteredCompanies.length
-                : undefined;
+            const badge = isUnavailable
+              ? undefined
+              : id === "managers"
+              ? managerScorecard.length
+              : id === "bottlenecks"
+              ? bottlenecks.length
+              : id === "segments"
+              ? filteredCompanies.length
+              : undefined;
             return (
               <button
                 key={id}
@@ -354,8 +410,11 @@ function CommercialFunnelContent() {
 
         {/* Error message */}
         {error && (
-          <div className="p-4 rounded-md bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400 text-xs">
-            {error}
+          <div className="p-4 rounded-md bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400 text-xs flex items-center justify-between gap-2">
+            <span>{error}</span>
+            <Button variant="outline" size="sm" onClick={reload} className="text-xs shrink-0">
+              Повторить загрузку
+            </Button>
           </div>
         )}
 
@@ -364,6 +423,13 @@ function CommercialFunnelContent() {
           <div className="py-20 flex flex-col items-center justify-center gap-3">
             <div className="h-7 w-7 rounded-full border-2 border-primary border-t-transparent animate-spin" />
             <span className="text-xs text-muted-foreground">Загрузка данных коммерческой воронки...</span>
+          </div>
+        ) : isUnavailable && activeTab !== "overview" ? (
+          <div className="flex-1 flex flex-col items-center justify-center py-20 gap-3 text-center">
+            <span className="text-xs text-muted-foreground">Данные недоступны из-за ошибки загрузки</span>
+            <Button variant="outline" size="sm" onClick={reload} className="text-xs">
+              Повторить загрузку
+            </Button>
           </div>
         ) : (
           <>
@@ -375,6 +441,7 @@ function CommercialFunnelContent() {
                 managementSignals={managementSignals}
                 onOpenDrillDown={handleOpenDrillDown}
                 companies={filteredCompanies}
+                unavailable={isUnavailable}
               />
             )}
 

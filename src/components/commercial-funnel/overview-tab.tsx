@@ -38,6 +38,7 @@ interface OverviewTabProps {
   boundaries: PeriodBoundaries;
   managementSignals: ManagementSignal[];
   companies?: CommercialCompany[];
+  unavailable?: boolean;
   onOpenDrillDown: (
     titleOrPayload: string | CommercialDrillDownPayload,
     subtitle?: string,
@@ -63,6 +64,7 @@ function MiniStat({
   subtitle,
   payload,
   accent = false,
+  unavailable = false,
 }: {
   label: string;
   count: number;
@@ -72,8 +74,9 @@ function MiniStat({
   subtitle: string;
   payload?: CommercialDrillDownPayload;
   accent?: boolean;
+  unavailable?: boolean;
 }) {
-  const disabled = count === 0;
+  const disabled = count === 0 || unavailable;
   return (
     <button
       type="button"
@@ -95,7 +98,7 @@ function MiniStat({
     >
       <div className="min-w-0">
         <div className="flex items-baseline gap-1.5">
-          <span className="text-base font-semibold tabular-nums">{count}</span>
+          <span className="text-base font-semibold tabular-nums">{unavailable ? "—" : count}</span>
           <span className="text-[11px] font-medium truncate">{label}</span>
         </div>
         {subtitle && <div className="text-[10px] text-muted-foreground truncate">{subtitle}</div>}
@@ -153,6 +156,7 @@ export function CommercialOverviewTab({
   boundaries,
   managementSignals,
   companies,
+  unavailable = false,
   onOpenDrillDown,
 }: OverviewTabProps) {
   const [selectedKpiId, setSelectedKpiId] = useState<string | null>(null);
@@ -186,7 +190,7 @@ export function CommercialOverviewTab({
               <button
                 key={kpi.id}
                 type="button"
-                disabled={kpi.companyIds.length === 0}
+                disabled={unavailable || kpi.companyIds.length === 0}
                 onClick={() => {
                   setSelectedKpiId(kpi.id);
                   if (companies) {
@@ -216,7 +220,7 @@ export function CommercialOverviewTab({
                   }
                 }}
                 className={`group rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                  kpi.companyIds.length === 0
+                  unavailable || kpi.companyIds.length === 0
                     ? "border-border/50 bg-muted/30 opacity-60"
                     : isSelected
                     ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
@@ -226,23 +230,23 @@ export function CommercialOverviewTab({
                 <div className="text-[10px] text-muted-foreground font-medium truncate">{kpi.label}</div>
                 <div className="flex items-baseline gap-1.5 mt-0.5">
                   <span className="text-lg font-semibold tabular-nums">
-                    {kpi.isCurrency && kpi.currentValue === null ? "—" : (kpi.currentValue ?? 0)}
+                    {unavailable ? "—" : kpi.isCurrency && kpi.currentValue === null ? "—" : (kpi.currentValue ?? 0)}
                   </span>
                   {!isAllTime && (
                     <span
                       className={`text-[10px] tabular-nums ${
-                        kpi.delta !== null && kpi.delta > 0
+                        !unavailable && kpi.delta !== null && kpi.delta > 0
                           ? "text-emerald-600 dark:text-emerald-400"
-                          : kpi.delta !== null && kpi.delta < 0
+                          : !unavailable && kpi.delta !== null && kpi.delta < 0
                           ? "text-rose-600 dark:text-rose-400"
                           : "text-muted-foreground"
                       }`}
                     >
-                      {delta}
+                      {unavailable ? "—" : delta}
                     </span>
                   )}
                 </div>
-                {kpi.isCurrency && (() => {
+                {!unavailable && kpi.isCurrency && (() => {
                   const line = currencyLine(kpi);
                   return line ? (
                     <div className="text-[10px] text-muted-foreground" data-testid={`kpi-currency-${kpi.id}`}>
@@ -279,6 +283,7 @@ export function CommercialOverviewTab({
                 title="Требуются образцы"
                 subtitle="Компании, которым требуются образцы"
                 payload={companies ? buildSampleStageDrillDown(companies, "Требуются образцы") : undefined}
+                unavailable={unavailable}
               />
               <MiniStat
                 label="Подготовка"
@@ -288,6 +293,7 @@ export function CommercialOverviewTab({
                 title="Подготовка к отправке"
                 subtitle="Компании в подготовке образцов"
                 payload={companies ? buildSampleStageDrillDown(companies, "Подготовка к отправке") : undefined}
+                unavailable={unavailable}
               />
               <MiniStat
                 label="Отправлены"
@@ -297,6 +303,7 @@ export function CommercialOverviewTab({
                 title="Образцы отправлены"
                 subtitle="Компании с отправленными образцами"
                 payload={companies ? buildSampleStageDrillDown(companies, "Образцы отправлены") : undefined}
+                unavailable={unavailable}
               />
               <MiniStat
                 label="На испытаниях"
@@ -306,6 +313,7 @@ export function CommercialOverviewTab({
                 title="На испытании"
                 subtitle="Компании, чьи образцы на испытаниях"
                 payload={companies ? buildSampleStageDrillDown(companies, "На испытании") : undefined}
+                unavailable={unavailable}
               />
               <MiniStat
                 label="Подошли"
@@ -315,6 +323,7 @@ export function CommercialOverviewTab({
                 title="Подошли"
                 subtitle="Компании с положительным результатом"
                 payload={companies ? buildSampleStageDrillDown(companies, "Подошли") : undefined}
+                unavailable={unavailable}
               />
               <MiniStat
                 label="Не подошли / Доработка"
@@ -327,6 +336,7 @@ export function CommercialOverviewTab({
                 title="Не подошли / Требуется доработка"
                 subtitle="Компании с отрицательным результатом или на доработке"
                 payload={companies ? buildSampleStageDrillDown(companies, "Не подошли / Требуется доработка", ["Не подошли", "Требуется доработка"]) : undefined}
+                unavailable={unavailable}
               />
               <MiniStat
                 label="Не классифицировано"
@@ -336,6 +346,7 @@ export function CommercialOverviewTab({
                 title="Не классифицировано"
                 subtitle="Компании с неоднозначным или неклассифицированным статусом образцов"
                 payload={companies ? buildSampleStageDrillDown(companies, UNCLASSIFIED_LABEL) : undefined}
+                unavailable={unavailable}
               />
             </div>
           </div>
@@ -354,6 +365,7 @@ export function CommercialOverviewTab({
                 title="Активные коммерческие сделки"
                 subtitle="Компании с активными (не терминальными) сделками"
                 payload={companies ? buildActiveDealsDrillDown(companies) : undefined}
+                unavailable={unavailable}
               />
               <MiniStat
                 label="Ожидают оплаты"
@@ -363,13 +375,14 @@ export function CommercialOverviewTab({
                 title="Ожидают оплаты"
                 subtitle="Компании со счетами, ожидающими оплату"
                 payload={companies ? buildAwaitingPaymentDrillDown(companies) : undefined}
+                unavailable={unavailable}
               />
             </div>
             <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
               <span>Положительный результат → продолжение:</span>
               <button
                 type="button"
-                disabled={continuation.positiveResult.count === 0}
+                disabled={unavailable || continuation.positiveResult.count === 0}
                 onClick={() => {
                   if (companies) {
                     onOpenDrillDown(buildContinuationDrillDown(companies, "positive"));
@@ -383,12 +396,12 @@ export function CommercialOverviewTab({
                 }}
                 className="tabular-nums font-semibold text-primary hover:underline disabled:opacity-50 cursor-pointer"
               >
-                {continuation.positiveResult.count}
+                {unavailable ? "—" : continuation.positiveResult.count}
               </button>
               <span>→</span>
               <button
                 type="button"
-                disabled={continuation.withCommercialContinuation.count === 0}
+                disabled={unavailable || continuation.withCommercialContinuation.count === 0}
                 onClick={() => {
                   if (companies) {
                     onOpenDrillDown(buildContinuationDrillDown(companies, "continuation"));
@@ -402,7 +415,7 @@ export function CommercialOverviewTab({
                 }}
                 className="tabular-nums font-semibold text-primary hover:underline disabled:opacity-50 cursor-pointer"
               >
-                {continuation.withCommercialContinuation.count}
+                {unavailable ? "—" : continuation.withCommercialContinuation.count}
               </button>
             </div>
           </div>
@@ -415,7 +428,9 @@ export function CommercialOverviewTab({
           <h3 className="text-sm font-semibold">Управленческие сигналы</h3>
           <span className="text-[11px] text-muted-foreground">Объективные правила, без субъективных оценок</span>
         </div>
-        {managementSignals.length === 0 ? (
+        {unavailable ? (
+          <p className="text-xs text-muted-foreground">Данные сигналов недоступны из-за ошибки загрузки.</p>
+        ) : managementSignals.length === 0 ? (
           <p className="text-xs text-muted-foreground">Сигналов нет — по текущим правилам всё в порядке.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
@@ -430,6 +445,7 @@ export function CommercialOverviewTab({
                 subtitle="Открыть список компаний"
                 payload={companies ? buildSignalDrillDown(companies, signal.id, signal.label) : undefined}
                 accent
+                unavailable={unavailable}
               />
             ))}
           </div>
