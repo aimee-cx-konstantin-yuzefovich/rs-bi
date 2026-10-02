@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
       headers: { "Cache-Control": "no-store" },
     });
 
+  const routeStart = Date.now();
   try {
     // Limit request body size to 10KB (DoS protection, mirrors deals route).
     const rawBody = await request.text();
@@ -150,13 +151,26 @@ export async function POST(request: NextRequest) {
       issueLabels: SAMPLE_DATA_ISSUE_LABELS,
     });
   } catch (error) {
-    console.error("[Samples API Error]", error);
+    const duration = Date.now() - routeStart;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorCode =
+      errorMessage.includes("timeout") || errorMessage.includes("AbortError")
+        ? "BITRIX_TIMEOUT"
+        : errorMessage.includes("Inconsistent total") || errorMessage.includes("count mismatch")
+        ? "BITRIX_PAGINATION_UNSTABLE"
+        : "BITRIX_FETCH_FAILED";
+
+    console.error("[Samples API Error]", {
+      errorCode,
+      durationMs: duration,
+      error: errorMessage,
+    });
 
     const message =
       error instanceof Error && error.message.includes("not configured")
         ? error.message
         : "Не удалось загрузить данные по образцам. Попробуйте ещё раз.";
 
-    return respond({ success: false, error: message }, 502);
+    return respond({ success: false, error: message, code: errorCode }, 502);
   }
 }

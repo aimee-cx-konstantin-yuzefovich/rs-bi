@@ -148,6 +148,7 @@ export async function POST() {
     });
   }
 
+  const routeStart = Date.now();
   try {
     // Fail-closed gate: Smart Process is authoritative for current sample
     // cycles. An unverified contract must never silently produce
@@ -162,8 +163,6 @@ export async function POST() {
         502
       );
     }
-
-    const routeStart = Date.now();
 
     // Start deals fetch immediately, and as soon as rawDeals resolves,
     // start fetchDealsActivities without waiting for companies, SP, or metadata.
@@ -291,13 +290,26 @@ export async function POST() {
       smartProcess: { qualityCounts: sampleDomain.qualityCounts },
     });
   } catch (error) {
-    console.error("[Commercial Funnel API Error]", error);
+    const duration = Date.now() - routeStart;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorCode =
+      errorMessage.includes("timeout") || errorMessage.includes("AbortError")
+        ? "BITRIX_TIMEOUT"
+        : errorMessage.includes("Inconsistent total") || errorMessage.includes("count mismatch")
+        ? "BITRIX_PAGINATION_UNSTABLE"
+        : "BITRIX_FETCH_FAILED";
+
+    console.error("[Commercial Funnel API Error]", {
+      errorCode,
+      durationMs: duration,
+      error: errorMessage,
+    });
 
     const message =
       error instanceof Error && error.message.includes("not configured")
         ? error.message
         : "Не удалось загрузить данные коммерческой воронки. Попробуйте ещё раз.";
 
-    return respond({ success: false, error: message }, 502);
+    return respond({ success: false, error: message, code: errorCode }, 502);
   }
 }

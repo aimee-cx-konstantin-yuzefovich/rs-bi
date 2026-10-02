@@ -130,6 +130,8 @@ export class BitrixItemError extends Error {
   }
 }
 
+export const BITRIX_POST_TIMEOUT_MS = 60_000;
+
 /**
  * Generic POST request to Bitrix24 REST API.
  * Body parameters are validated and sanitized before forwarding.
@@ -163,7 +165,7 @@ export async function bitrixPost<T = unknown>(
       headers: { "Content-Type": "application/json" },
       body: Object.keys(sanitizedBody).length > 0 ? JSON.stringify(sanitizedBody) : undefined,
       redirect: "error", // Prevent HTTP redirect SSRF bypasses
-      signal: AbortSignal.timeout(30_000), // 30s timeout for POST (may need longer for pagination)
+      signal: AbortSignal.timeout(BITRIX_POST_TIMEOUT_MS), // 60s timeout for POST
     });
 
     // Universal CRM item-level errors are documented as HTTP 400. Restrict

@@ -7,8 +7,10 @@ export const dynamic = "force-dynamic";
 type CompanyRecord = Record<string, any>;
 
 const BATCH_SIZE = 50;
+const BATCH_MAX_ATTEMPTS = 3;
+const BATCH_RETRY_DELAYS_MS =
+  process.env.NODE_ENV === "test" || process.env.VITEST ? [5, 10] : [500, 1500];
 const FALLBACK_GET_CONCURRENCY = 5;
-const MAX_FALLBACK_IDS = 15;
 const MAX_COMPANY_IDS = 500;
 const MAX_SELECT_FIELDS = 100;
 
@@ -47,6 +49,7 @@ function normalizeCompany(company: CompanyRecord, fallbackId: string): CompanyRe
 }
 
 async function fetchCompanyById(id: string, select: string[]): Promise<CompanyRecord | null> {
+  const t0 = Date.now();
   try {
     const data = await bitrixPost<{ result?: CompanyRecord | null } | CompanyRecord>(
       "crm.company.get",
@@ -59,7 +62,13 @@ async function fetchCompanyById(id: string, select: string[]): Promise<CompanyRe
 
     return normalizeCompany(result, id);
   } catch (error) {
-    console.error(`[Companies API] crm.company.get failed for ID=${id}:`, error);
+    const duration = Date.now() - t0;
+    console.warn(`[Companies API] crm.company.get failed for ID=${id}`, {
+      method: "crm.company.get",
+      id,
+      durationMs: duration,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
@@ -107,46 +116,75 @@ export async function POST(request: NextRequest) {
     let failedBatches = 0;
     const totalBatches = Math.ceil(ids.length / BATCH_SIZE);
 
-    // 1) Batch list lookup
+    // 1) Batch list lookup with bounded retries
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
       const batchIds = ids.slice(i, i + BATCH_SIZE);
+      const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
+      let batchSucceeded = false;
 
-      try {
-        const data = await bitrixPost<{ result?: CompanyRecord[] }>(
-          "crm.company.list",
-          {
-            // The "@ID" operator is a Bitrix-specific filter operator that matches multiple values (equivalent to SQL IN (...))
-            // Note: Bitrix limits @ID arrays to 50-100 items per call. We chunk at BATCH_SIZE (50) to stay within limits.
-            FILTER: { "@ID": batchIds },
-            SELECT: select,
-          }
-        );
+      for (let attempt = 1; attempt <= BATCH_MAX_ATTEMPTS; attempt++) {
+        const attemptStartTime = Date.now();
+        try {
+          const data = await bitrixPost<{ result?: CompanyRecord[] }>(
+            "crm.company.list",
+            {
+              // The "@ID" operator is a Bitrix-specific filter operator that matches multiple values (equivalent to SQL IN (...))
+              // Note: Bitrix limits @ID arrays to 50-100 items per call. We chunk at BATCH_SIZE (50) to stay within limits.
+              FILTER: { "@ID": batchIds },
+              SELECT: select,
+            }
+          );
 
-        if (Array.isArray(data.result)) {
-          for (const company of data.result) {
-            const rawId = String(company?.ID ?? "").trim();
-            if (rawId) {
-              const normalized = normalizeCompany(company, rawId);
-              companiesMap[normalized.ID] = {
-                ...companiesMap[normalized.ID],
-                ...normalized,
-              };
-              resolvedIds.add(normalized.ID);
+          if (Array.isArray(data.result)) {
+            for (const company of data.result) {
+              const rawId = String(company?.ID ?? "").trim();
+              if (rawId) {
+                const normalized = normalizeCompany(company, rawId);
+                companiesMap[normalized.ID] = {
+                  ...companiesMap[normalized.ID],
+                  ...normalized,
+                };
+                resolvedIds.add(normalized.ID);
+              }
             }
           }
+          batchSucceeded = true;
+          break;
+        } catch (error) {
+          const duration = Date.now() - attemptStartTime;
+          const isFatalConfig =
+            error instanceof Error &&
+            (error.message.includes("not configured") || error.message.includes("Invalid API method"));
+
+          console.warn(`[Companies API] crm.company.list batch ${batchIndex}/${totalBatches} attempt ${attempt}/${BATCH_MAX_ATTEMPTS} failed`, {
+            method: "crm.company.list",
+            batchIndex,
+            attempt,
+            durationMs: duration,
+            idCount: batchIds.length,
+            retriesExhausted: attempt >= BATCH_MAX_ATTEMPTS || isFatalConfig,
+            error: error instanceof Error ? error.message : String(error),
+          });
+
+          if (isFatalConfig || attempt >= BATCH_MAX_ATTEMPTS) {
+            break;
+          }
+
+          const delay = BATCH_RETRY_DELAYS_MS[attempt - 1] ?? 1500;
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
-      } catch (error) {
-        console.error(`[Companies API] Failed to fetch batch`, { batchIds, error });
+      }
+
+      if (!batchSucceeded) {
         failedBatches++;
       }
     }
 
-    // 2) Fallback per-ID get for unresolved IDs (absent from batch list, capped to prevent rate-limit flooding)
+    // 2) Fallback per-ID get for ALL unresolved IDs (absent from batch list, no artificial 15-ID cap)
     const unresolvedIds = ids.filter((id) => !resolvedIds.has(id));
-    const fallbackIds = unresolvedIds.slice(0, MAX_FALLBACK_IDS);
 
-    for (let i = 0; i < fallbackIds.length; i += FALLBACK_GET_CONCURRENCY) {
-      const chunk = fallbackIds.slice(i, i + FALLBACK_GET_CONCURRENCY);
+    for (let i = 0; i < unresolvedIds.length; i += FALLBACK_GET_CONCURRENCY) {
+      const chunk = unresolvedIds.slice(i, i + FALLBACK_GET_CONCURRENCY);
 
       const results = await Promise.allSettled(
         chunk.map((id) => fetchCompanyById(id, select))

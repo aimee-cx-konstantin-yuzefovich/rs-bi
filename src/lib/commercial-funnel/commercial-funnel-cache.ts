@@ -52,7 +52,8 @@ export type CommercialFunnelFetchResult =
   | CommercialFunnelFetchFailure;
 
 export const COMMERCIAL_FUNNEL_CACHE_TTL_MS = 60_000;
-const CLIENT_FETCH_TIMEOUT_MS = 90_000;
+export const LARGE_DATASET_CLIENT_TIMEOUT_MS = 180_000;
+const CLIENT_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
 
 // Module-level in-memory state
 let currentPrincipal: string | null = null;

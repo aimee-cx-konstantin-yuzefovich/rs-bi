@@ -45,7 +45,8 @@ let activeInFlightPromise: Promise<SamplesFetchResult> | null = null;
 let activeInFlightPrincipal: string | null = null;
 let activeInFlightRequestId: symbol | null = null;
 
-const CLIENT_FETCH_TIMEOUT_MS = 90_000;
+export const LARGE_DATASET_CLIENT_TIMEOUT_MS = 180_000;
+const CLIENT_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
 
 /** Retrieves the current cached complete snapshot if the principal matches. */
 export function getCachedSamples(principal: string): SamplesCacheSnapshot | null {

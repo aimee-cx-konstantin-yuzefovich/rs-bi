@@ -38,10 +38,11 @@ function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs: number 
   });
 }
 
-// The companies list endpoint can legitimately paginate through thousands of
-// rows with a large field set (unfiltered "all responsible" view) — give it
-// more room than the default 30s before the client gives up.
-const COMPANY_LIST_FETCH_TIMEOUT_MS = 90_000;
+// Large CRM dataset operations (companies list pagination, multi-batch company enrichment)
+// can legitimately take minutes under Bitrix load — allow up to 180s.
+export const LARGE_DATASET_CLIENT_TIMEOUT_MS = 180_000;
+export const COMPANY_LIST_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
+export const COMPANY_ENRICHMENT_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
 
 export interface FieldInfo {
   id: string;
@@ -1076,14 +1077,18 @@ export const useDashboardStore = create<DashboardState>()(
 
             for (const batch of batches) {
               try {
-                const response = await fetchWithTimeout("/api/bitrix/companies", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    ids: batch,
-                    select: companyFieldsToSelect,
-                  }),
-                });
+                const response = await fetchWithTimeout(
+                  "/api/bitrix/companies",
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      ids: batch,
+                      select: companyFieldsToSelect,
+                    }),
+                  },
+                  COMPANY_ENRICHMENT_FETCH_TIMEOUT_MS
+                );
 
                 if (!response.ok) {
                   console.warn("[Dashboard] Failed to fetch company batch: API returned", response.status);
