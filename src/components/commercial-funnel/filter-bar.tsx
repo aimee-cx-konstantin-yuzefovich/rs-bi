@@ -69,6 +69,7 @@ export function CommercialFilterBar({
   userNames,
   onExportExcel,
   exportingExcel,
+  exportDisabled = false,
   isDemoMode = false,
   onRefresh,
   refreshing,

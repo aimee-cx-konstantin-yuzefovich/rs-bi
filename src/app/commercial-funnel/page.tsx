@@ -362,7 +362,7 @@ function CommercialFunnelContent() {
           exportDisabled={isUnavailable || companies.length === 0}
           isDemoMode={isDemoMode}
           onRefresh={reload}
-          refreshing={loading || refreshing}
+          refreshing={loading || Boolean(refreshing)}
           collapsed={isFilterCollapsed}
           onToggleCollapse={() => setIsFilterCollapsed((v) => !v)}
         />

@@ -52,6 +52,7 @@ import {
   computeBottlenecks,
 } from "@/lib/commercial-funnel/engine";
 import { computeFunnelView, computeManagementSignals } from "@/lib/commercial-funnel/analytics";
+import { computeSampleKpis } from "@/lib/samples/aggregate";
 import {
   buildExcelExtraWarnings,
   STALE_SNAPSHOT_DISCLOSURE,
@@ -70,13 +71,7 @@ describe("Data Trust & Analytical Closure — 17 Mandatory Verification Cases", 
   // ─── CASE 1: Initial API failure renders "—" and error state, not false zeroes ───
   describe("Case 1: Initial API load failure", () => {
     it("Samples KPI cards render '—' when unavailable=true, never valid 0s", () => {
-      const emptyKpis = {
-        total: 0,
-        inProgress: 0,
-        positive: 0,
-        negative: 0,
-        ambiguous: 0,
-      };
+      const emptyKpis = computeSampleKpis([]);
 
       const { container } = render(
         <SamplesKpiCards kpis={emptyKpis} loading={false} unavailable={true} />
@@ -90,25 +85,7 @@ describe("Data Trust & Analytical Closure — 17 Mandatory Verification Cases", 
 
     it("Commercial Funnel Overview tab renders '—' when unavailable=true, never valid 0s", () => {
       const mockBoundaries = computePeriodBoundaries({ periodPreset: "30days" });
-      const emptyFunnelView: FunnelView = {
-        commercial: {
-          period: {
-            newCompanies: { count: 0, companyIds: [] },
-            dealsCreated: { count: 0, companyIds: [] },
-            paymentsReceived: { count: 0, companyIds: [] },
-            shipments: { count: 0, companyIds: [] },
-          },
-          current: {
-            activeDeals: { count: 0, companyIds: [] },
-            awaitingPayment: { count: 0, companyIds: [] },
-          },
-        },
-        continuation: {
-          positiveResult: { count: 0, companyIds: [] },
-          withCommercialContinuation: { count: 0, companyIds: [] },
-        },
-        sampleTestingStages: [],
-      };
+      const emptyFunnelView: FunnelView = computeFunnelView([], mockBoundaries);
 
       const { container } = render(
         <CommercialOverviewTab
@@ -136,13 +113,7 @@ describe("Data Trust & Analytical Closure — 17 Mandatory Verification Cases", 
   // ─── CASE 2: API successful return of empty arrays renders valid 0s ───
   describe("Case 2: Successful empty dataset renders valid 0s", () => {
     it("Samples KPI cards render 0 when unavailable=false and empty", () => {
-      const emptyKpis = {
-        total: 0,
-        inProgress: 0,
-        positive: 0,
-        negative: 0,
-        ambiguous: 0,
-      };
+      const emptyKpis = computeSampleKpis([]);
 
       const { container } = render(
         <SamplesKpiCards kpis={emptyKpis} loading={false} unavailable={false} />
@@ -155,25 +126,7 @@ describe("Data Trust & Analytical Closure — 17 Mandatory Verification Cases", 
 
     it("Commercial Funnel Overview renders legitimate 0s when API successfully returns []", () => {
       const mockBoundaries = computePeriodBoundaries({ periodPreset: "30days" });
-      const emptyFunnelView: FunnelView = {
-        commercial: {
-          period: {
-            newCompanies: { count: 0, companyIds: [] },
-            dealsCreated: { count: 0, companyIds: [] },
-            paymentsReceived: { count: 0, companyIds: [] },
-            shipments: { count: 0, companyIds: [] },
-          },
-          current: {
-            activeDeals: { count: 0, companyIds: [] },
-            awaitingPayment: { count: 0, companyIds: [] },
-          },
-        },
-        continuation: {
-          positiveResult: { count: 0, companyIds: [] },
-          withCommercialContinuation: { count: 0, companyIds: [] },
-        },
-        sampleTestingStages: [],
-      };
+      const emptyFunnelView: FunnelView = computeFunnelView([], mockBoundaries);
 
       const { container } = render(
         <CommercialOverviewTab
@@ -280,29 +233,18 @@ describe("Data Trust & Analytical Closure — 17 Mandatory Verification Cases", 
 
     it("unclassified stage renders canonical label without numeric ID leakage in Overview tab", () => {
       const mockBoundaries = computePeriodBoundaries({ periodPreset: "30days" });
+      const emptyFunnelView = computeFunnelView([], mockBoundaries);
       const funnelViewWithUnclassified: FunnelView = {
-        commercial: {
-          period: {
-            newCompanies: { count: 0, companyIds: [] },
-            dealsCreated: { count: 0, companyIds: [] },
-            paymentsReceived: { count: 0, companyIds: [] },
-            shipments: { count: 0, companyIds: [] },
-          },
-          current: {
-            activeDeals: { count: 0, companyIds: [] },
-            awaitingPayment: { count: 0, companyIds: [] },
-          },
-        },
-        continuation: {
-          positiveResult: { count: 0, companyIds: [] },
-          withCommercialContinuation: { count: 0, companyIds: [] },
-        },
+        ...emptyFunnelView,
         sampleTestingStages: [
           {
             id: UNCLASSIFIED_LABEL,
             label: UNCLASSIFIED_LABEL,
             companyCount: 5,
+            dealCount: 0,
             companyIds: ["c1", "c2", "c3", "c4", "c5"],
+            periodCompanyCount: null,
+            periodCompanyIds: null,
           },
         ],
       };
@@ -411,23 +353,16 @@ describe("Data Trust & Analytical Closure — 17 Mandatory Verification Cases", 
         companyTitle: "Multi-Sent Co",
         responsibleId: "u1",
         responsibleName: "Менеджер",
-        status: "На испытании",
-        result: "UNKNOWN",
-        rawResult: "",
-        observedStatuses: ["На испытании"],
+        productFamilies: [],
+        grades: [],
+        quantities: [],
         sentDates: ["2026-09-28", "2026-09-29", "2026-10-01"],
-        gradeGel: [],
-        gradeSol: [],
-        productFamily: [],
-        industry: "",
-        provenance: {
-          currentCycleSource: "SMART_PROCESS",
-          sentDatesSource: "SMART_PROCESS",
-          hasSmartProcess: true,
-          hasLegacyDeal: false,
-          hasLegacyCompany: false,
-          smartProcessAmbiguous: false,
-        },
+        sampleIndicators: [],
+        processStatuses: ["На испытании"],
+        normalizedResult: "unknown",
+        relatedDeals: [],
+        sourceQuality: "structured",
+        dataIssues: [],
       };
 
       const filters = {
@@ -490,7 +425,7 @@ describe("Data Trust & Analytical Closure — 17 Mandatory Verification Cases", 
       const testingWip = wipMetrics.find((w) => w.id === "На испытании" || w.label === "На испытании");
       expect(testingWip?.companyCount).toBe(1);
 
-      const funnel = computeFunnelView([company], shortPeriod, now);
+      const funnel = computeFunnelView([company], shortPeriod);
       expect(funnel.commercial.current.activeDeals.count).toBe(1);
     });
   });
