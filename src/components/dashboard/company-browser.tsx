@@ -574,67 +574,6 @@ export function CompanyBrowser() {
     }
   }, [sortedItems, columns, fieldMap, userNames, highlightSamples, activeName, columnFilters, companyDateFilter]);
 
-  const previewFields = (company: Record<string, unknown>) => {
-    const sampleIds = new Set([
-      "UF_CRM_1764155817232",
-      "UF_CRM_1764156004815",
-      "UF_CRM_1764155891815",
-      "UF_CRM_1764156064272",
-      "UF_CRM_1764156557536",
-      "UF_CRM_1764156593",
-      COMPANY_SAMPLES_FIELD_ID,
-      "COMMENTS",
-      "LAST_ACTIVITY_TIME",
-      "LAST_ACTIVITY_BY",
-    ]);
-
-    const labels: Record<string, string> = {
-      ASSIGNED_BY_ID: COMPANY_RESPONSIBLE_FIELD_TITLE,
-      PHONE: "Телефон",
-      EMAIL: "Email",
-      DATE_CREATE: "Дата создания",
-      DATE_MODIFY: "Дата изменения",
-    };
-
-    const excludeIds = new Set([
-      "TITLE",
-      "LAST_ACTIVITY_TIME",
-      "LAST_ACTIVITY_BY",
-      "DATE_CREATE",
-      "DATE_MODIFY",
-      "ASSIGNED_BY_ID",
-      "PHONE",
-      "EMAIL",
-      ...sampleIds,
-    ]);
-
-    const orderedIds = [
-      "ASSIGNED_BY_ID",
-      "PHONE",
-      "EMAIL",
-      "DATE_CREATE",
-      "DATE_MODIFY",
-      ...columns.filter((id) => !excludeIds.has(id)),
-    ];
-
-    return orderedIds
-      .map((id) => {
-        const fieldMeta =
-          id === "DATE_MODIFY"
-            ? { type: "date" }
-            : id === "DATE_CREATE"
-            ? { type: "datetime" }
-            : getField(id);
-
-        return {
-          id,
-          label: labels[id] || columnTitle(id),
-          value: resolveCompanyValue(company, id, userNames, fieldMeta),
-        };
-      })
-      .filter((field) => field.value.trim());
-  };
-
   const previewSampleFields = (company: Record<string, unknown>) => {
     return defaultSampleFields(company, fields);
   };
@@ -1063,7 +1002,6 @@ export function CompanyBrowser() {
         <CompanyPreview
           key={previewId}
           id={previewId}
-          fieldsFor={previewFields}
           sampleFieldsFor={previewSampleFields}
           onClose={() => setPreviewId(null)}
           onRestoreFocus={() => previewTrigger.current?.focus()}

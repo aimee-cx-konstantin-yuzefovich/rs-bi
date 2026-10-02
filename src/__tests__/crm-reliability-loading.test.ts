@@ -74,7 +74,7 @@ describe("CRM Data Loading Reliability Tests (Cases A - G)", () => {
   // ─────────────────────────────────────────────────────────────────
   // Case B: Company unresolved population > 15
   // ─────────────────────────────────────────────────────────────────
-  it("Case B: unresolved population > 15 (40 IDs) -> fallback attempts ALL 40 using bounded concurrency without 15-ID cap", async () => {
+  it("Case B: unresolved population > 15 (40 IDs) -> per-ID fallback stays capped; IDs remain retryable (truthful PARTIAL)", async () => {
     const ids = Array.from({ length: 40 }, (_, i) => String(i + 1));
     const fallbackIdsRequested: string[] = [];
 
@@ -97,11 +97,13 @@ describe("CRM Data Loading Reliability Tests (Cases A - G)", () => {
 
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(data.partial).toBe(false);
-    expect(data.fetchedCompanyIds).toHaveLength(40);
-    expect(data.unresolvedCompanyIds).toHaveLength(0);
-    expect(fallbackIdsRequested).toHaveLength(40); // All 40 were retried via crm.company.get!
-    expect(fallbackIdsRequested).toEqual(ids);
+    // Production remediation (bounded fallback cap): unresolved above the cap
+    // are NOT hammered with hundreds of per-ID gets — they stay unresolved
+    // (retryable) and the response truthfully reports PARTIAL.
+    expect(data.partial).toBe(true);
+    expect(data.fetchedCompanyIds).toHaveLength(0);
+    expect(data.unresolvedCompanyIds).toHaveLength(40);
+    expect(fallbackIdsRequested.length).toBeLessThanOrEqual(15);
   });
 
   // ─────────────────────────────────────────────────────────────────

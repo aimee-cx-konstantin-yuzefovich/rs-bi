@@ -11,6 +11,11 @@ const BATCH_MAX_ATTEMPTS = 3;
 const BATCH_RETRY_DELAYS_MS =
   process.env.NODE_ENV === "test" || process.env.VITEST ? [5, 10] : [500, 1500];
 const FALLBACK_GET_CONCURRENCY = 5;
+// Bounded smaller-batch retry for IDs missed by the primary batch list.
+const RETRY_BATCH_SIZE = 15;
+// Per-ID fallback cap: above this, per-ID gets are skipped entirely (IDs stay
+// retryable) — never hundreds of crm.company.get calls.
+const PER_ID_FALLBACK_LIMIT = 15;
 const MAX_COMPANY_IDS = 500;
 const MAX_SELECT_FIELDS = 100;
 
@@ -138,14 +143,19 @@ export async function POST(request: NextRequest) {
           if (Array.isArray(data.result)) {
             for (const company of data.result) {
               const rawId = String(company?.ID ?? "").trim();
-              if (rawId) {
-                const normalized = normalizeCompany(company, rawId);
-                companiesMap[normalized.ID] = {
-                  ...companiesMap[normalized.ID],
-                  ...normalized,
-                };
-                resolvedIds.add(normalized.ID);
+              if (!rawId) continue;
+              // Never accept IDs outside the requested set — Bitrix list may
+              // drift; foreign records are logged and ignored.
+              if (!ids.includes(rawId)) {
+                console.warn(`[Companies API] Ignoring foreign company ID=${rawId} in batch ${batchIndex}`);
+                continue;
               }
+              const normalized = normalizeCompany(company, rawId);
+              companiesMap[normalized.ID] = {
+                ...companiesMap[normalized.ID],
+                ...normalized,
+              };
+              resolvedIds.add(normalized.ID);
             }
           }
           batchSucceeded = true;
@@ -180,28 +190,78 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2) Fallback per-ID get for ALL unresolved IDs (absent from batch list, no artificial 15-ID cap)
-    const unresolvedIds = ids.filter((id) => !resolvedIds.has(id));
+    // 2) Bounded smaller-batch retry for unresolved IDs (before per-ID gets):
+    //    first attempt on small "@ID" chunks often recovers IDs missed by the
+    //    large primary batch list, with bounded request pressure.
+    const unresolvedAfterBatches = () => ids.filter((id) => !resolvedIds.has(id));
+    let unresolvedIds = unresolvedAfterBatches();
 
-    for (let i = 0; i < unresolvedIds.length; i += FALLBACK_GET_CONCURRENCY) {
-      const chunk = unresolvedIds.slice(i, i + FALLBACK_GET_CONCURRENCY);
-
-      const results = await Promise.allSettled(
-        chunk.map((id) => fetchCompanyById(id, select))
-      );
-
-      for (let j = 0; j < results.length; j++) {
-        const id = chunk[j];
-        const res = results[j];
-
-        if (res.status === "fulfilled" && res.value) {
-          companiesMap[id] = {
-            ...companiesMap[id],
-            ...res.value,
-          };
-          resolvedIds.add(id);
+    if (unresolvedIds.length > 0 && unresolvedIds.length <= RETRY_BATCH_SIZE * 10) {
+      for (let i = 0; i < unresolvedIds.length; i += RETRY_BATCH_SIZE) {
+        const chunk = unresolvedIds.slice(i, i + RETRY_BATCH_SIZE);
+        for (let attempt = 1; attempt <= BATCH_MAX_ATTEMPTS; attempt++) {
+          try {
+            const data = await bitrixPost<{ result?: CompanyRecord[] }>(
+              "crm.company.list",
+              { FILTER: { "@ID": chunk }, SELECT: select }
+            );
+            if (Array.isArray(data.result)) {
+              for (const company of data.result) {
+                const rawId = String(company?.ID ?? "").trim();
+                if (!rawId) continue;
+                if (!ids.includes(rawId)) {
+                  console.warn(`[Companies API] Ignoring foreign company ID=${rawId} in retry batch`);
+                  continue;
+                }
+                companiesMap[rawId] = { ...companiesMap[rawId], ...normalizeCompany(company, rawId) };
+                resolvedIds.add(rawId);
+              }
+            }
+            break;
+          } catch (error) {
+            if (attempt >= BATCH_MAX_ATTEMPTS) {
+              console.warn(`[Companies API] Retry batch failed after ${attempt} attempts`, {
+                idCount: chunk.length,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              break;
+            }
+            const delay = BATCH_RETRY_DELAYS_MS[attempt - 1] ?? 1500;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
         }
       }
+      unresolvedIds = unresolvedAfterBatches();
+    }
+
+    // 3) Per-ID fallback only sparingly: capped, concurrency-conservative.
+    //    Above the cap, unresolved IDs stay unresolved (retryable) instead of
+    //    issuing hundreds of crm.company.get calls.
+    if (unresolvedIds.length > 0 && unresolvedIds.length <= PER_ID_FALLBACK_LIMIT) {
+      for (let i = 0; i < unresolvedIds.length; i += FALLBACK_GET_CONCURRENCY) {
+        const chunk = unresolvedIds.slice(i, i + FALLBACK_GET_CONCURRENCY);
+
+        const results = await Promise.allSettled(
+          chunk.map((id) => fetchCompanyById(id, select))
+        );
+
+        for (let j = 0; j < results.length; j++) {
+          const id = chunk[j];
+          const res = results[j];
+
+          if (res.status === "fulfilled" && res.value) {
+            companiesMap[id] = {
+              ...companiesMap[id],
+              ...res.value,
+            };
+            resolvedIds.add(id);
+          }
+        }
+      }
+    } else if (unresolvedIds.length > PER_ID_FALLBACK_LIMIT) {
+      console.warn(
+        `[Companies API] Per-ID fallback skipped: ${unresolvedIds.length} unresolved IDs exceed cap ${PER_ID_FALLBACK_LIMIT} (IDs remain retryable)`
+      );
     }
 
     // 3) Final normalization: never return undefined TITLE; resolved companies with empty TITLE use standard fallback "Без названия"

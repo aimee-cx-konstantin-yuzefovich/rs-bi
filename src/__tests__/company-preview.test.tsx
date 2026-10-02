@@ -7,6 +7,8 @@ const store = vi.hoisted(() => ({
   fields: [], companyResponsibleCounts: {}, userNames: { "7": "Анна" }, selectedColumns: [],
   companyBrowserItems: [{ ID: "42", TITLE: "Компания из таблицы", ASSIGNED_BY_ID: "7" }],
   companyBrowserResponsibleId: "all", companyColumnWidths: {},
+  allDeals: [] as Array<Record<string, unknown>>,
+  dealsCoverage: null as { status: string; fetched: number; total: number } | null,
   fetchCompanyBrowser: vi.fn(), setCompanyBrowserResponsibleId: vi.fn(),
   setCompanyColumnSelectorOpen: vi.fn(), setCompanyColumnWidth: vi.fn(),
 }));
@@ -47,7 +49,7 @@ it("opens a data row, uses real Bitrix company names and preserves the table on 
 
 it("never substitutes the internal company ID for a missing drawer title", async () => {
   fetchMock.mockResolvedValue(ok(detail("42", "")));
-  render(<CompanyPreview id="42" onClose={() => {}} fieldsFor={() => []} />);
+  render(<CompanyPreview id="42" onClose={() => {}} />);
   expect(await screen.findByRole("heading", { name: "Без названия" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Компания 42" })).not.toBeInTheDocument();
 });
@@ -92,13 +94,12 @@ it.each([[404, "Компания не найдена"], [403, "Нет досту
 it("shows loading and ignores a response from a closed drawer", async () => {
   let resolve!: (value: unknown) => void;
   fetchMock.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
-  const fieldsFor = () => [];
-  const first = render(<CompanyPreview id="42" onClose={() => {}} fieldsFor={fieldsFor} />);
+  const first = render(<CompanyPreview id="42" onClose={() => {}} />);
   expect(screen.getByRole("status")).toHaveTextContent("Загрузка компании");
   const signal = fetchMock.mock.calls[0][1].signal;
   first.unmount();
   fetchMock.mockResolvedValue(ok(detail("43", "Другая компания")));
-  render(<CompanyPreview id="43" onClose={() => {}} fieldsFor={fieldsFor} />);
+  render(<CompanyPreview id="43" onClose={() => {}} />);
   await screen.findByRole("heading", { name: "Другая компания" });
   // Resolve the obsolete request after the new company has loaded.
   await act(async () => resolve(ok(detail("42", "Устаревшая компания"))));
@@ -262,8 +263,137 @@ it("full report export stays disabled while related deals are loading, and becom
   });
 });
 
-it("renders specific error message when related deals API returns 403 or 404", async () => {
-  fetchMock.mockImplementation(async (url: string) => {
+it("Company Preview fields are independent of selected table columns", async () => {
+  fetchMock.mockResolvedValue(
+    ok({
+      success: true,
+      company: {
+        ID: "42",
+        TITLE: "Колончатая компания",
+        ASSIGNED_BY_ID: "7",
+        COMMENTS: "Проверка независимости",
+      },
+      bitrixUrl: null,
+    })
+  );
+
+  const { useDashboardStore: mockStore } = (await import("@/store/dashboard-store")) as any;
+  const previous = mockStore.selectedColumns;
+
+  mockStore.selectedColumns = ["COMPANY_INN", "COMPANY_REGION", "COMPANY_PRODUCT"];
+  const first = render(<CompanyPreview id="42" onClose={() => {}} />);
+  await screen.findByRole("heading", { name: "Колончатая компания" });
+  const fieldLabelsFirst = Array.from(
+    document.querySelectorAll("dt.text-xs")
+  ).map((el) => el.textContent);
+
+  first.unmount();
+  mockStore.selectedColumns = ["ASSIGNED_BY_ID", "PHONE"];
+
+  render(<CompanyPreview id="42" onClose={() => {}} />);
+  await screen.findByRole("heading", { name: "Колончатая компания" });
+  const fieldLabelsSecond = Array.from(
+    document.querySelectorAll("dt.text-xs")
+  ).map((el) => el.textContent);
+
+  // Selected table columns must not change the canonical Preview card fields.
+  expect(fieldLabelsSecond).toEqual(fieldLabelsFirst);
+  expect(fieldLabelsFirst.length).toBeGreaterThan(0);
+  mockStore.selectedColumns = previous;
+});
+
+it("shows cached related deals immediately and discloses stale cache when refresh fails", async () => {
+  const previousDeals = store.allDeals;
+  store.allDeals = [
+    { ID: "501", TITLE: "Кэш сделка 501", COMPANY_ID: "42", STAGE_ID: "NEW" },
+    { ID: "502", TITLE: "Кэш сделка 502", COMPANY_ID: "42", STAGE_ID: "WON" },
+    { ID: "503", TITLE: "Чужая сделка", COMPANY_ID: "43", STAGE_ID: "NEW" },
+  ];
+  try {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/deals")) {
+        return { ok: false, status: 502, json: async () => ({ success: false }) };
+      }
+      return ok(detail("42", "Кэш-компания"));
+    });
+
+    render(<CompanyPreview id="42" onClose={() => {}} />);
+
+    // Cache-first: cached rows are visible BEFORE the server refresh resolves.
+    expect(await screen.findByText("Кэш сделка 501")).toBeInTheDocument();
+    expect(screen.getByText("Кэш сделка 502")).toBeInTheDocument();
+    // No duplicate/foreign rows from cache
+    expect(screen.queryByText("Чужая сделка")).not.toBeInTheDocument();
+
+    // After refresh fails, cached rows stay with a non-blocking stale warning.
+    expect(await screen.findByText("Показаны кэшированные сделки; обновление с сервера не удалось.")).toBeInTheDocument();
+    expect(screen.getByText("Кэш сделка 501")).toBeInTheDocument();
+  } finally {
+    store.allDeals = previousDeals;
+  }
+});
+
+it("replaces cached related deals with refreshed server data without duplicates", async () => {
+  const previousDeals = store.allDeals;
+  store.allDeals = [
+    { ID: "501", TITLE: "Устаревшая кэш сделка", COMPANY_ID: "42", STAGE_ID: "NEW" },
+  ];
+  try {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/deals")) {
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            deals: [
+              { ID: "601", TITLE: "Свежая сделка 601", COMPANY_ID: "42" },
+              { ID: "601", TITLE: "Свежая сделка 601 дубль", COMPANY_ID: "42" },
+            ],
+          }),
+        };
+      }
+      return ok(detail("42", "Компания с обновлением сделок"));
+    });
+
+    render(<CompanyPreview id="42" onClose={() => {}} />);
+
+    // Server data replaces cache; duplicates removed.
+    expect(await screen.findByText("Свежая сделка 601")).toBeInTheDocument();
+    expect(screen.queryByText("Устаревшая кэш сделка")).not.toBeInTheDocument();
+    expect(screen.queryAllByText("Свежая сделка 601")).toHaveLength(1);
+    expect(screen.queryByText(/Показаны кэшированные сделки/)).not.toBeInTheDocument();
+  } finally {
+    store.allDeals = previousDeals;
+  }
+});
+
+it("does not seed cached deals when the store deals coverage is PARTIAL", async () => {
+  const previousDeals = store.allDeals;
+  const previousCoverage = store.dealsCoverage;
+  store.allDeals = [
+    { ID: "501", TITLE: "Ненадёжная кэш сделка", COMPANY_ID: "42", STAGE_ID: "NEW" },
+  ];
+  store.dealsCoverage = { status: "PARTIAL", fetched: 1, total: 10 };
+  try {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/deals")) {
+        return new Promise(() => {}); // never resolves
+      }
+      return ok(detail("42", "Компания с частичным кэшем"));
+    });
+
+    render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByRole("heading", { name: "Компания с частичным кэшем" });
+
+    // Partial store coverage → cached scope untrustworthy → not rendered as if fresh.
+    expect(screen.queryByText("Ненадёжная кэш сделка")).not.toBeInTheDocument();
+  } finally {
+    store.allDeals = previousDeals;
+    store.dealsCoverage = previousCoverage;
+  }
+});
+
+it("renders specific error message when related deals API returns 403 or 404", async () => {  fetchMock.mockImplementation(async (url: string) => {
     if (String(url).endsWith("/deals")) {
       return {
         ok: false,

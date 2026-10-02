@@ -24,6 +24,12 @@ const spContract = vi.hoisted(() => ({
   SMART_PROCESS_GRADE_SOL_FIELD_ID: "UF_CRM_SP_SOL_TEST",
   SMART_PROCESS_TEST_RESULT_FIELD_ID: "UF_CRM_SP_RESULT_TEST",
   SMART_PROCESS_COMPANY_FIELD_ID: null,
+  SMART_PROCESS_QTY_GEL_FIELD_ID: "UF_CRM_SP_QTY_GEL_TEST",
+  SMART_PROCESS_QTY_GEL_UNIT: "кг",
+  SMART_PROCESS_QTY_SOL_FIELD_ID: "UF_CRM_SP_QTY_SOL_TEST",
+  SMART_PROCESS_QTY_SOL_UNIT: "л",
+  SMART_PROCESS_DEAL_UF_FIELD_ID: null,
+  SMART_PROCESS_COMPANY_FIELD_ID_OBJ: null,
   assertSmartProcessContractReady: () => {},
   SMART_PROCESS_STAGE_SEMANTICS: {
     "DT1032_15:NEW": "PREPARATION",
@@ -181,7 +187,20 @@ describe("POST /api/bitrix/samples — fixed Bitrix calls", () => {
     expect(spCall).toBeDefined();
     const spBody = JSON.parse(spCall![1].body);
     expect(spBody.entityTypeId).toBe(1032);
-    expect(spBody.FILTER).toEqual({ categoryId: 15, companyId: "42" });
+    // Smart Process contract: ONLY official Universal CRM parameters —
+    // no duplicate uppercase aliases in the actual payload.
+    expect(Object.keys(spBody).sort()).toEqual([
+      "entityTypeId",
+      "filter",
+      "order",
+      "select",
+      "start",
+      "useOriginalUfNames",
+    ]);
+    expect(spBody.filter).toEqual({ categoryId: 15, companyId: "42" });
+    expect(spBody.order).toEqual({ id: "ASC" });
+    expect(spBody.useOriginalUfNames).toBe("Y");
+    expect(spBody.select).toContain("stageId");
   });
 
   it("joins by company ID and returns one summary per company with nested deals", async () => {
@@ -255,7 +274,7 @@ describe("POST /api/bitrix/samples — fixed Bitrix calls", () => {
     expect(meta["1"]).toBe("Образцы отправлены");
   });
 
-  it("responds 200 with degraded labels when metadata fetch fails", async () => {
+  it("responds 200 with fail-closed unclassified labels when metadata fetch fails", async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url.endsWith("crm.company.fields") || url.endsWith("crm.deal.fields")) {
         return Promise.reject(new Error("metadata down"));
@@ -271,10 +290,12 @@ describe("POST /api/bitrix/samples — fixed Bitrix calls", () => {
     const response = await request();
     expect(response.status).toBe(200);
     const body = await response.json();
-    // Raw enum value passes through unresolved — visible, not hidden
-    // (unrecognized ID is a processStatus entry; metadata empty).
+    // Data-trust: metadata missing + unknown numeric enum ID → the raw ID
+    // NEVER passes through; it fails closed to the neutral label.
     expect(body.samples).toHaveLength(1);
-    expect(body.samples[0].processStatuses).toEqual(["99"]);
+    expect(body.samples[0].processStatuses).toEqual(["Не классифицировано"]);
+    expect(JSON.stringify(body.samples)).not.toContain('"99"');
+    expect(body.metadataPartial).toBe(true);
     expect(body.meta.statusLabels).toEqual({});
   });
 });
@@ -473,6 +494,63 @@ describe("POST /api/bitrix/samples — security invariants", () => {
     const response = await request();
     expect(response.status).toBe(502);
     expect(await response.text()).not.toContain("SECRET_TOKEN");
+  });
+
+  it("fails closed (502) after transport retries are exhausted on the Smart Process source", async () => {
+    // Smart Process is authoritative: persistent transient 503 exhausts the
+    // bounded transport retries, then fail-closed pagination aborts → 502.
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("crm.item.list")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
+      }
+      if (url.endsWith("crm.company.fields") || url.endsWith("crm.deal.fields")) {
+        return Promise.resolve(emptyFieldsMeta());
+      }
+      return Promise.resolve(listPage([], { total: 0 }));
+    });
+
+    const response = await request();
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.samples).toBeUndefined();
+    // Retries were strictly bounded: 3 transport attempts × 2 pagination
+    // restarts = ≤6 SP page calls (fail-closed, never an unbounded storm).
+    const spCalls = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("crm.item.list"));
+    expect(spCalls.length).toBeGreaterThanOrEqual(3);
+    expect(spCalls.length).toBeLessThanOrEqual(12);
+    expect(JSON.stringify(body)).not.toContain("SECRET_TOKEN");
+  });
+
+  it("recovers a 200 runtime path after a transient 503 on the first page", async () => {
+    let spCalls = 0;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("crm.item.list")) {
+        spCalls++;
+        if (spCalls === 1) {
+          return Promise.resolve(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
+        }
+        return Promise.resolve(listPage([{ id: "7001", stageId: "DT1032_15:CLIENT", companyId: "42" }], { total: 1 }));
+      }
+      if (url.endsWith("crm.company.fields") || url.endsWith("crm.deal.fields")) {
+        return Promise.resolve(emptyFieldsMeta());
+      }
+      if (url.endsWith("crm.company.list")) {
+        return Promise.resolve(listPage([{ ID: "42", TITLE: "ООО Успешная", ASSIGNED_BY_ID: "7" }], { total: 1 }));
+      }
+      if (url.endsWith("crm.deal.list")) {
+        return Promise.resolve(listPage([], { total: 0 }));
+      }
+      return Promise.resolve(listPage([], { total: 0 }));
+    });
+
+    const response = await request();
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.total).toBe(1);
+    expect(body.samples[0].companyId).toBe("42");
+    expect(spCalls).toBe(2);
   });
 
   it("transport-level allowlist still rejects write methods", async () => {

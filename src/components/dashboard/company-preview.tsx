@@ -48,12 +48,6 @@ export interface CompanyPreviewProps {
   id: string;
   onClose: () => void;
   onRestoreFocus?: () => void;
-  /**
-   * Phase D: the drawer's current-card fields come from the ONE resolved
-   * model (buildCompanyPreviewModel). This hook remains for callers that
-   * supply a custom field projection (tests / transitional browser path).
-   */
-  fieldsFor?: (company: Record<string, unknown>) => PreviewField[];
   sampleFieldsFor?: (company: Record<string, unknown>) => PreviewField[];
   onOpenDealPreview?: (dealId: string) => void;
   onExport?: (options: {
@@ -75,28 +69,57 @@ export function CompanyPreview({
   id,
   onClose,
   onRestoreFocus,
-  fieldsFor,
   sampleFieldsFor,
   onOpenDealPreview,
   onExport,
 }: CompanyPreviewProps) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const [dealsState, setDealsState] = useState<
-    | { status: "loading" }
-    | { status: "success"; deals: Array<Record<string, unknown>> }
-    | { status: "error"; message: string }
-  >({ status: "loading" });
+    | { status: "loading"; deals: Array<Record<string, unknown>> } // deals: cached seed shown immediately
+    | { status: "success"; deals: Array<Record<string, unknown>>; source: "server" | "cached" }
+    | { status: "error"; message: string; deals: Array<Record<string, unknown>> } // deals: cached rows kept
+  >({ status: "loading", deals: [] });
   const [attempt, setAttempt] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
 
-  const { userNames, fields, usersCoverage } = useDashboardStore() as {
+  const { userNames, fields, usersCoverage, allDeals, dealsCoverage } = useDashboardStore() as {
     userNames: Record<string, string> | null;
     fields: Array<{ id: string; title?: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }> | null;
     usersCoverage: import("@/lib/dataset-coverage").DatasetCoverage | null;
+    allDeals: Array<Record<string, unknown>>;
+    dealsCoverage: import("@/lib/dataset-coverage").DatasetCoverage | null;
   };
 
-  // Phase D: the current-card field list comes from the ONE resolved
-  // model. A caller-provided fieldsFor overrides it (transitional path).
+  /**
+   * Cache-first related deals: trustworthy deal rows already present in the
+   * client store are shown immediately (drawer does not wait for the server).
+   * Cached scope is trustworthy only when the store deals dataset itself is
+   * not partial.
+   */
+  function seedDealsFromCache(): Array<Record<string, unknown>> {
+    if (!allDeals || allDeals.length === 0) return [];
+    // PARTIAL store coverage means the cached scope is incomplete: cached
+    // rows may exist in allDeals but cannot be trusted as the full set.
+    if (dealsCoverage?.status === "PARTIAL") {
+      return [];
+    }
+    const idNum = Number(id);
+    if (!Number.isSafeInteger(idNum) || idNum <= 0) return [];
+    const seen = new Set<string>();
+    const cached: Array<Record<string, unknown>> = [];
+    for (const deal of allDeals) {
+      const companyId = String(deal.COMPANY_ID ?? "").trim();
+      if (companyId !== id) continue;
+      const dealId = String(deal.ID ?? deal.id ?? "").trim();
+      if (!dealId || seen.has(dealId)) continue;
+      seen.add(dealId);
+      cached.push(deal);
+    }
+    return cached;
+  }
+
+  // ONE canonical current-card model (buildCompanyPreviewModel) drives the
+  // card. Selected table columns can never influence Preview contents.
   const resolvedModel =
     state.status === "success"
       ? buildCompanyPreviewModel(state.company, {
@@ -106,15 +129,12 @@ export function CompanyPreview({
         })
       : null;
 
-  const cardFields: PreviewField[] = fieldsFor
-    ? fieldsFor(state.status === "success" ? state.company : {})
-    : (resolvedModel?.fields ?? []).map((f) => ({
-        id: f.id,
-        label: f.label,
-        value: f.value,
-        type: f.type,
-      }));
-  const activeFieldsFor = fieldsFor || (() => cardFields);
+  const cardFields: PreviewField[] = (resolvedModel?.fields ?? []).map((f) => ({
+    id: f.id,
+    label: f.label,
+    value: f.value,
+    type: f.type,
+  }));
   const activeSampleFieldsFor = sampleFieldsFor || ((c: Record<string, unknown>) => defaultSampleFields(c, (fields ?? []) as any));
 
   const stageField = fields?.find((f) => f.id === "STAGE_ID");
@@ -136,9 +156,7 @@ export function CompanyPreview({
       const companyTitle = String(company.TITLE || "").trim() || "Без названия";
       // Phase D: UI and Excel consume the SAME resolved model.
       const model = resolvedModel!;
-      const companyFields = fieldsFor
-        ? activeFieldsFor(company)
-        : model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type }));
+      const companyFields = model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type }));
       const sampleFields = activeSampleFieldsFor(company);
       const deals = dealsState.deals.map((d) => {
         const rawOpp = d.OPPORTUNITY ?? d.opportunity;
@@ -166,9 +184,9 @@ export function CompanyPreview({
         companyFields,
         sampleFields,
         deals,
-        // Phase D: the full model rides along so the Excel builder renders
+        // The full model rides along so the Excel builder renders
         // the exact same resolved fields (dates/comments) as the UI.
-        companyModel: fieldsFor ? undefined : model,
+        companyModel: model,
       };
 
       if (onExport) {
@@ -185,7 +203,8 @@ export function CompanyPreview({
   useEffect(() => {
     const controller = new AbortController();
     setState({ status: "loading" });
-    setDealsState({ status: "loading" });
+    // Cache-first: re-seed from the store so cached deals render during load.
+    setDealsState({ status: "loading", deals: seedDealsFromCache() });
 
     async function load() {
       try {
@@ -210,6 +229,7 @@ export function CompanyPreview({
     }
 
     async function loadDeals() {
+      const cachedSeed = seedDealsFromCache();
       try {
         const response = await fetch(`/api/bitrix/companies/${encodeURIComponent(id)}/deals`, {
           signal: controller.signal,
@@ -225,7 +245,12 @@ export function CompanyPreview({
               : response.status === 403
               ? "Нет доступа к сделкам компании"
               : "Связанные сделки временно недоступны.");
-          setDealsState({ status: "error", message });
+          if (cachedSeed.length > 0) {
+            // Refresh failure: keep trustworthy cached rows, non-blocking stale warning.
+            setDealsState({ status: "success", deals: cachedSeed, source: "cached" });
+          } else {
+            setDealsState({ status: "error", message, deals: [] });
+          }
           return;
         }
         const data = await response.json();
@@ -244,11 +269,16 @@ export function CompanyPreview({
         }
 
         if (!controller.signal.aborted) {
-          setDealsState({ status: "success", deals: deduped });
+          // Refresh success: replace cached rows with refreshed (deduplicated) data.
+          setDealsState({ status: "success", deals: deduped, source: "server" });
         }
       } catch {
         if (!controller.signal.aborted) {
-          setDealsState({ status: "error", message: "Связанные сделки временно недоступны." });
+          if (cachedSeed.length > 0) {
+            setDealsState({ status: "success", deals: cachedSeed, source: "cached" });
+          } else {
+            setDealsState({ status: "error", message: "Связанные сделки временно недоступны.", deals: [] });
+          }
         }
       }
     }
@@ -288,21 +318,21 @@ export function CompanyPreview({
                 ))}
                 {/* Date Created / Date Modified — retained per current-card
                     contract; rendered from the resolved model only when the
-                    model drives the card (no fieldsFor override). */}
-                {!fieldsFor && resolvedModel?.createdAt && !cardFields.some((f) => f.id === "DATE_CREATE") && (
+                    model does not already include the row. */}
+                {resolvedModel?.createdAt && !cardFields.some((f) => f.id === "DATE_CREATE") && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Дата создания</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.createdAt}</dd>
                   </div>
                 )}
-                {!fieldsFor && resolvedModel?.modifiedAt && !cardFields.some((f) => f.id === "DATE_MODIFY") && (
+                {resolvedModel?.modifiedAt && !cardFields.some((f) => f.id === "DATE_MODIFY") && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Дата изменения</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.modifiedAt}</dd>
                   </div>
                 )}
                 {/* General Company comments — retained per current-card contract */}
-                {!fieldsFor && resolvedModel?.comments && !cardFields.some((f) => f.id === "COMMENTS") && (
+                {resolvedModel?.comments && !cardFields.some((f) => f.id === "COMMENTS") && (
                   <div>
                     <dt className="text-xs text-muted-foreground">Комментарий</dt>
                     <dd className="mt-1 whitespace-pre-wrap break-words">{resolvedModel.comments}</dd>
@@ -337,12 +367,22 @@ export function CompanyPreview({
                   Связанные сделки {dealsState.status === "success" ? `(${dealsState.deals.length})` : ""}
                 </h4>
 
-                {dealsState.status === "loading" && (
+                {dealsState.status === "loading" && dealsState.deals.length === 0 && (
                   <div role="status" className="space-y-2">
                     <span className="sr-only">Загрузка связанных сделок</span>
                     <Skeleton className="h-9 w-full" />
                     <Skeleton className="h-9 w-full" />
                   </div>
+                )}
+
+                {/* Cache-first: trustworthy cached deals render while refresh is in flight. */}
+                {dealsState.status === "loading" && dealsState.deals.length > 0 && (
+                  <DealRows
+                    deals={dealsState.deals}
+                    resolveStage={resolveStage}
+                    dealBitrixUrlBase={state.bitrixUrl}
+                    onOpenDealPreview={onOpenDealPreview}
+                  />
                 )}
 
                 {dealsState.status === "error" && (
@@ -361,99 +401,23 @@ export function CompanyPreview({
                 )}
 
                 {dealsState.status === "success" && (
-                  dealsState.deals.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">Нет связанных сделок</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {dealsState.deals.map((deal) => {
-                        const dealId = String(deal.ID || deal.id);
-                        const dealTitle = String(deal.TITLE || deal.title || "").trim() || "Без названия";
-                        const stage = resolveStage(deal.STAGE_ID ?? deal.stageId);
-                        const rawOpp = deal.OPPORTUNITY ?? deal.opportunity;
-                        // Strict parsing: malformed amounts never display as numbers.
-                        const opportunity = parseStrictNumber(rawOpp);
-                        const rawCurrency = deal.CURRENCY_ID ?? deal.currencyId;
-                        const currency =
-                          rawCurrency !== null &&
-                          rawCurrency !== undefined &&
-                          String(rawCurrency).trim() !== ""
-                            ? String(rawCurrency).trim()
-                            : undefined;
-                        const dealBitrixUrl =
-                          typeof deal.bitrixUrl === "string"
-                            ? deal.bitrixUrl
-                            : state.bitrixUrl
-                            ? state.bitrixUrl.replace(
-                                /\/crm\/company\/details\/\d+\/?/,
-                                `/crm/deal/details/${dealId}/`
-                              )
-                            : null;
-
-                        return (
-                          <div
-                            key={dealId}
-                            className="flex items-center justify-between p-2.5 rounded-md border bg-card/60 hover:bg-muted/40 transition-colors text-xs gap-3"
-                          >
-                            <div className="min-w-0 flex-1">
-                              {onOpenDealPreview ? (
-                                <button
-                                  type="button"
-                                  data-related-deal={dealId}
-                                  onClick={() => onOpenDealPreview(dealId)}
-                                  className="font-medium hover:underline text-left truncate block w-full text-foreground"
-                                >
-                                  {dealTitle}
-                                </button>
-                              ) : dealBitrixUrl ? (
-                                <a
-                                  href={dealBitrixUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-medium hover:underline text-left truncate block w-full text-foreground"
-                                >
-                                  {dealTitle}
-                                </a>
-                              ) : (
-                                <span className="font-medium truncate block w-full text-foreground">
-                                  {dealTitle}
-                                </span>
-                              )}
-                              {stage && (
-                                <div className="text-muted-foreground mt-0.5 truncate text-[11px]">
-                                  {stage}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-2 shrink-0">
-                              {(opportunity !== undefined && !isNaN(opportunity)) && (
-                                <span className="font-mono tabular-nums text-muted-foreground whitespace-nowrap">
-                                  {opportunity.toLocaleString("ru-RU", {
-                                    minimumFractionDigits: 0,
-                                    maximumFractionDigits: 2,
-                                  })}
-                                  {currency && currency.toUpperCase() !== "UNKNOWN"
-                                    ? ` ${currency}`
-                                    : " – валюта не указана"}
-                                </span>
-                              )}
-                              {dealBitrixUrl && (
-                                <a
-                                  href={dealBitrixUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title="Открыть сделку в Bitrix24"
-                                  className="text-muted-foreground hover:text-foreground"
-                                >
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )
+                  <>
+                    {dealsState.deals.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Нет связанных сделок</p>
+                    ) : (
+                      <DealRows
+                        deals={dealsState.deals}
+                        resolveStage={resolveStage}
+                        dealBitrixUrlBase={state.bitrixUrl}
+                        onOpenDealPreview={onOpenDealPreview}
+                      />
+                    )}
+                    {dealsState.source === "cached" && (
+                      <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400" data-stale-warning>
+                        Показаны кэшированные сделки; обновление с сервера не удалось.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -500,6 +464,114 @@ export function CompanyPreview({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * Related-deal rows shared by refresh-in-flight (cached seed) and success
+ * states — identical rendering guaranteed for both paths.
+ */
+function DealRows({
+  deals,
+  resolveStage,
+  dealBitrixUrlBase,
+  onOpenDealPreview,
+}: {
+  deals: Array<Record<string, unknown>>;
+  resolveStage: (rawStage: unknown) => string | null;
+  dealBitrixUrlBase: string | null;
+  onOpenDealPreview?: (dealId: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      {deals.map((deal) => {
+        const dealId = String(deal.ID || deal.id);
+        const dealTitle = String(deal.TITLE || deal.title || "").trim() || "Без названия";
+        const stage = resolveStage(deal.STAGE_ID ?? deal.stageId);
+        const rawOpp = deal.OPPORTUNITY ?? deal.opportunity;
+        // Strict parsing: malformed amounts never display as numbers.
+        const opportunity = parseStrictNumber(rawOpp);
+        const rawCurrency = deal.CURRENCY_ID ?? deal.currencyId;
+        const currency =
+          rawCurrency !== null &&
+          rawCurrency !== undefined &&
+          String(rawCurrency).trim() !== ""
+            ? String(rawCurrency).trim()
+            : undefined;
+        const dealBitrixUrl =
+          typeof deal.bitrixUrl === "string"
+            ? deal.bitrixUrl
+            : dealBitrixUrlBase
+            ? dealBitrixUrlBase.replace(
+                /\/crm\/company\/details\/\d+\/?/,
+                `/crm/deal/details/${dealId}/`
+              )
+            : null;
+
+        return (
+          <div
+            key={dealId}
+            className="flex items-center justify-between p-2.5 rounded-md border bg-card/60 hover:bg-muted/40 transition-colors text-xs gap-3"
+          >
+            <div className="min-w-0 flex-1">
+              {onOpenDealPreview ? (
+                <button
+                  type="button"
+                  data-related-deal={dealId}
+                  onClick={() => onOpenDealPreview(dealId)}
+                  className="font-medium hover:underline text-left truncate block w-full text-foreground"
+                >
+                  {dealTitle}
+                </button>
+              ) : dealBitrixUrl ? (
+                <a
+                  href={dealBitrixUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium hover:underline text-left truncate block w-full text-foreground"
+                >
+                  {dealTitle}
+                </a>
+              ) : (
+                <span className="font-medium truncate block w-full text-foreground">
+                  {dealTitle}
+                </span>
+              )}
+              {stage && (
+                <div className="text-muted-foreground mt-0.5 truncate text-[11px]">
+                  {stage}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {(opportunity !== undefined && !isNaN(opportunity)) && (
+                <span className="font-mono tabular-nums text-muted-foreground whitespace-nowrap">
+                  {opportunity.toLocaleString("ru-RU", {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 2,
+                  })}
+                  {currency && currency.toUpperCase() !== "UNKNOWN"
+                    ? ` ${currency}`
+                    : " – валюта не указана"}
+                </span>
+              )}
+              {dealBitrixUrl && (
+                <a
+                  href={dealBitrixUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Открыть сделку в Bitrix24"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

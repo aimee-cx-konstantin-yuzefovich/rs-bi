@@ -206,7 +206,13 @@ function resolveDateRaw(
   const s = String(raw).trim();
   const d = parseStrictDate(s);
   if (d && !isNaN(d.getTime())) {
-    const isDateTime = (meta?.type ?? "").toLowerCase() === "datetime" || /[T ]\d{2}:\d{2}/.test(s);
+    // Explicit field type metadata wins over the raw-string time heuristic —
+    // a whitelist card field declared as «date» renders date-only regardless
+    // of datetime suffixes in the raw CRM value.
+    const declaredType = (meta?.type ?? "").toLowerCase();
+    const isDateTime = declaredType
+      ? declaredType === "datetime"
+      : /[T ]\d{2}:\d{2}/.test(s);
     const display = isDateTime
       ? `${d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })} ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })}`
       : d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });

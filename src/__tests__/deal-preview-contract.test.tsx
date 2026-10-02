@@ -46,6 +46,10 @@ const mockStore = vi.hoisted(() => ({
   userNames: { "7": "Анна Смирнова" } as Record<string, string>,
   usersCoverage: null,
   activitiesData: {} as Record<string, any>,
+  activitiesDataFetchedAt: {} as Record<string, number>,
+  activitiesDataLoading: false,
+  dealTypeRegistry: null,
+  fetchDealActivities: vi.fn(),
 }));
 
 vi.mock("@/store/dashboard-store", () => ({
@@ -58,6 +62,9 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   mockStore.activitiesData = {};
+  mockStore.activitiesDataFetchedAt = {};
+  mockStore.activitiesDataLoading = false;
+  mockStore.fetchDealActivities.mockClear();
 });
 
 afterEach(() => {
@@ -130,7 +137,9 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     expect(screen.getByText("Дата создания сделки")).toBeInTheDocument();
     expect(screen.getByText("Последнее касание с клиентом")).toBeInTheDocument();
     expect(screen.getByText("Последнее изменение сделки")).toBeInTheDocument();
-    expect(screen.getByText("Последняя активность")).toBeInTheDocument();
+    // No activities loaded for this deal → «Последняя активность» row omitted;
+    // the «Дела и активности» section loads independently.
+    expect(screen.queryByText("Последняя активность")).not.toBeInTheDocument();
 
     // Current deal-card fields present
     expect(screen.getByText("Тип сделки")).toBeInTheDocument();
@@ -196,7 +205,7 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     ).toBeInTheDocument();
   });
 
-  it("TEST C: Last activity subject missing -> 'Последняя активность' remains visible with '–'", async () => {
+  it("TEST C: Last activity subject missing -> row omitted entirely (never '–')", async () => {
     mockStore.activitiesData = {};
 
     fetchMock.mockResolvedValue({
@@ -216,11 +225,9 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
     render(<DealPreview id="503" onClose={() => {}} />);
     await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
 
-    expect(screen.getByText("Последняя активность")).toBeInTheDocument();
-    // Field is NOT removed; displays '–'
-    const lastActivityDt = screen.getByText("Последняя активность");
-    const lastActivityDd = lastActivityDt.nextElementSibling;
-    expect(lastActivityDd).toHaveTextContent("–");
+    // Data-truth contract: no meaningful SUBJECT → no «Последняя активность»
+    // row at all — never a '–' placeholder or duplicated last-touch date.
+    expect(screen.queryByText("Последняя активность")).not.toBeInTheDocument();
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -434,7 +441,8 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
 
     expect(model.timelineFields[0].value).toContain("30.09.2026");
     expect(model.timelineFields[1].value).toContain("30.09.2026");
-    expect(model.activityField.value).toBe("Звонок клиенту по поводу предоплаты");
+    expect(model.activityField).not.toBeNull();
+    expect(model.activityField!.value).toBe("Звонок клиенту по поводу предоплаты");
 
     // Build Excel Workbook
     const workbook = createDealExcelWorkbook({

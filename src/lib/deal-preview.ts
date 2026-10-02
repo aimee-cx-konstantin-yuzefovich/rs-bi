@@ -170,8 +170,182 @@ export interface DealPreviewModel {
   companyBitrixUrl: string | null;
   mainFields: DealPreviewResolvedField[];     // 1. Стадия, 2. Сумма, 3. Ответственный, 4. Компания
   timelineFields: DealPreviewResolvedField[]; // 5. Дата создания сделки, 6. Последнее касание с клиентом, 7. Последнее изменение сделки
-  activityField: DealPreviewResolvedField;    // 8. Последняя активность
+  /** 8. Последняя активность — null when no meaningful SUBJECT exists (row omitted). */
+  activityField: DealPreviewResolvedField | null;
   cardFields: DealPreviewResolvedField[];     // 9. Тип сделки ... 17. Адрес доставки
+}
+
+/** Activity entry shape accepted by buildDealActivitiesModel (UI + Excel). */
+export interface DealActivityEntryInput {
+  ID?: string;
+  SUBJECT?: string | null;
+  COMPLETED?: string | null;
+  DEADLINE?: string | null;
+  CREATED?: string | null;
+  DESCRIPTION?: string | null;
+  TYPE_ID?: string | number | null;
+  PROVIDER_ID?: string | null;
+  PROVIDER_TYPE_ID?: string | null;
+  RESPONSIBLE_ID?: string | number | null;
+}
+
+export interface DealActivityDisplay {
+  id: string;
+  /** «Выполнено» | «Запланировано». */
+  status: string;
+  /** Human-readable type; unknown → «Дело». Raw tokens never surface. */
+  type: string;
+  subject: string;
+  /** Relevant date: DEADLINE for planned, CREATED for completed. */
+  date: string | null;
+  /** Short description (truncated, sentinel-safe). */
+  description: string | null;
+  /** Responsible person name via userNames. */
+  responsible: string | null;
+}
+
+/** Human-readable Bitrix activity TYPE_ID labels (internal registry; display only). */
+const ACTIVITY_TYPE_LABELS: Record<string, string> = {
+  "0": "Дело",
+  "1": "Встреча",
+  "2": "Звонок",
+  "3": "Задача",
+  "4": "Встреча",
+  "5": "Звонок",
+};
+
+/** Human-readable PROVIDER_ID labels for provider-backed activities. */
+const ACTIVITY_PROVIDER_LABELS: Record<string, string> = {
+  "crm_activity_ping": "Дело",
+  "crm_activity_task": "Задача",
+  "crm_activity_calendar": "Встреча",
+  "crm_activity_voximplant": "Звонок",
+  "crm_email": "Письмо",
+  "crm_openline_chat": "Онлайн-чат",
+};
+
+/** Sentinel check shared with CRM normalization (no circular import). */
+function isActivitySentinel(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "" || s === "false" || s === "null" || s === "undefined" || s === "–" || s === "—";
+  }
+  return false;
+}
+
+function resolveActivityType(input: DealActivityEntryInput): string {
+  const provider = isActivitySentinel(input.PROVIDER_ID)
+    ? ""
+    : String(input.PROVIDER_ID).trim().toLowerCase();
+  if (provider && ACTIVITY_PROVIDER_LABELS[provider]) {
+    return ACTIVITY_PROVIDER_LABELS[provider];
+  }
+  const typeId = isActivitySentinel(input.TYPE_ID) ? "" : String(input.TYPE_ID).trim();
+  if (typeId && ACTIVITY_TYPE_LABELS[typeId]) {
+    return ACTIVITY_TYPE_LABELS[typeId];
+  }
+  // Unknown type → neutral label; raw TYPE_ID / PROVIDER_ID tokens NEVER surface.
+  return "Дело";
+}
+
+function truncateDescription(raw: unknown): string | null {
+  if (isActivitySentinel(raw)) return null;
+  const text = String(raw).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
+
+/**
+ * Builds the shared «Дела и активности» display model consumed by both the
+ * DealPreview drawer UI and the Deal Excel export (identical values).
+ *
+ * Ordering invariant:
+ * 1. unfinished/planned activities first, nearest valid DEADLINE first;
+ * 2. completed activities after, newest valid CREATED first.
+ * Invalid dates never fabricate order: undated planned items keep input
+ * order at the end of the planned block; undated completed items keep
+ * input order at the end of the completed block.
+ */
+export function buildDealActivitiesModel(
+  activities: DealActivityEntryInput[],
+  options: {
+    userNames?: Record<string, string>;
+    usersCoverage?: DatasetCoverage | null;
+  } = {}
+): DealActivityDisplay[] {
+  const planned: Array<{ item: DealActivityEntryInput; key: number | null; idx: number }> = [];
+  const completed: Array<{ item: DealActivityEntryInput; key: number | null; idx: number }> = [];
+
+  activities.forEach((item, idx) => {
+    const isCompleted = String(item.COMPLETED ?? "").toUpperCase() === "Y";
+    if (isCompleted) {
+      completed.push({ item, key: parseActivitySortKey(item.CREATED), idx });
+    } else {
+      planned.push({ item, key: parseActivitySortKey(item.DEADLINE), idx });
+    }
+  });
+
+  planned.sort((a, b) => {
+    if (a.key !== null && b.key !== null && a.key !== b.key) return a.key - b.key;
+    if (a.key !== null && b.key === null) return -1;
+    if (a.key === null && b.key !== null) return 1;
+    return a.idx - b.idx;
+  });
+  completed.sort((a, b) => {
+    if (a.key !== null && b.key !== null && a.key !== b.key) return b.key - a.key;
+    if (a.key !== null && b.key === null) return -1;
+    if (a.key === null && b.key !== null) return 1;
+    return a.idx - b.idx;
+  });
+
+  const buildDisplay = (item: DealActivityEntryInput, dateRaw: unknown): DealActivityDisplay => {
+    const subject = isActivitySentinel(item.SUBJECT) ? "" : String(item.SUBJECT).trim();
+    const date = isActivitySentinel(dateRaw) ? null : formatActivityDate(String(dateRaw));
+    return {
+      id: isActivitySentinel(item.ID) ? "" : String(item.ID),
+      status: String(item.COMPLETED ?? "").toUpperCase() === "Y" ? "Выполнено" : "Запланировано",
+      type: resolveActivityType(item),
+      subject,
+      date,
+      description: truncateDescription(item.DESCRIPTION),
+      responsible: resolveActivityResponsible(item.RESPONSIBLE_ID, options),
+    };
+  };
+
+  return [
+    ...planned.map((p) => buildDisplay(p.item, p.item.DEADLINE)),
+    ...completed.map((c) => buildDisplay(c.item, c.item.CREATED)),
+  ];
+}
+
+function parseActivitySortKey(raw: unknown): number | null {
+  if (isActivitySentinel(raw)) return null;
+  const d = parseStrictDate(String(raw), { mode: "DATETIME_BUSINESS_TIMEZONE" });
+  return d && !isNaN(d.getTime()) ? d.getTime() : null;
+}
+
+function formatActivityDate(raw: string): string | null {
+  const d = parseStrictDate(raw, { mode: "DATETIME_BUSINESS_TIMEZONE" }) || parseStrictDate(raw);
+  if (!d || isNaN(d.getTime())) return null;
+  return d.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: BUSINESS_TIMEZONE,
+  });
+}
+
+function resolveActivityResponsible(
+  responsibleId: unknown,
+  options: { userNames?: Record<string, string>; usersCoverage?: DatasetCoverage | null }
+): string | null {
+  if (isActivitySentinel(responsibleId)) return null;
+  const id = String(responsibleId).trim();
+  if (!id || id === "0") return null;
+  return resolveResponsibleDisplay(id, options.userNames ?? {}, options.usersCoverage);
 }
 
 export interface BuildDealPreviewModelOptions {
@@ -614,16 +788,21 @@ export function buildDealPreviewModel(
   // 3. ACTIVITY Attribute (8)
   // ─────────────────────────────────────────────────────────────
 
-  // 8. Последняя активность
+  // 8. Последняя активность — row is emitted ONLY when a meaningful
+  // activity SUBJECT exists. Without it the row is omitted entirely:
+  // never a duplicate date of «Последнее касание с клиентом», never "–".
   const rawSubject = activity?.SUBJECT?.trim() ?? "";
-  const activityField: DealPreviewResolvedField = {
-    id: "ACTIVITY_LAST",
-    label: "Последняя активность",
-    value: rawSubject || "–",
-    rawValue: rawSubject,
-    type: "string",
-    excelValue: rawSubject || "–",
-  };
+  const activityField: DealPreviewResolvedField | null =
+    rawSubject && !isActivitySentinel(rawSubject)
+      ? {
+          id: "ACTIVITY_LAST",
+          label: "Последняя активность",
+          value: rawSubject,
+          rawValue: rawSubject,
+          type: "string",
+          excelValue: rawSubject,
+        }
+      : null;
 
   // ─────────────────────────────────────────────────────────────
   // 4. CURRENT DEAL CARD FIELDS (9 to 17)

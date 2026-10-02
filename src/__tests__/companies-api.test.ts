@@ -200,8 +200,91 @@ describe('Companies API & Partial Failure Semantics', () => {
     globalFetchSpy.mockRestore();
   });
 
-  describe('Company Request Cardinality Limits (TC-COMPANY-LIMIT-01 to 05)', () => {
-    it('TC-COMPANY-LIMIT-01: MAX_COMPANY_IDS (500) valid IDs is accepted', async () => {
+  describe('Company enrichment defensiveness (remediation)', () => {
+    it('foreign IDs returned by Bitrix are ignored, never accepted', async () => {
+      vi.spyOn(bitrix, 'bitrixPost').mockResolvedValue({
+        result: [
+          { ID: '10', TITLE: 'Requested' },
+          { ID: '999', TITLE: 'Foreign record' },
+        ],
+      } as any);
+
+      const res = await POST(makeRequest({ ids: ['10'] }));
+      const data = await res.json();
+
+      expect(data.success).toBe(true);
+      expect(data.fetchedCompanyIds).toEqual(['10']);
+      expect(data.companies['999']).toBeUndefined();
+      expect(data.companies['10'].TITLE).toBe('Requested');
+    });
+
+    it('permits foreign TITLE-less placeholder only for requested IDs; unresolved stay retryable and untitled', async () => {
+      vi.spyOn(bitrix, 'bitrixPost').mockImplementation(async (method) => {
+        if (method === 'crm.company.list') return { result: [] } as any;
+        if (method === 'crm.company.get') return { result: null } as any;
+        return { result: [] } as any;
+      });
+
+      const res = await POST(makeRequest({ ids: ['10', '20'] }));
+      const data = await res.json();
+
+      expect(data.partial).toBe(true);
+      expect(data.fetchedCompanyIds).toEqual([]);
+      expect(data.unresolvedCompanyIds).toEqual(['10', '20']);
+      // Unresolved IDs never become resolved-looking rows
+      expect(data.companies['10'].TITLE).toBe('');
+    });
+
+    it('crawls unresolved IDs with a smaller-batch retry before per-ID fallback', async () => {
+      const listCalls: Array<{ size: number }> = [];
+      vi.spyOn(bitrix, 'bitrixPost').mockImplementation(async (method, params: any) => {
+        if (method === 'crm.company.list') {
+          listCalls.push({ size: params.FILTER['@ID'].length });
+          // Primary batch (empty); second small-batch call resolves one ID
+          if (listCalls.length === 1) return { result: [] } as any;
+          if (params.FILTER['@ID'].includes('77')) {
+            return { result: [{ ID: '77', TITLE: 'Recovered' }] } as any;
+          }
+          return { result: [] } as any;
+        }
+        return { result: null } as any;
+      });
+
+      const res = await POST(makeRequest({ ids: ['77', '88'] }));
+      const data = await res.json();
+
+      // A small retry batch ran after the primary batch (2 list calls total)
+      expect(listCalls.length).toBeGreaterThanOrEqual(2);
+      expect(listCalls[1].size).toBeLessThanOrEqual(15);
+      expect(data.fetchedCompanyIds).toEqual(['77']);
+      expect(data.companies['77'].TITLE).toBe('Recovered');
+      expect(data.unresolvedCompanyIds).toEqual(['88']);
+    });
+
+    it('per-ID fallback is capped — excessive unresolved IDs never trigger hundreds of gets', async () => {
+      const getCallCount = { n: 0 };
+      const missingIds = Array.from({ length: 30 }, (_, i) => String(i + 1));
+      vi.spyOn(bitrix, 'bitrixPost').mockImplementation(async (method) => {
+        if (method === 'crm.company.list') return { result: [] } as any;
+        if (method === 'crm.company.get') {
+          getCallCount.n++;
+          return { result: null } as any;
+        }
+        return { result: [] } as any;
+      });
+
+      const res = await POST(makeRequest({ ids: missingIds }));
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      // Cap active: no more than PER_ID_FALLBACK_LIMIT per-ID calls
+      expect(getCallCount.n).toBeLessThanOrEqual(15);
+      expect(data.partial).toBe(true);
+      expect(data.unresolvedCompanyIds).toHaveLength(30);
+    });
+  });
+
+  describe('Company Request Cardinality Limits (TC-COMPANY-LIMIT-01 to 05)', () => {    it('TC-COMPANY-LIMIT-01: MAX_COMPANY_IDS (500) valid IDs is accepted', async () => {
       const bitrixSpy = vi.spyOn(bitrix, 'bitrixPost').mockResolvedValue({
         result: [],
       } as any);

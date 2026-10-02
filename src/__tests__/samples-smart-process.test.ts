@@ -37,7 +37,7 @@ import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
 import { adaptSmartProcessSampleEvidence } from "@/lib/samples/adapters/smart-process";
 import { reconcileCompanySample } from "@/lib/samples/reconcile";
 import { identityLabelResolver } from "@/lib/samples/normalize";
-import { COMPANY_SAMPLES_FIELD_ID } from "@/lib/crm-constants";
+import { COMPANY_SAMPLES_FIELD_ID, UNCLASSIFIED_LABEL } from "@/lib/crm-constants";
 
 const resolve = identityLabelResolver;
 
@@ -276,13 +276,17 @@ describe("Phase C — Smart Process adversarial matrix (SP1–SP16)", () => {
     expect(dates).toEqual(["2026-07-01", "2026-08-01", "2026-09-05"]);
   });
 
-  it("SP-extra: unknown stage ID → unclassified issue, never mapped by wording", () => {
+  it("SP-extra: unknown stage ID → unclassified issue and neutral user-facing evidence, never the raw token", () => {
     const unit = adaptSmartProcessSampleEvidence(
       spItem({ stageId: "DT1032_15:UC_UNKNOWNXYZ" }),
       resolve
     )!;
+    // Internal provenance keeps the raw stage token and the issue marker.
     expect(unit.issues).toContain("smart_process_unknown_stage");
-    expect(unit.statusEvidence).toEqual(["DT1032_15:UC_UNKNOWNXYZ"]);
+    expect(unit.stageId).toBe("DT1032_15:UC_UNKNOWNXYZ");
+    // User-facing status evidence NEVER exposes the raw stage token.
+    expect(unit.statusEvidence).toEqual([UNCLASSIFIED_LABEL]);
+    expect(JSON.stringify(unit.statusEvidence)).not.toContain("DT1032_15:UC_UNKNOWNXYZ");
   });
 
   it("SP-extra: unclassified string result → preserved verbatim, normalized unknown", () => {

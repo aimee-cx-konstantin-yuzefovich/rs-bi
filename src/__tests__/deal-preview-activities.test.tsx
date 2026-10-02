@@ -1,0 +1,155 @@
+// src/__tests__/deal-preview-activities.test.tsx
+// Deal Preview scoped activities: lazy per-deal fetch independent of table
+// columns, «Дела и активности» section ordering, activity-type labels,
+// and row omission when no meaningful SUBJECT exists.
+import { render, screen, cleanup, waitForElementToBeRemoved, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DealPreview } from "@/components/dashboard/deal-preview";
+import { buildDealActivitiesModel } from "@/lib/deal-preview";
+
+const mockStore = vi.hoisted(() => ({
+  fields: [
+    { id: "STAGE_ID", title: "Стадия", type: "crm_status", listValues: [{ ID: "NEW", VALUE: "Новое" }] },
+  ],
+  userNames: { "7": "Анна Смирнова", "9": "Пётр Иванов" } as Record<string, string>,
+  usersCoverage: null,
+  dealTypeRegistry: null,
+  activitiesData: {} as Record<string, any>,
+  activitiesDataFetchedAt: {} as Record<string, number>,
+  activitiesDataLoading: false,
+  fetchDealActivities: vi.fn(async (_id: string) => {
+    // Simulate the store merge performed by the real action.
+    const entry = scopedActivitiesResponse[_id];
+    if (entry) {
+      mockStore.activitiesData[_id] = entry;
+      mockStore.activitiesDataFetchedAt[_id] = Date.now();
+    }
+  }),
+}));
+
+vi.mock("@/store/dashboard-store", () => ({
+  useDashboardStore: (selector?: (s: typeof mockStore) => any) =>
+    selector ? selector(mockStore) : mockStore,
+}));
+
+let scopedActivitiesResponse: Record<string, any> = {};
+
+const fetchMock = vi.fn();
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", fetchMock);
+  mockStore.activitiesData = {};
+  mockStore.activitiesDataFetchedAt = {};
+  mockStore.activitiesDataLoading = false;
+  mockStore.fetchDealActivities.mockClear();
+  scopedActivitiesResponse = {};
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      success: true,
+      deal: {
+        ID: "101",
+        TITLE: "Сделка с активностями",
+        DATE_CREATE: "2026-09-30T07:49:00Z",
+      },
+      bitrixUrl: null,
+      companyBitrixUrl: null,
+    }),
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  fetchMock.mockReset();
+});
+
+function scopedEntry(all: Array<Record<string, unknown>>) {
+  return { all, last: all.find((a) => String(a.COMPLETED) === "Y"), next: undefined, dataKnown: true };
+}
+
+describe("Deal Preview scoped activity fetch", () => {
+  it("lazily fetches activities for the opened deal only, independent of columns", async () => {
+    scopedActivitiesResponse["101"] = scopedEntry([
+      { ID: "1", COMPLETED: "Y", SUBJECT: "Звонок", CREATED: "2026-09-29T10:00:00Z", TYPE_ID: 2 },
+    ]);
+
+    render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+
+    await waitFor(() => expect(mockStore.fetchDealActivities).toHaveBeenCalledWith("101"));
+    // Exactly one deal ID — scoped fetch, not the whole dataset.
+    const sentBodies = fetchMock.mock.calls
+      .filter(([url]) => String(url).includes("/activities"))
+      .map(([, init]) => JSON.parse(init.body));
+    for (const body of sentBodies) {
+      expect(Array.isArray(body.dealIds)).toBe(true);
+      expect(body.dealIds).toEqual(["101"]);
+    }
+  });
+
+  it("«Дела и активности»: planned first by nearest deadline, then completed newest first; type labels resolved", async () => {
+    mockStore.activitiesData["101"] = scopedEntry([
+      // Completed items (newest first)
+      { ID: "10", COMPLETED: "Y", SUBJECT: "Старый звонок", CREATED: "2026-09-20T10:00:00Z", TYPE_ID: 2 },
+      { ID: "11", COMPLETED: "Y", SUBJECT: "Недавнее письмо", CREATED: "2026-09-28T10:00:00Z", PROVIDER_ID: "crm_email" },
+      // Planned items (nearest deadline first)
+      { ID: "20", COMPLETED: "N", SUBJECT: "Дальняя встреча", DEADLINE: "2026-10-20T10:00:00Z", TYPE_ID: 1, RESPONSIBLE_ID: "9" },
+      { ID: "21", COMPLETED: "N", SUBJECT: "Ближайшая задача", DEADLINE: "2026-10-02T09:00:00Z", TYPE_ID: 3, RESPONSIBLE_ID: "7" },
+    ]);
+
+    render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+
+    const section = await screen.findByText("Дела и активности");
+    expect(section).toBeInTheDocument();
+
+    const list = document.querySelector("[data-activities-list]")!;
+    const subjects = Array.from(list.querySelectorAll("[data-activity-item]"))
+      .map((el) => el.querySelector(".font-medium")?.textContent?.trim());
+
+    expect(subjects).toEqual([
+      "Ближайшая задача",   // planned, nearest deadline
+      "Дальняя встреча",    // planned, later deadline
+      "Недавнее письмо",    // completed, newest first
+      "Старый звонок",      // completed, older
+    ]);
+
+    // Statuses and human-readable types; raw tokens never surface.
+    expect(list.textContent).toContain("Запланировано");
+    expect(list.textContent).toContain("Выполнено");
+    expect(list.textContent).toContain("Задача");
+    expect(list.textContent).toContain("Письмо");
+    expect(list.textContent).not.toContain("crm_email");
+    expect(list.textContent).toContain("Ответственный: ");
+  });
+
+  it("shows truthful empty state when loaded with zero activities", async () => {
+    mockStore.activitiesData["101"] = scopedEntry([]);
+
+    render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+
+    expect(await screen.findByText("Активностей нет")).toBeInTheDocument();
+  });
+
+  it("unknown activity type renders neutral «Дело» label, never raw TYPE_ID", () => {
+    const model = buildDealActivitiesModel([
+      { ID: "1", SUBJECT: "Неклассифицированная активность", COMPLETED: "N", DEADLINE: "2026-10-05T09:00:00Z", TYPE_ID: 777, PROVIDER_ID: "exotic_provider" },
+    ], { userNames: mockStore.userNames });
+    expect(model).toHaveLength(1);
+    expect(model[0].type).toBe("Дело");
+    expect(JSON.stringify(model)).not.toContain("777");
+  });
+});
+
+describe("buildDealActivitiesModel ordering (shared UI/Excel model)", () => {
+  it("undated planned items follow dated planned items without fabricating dates", () => {
+    const model = buildDealActivitiesModel([
+      { ID: "1", COMPLETED: "N", SUBJECT: "Без дедлайна" },
+      { ID: "2", COMPLETED: "N", SUBJECT: "С дедлайном", DEADLINE: "2026-10-10T09:00:00Z" },
+    ]);
+    expect(model.map((m) => m.subject)).toEqual(["С дедлайном", "Без дедлайна"]);
+    expect(model[1].date).toBeNull();
+  });
+});

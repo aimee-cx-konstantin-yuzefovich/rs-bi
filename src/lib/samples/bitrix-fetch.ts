@@ -363,20 +363,20 @@ export async function fetchSmartProcessSampleItems(
 ): Promise<BitrixRow[]> {
   assertSmartProcessContractReady();
 
-  const filter: Record<string, unknown> = { categoryId: SMART_PROCESS_CATEGORY_ID };
+  const   filter: Record<string, unknown> = { categoryId: SMART_PROCESS_CATEGORY_ID };
   if (scope.companyId) filter.companyId = scope.companyId;
 
+  // Smart Process request contract: ONLY official Universal CRM parameters
+  // (`select`, `filter`, `order`, `useOriginalUfNames`) — duplicate uppercase
+  // aliases (SELECT/FILTER/ORDER) must never be sent to `crm.item.list`.
   return fetchAllPages(
     "crm.item.list",
     {
       entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
       useOriginalUfNames: "Y",
       select: SMART_PROCESS_ITEM_SELECT,
-      SELECT: SMART_PROCESS_ITEM_SELECT,
       filter,
-      FILTER: filter,
       order: { id: "ASC" },
-      ORDER: { id: "ASC" },
     },
     "id"
   );
@@ -476,7 +476,20 @@ export async function fetchFieldLabelMaps(): Promise<FieldLabelMaps> {
   return { labels, statusTypes, ...(partial ? { partial: true } : {}) };
 }
 
-/** Builds a LabelResolver over fetched label maps (with fail-closed unclassified fallback for dictionary fields). */
+/**
+ * Builds a LabelResolver over fetched label maps.
+ *
+ * Data-trust contract for known dictionary-backed (enum/crm_status) Sample
+ * fields (`isDictionaryBackedSampleField`):
+ * - mapped ID  → mapped label;
+ * - unknown ID → `UNCLASSIFIED_LABEL` («Не классифицировано»);
+ * - missing or empty metadata map → `UNCLASSIFIED_LABEL` for numeric raw
+ *   values (metadata gap must never leak raw enum IDs to UI/Excel);
+ * - non-numeric raw values pass through verbatim (legacy dictionary fields
+ *   may contain genuine text labels — never blank real business values).
+ *
+ * Verified free-text fields are NOT dictionary-backed and keep raw values.
+ */
 export function makeLabelResolver(
   labels: Record<string, Record<string, string>>
 ): (fieldId: string, rawValue: string) => string {
@@ -485,10 +498,10 @@ export function makeLabelResolver(
     if (map && map[rawValue] !== undefined) {
       return map[rawValue];
     }
-    if (isDictionaryBackedSampleField(fieldId)) {
-      if (map && Object.keys(map).length > 0 && /^\d+$/.test(rawValue)) {
-        return UNCLASSIFIED_LABEL;
-      }
+    if (isDictionaryBackedSampleField(fieldId) && /^\d+$/.test(rawValue)) {
+      // Unknown numeric enum ID (mapped metadata or missing/empty map):
+      // fail closed to the neutral label — raw IDs never reach the UI.
+      return UNCLASSIFIED_LABEL;
     }
     return rawValue;
   };

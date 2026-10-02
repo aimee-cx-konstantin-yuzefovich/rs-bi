@@ -82,6 +82,15 @@ export async function bitrixGet<T = unknown>(
   method: string,
   params?: Record<string, string | number | boolean>
 ): Promise<T> {
+  return retryTransient<T>(() => doGet<T>(method, params), method, () =>
+    sanitizeError(new Error("exhausted"), method)
+  );
+}
+
+async function doGet<T = unknown>(
+  method: string,
+  params?: Record<string, string | number | boolean>
+): Promise<T> {
   try {
     const url = new URL(await buildUrl(method));
     if (params) {
@@ -105,7 +114,10 @@ export async function bitrixGet<T = unknown>(
     });
 
     if (!response.ok) {
-      throw new Error(`API returned status ${response.status}`);
+      throw new BitrixTransientError(
+        `API returned status ${response.status}`,
+        response.status
+      );
     }
 
     const data = await response.json();
@@ -119,24 +131,162 @@ export async function bitrixGet<T = unknown>(
 
     return data as T;
   } catch (error) {
+    if (error instanceof BitrixTransientError) throw error;
+    if (error instanceof SyntaxError) {
+      throw new BitrixTransientError("Malformed JSON response", undefined, error);
+    }
     throw sanitizeError(error, method);
   }
 }
 
-/** Only the safe, actionable failures needed by company previews. */
+/**
+ * Only the safe, actionable failures needed by company previews.
+ */
 export class BitrixItemError extends Error {
   constructor(public readonly code: "NOT_FOUND" | "ACCESS_DENIED") {
     super(code === "NOT_FOUND" ? "Company not found." : "Company access denied.");
   }
 }
 
+/**
+ * Transient transport failure carrying the HTTP status when available.
+ * Used to drive the shared bounded retry strategy — never surfaced to clients.
+ */
+export class BitrixTransientError extends Error {
+  constructor(message: string, public readonly status?: number, public readonly cause?: unknown) {
+    super(message);
+  }
+}
+
 export const BITRIX_POST_TIMEOUT_MS = 60_000;
+
+// ─── Shared bounded transient-retry strategy ───────────────────────────
+// One shared retry policy for all Bitrix transport calls (list pagination
+// middle pages, metadata, per-entity gets).
+//
+// RETRY (transient): HTTP 429, HTTP 503, timeouts / AbortError, clear
+// transport errors (network failures, non-actionable server responses).
+//
+// NEVER RETRY (deterministic): unconfigured webhook / invalid method
+// (request-contract validation), BitrixItemError (NOT_FOUND / ACCESS_DENIED),
+// auth/access errors (401/403), client validation (400), API-level error
+// payloads (Bitrix auth/access/permission errors), corrupted response
+// envelopes that indicate deterministic data/schema issues.
+// ───────────────────────────────────────────────────────────────────────
+
+const RETRY_MAX_ATTEMPTS = 3; // 1 initial + 2 bounded retries — no storms
+const RETRY_DELAYS_MS =
+  process.env.NODE_ENV === "test" || process.env.VITEST ? [5, 10] : [500, 1500];
+
+function isTransientFailure(error: unknown): boolean {
+  if (error instanceof BitrixTransientError) {
+    // 429 (rate limit) and 503 (service unavailable) are transient by design.
+    if (error.status === 429 || error.status === 503) return true;
+    // Blanket status codes are intentional: 400/401/403/404 are deterministic.
+    if (error.status !== undefined) return false;
+    // Status-less BitrixTransientError = unclassified transport failure
+    // (timeouts / network errors) — transient.
+    return true;
+  }
+  if (error instanceof BitrixItemError) return false;
+  if (error instanceof Error) {
+    const msg = error.message;
+    if (msg.includes("not configured") || msg.includes("Invalid API method")) return false;
+    if (msg.includes("AbortError") || msg.includes("TimeoutError")) return true;
+    if (msg.includes("timeout") || msg.includes("timed out")) return true;
+    if (msg.includes("fetch failed") || msg.includes("network")) return true;
+    if (msg.includes("terminated") || msg.includes("ECONNRESET") || msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT")) return true;
+    return false;
+  }
+  // Unknown non-Error throw needs a stable shape; classification never retries
+  // blindly with unbounded attempts, so unknown shapes fail fast (fail-closed).
+  return false;
+}
+
+function classifyDeterministicError(error: unknown): never {
+  if (error instanceof BitrixTransientError) {
+    // Deterministic statuses surface as generic integration failures.
+    if (error.status !== undefined) {
+      console.error(`[Bitrix24] Deterministic failure (status ${error.status}); not retrying`, {
+        status: error.status,
+        attemptsReached: true,
+      });
+    }
+    throw error;
+  }
+  throw error;
+}
+
+function isCredentialSafePayload(error: unknown): string {
+  // Only class names and statuses are ever logged — never URLs or tokens.
+  if (error instanceof BitrixTransientError) {
+    return error.status !== undefined ? `status ${error.status}` : "transport timeout/network";
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * One shared bounded retry strategy for transient Bitrix transport failures.
+ * Exponential backoff + small jitter, bounded attempts (no retry storms).
+ * On exhaustion the last transient error goes through the safe client
+ * sanitizer — raw statuses/errors never surface and failures stay truthful.
+ */
+async function retryTransient<T>(
+  op: () => Promise<T>,
+  method: string,
+  fallbackError: () => Error
+): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+    const t0 = Date.now();
+    try {
+      return await op();
+    } catch (error) {
+      const durationMs = Date.now() - t0;
+      // Deterministic failures propagate immediately (no retry, no masking).
+      if (error instanceof BitrixItemError) throw error;
+      if (!isTransientFailure(error)) {
+        classifyDeterministicError(error);
+      }
+      lastError = error;
+      if (attempt < RETRY_MAX_ATTEMPTS) {
+        const base = RETRY_DELAYS_MS[attempt - 1] ?? 1500;
+        const jitter = base * 0.15 * Math.random(); // ≤15% jitter
+        console.warn(`[Bitrix24] Transient failure, retrying (${attempt}/${RETRY_MAX_ATTEMPTS})`, {
+          method,
+          attempt,
+          durationMs,
+          reason: isCredentialSafePayload(error),
+        });
+        await new Promise((resolve) => setTimeout(resolve, Math.round(base + jitter)));
+      }
+    }
+  }
+  // Retry exhaustion: log truthfully, throw the safe sanitized error.
+  console.error(`[Bitrix24] Retries exhausted (${RETRY_MAX_ATTEMPTS} attempts)`, {
+    method,
+    attempts: RETRY_MAX_ATTEMPTS,
+    reason: isCredentialSafePayload(lastError),
+  });
+  throw fallbackError();
+}
 
 /**
  * Generic POST request to Bitrix24 REST API.
  * Body parameters are validated and sanitized before forwarding.
+ * Transient transport failures (429/503/timeouts/network) are retried
+ * with one shared bounded strategy; deterministic errors fail closed.
  */
 export async function bitrixPost<T = unknown>(
+  method: string,
+  body?: Record<string, unknown>
+): Promise<T> {
+  return retryTransient<T>(() => doPost<T>(method, body), method, () =>
+    sanitizeError(new Error("exhausted"), method)
+  );
+}
+
+async function doPost<T = unknown>(
   method: string,
   body?: Record<string, unknown>
 ): Promise<T> {
@@ -181,7 +331,10 @@ export async function bitrixPost<T = unknown>(
     }
 
     if (!response.ok) {
-      throw new Error(`API returned status ${response.status}`);
+      throw new BitrixTransientError(
+        `API returned status ${response.status}`,
+        response.status
+      );
     }
 
     const data = await response.json();
@@ -196,6 +349,12 @@ export async function bitrixPost<T = unknown>(
     return data as T;
   } catch (error) {
     if (error instanceof BitrixItemError) throw error;
+    if (error instanceof BitrixTransientError) throw error;
+    if (error instanceof SyntaxError) {
+      // Malformed JSON may indicate transient truncation; bounded retry applies
+      // (schema/material corruption surfaces truthfully after exhaustion).
+      throw new BitrixTransientError("Malformed JSON response", undefined, error);
+    }
     throw sanitizeError(error, method);
   }
 }

@@ -55,7 +55,7 @@ import {
   classifyResultValue,
   parseQuantity,
 } from "../normalize";
-import { PRODUCT_FAMILY_GEL, PRODUCT_FAMILY_SOL } from "../constants";
+import { PRODUCT_FAMILY_GEL, PRODUCT_FAMILY_SOL, UNCLASSIFIED_LABEL } from "../constants";
 
 function firstString(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
@@ -243,9 +243,14 @@ export function adaptSmartProcessSampleEvidence(
   }
 
   // ── Status evidence: stage label (display) + stage semantic marker ──
+  // Data-trust: known stage → stable Russian label; unknown stage → the
+  // neutral «Не классифицировано» label. Raw stageId stays in `stageId`
+  // (internal provenance) and the smart_process_unknown_stage issue — the
+  // raw Smart Process stage token NEVER reaches user-facing evidence.
   const statusEvidence: string[] = [];
   if (stageId) {
-    statusEvidence.push(SMART_PROCESS_STAGE_LABELS[stageId] ?? stageId);
+    const stageLabel = SMART_PROCESS_STAGE_LABELS[stageId];
+    statusEvidence.push(stageLabel ?? UNCLASSIFIED_LABEL);
   }
 
   const responsibleId = rowString(row, "assignedById") ?? rowString(row, "ASSIGNED_BY_ID");

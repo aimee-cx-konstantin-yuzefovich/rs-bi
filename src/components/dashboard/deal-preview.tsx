@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Download, ExternalLink, FlaskConical, Loader2 } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { buildDealPreviewModel } from "@/lib/deal-preview";
+import { buildDealPreviewModel, buildDealActivitiesModel } from "@/lib/deal-preview";
 import { exportDealToExcel } from "@/lib/export-utils";
 
 type PreviewState =
@@ -45,8 +45,7 @@ export function DealPreview({
   const [attempt, setAttempt] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
 
-  const { userNames, fields, activitiesData, usersCoverage, dealTypeRegistry } = useDashboardStore();
-
+  const { userNames, fields, activitiesData, usersCoverage, dealTypeRegistry, fetchDealActivities } = useDashboardStore();
   useEffect(() => {
     const controller = new AbortController();
     setState({ status: "loading" });
@@ -118,6 +117,14 @@ export function DealPreview({
         })
       : null;
 
+  // Scoped lazy activities fetch: when the drawer opens and trustworthy
+  // cached activities for THIS deal are absent, fetch just this deal —
+  // independent of selected table columns.
+  useEffect(() => {
+    if (state.status !== "success" || !fetchDealActivities) return;
+    void fetchDealActivities(id);
+  }, [state.status, id, fetchDealActivities]);
+
   const dealTitle = model ? model.dealTitle : "Сделка";
 
   const handleExport = async () => {
@@ -131,6 +138,7 @@ export function DealPreview({
         usersCoverage,
         activity: activitiesData[id]?.last,
         dealModel: model,
+        dealActivities: activitiesData[id]?.all,
       });
     } catch (err) {
       console.error("Failed to export deal to Excel", err);
@@ -290,15 +298,21 @@ export function DealPreview({
                 ))}
               </div>
 
-              {/* ACTIVITY Attribute (7) */}
-              <div className="pt-3 space-y-2">
-                <div>
-                  <dt className="text-xs text-muted-foreground">Последняя активность</dt>
-                  <dd className="mt-0.5 text-xs">
-                    {model.activityField.value}
-                  </dd>
+              {/* ACTIVITY Attribute (7) — omitted entirely when no meaningful
+                  SUBJECT exists; never duplicates the last-touch date. */}
+              {model.activityField && (
+                <div className="pt-3 space-y-2">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Последняя активность</dt>
+                    <dd className="mt-0.5 text-xs">
+                      {model.activityField.value}
+                    </dd>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Дела и активности */}
+              <DealActivitiesSection dealId={id} />
 
               {/* CURRENT DEAL CARD FIELDS (8 to 16) */}
               <div className="pt-3 space-y-3">
@@ -351,5 +365,138 @@ export function DealPreview({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+type ActivityEntry = {
+  ID?: string;
+  SUBJECT?: string | null;
+  COMPLETED?: string | null;
+  DEADLINE?: string | null;
+  CREATED?: string | null;
+  DESCRIPTION?: string | null;
+  TYPE_ID?: string | number | null;
+  PROVIDER_ID?: string | null;
+  RESPONSIBLE_ID?: string | number | null;
+};
+
+/**
+ * «Дела и активности» section inside Deal Preview.
+ * Distinguishes three truthful states:
+ * - loaded with items → ordered list (planned first by nearest deadline, then completed newest first);
+ * - no activities → «Активностей нет»;
+ * - temporarily unavailable → retryable message.
+ * Raw TYPE_ID / PROVIDER_ID tokens never render; unknown types → «Дело».
+ */
+function DealActivitiesSection({ dealId }: { dealId: string }) {
+  const { activitiesData, activitiesDataFetchedAt, activitiesDataLoading, usersCoverage, userNames, fetchDealActivities } =
+    useDashboardStore();
+  const [attempt, setAttempt] = useState(0);
+
+  const entry: { all?: ActivityEntry[]; dataKnown?: boolean } | undefined = activitiesData?.[dealId];
+  const fetchedAt = activitiesDataFetchedAt?.[dealId];
+  const hasData = Boolean(entry && (entry as { dataKnown?: boolean }).dataKnown);
+
+  useEffect(() => {
+    if (!fetchDealActivities) return;
+    void fetchDealActivities(dealId);
+    setAttempt(0);
+  }, [dealId, fetchDealActivities]);
+
+  // Loading: no data known yet and a fetch is either in flight or just triggered.
+  if (!hasData && (activitiesDataLoading || (fetchedAt === undefined && attempt === 0))) {
+    return (
+      <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Дела и активности
+        </h4>
+        <div role="status" className="space-y-2">
+          <span className="sr-only">Загрузка дел и активностей</span>
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-3/4" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasData) {
+    return (
+      <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Дела и активности
+        </h4>
+        <div role="alert" className="space-y-2 text-xs">
+          <p className="text-muted-foreground">Дела и активности временно недоступны.</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setAttempt((n) => n + 1)}
+            data-activities-retry
+          >
+            Повторить
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const items = buildDealActivitiesModel((entry?.all ?? []) as ActivityEntry[], {
+    userNames: userNames || {},
+    usersCoverage,
+  });
+
+  if (items.length === 0) {
+    return (
+      <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Дела и активности
+        </h4>
+        <p className="text-xs text-muted-foreground" data-activities-empty>
+          Активностей нет
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        Дела и активности
+      </h4>
+      <ul className="space-y-2" data-activities-list>
+        {items.map((item, idx) => (
+          <li
+            key={item.id || `activity-${idx}`}
+            className="rounded-md border bg-muted/20 p-2 text-xs space-y-1"
+            data-activity-item
+          >
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Badge variant="outline" className="text-[10px] font-normal">
+                {item.status}
+              </Badge>
+              <Badge variant="secondary" className="text-[10px] font-normal">
+                {item.type}
+              </Badge>
+              {item.date && (
+                <span className="ml-auto tabular-nums text-muted-foreground text-[11px]">
+                  {item.date}
+                </span>
+              )}
+            </div>
+            {item.subject && <div className="font-medium break-words">{item.subject}</div>}
+            {item.description && (
+              <div className="text-muted-foreground break-words">{item.description}</div>
+            )}
+            {item.responsible && (
+              <div className="text-muted-foreground text-[11px]">
+                Ответственный: {item.responsible}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

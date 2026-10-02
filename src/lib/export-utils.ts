@@ -54,6 +54,8 @@ import { resolveResponsibleDisplay } from "./enrichment-coverage";
 import type { SampleSummary, NormalizedResult } from "./samples/types";
 import {
   buildDealPreviewModel,
+  buildDealActivitiesModel,
+  type DealActivityEntryInput,
   type DealPreviewModel,
   type DealPreviewResolvedField,
 } from "./deal-preview";
@@ -956,6 +958,8 @@ export interface ExportDealOptions {
   logoImageId?: number | null;
   workbook?: ExcelJS.Workbook;
   dealModel?: DealPreviewModel;
+  /** Full activity list for the deal — drives the «Дела и активности» section. */
+  dealActivities?: Array<DealActivityEntryInput>;
 }
 
 /**
@@ -1081,12 +1085,45 @@ export function createDealExcelWorkbook(options: ExportDealOptions): ExcelJS.Wor
 
   // Section 2: ХРОНОЛОГИЯ
   addSectionHeader(worksheet, "Хронология", 5);
-  renderFieldRows([...model.timelineFields, model.activityField]);
+  // Последняя активность: row omitted entirely when no meaningful SUBJECT.
+  renderFieldRows(
+    model.activityField ? [...model.timelineFields, model.activityField] : model.timelineFields
+  );
   worksheet.addRow([]);
 
   // Section 3: ДАННЫЕ СДЕЛКИ
   addSectionHeader(worksheet, "Данные сделки", 5);
   renderFieldRows(model.cardFields);
+
+  // Section 3b: ДЕЛА И АКТИВНОСТИ (shared model with Deal Preview UI)
+  const dealActivities = options.dealActivities ?? [];
+  if (dealActivities.length > 0) {
+    const activityDisplays = buildDealActivitiesModel(dealActivities, {
+      userNames: options.userNames,
+      usersCoverage: options.usersCoverage,
+    });
+    if (activityDisplays.length > 0) {
+      addSectionHeader(worksheet, "Дела и активности", 5);
+      for (const a of activityDisplays) {
+        const when = a.date ?? "–";
+        const subject = a.subject || "Без темы";
+        const desc = a.description ? ` — ${a.description}` : "";
+        const responsible = a.responsible ? ` (Ответственный: ${a.responsible})` : "";
+        const row = worksheet.addRow([`${a.status} · ${a.type}`, `${subject} · ${when}${desc}${responsible}`]);
+        row.height = 20;
+        worksheet.mergeCells(row.number, 2, row.number, 5);
+        const labelCell = row.getCell(1);
+        labelCell.font = FONT_METADATA_LABEL;
+        labelCell.fill = FILL_SECTION_HEADER_SOFT;
+        labelCell.alignment = { vertical: "middle", indent: 1 };
+        const valueCell = row.getCell(2);
+        valueCell.font = FONT_DATA;
+        valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
+        applyRowBorders(row, 1, 5);
+      }
+      worksheet.addRow([]);
+    }
+  }
 
   // Column Widths
   worksheet.getColumn(1).width = 38;

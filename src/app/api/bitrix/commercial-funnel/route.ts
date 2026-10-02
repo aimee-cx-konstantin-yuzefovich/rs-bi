@@ -13,6 +13,7 @@ import {
   fetchAllPages,
   fetchFieldLabelMaps,
   fetchSmartProcessSampleItems,
+  makeLabelResolver,
 } from "@/lib/samples/bitrix-fetch";
 import { buildCanonicalSampleDomain } from "@/lib/samples/aggregate";
 import { fetchDealsActivities } from "@/lib/bitrix-activities";
@@ -245,12 +246,15 @@ export async function POST() {
 
     // ONE canonical sample domain (the same engine as /api/bitrix/samples):
     // Companies + Deals + Smart Process → per-company canonical state.
+    // The SAME safe label resolver as Samples: unknown dictionary-backed
+    // enum IDs fail closed to «Не классифицировано» — raw IDs never leak
+    // into segments/analytics (`labels[fieldId]?.[raw] ?? raw` is forbidden).
     const tSample0 = Date.now();
     const sampleDomain = buildCanonicalSampleDomain(
       rawCompanies,
       rawDeals,
       smartProcessItems,
-      { labelResolver: (fieldId, raw) => labels[fieldId]?.[raw] ?? raw }
+      { labelResolver: makeLabelResolver(labels) }
     );
     const sampleAggregationDuration = Date.now() - tSample0;
 

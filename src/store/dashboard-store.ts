@@ -250,6 +250,12 @@ interface DashboardState {
   fetchUserNames: () => Promise<void>;
   fetchCompaniesData: () => Promise<void>;
   fetchActivitiesData: () => Promise<void>;
+  /**
+   * Scoped activities fetch for ONE deal (Deal Preview). Independent of
+   * selected table columns; merges into activitiesData and timestamps only
+   * the requested deal on success. Never poisons the global activitiesCoverage.
+   */
+  fetchDealActivities: (dealId: string) => Promise<void>;
   markAlertsAsRead: () => void;
 
   // ─── Actions (company browser) ───
@@ -1374,6 +1380,56 @@ export const useDashboardStore = create<DashboardState>()(
         })();
 
         return inFlightActivitiesPromise;
+      },
+
+      fetchDealActivities: async (dealId) => {
+        const trimmedId = String(dealId || "").trim();
+        if (!/^\d+$/.test(trimmedId)) return;
+        const { isDemoMode } = get();
+        if (isDemoMode) return;
+
+        // Trustworthy cached data within 5 minutes → no refetch.
+        const cached = get().activitiesData[trimmedId];
+        const fetchedAt = get().activitiesDataFetchedAt[trimmedId];
+        const now = Date.now();
+        if (cached && fetchedAt && now - fetchedAt <= 5 * 60 * 1000) return;
+
+        try {
+          const response = await fetchWithTimeout(
+            "/api/bitrix/activities",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ dealIds: [trimmedId] }),
+            }
+          );
+          if (!response.ok) {
+            console.warn("[Dashboard] Scoped activities fetch failed:", response.status);
+            return;
+          }
+          const data = await response.json();
+          if (!data.success || typeof data.activities !== "object") {
+            console.warn("[Dashboard] Scoped activities fetch returned invalid payload");
+            return;
+          }
+          const entry = data.activities[trimmedId];
+          set((state) => {
+            const newActivitiesData = { ...state.activitiesData };
+            const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+            if (data.fetchedDealIds?.includes?.(trimmedId) && entry) {
+              newActivitiesData[trimmedId] = entry;
+              // Only successfully fetched IDs are timestamped — failures stay retryable.
+              newActivitiesDataFetchedAt[trimmedId] = Date.now();
+            }
+            return {
+              activitiesData: newActivitiesData,
+              activitiesDataFetchedAt: newActivitiesDataFetchedAt,
+            };
+          });
+        } catch {
+          // Non-fatal: Deal Preview renders the «временно недоступны» state.
+          console.warn("[Dashboard] Scoped activities fetch errored");
+        }
       },
 
       fetchCompanyBrowser: async (responsibleId) => {

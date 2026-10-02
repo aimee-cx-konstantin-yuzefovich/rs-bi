@@ -1,10 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchAllPages } from "@/lib/samples/bitrix-fetch";
+import { fetchAllPages, fetchSmartProcessSampleItems } from "@/lib/samples/bitrix-fetch";
 import { bitrixPost } from "@/lib/bitrix";
 
 vi.mock("@/lib/bitrix", () => ({
   bitrixPost: vi.fn(),
 }));
+
+// Contract discovered/verified in tests (production constants stay real
+// constants; these tests rely on the real committed field IDs).
+vi.mock("@/lib/samples/smart-process-contract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/samples/smart-process-contract")>();
+  return {
+    ...actual,
+    SMART_PROCESS_HAS_DISCOVERED_CONTRACT: true,
+    assertSmartProcessContractReady: () => {},
+  };
+});
 
 describe("Fix B: Ingress Completeness and Entity Identity (fetchAllPages)", () => {
   beforeEach(() => {
@@ -95,5 +106,49 @@ describe("Fix B: Ingress Completeness and Entity Identity (fetchAllPages)", () =
     await expect(
       fetchAllPages("crm.company.list", {}, "ID")
     ).rejects.toThrow(/Invalid pagination next token/);
+  });
+});
+
+describe("Smart Process crm.item.list request contract", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sends ONLY official Universal CRM parameters — no uppercase SELECT/FILTER/ORDER aliases", async () => {
+    vi.mocked(bitrixPost).mockResolvedValueOnce({
+      result: [{ id: "1", stageId: "DT1032_15:NEW" }],
+    });
+
+    const rows = await fetchSmartProcessSampleItems({ companyId: "42" });
+
+    expect(rows).toHaveLength(1);
+    expect(bitrixPost).toHaveBeenCalledTimes(1);
+    const [method, params] = vi.mocked(bitrixPost).mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+
+    expect(method).toBe("crm.item.list");
+    // Exact key set: only official lowercase parameters (+ pagination `start`).
+    expect(Object.keys(params).sort()).toEqual([
+      "entityTypeId",
+      "filter",
+      "order",
+      "select",
+      "start",
+      "useOriginalUfNames",
+    ]);
+    // No duplicate uppercase aliases anywhere in the request.
+    for (const key of ["SELECT", "FILTER", "ORDER"]) {
+      expect(Object.keys(params)).not.toContain(key);
+    }
+    // Verified contract values preserved.
+    expect(params.entityTypeId).toBe(1032);
+    expect(params.useOriginalUfNames).toBe("Y");
+    expect(params.start).toBe(0);
+    expect(params.filter).toEqual({ categoryId: 15, companyId: "42" });
+    expect(params.order).toEqual({ id: "ASC" });
+    expect(params.select).toContain("stageId");
+    expect(params.select).toContain("id");
   });
 });
