@@ -93,16 +93,15 @@ export function CompanyPreview({
   /**
    * Cache-first related deals: trustworthy deal rows already present in the
    * client store are shown immediately (drawer does not wait for the server).
-   * Cached scope is trustworthy only when the store deals dataset itself is
-   * not partial.
+   * Cached scope is trustworthy ONLY when the store deals dataset is
+   * verifiably COMPLETE: PARTIAL (partial failures) and CAPPED (truncated by
+   * loading limit) are both incomplete — and unknown coverage (null) is
+   * likewise never presented as a complete related-deal set. The server
+   * refresh still runs regardless.
    */
   function seedDealsFromCache(): Array<Record<string, unknown>> {
+    if (dealsCoverage?.status !== "COMPLETE") return [];
     if (!allDeals || allDeals.length === 0) return [];
-    // PARTIAL store coverage means the cached scope is incomplete: cached
-    // rows may exist in allDeals but cannot be trusted as the full set.
-    if (dealsCoverage?.status === "PARTIAL") {
-      return [];
-    }
     const idNum = Number(id);
     if (!Number.isSafeInteger(idNum) || idNum <= 0) return [];
     const seen = new Set<string>();

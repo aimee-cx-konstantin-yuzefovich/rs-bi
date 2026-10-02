@@ -2,7 +2,7 @@
 // Deal Preview scoped activities: lazy per-deal fetch independent of table
 // columns, «Дела и активности» section ordering, activity-type labels,
 // and row omission when no meaningful SUBJECT exists.
-import { render, screen, cleanup, waitForElementToBeRemoved, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitForElementToBeRemoved, waitFor, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DealPreview } from "@/components/dashboard/deal-preview";
 import { buildDealActivitiesModel } from "@/lib/deal-preview";
@@ -17,7 +17,8 @@ const mockStore = vi.hoisted(() => ({
   activitiesData: {} as Record<string, any>,
   activitiesDataFetchedAt: {} as Record<string, number>,
   activitiesDataLoading: false,
-  fetchDealActivities: vi.fn(async (_id: string) => {
+  activitiesRequestState: {} as Record<string, string>,
+  fetchDealActivities: vi.fn(async (_id: string, _options?: { force?: boolean }) => {
     // Simulate the store merge performed by the real action.
     const entry = scopedActivitiesResponse[_id];
     if (entry) {
@@ -41,6 +42,7 @@ beforeEach(() => {
   mockStore.activitiesData = {};
   mockStore.activitiesDataFetchedAt = {};
   mockStore.activitiesDataLoading = false;
+  mockStore.activitiesRequestState = {};
   mockStore.fetchDealActivities.mockClear();
   scopedActivitiesResponse = {};
   fetchMock.mockResolvedValue({
@@ -65,7 +67,9 @@ afterEach(() => {
 });
 
 function scopedEntry(all: Array<Record<string, unknown>>) {
-  return { all, last: all.find((a) => String(a.COMPLETED) === "Y"), next: undefined, dataKnown: true };
+  // REAL API RESPONSE SHAPE: the activities route returns exactly
+  // `{ last?, next?, all }` per deal — no synthetic `dataKnown` property.
+  return { all, last: all.find((a) => String(a.COMPLETED) === "Y"), next: undefined };
 }
 
 describe("Deal Preview scoped activity fetch", () => {
@@ -77,7 +81,8 @@ describe("Deal Preview scoped activity fetch", () => {
     render(<DealPreview id="101" onClose={() => {}} />);
     await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
 
-    await waitFor(() => expect(mockStore.fetchDealActivities).toHaveBeenCalledWith("101"));
+    await waitFor(() => expect(mockStore.fetchDealActivities).toHaveBeenCalled());
+    expect(mockStore.fetchDealActivities.mock.calls.every((c: unknown[]) => c[0] === "101")).toBe(true);
     // Exactly one deal ID — scoped fetch, not the whole dataset.
     const sentBodies = fetchMock.mock.calls
       .filter(([url]) => String(url).includes("/activities"))
@@ -153,3 +158,89 @@ describe("buildDealActivitiesModel ordering (shared UI/Excel model)", () => {
     expect(model[1].date).toBeNull();
   });
 });
+
+describe("Deal Preview scoped activities contract (real API shape, retry, request count)", () => {
+  it("renders activity rows from the real API shape { last, next, all } without dataKnown", async () => {
+    // simulates the store merge performed by the real action for a successful
+    // scoped fetch — entry shape is the real route contract, no dataKnown.
+    mockStore.activitiesData["101"] = scopedEntry([
+      { ID: "1", COMPLETED: "Y", SUBJECT: "Если клиенту нужен звонок", CREATED: "2026-09-29T10:00:00Z", TYPE_ID: 2 },
+    ]);
+    mockStore.activitiesRequestState = { "101": "success" };
+
+    render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+
+    expect(await screen.findByText("Дела и активности")).toBeInTheDocument();
+    expect(screen.getAllByText("Если клиенту нужен звонок").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("Дела и активности временно недоступны.")).not.toBeInTheDocument();
+  });
+
+  it("successful empty activity response → truthful «Активностей нет»", async () => {
+    mockStore.activitiesData["101"] = scopedEntry([]);
+    mockStore.activitiesRequestState = { "101": "success" };
+
+    render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+
+    expect(await screen.findByText("Активностей нет")).toBeInTheDocument();
+  });
+
+  it("fetch failure → «Дела и активности временно недоступны.» with retry button", async () => {
+    mockStore.activitiesRequestState = { "101": "error" };
+
+    render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+
+    expect(await screen.findByText("Дела и активности временно недоступны.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Повторить" })).toBeInTheDocument();
+  });
+
+  it("«Повторить» performs a real second fetch and renders rows on success", async () => {
+    mockStore.activitiesRequestState = { "101": "error" };
+    const { rerender } = render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+    expect(await screen.findByText("Дела и активности временно недоступны.")).toBeInTheDocument();
+    const callsBefore = mockStore.fetchDealActivities.mock.calls.length;
+
+    // User clicks retry → DealPreview issues a forced (second) scoped fetch.
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+
+    expect(mockStore.fetchDealActivities.mock.calls.length).toBeGreaterThan(callsBefore);
+    const lastCall = mockStore.fetchDealActivities.mock.calls.at(-1)!;
+    expect(lastCall[0]).toBe("101");
+    // Explicit retry requests a forced fetch.
+    expect(lastCall[1]).toEqual({ force: true });
+
+    // Second request succeeds → rows render. Explicit re-render: the mocked
+    // store action cannot mutate real React state.
+    mockStore.activitiesData["101"] = scopedEntry([
+      { ID: "5", COMPLETED: "N", SUBJECT: "Плановый звонок", DEADLINE: "2026-10-05T09:00:00Z", TYPE_ID: 2 },
+    ]);
+    mockStore.activitiesRequestState = { "101": "success" };
+    rerender(<DealPreview id="101" onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Плановый звонок")).toBeInTheDocument());    expect(screen.queryByText("Дела и активности временно недоступны.")).not.toBeInTheDocument();
+  });
+
+  it("opening one Deal Preview causes exactly one scoped request; retry keeps deal scope", async () => {
+    render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+
+    await waitFor(() => expect(mockStore.fetchDealActivities).toHaveBeenCalled());
+    // Give any duplicate trigger a chance to fire, then assert cardinality.
+    await new Promise((r) => setTimeout(r, 50));
+    const calls = mockStore.fetchDealActivities.mock.calls.filter((c: unknown[]) => c[0] === "101");
+    expect(calls).toHaveLength(1);
+    // Request body scope: only the current deal ID.
+    const bodies = fetchMock.mock.calls
+      .filter(([url]) => String(url).includes("/activities"))
+      .map(([, init]) => JSON.parse(init.body));
+    for (const body of bodies) {
+      expect(body.dealIds).toEqual(["101"]);
+    }
+  });
+});
+
+async function rerenderAct(fn: () => Promise<void>) {
+  await fn();
+}

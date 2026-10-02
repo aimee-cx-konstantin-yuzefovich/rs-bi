@@ -4,6 +4,15 @@ import { NextRequest } from 'next/server';
 import * as bitrix from '@/lib/bitrix';
 import * as authGuard from '@/lib/auth-guard';
 import { useDashboardStore } from '@/store/dashboard-store';
+import { BitrixTransientError } from '@/lib/bitrix';
+
+// Simulates a shared-transport failure AFTER its own bounded retries (the
+// route must not multiply retries at route level).
+class BitrixTransientFailure extends BitrixTransientError {
+  constructor() {
+    super('API returned status 503', 503);
+  }
+}
 
 vi.mock('@/lib/auth-guard', () => ({
   requireAuth: vi.fn().mockResolvedValue({ id: '1', email: 'test@russilica.ru', role: 'admin' }),
@@ -281,6 +290,93 @@ describe('Companies API & Partial Failure Semantics', () => {
       expect(getCallCount.n).toBeLessThanOrEqual(15);
       expect(data.partial).toBe(true);
       expect(data.unresolvedCompanyIds).toHaveLength(30);
+    });
+
+    it('route-level retries are removed: one failed batch issues ONE transport call (shared layer retries alone)', async () => {
+      const missingIds = Array.from({ length: 100 }, (_, i) => String(i + 1));
+      const listSpy = vi.spyOn(bitrix, 'bitrixPost').mockRejectedValue(new BitrixTransientFailure());
+
+      const res = await POST(makeRequest({ ids: missingIds }));
+      const data = await res.json();
+
+      // 100 IDs = 2 primary batches → exactly 2 bitrixPost calls (no route-level
+      // re-issue of identical transport requests; recovery chunks each issue one
+      // call, 100 unresolved → ceil(100/15) = 7 more).
+      expect(listSpy).toHaveBeenCalledTimes(2 + 7);
+      expect(data.success).toBe(false);
+      expect(res.status).toBe(500);
+    });
+
+    it('large unresolved set (>150, ~202) still enters small-batch recovery with bounded request count', async () => {
+      const missingIds = Array.from({ length: 202 }, (_, i) => String(i + 1));
+      let listCallCount = 0;
+      const chunkSizes: number[] = [];
+      const recovered: string[] = [];
+      vi.spyOn(bitrix, 'bitrixPost').mockImplementation(async (method, params: any) => {
+        expect(method).toBe('crm.company.list');
+        listCallCount++;
+        const chunk: string[] = params.FILTER['@ID'];
+        expect(chunk.length).toBeLessThanOrEqual(50);
+        if (listCallCount <= 5) {
+          chunkSizes.push(chunk.length);
+          // Primary batches all fail to return the requested rows.
+          return { result: [] } as any;
+        }
+        // Recovery chunks: resolve exactly the even IDs of THIS chunk.
+        chunkSizes.push(chunk.length);
+        const chunkRecovered = chunk.filter((id) => Number(id) % 2 === 0);
+        recovered.push(...chunkRecovered);
+        return {
+          result: chunkRecovered.map((id) => ({ ID: id, TITLE: `Recovered ${id}` })),
+        } as any;
+      });
+
+      const res = await POST(makeRequest({ ids: missingIds }));
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      // Bounded request count: 5 primary batches + ceil(202/15)=14 recovery chunks = 19.
+      // Never a per-ID storm (~202 crm.company.get calls are impossible here):
+      expect(listCallCount).toBe(19);
+      const getCalls = (bitrix.bitrixPost as any).mock.calls.filter(([m]: [string]) => m === 'crm.company.get').length;
+      expect(getCalls).toBe(0);
+      // Recovery chunk sizes respect the bounded small batch.
+      for (const size of chunkSizes.slice(5)) {
+        expect(size).toBeLessThanOrEqual(15);
+      }
+      // Recovered IDs resolved; remainder stays truthful PARTIAL.
+      expect(data.fetchedCompanyIds.length).toBe(101);
+      expect(data.unresolvedCompanyIds.length).toBe(101);
+      expect(data.partial).toBe(true);
+      expect(data.warning).toContain('101 из 202');
+      expect(data.companies['2'].TITLE).toBe('Recovered 2');
+      expect(data.companies['1'].TITLE).toBe('');
+    });
+
+    it('primary success + all unresolved recovery executes for >150 IDs without per-ID storm', async () => {
+      const missingIds = Array.from({ length: 202 }, (_, i) => String(i + 1));
+      let listCallCount = 0;
+      vi.spyOn(bitrix, 'bitrixPost').mockImplementation(async (method: string, params?: any) => {
+        if (method === 'crm.company.list') {
+          listCallCount++;
+          return { result: [] } as any; // every list call empty (all 202 unresolved)
+        }
+        if (method === 'crm.company.get') {
+          throw new Error('per-ID fallback must not run for large unresolved sets');
+        }
+        return { result: [] } as any;
+      });
+
+      const res = await POST(makeRequest({ ids: missingIds }));
+      const data = await res.json();
+
+      // 5 primary + 14 recovery chunks; per-ID fallback capped <=15 gets (→0 or
+      // ≤15, never ≈202). All-ordering strictly bounded:
+      expect(listCallCount).toBe(19);
+      const getCalls = (bitrix.bitrixPost as any).mock.calls.filter(([m]: [string]) => m === 'crm.company.get').length;
+      expect(getCalls).toBeLessThanOrEqual(15);
+      expect(data.partial).toBe(true);
+      expect(data.unresolvedCompanyIds).toHaveLength(202);
     });
   });
 

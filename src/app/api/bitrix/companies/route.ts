@@ -7,11 +7,10 @@ export const dynamic = "force-dynamic";
 type CompanyRecord = Record<string, any>;
 
 const BATCH_SIZE = 50;
-const BATCH_MAX_ATTEMPTS = 3;
-const BATCH_RETRY_DELAYS_MS =
-  process.env.NODE_ENV === "test" || process.env.VITEST ? [5, 10] : [500, 1500];
 const FALLBACK_GET_CONCURRENCY = 5;
-// Bounded smaller-batch retry for IDs missed by the primary batch list.
+// Bounded smaller-batch recovery for IDs missed by the primary batch list.
+// Runs for ANY unresolved count (chunked sequentially) — a large unresolved
+// set (e.g. 202 of 527) must never bypass recovery.
 const RETRY_BATCH_SIZE = 15;
 // Per-ID fallback cap: above this, per-ID gets are skipped entirely (IDs stay
 // retryable) — never hundreds of crm.company.get calls.
@@ -121,68 +120,56 @@ export async function POST(request: NextRequest) {
     let failedBatches = 0;
     const totalBatches = Math.ceil(ids.length / BATCH_SIZE);
 
-    // 1) Batch list lookup with bounded retries
+    // 1) Batch list lookup — ONE transport layer: bitrixPost owns bounded
+    //    transient retries (429/503/timeout/network). This route performs
+    //    data-level recovery only and never re-issues identical transport
+    //    requests that the shared transport already retried.
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
       const batchIds = ids.slice(i, i + BATCH_SIZE);
       const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
       let batchSucceeded = false;
 
-      for (let attempt = 1; attempt <= BATCH_MAX_ATTEMPTS; attempt++) {
-        const attemptStartTime = Date.now();
-        try {
-          const data = await bitrixPost<{ result?: CompanyRecord[] }>(
-            "crm.company.list",
-            {
-              // The "@ID" operator is a Bitrix-specific filter operator that matches multiple values (equivalent to SQL IN (...))
-              // Note: Bitrix limits @ID arrays to 50-100 items per call. We chunk at BATCH_SIZE (50) to stay within limits.
-              FILTER: { "@ID": batchIds },
-              SELECT: select,
-            }
-          );
-
-          if (Array.isArray(data.result)) {
-            for (const company of data.result) {
-              const rawId = String(company?.ID ?? "").trim();
-              if (!rawId) continue;
-              // Never accept IDs outside the requested set — Bitrix list may
-              // drift; foreign records are logged and ignored.
-              if (!ids.includes(rawId)) {
-                console.warn(`[Companies API] Ignoring foreign company ID=${rawId} in batch ${batchIndex}`);
-                continue;
-              }
-              const normalized = normalizeCompany(company, rawId);
-              companiesMap[normalized.ID] = {
-                ...companiesMap[normalized.ID],
-                ...normalized,
-              };
-              resolvedIds.add(normalized.ID);
-            }
+      const attemptStartTime = Date.now();
+      try {
+        const data = await bitrixPost<{ result?: CompanyRecord[] }>(
+          "crm.company.list",
+          {
+            // The "@ID" operator is a Bitrix-specific filter operator that matches multiple values (equivalent to SQL IN (...))
+            // Note: Bitrix limits @ID arrays to 50-100 items per call. We chunk at BATCH_SIZE (50) to stay within limits.
+            FILTER: { "@ID": batchIds },
+            SELECT: select,
           }
-          batchSucceeded = true;
-          break;
-        } catch (error) {
-          const duration = Date.now() - attemptStartTime;
-          const isFatalConfig =
-            error instanceof Error &&
-            (error.message.includes("not configured") || error.message.includes("Invalid API method"));
+        );
 
-          console.warn(`[Companies API] crm.company.list batch ${batchIndex}/${totalBatches} attempt ${attempt}/${BATCH_MAX_ATTEMPTS} failed`, {
-            method: "crm.company.list",
-            batchIndex,
-            attempt,
-            durationMs: duration,
-            idCount: batchIds.length,
-            retriesExhausted: attempt >= BATCH_MAX_ATTEMPTS || isFatalConfig,
-            error: error instanceof Error ? error.message : String(error),
-          });
-
-          if (isFatalConfig || attempt >= BATCH_MAX_ATTEMPTS) {
-            break;
+        if (Array.isArray(data.result)) {
+          for (const company of data.result) {
+            const rawId = String(company?.ID ?? "").trim();
+            if (!rawId) continue;
+            // Never accept IDs outside the requested set — Bitrix list may
+            // drift; foreign records are logged and ignored.
+            if (!ids.includes(rawId)) {
+              console.warn(`[Companies API] Ignoring foreign company ID=${rawId} in batch ${batchIndex}`);
+              continue;
+            }
+            const normalized = normalizeCompany(company, rawId);
+            companiesMap[normalized.ID] = {
+              ...companiesMap[normalized.ID],
+              ...normalized,
+            };
+            resolvedIds.add(normalized.ID);
           }
-
-          const delay = BATCH_RETRY_DELAYS_MS[attempt - 1] ?? 1500;
-          await new Promise((resolve) => setTimeout(resolve, delay));
         }
+        batchSucceeded = true;
+      } catch (error) {
+        const duration = Date.now() - attemptStartTime;
+        console.warn(`[Companies API] crm.company.list batch ${batchIndex}/${totalBatches} failed (transport retries exhausted by shared layer)`, {
+          method: "crm.company.list",
+          batchIndex,
+          durationMs: duration,
+          idCount: batchIds.length,
+          retriesExhausted: true,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
       if (!batchSucceeded) {
@@ -190,45 +177,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2) Bounded smaller-batch retry for unresolved IDs (before per-ID gets):
+    // 2) Bounded smaller-batch recovery for unresolved IDs (before per-ID gets):
     //    first attempt on small "@ID" chunks often recovers IDs missed by the
-    //    large primary batch list, with bounded request pressure.
+    //    large primary batch list, with bounded request pressure. Runs for ANY
+    //    unresolved count — the recovery is never disabled by bulk size.
     const unresolvedAfterBatches = () => ids.filter((id) => !resolvedIds.has(id));
     let unresolvedIds = unresolvedAfterBatches();
+    const unresolvedAfterPrimary = unresolvedIds.length;
 
-    if (unresolvedIds.length > 0 && unresolvedIds.length <= RETRY_BATCH_SIZE * 10) {
+    if (unresolvedIds.length > 0) {
       for (let i = 0; i < unresolvedIds.length; i += RETRY_BATCH_SIZE) {
         const chunk = unresolvedIds.slice(i, i + RETRY_BATCH_SIZE);
-        for (let attempt = 1; attempt <= BATCH_MAX_ATTEMPTS; attempt++) {
-          try {
-            const data = await bitrixPost<{ result?: CompanyRecord[] }>(
-              "crm.company.list",
-              { FILTER: { "@ID": chunk }, SELECT: select }
-            );
-            if (Array.isArray(data.result)) {
-              for (const company of data.result) {
-                const rawId = String(company?.ID ?? "").trim();
-                if (!rawId) continue;
-                if (!ids.includes(rawId)) {
-                  console.warn(`[Companies API] Ignoring foreign company ID=${rawId} in retry batch`);
-                  continue;
-                }
-                companiesMap[rawId] = { ...companiesMap[rawId], ...normalizeCompany(company, rawId) };
-                resolvedIds.add(rawId);
+        try {
+          const data = await bitrixPost<{ result?: CompanyRecord[] }>(
+            "crm.company.list",
+            { FILTER: { "@ID": chunk }, SELECT: select }
+          );
+          if (Array.isArray(data.result)) {
+            for (const company of data.result) {
+              const rawId = String(company?.ID ?? "").trim();
+              if (!rawId) continue;
+              if (!ids.includes(rawId)) {
+                console.warn(`[Companies API] Ignoring foreign company ID=${rawId} in recovery chunk`);
+                continue;
               }
+              companiesMap[rawId] = { ...companiesMap[rawId], ...normalizeCompany(company, rawId) };
+              resolvedIds.add(rawId);
             }
-            break;
-          } catch (error) {
-            if (attempt >= BATCH_MAX_ATTEMPTS) {
-              console.warn(`[Companies API] Retry batch failed after ${attempt} attempts`, {
-                idCount: chunk.length,
-                error: error instanceof Error ? error.message : String(error),
-              });
-              break;
-            }
-            const delay = BATCH_RETRY_DELAYS_MS[attempt - 1] ?? 1500;
-            await new Promise((resolve) => setTimeout(resolve, delay));
           }
+        } catch (error) {
+          console.warn(`[Companies API] Recovery chunk failed (transport retries exhausted by shared layer)`, {
+            idCount: chunk.length,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
       unresolvedIds = unresolvedAfterBatches();
@@ -276,6 +257,9 @@ export async function POST(request: NextRequest) {
     const fetchedCompanyIds = ids.filter((id) => resolvedIds.has(id));
     const isPartial = stillUnresolved.length > 0;
     const isTotalFailure = failedBatches > 0 && failedBatches === totalBatches && fetchedCompanyIds.length === 0;
+    console.info(
+      `[Companies API] Enrichment summary: requested=${ids.length} resolved=${fetchedCompanyIds.length} unresolved=${stillUnresolved.length} (after-primary=${unresolvedAfterPrimary}, recovery=${failedBatches === 0 && unresolvedAfterPrimary > 0 ? "ran" : failedBatches > 0 ? "partial" : "none"})`
+    );
 
     if (isTotalFailure) {
       return NextResponse.json(

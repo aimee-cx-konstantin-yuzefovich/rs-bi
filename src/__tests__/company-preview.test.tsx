@@ -8,7 +8,7 @@ const store = vi.hoisted(() => ({
   companyBrowserItems: [{ ID: "42", TITLE: "Компания из таблицы", ASSIGNED_BY_ID: "7" }],
   companyBrowserResponsibleId: "all", companyColumnWidths: {},
   allDeals: [] as Array<Record<string, unknown>>,
-  dealsCoverage: null as { status: string; fetched: number; total: number } | null,
+  dealsCoverage: null as import("@/lib/dataset-coverage").DatasetCoverage | null,
   fetchCompanyBrowser: vi.fn(), setCompanyBrowserResponsibleId: vi.fn(),
   setCompanyColumnSelectorOpen: vi.fn(), setCompanyColumnWidth: vi.fn(),
 }));
@@ -304,6 +304,9 @@ it("Company Preview fields are independent of selected table columns", async () 
 
 it("shows cached related deals immediately and discloses stale cache when refresh fails", async () => {
   const previousDeals = store.allDeals;
+  const previousCoverage = store.dealsCoverage;
+  // Cache seeding requires COMPLETE store coverage (COMPLETE-only trust).
+  store.dealsCoverage = { status: "COMPLETE", fetched: 3, total: 3 };
   store.allDeals = [
     { ID: "501", TITLE: "Кэш сделка 501", COMPANY_ID: "42", STAGE_ID: "NEW" },
     { ID: "502", TITLE: "Кэш сделка 502", COMPANY_ID: "42", STAGE_ID: "WON" },
@@ -330,11 +333,14 @@ it("shows cached related deals immediately and discloses stale cache when refres
     expect(screen.getByText("Кэш сделка 501")).toBeInTheDocument();
   } finally {
     store.allDeals = previousDeals;
+    store.dealsCoverage = previousCoverage;
   }
 });
 
 it("replaces cached related deals with refreshed server data without duplicates", async () => {
   const previousDeals = store.allDeals;
+  const previousCoverage = store.dealsCoverage;
+  store.dealsCoverage = { status: "COMPLETE", fetched: 1, total: 1 };
   store.allDeals = [
     { ID: "501", TITLE: "Устаревшая кэш сделка", COMPANY_ID: "42", STAGE_ID: "NEW" },
   ];
@@ -364,6 +370,7 @@ it("replaces cached related deals with refreshed server data without duplicates"
     expect(screen.queryByText(/Показаны кэшированные сделки/)).not.toBeInTheDocument();
   } finally {
     store.allDeals = previousDeals;
+    store.dealsCoverage = previousCoverage;
   }
 });
 
@@ -373,7 +380,7 @@ it("does not seed cached deals when the store deals coverage is PARTIAL", async 
   store.allDeals = [
     { ID: "501", TITLE: "Ненадёжная кэш сделка", COMPANY_ID: "42", STAGE_ID: "NEW" },
   ];
-  store.dealsCoverage = { status: "PARTIAL", fetched: 1, total: 10 };
+  store.dealsCoverage = { status: "PARTIAL", fetched: 1, total: 10, warning: "Частичные данные." };
   try {
     fetchMock.mockImplementation(async (url: string) => {
       if (String(url).endsWith("/deals")) {
@@ -387,6 +394,84 @@ it("does not seed cached deals when the store deals coverage is PARTIAL", async 
 
     // Partial store coverage → cached scope untrustworthy → not rendered as if fresh.
     expect(screen.queryByText("Ненадёжная кэш сделка")).not.toBeInTheDocument();
+  } finally {
+    store.allDeals = previousDeals;
+    store.dealsCoverage = previousCoverage;
+  }
+});
+
+it("does not seed cached deals when the store deals coverage is CAPPED", async () => {
+  const previousDeals = store.allDeals;
+  const previousCoverage = store.dealsCoverage;
+  store.allDeals = [
+    { ID: "801", TITLE: "Усечённая кэш сделка", COMPANY_ID: "42", STAGE_ID: "NEW" },
+  ];
+  store.dealsCoverage = { status: "CAPPED", fetched: 1000, total: 1200, cap: 1000, warning: "Данные усечены." };
+  try {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/deals")) {
+        return new Promise(() => {}); // never resolves
+      }
+      return ok(detail("42", "Компания с усечённым кэшем"));
+    });
+
+    render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByRole("heading", { name: "Компания с усечённым кэшем" });
+
+    // Capped store coverage → cached scope incomplete → never trusted as complete.
+    expect(screen.queryByText("Усечённая кэш сделка")).not.toBeInTheDocument();
+  } finally {
+    store.allDeals = previousDeals;
+    store.dealsCoverage = previousCoverage;
+  }
+});
+
+it("does not seed cached deals when the store deals coverage is unknown (null)", async () => {
+  const previousDeals = store.allDeals;
+  const previousCoverage = store.dealsCoverage;
+  store.allDeals = [
+    { ID: "811", TITLE: "Неверифицированная кэш сделка", COMPANY_ID: "42", STAGE_ID: "NEW" },
+  ];
+  store.dealsCoverage = null;
+  try {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/deals")) {
+        return new Promise(() => {}); // never resolves
+      }
+      return ok(detail("42", "Компания с неизвестным кэшем"));
+    });
+
+    render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByRole("heading", { name: "Компания с неизвестным кэшем" });
+
+    // Unknown coverage → cached completeness unverifiable → not trusted.
+    expect(screen.queryByText("Неверифицированная кэш сделка")).not.toBeInTheDocument();
+  } finally {
+    store.allDeals = previousDeals;
+    store.dealsCoverage = previousCoverage;
+  }
+});
+
+it("seeds cached deals only when the store deals coverage is COMPLETE", async () => {
+  const previousDeals = store.allDeals;
+  const previousCoverage = store.dealsCoverage;
+  store.allDeals = [
+    { ID: "821", TITLE: "Полная кэш сделка", COMPANY_ID: "42", STAGE_ID: "NEW" },
+  ];
+  store.dealsCoverage = { status: "COMPLETE", fetched: 1, total: 1 };
+  try {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/deals")) {
+        return new Promise(() => {}); // never resolves (server refresh pending)
+      }
+      return ok(detail("42", "Компания с полным кэшем"));
+    });
+
+    render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByRole("heading", { name: "Компания с полным кэшем" });
+
+    // COMPLETE coverage → cached seed may render immediately while refresh runs.
+    expect(screen.getByText("Полная кэш сделка")).toBeInTheDocument();
   } finally {
     store.allDeals = previousDeals;
     store.dealsCoverage = previousCoverage;

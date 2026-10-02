@@ -172,6 +172,14 @@ interface DashboardState {
   activitiesData: Record<string, any>;
   activitiesDataFetchedAt: Record<string, number>;
   activitiesDataLoading: boolean;
+  /**
+   * Explicit per-deal activities request state (Deal Preview scoped fetch —
+   * the real API contract is `{ last, next, all }`, never `dataKnown`).
+   * success = a response for THIS deal was received and applied (including a
+   * truthful `all: []` empty result); error = fetch failed (previous valid
+   * data preserved and retryable). Ephemeral, never persisted.
+   */
+  activitiesRequestState: Record<string, "idle" | "loading" | "success" | "error">;
   userNamesLoading: boolean;
 
   // ─── Company Browser ───
@@ -254,8 +262,11 @@ interface DashboardState {
    * Scoped activities fetch for ONE deal (Deal Preview). Independent of
    * selected table columns; merges into activitiesData and timestamps only
    * the requested deal on success. Never poisons the global activitiesCoverage.
+   * `force: true` bypasses the cached-data guard and re-fetches (retry path).
+   * Returns the in-flight promise so callers/tests can deterministically await;
+   * UI callers may ignore it.
    */
-  fetchDealActivities: (dealId: string) => Promise<void>;
+  fetchDealActivities: (dealId: string, options?: { force?: boolean }) => Promise<void>;
   markAlertsAsRead: () => void;
 
   // ─── Actions (company browser) ───
@@ -325,6 +336,22 @@ let inFlightCompaniesPromise: Promise<void> | null = null;
 let inFlightActivitiesPromise: Promise<void> | null = null;
 let inFlightUsersPromise: Promise<void> | null = null;
 
+// Per-deal scoped activities fetch coalescing (Deal Preview): at most one
+// concurrent scoped request per deal ID unless an explicit retry is requested.
+const inFlightDealActivities = new Map<string, Promise<void>>();
+
+function setDealActivityRequestState(
+  dealId: string,
+  status: "idle" | "loading" | "success" | "error"
+): void {
+  useDashboardStore.setState((state) => ({
+    activitiesRequestState: {
+      ...state.activitiesRequestState,
+      [dealId]: status,
+    },
+  }));
+}
+
 export const useDashboardStore = create<DashboardState>()(
   persist(
     (set, get) => ({
@@ -390,6 +417,7 @@ export const useDashboardStore = create<DashboardState>()(
       activitiesData: {},
       activitiesDataFetchedAt: {},
       activitiesDataLoading: false,
+      activitiesRequestState: {},
       userNamesLoading: false,
 
       companyBrowserItems: [],
@@ -1321,6 +1349,7 @@ export const useDashboardStore = create<DashboardState>()(
               set((state) => {
                 const newActivitiesData = { ...state.activitiesData, ...data.activities };
                 const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+                const newRequestState = { ...state.activitiesRequestState };
                 const fetchTimestamp = Date.now();
 
                 // Only mark successfully fetched IDs as fetched (failed IDs remain UNKNOWN for retry)
@@ -1330,6 +1359,13 @@ export const useDashboardStore = create<DashboardState>()(
 
                 for (const id of successfulIds) {
                   newActivitiesDataFetchedAt[id] = fetchTimestamp;
+                  // Mirrors the scoped per-deal contract: a globally fetched
+                  // deal is also request-successful (truthful empty allowed).
+                  newRequestState[id] = "success";
+                }
+                // Requested but not successfully fetched → error (retryable).
+                for (const id of requestedIds) {
+                  if (!successfulIds.includes(id)) newRequestState[id] = "error";
                 }
                 // Prune cache to only keep deals present in allDeals
                 const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
@@ -1342,6 +1378,7 @@ export const useDashboardStore = create<DashboardState>()(
                 return {
                   activitiesData: newActivitiesData,
                   activitiesDataFetchedAt: newActivitiesDataFetchedAt,
+                  activitiesRequestState: newRequestState,
                   activitiesDataLoading: false,
                   // Any failed/incomplete deal ID makes the enrichment PARTIAL
                   // relative to the requested set — never COMPLETE.
@@ -1353,27 +1390,31 @@ export const useDashboardStore = create<DashboardState>()(
                 };
               });
             } else {
-              set({
+              set((state) => ({
                 activitiesDataLoading: false,
+                activitiesRequestState: Object.fromEntries(
+                  requestedIds.map((id) => [id, "error" as const])
+                ),
                 activitiesCoverage: {
                   status: "PARTIAL",
                   fetched: 0,
                   total: requestedIds.length,
                   warning: ACTIVITIES_FAILED_WARNING,
-                },
-              });
+                } as DatasetCoverage,
+              }));
             }
           } catch {
             console.warn("[Dashboard] Failed to fetch activities data");
-            set({
+            set((state) => ({
               activitiesDataLoading: false,
+              activitiesRequestState: { ...state.activitiesRequestState, ...Object.fromEntries(requestedIds.map((id) => [id, "error" as const])) },
               activitiesCoverage: {
                 status: "PARTIAL",
                 fetched: 0,
                 total: requestedIds.length,
                 warning: ACTIVITIES_FAILED_WARNING,
               },
-            });
+            }));
           } finally {
             inFlightActivitiesPromise = null;
           }
@@ -1382,54 +1423,87 @@ export const useDashboardStore = create<DashboardState>()(
         return inFlightActivitiesPromise;
       },
 
-      fetchDealActivities: async (dealId) => {
+      fetchDealActivities: async (dealId, options) => {
         const trimmedId = String(dealId || "").trim();
         if (!/^\d+$/.test(trimmedId)) return;
+        const force = options?.force === true;
         const { isDemoMode } = get();
         if (isDemoMode) return;
 
-        // Trustworthy cached data within 5 minutes → no refetch.
-        const cached = get().activitiesData[trimmedId];
-        const fetchedAt = get().activitiesDataFetchedAt[trimmedId];
-        const now = Date.now();
-        if (cached && fetchedAt && now - fetchedAt <= 5 * 60 * 1000) return;
-
-        try {
-          const response = await fetchWithTimeout(
-            "/api/bitrix/activities",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ dealIds: [trimmedId] }),
-            }
-          );
-          if (!response.ok) {
-            console.warn("[Dashboard] Scoped activities fetch failed:", response.status);
-            return;
-          }
-          const data = await response.json();
-          if (!data.success || typeof data.activities !== "object") {
-            console.warn("[Dashboard] Scoped activities fetch returned invalid payload");
-            return;
-          }
-          const entry = data.activities[trimmedId];
-          set((state) => {
-            const newActivitiesData = { ...state.activitiesData };
-            const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
-            if (data.fetchedDealIds?.includes?.(trimmedId) && entry) {
-              newActivitiesData[trimmedId] = entry;
-              // Only successfully fetched IDs are timestamped — failures stay retryable.
-              newActivitiesDataFetchedAt[trimmedId] = Date.now();
-            }
-            return {
-              activitiesData: newActivitiesData,
-              activitiesDataFetchedAt: newActivitiesDataFetchedAt,
-            };
-          });
-        } catch {
-          // Non-fatal: Deal Preview renders the «временно недоступны» state.
-          console.warn("[Dashboard] Scoped activities fetch errored");
+        // One scoped request per deal: coalesce duplicate concurrent triggers
+        // (parent + section both mounted) unless an explicit retry is forced.
+        if (!force) {
+          const inFlight = inFlightDealActivities.get(trimmedId);
+          const cached = get().activitiesData[trimmedId];
+          const fetchedAt = get().activitiesDataFetchedAt[trimmedId];
+          const now = Date.now();
+          if (inFlight) return inFlight;
+          if (cached && fetchedAt && now - fetchedAt <= 5 * 60 * 1000) return;
+          if (get().activitiesRequestState[trimmedId] === "loading") return;
         }
+
+        const promise = (async () => {
+          set((state) => ({
+            activitiesRequestState: {
+              ...state.activitiesRequestState,
+              [trimmedId]: "loading",
+            },
+          }));
+          try {
+            const response = await fetchWithTimeout(
+              "/api/bitrix/activities",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ dealIds: [trimmedId] }),
+              }
+            );
+            if (!response.ok) {
+              console.warn("[Dashboard] Scoped activities fetch failed:", response.status);
+              setDealActivityRequestState(trimmedId, "error");
+              return;
+            }
+            const data = await response.json();
+            if (!data.success || typeof data.activities !== "object" || data.activities === null) {
+              console.warn("[Dashboard] Scoped activities fetch returned invalid payload");
+              setDealActivityRequestState(trimmedId, "error");
+              return;
+            }
+            const entry = data.activities[trimmedId];
+            const wasFetched = data.fetchedDealIds?.includes?.(trimmedId) && entry;
+            set((state) => {
+              const newActivitiesData = { ...state.activitiesData };
+              const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+              const newRequestState = { ...state.activitiesRequestState };
+              if (wasFetched) {
+                // Real API contract: `{ last?, next?, all }`. A successful
+                // `all: []` is a truthful empty result, not an error.
+                newActivitiesData[trimmedId] = entry;
+                // Only successfully fetched IDs are timestamped — failures stay retryable.
+                newActivitiesDataFetchedAt[trimmedId] = Date.now();
+                newRequestState[trimmedId] = "success";
+              } else {
+                // Deal missing from the response = this deal's fetch failed.
+                // Previous valid entry (if any) remains usable.
+                newRequestState[trimmedId] = "error";
+              }
+              return {
+                activitiesData: newActivitiesData,
+                activitiesDataFetchedAt: newActivitiesDataFetchedAt,
+                activitiesRequestState: newRequestState,
+              };
+            });
+          } catch {
+            // Non-fatal: Deal Preview renders the «временно недоступны» state.
+            // Failed refresh must not erase prior valid data.
+            console.warn("[Dashboard] Scoped activities fetch errored");
+            setDealActivityRequestState(trimmedId, "error");
+          } finally {
+            inFlightDealActivities.delete(trimmedId);
+          }
+        })();
+        inFlightDealActivities.set(trimmedId, promise);
+        return promise;
       },
 
       fetchCompanyBrowser: async (responsibleId) => {

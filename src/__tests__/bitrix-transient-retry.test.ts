@@ -135,3 +135,110 @@ describe("bitrixGet transient retry", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("native transport failures reach the shared retry layer", () => {
+  it("fetch network failure (TypeError with ECONNRESET cause) -> retried and succeeds", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    const networkError = new TypeError("fetch failed") as TypeError & { cause?: Error };
+    networkError.cause = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+    fetchMock
+      .mockRejectedValueOnce(networkError)
+      .mockResolvedValueOnce(ok({ result: [] }));
+
+    const data = await bitrixPost("crm.company.list", {});
+    expect(data).toEqual({ result: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("timeout exception (AbortError) -> retried and succeeds", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    const abortError = new Error("This operation was aborted");
+    abortError.name = "TimeoutError";
+    fetchMock
+      .mockRejectedValueOnce(abortError)
+      .mockResolvedValueOnce(ok({ result: [{ ID: "5" }] }));
+
+    const data = await bitrixPost<{ result: Array<{ ID: string }> }>("crm.company.get", { ID: "5" });
+    expect(data.result).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("ECONNREFUSED / ETIMEDOUT style transport errors -> retried", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock
+      .mockRejectedValueOnce(Object.assign(new Error("connect ECONNREFUSED 1.2.3.4:443"), { code: "ECONNREFUSED" }))
+      .mockRejectedValueOnce(Object.assign(new Error("connection timed out"), { code: "ETIMEDOUT" }))
+      .mockResolvedValueOnce(ok({ result: [] }));
+
+    const data = await bitrixPost("crm.company.list", {});
+    expect(data).toEqual({ result: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("transport retry exhaustion -> sanitized, truthful, credential-safe failure", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock.mockRejectedValue(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }));
+
+    await expect(bitrixPost("crm.company.list", {})).rejects.toThrow(
+      "Failed to crm.company.list. Please try again later."
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Credentials never surface in logs across the retry lifecycle.
+    for (const call of (console.warn as any).mock.calls.concat((console.error as any).mock.calls)) {
+      expect(JSON.stringify(call)).not.toContain("SECRET_TOKEN");
+    }
+  });
+});
+
+describe("crm.item.get shares the shared transient retry path", () => {
+  it("429 then success -> retried and succeeds", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock
+      .mockResolvedValueOnce(status(429))
+      .mockResolvedValueOnce(ok({ result: { item: { id: 1032, title: "Sample" } } }));
+
+    const data = await bitrixPost<{ result: { item: { id: number } } }>("crm.item.get", {
+      entityTypeId: 1032,
+      id: 1032,
+    });
+    expect(data.result.item.id).toBe(1032);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("503 then success -> retried and succeeds", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock
+      .mockResolvedValueOnce(status(503))
+      .mockResolvedValueOnce(ok({ result: { item: { id: 7 } } }));
+
+    const data = await bitrixPost("crm.item.get", { entityTypeId: 4, id: 7 });
+    expect((data as { result: { item: { id: number } } }).result.item.id).toBe(7);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("NOT_FOUND (HTTP 400 item-level) -> NOT retried", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "NOT_FOUND" }), { status: 400 }));
+
+    await expect(bitrixPost("crm.item.get", { entityTypeId: 2, id: 42 })).rejects.toThrow("Company not found.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("ACCESS_DENIED (HTTP 400 item-level) -> NOT retried", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "ACCESS_DENIED" }), { status: 400 }));
+
+    await expect(bitrixPost("crm.item.get", { entityTypeId: 2, id: 43 })).rejects.toThrow("Company access denied.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("transport retry exhaustion on crm.item.get -> sanitized truthful failure", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock.mockResolvedValue(status(429));
+
+    await expect(bitrixPost("crm.item.get", { entityTypeId: 4, id: 9 })).rejects.toThrow(
+      "Failed to crm.item.get. Please try again later."
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});

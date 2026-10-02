@@ -135,7 +135,11 @@ async function doGet<T = unknown>(
     if (error instanceof SyntaxError) {
       throw new BitrixTransientError("Malformed JSON response", undefined, error);
     }
-    throw sanitizeError(error, method);
+    // Preserve native transport exceptions for retry classification: wrap
+    // instead of sanitizing. Unknown shapes propagate unclassified (fail-closed).
+    const transport = asTransientTransportError(error);
+    if (transport) throw transport;
+    throw error;
   }
 }
 
@@ -203,7 +207,7 @@ function isTransientFailure(error: unknown): boolean {
   return false;
 }
 
-function classifyDeterministicError(error: unknown): never {
+function classifyDeterministicError(error: unknown, method: string): never {
   if (error instanceof BitrixTransientError) {
     // Deterministic statuses surface as generic integration failures.
     if (error.status !== undefined) {
@@ -214,7 +218,9 @@ function classifyDeterministicError(error: unknown): never {
     }
     throw error;
   }
-  throw error;
+  // Unknown deterministic shapes are sanitized only here — after retry
+  // classification — keeping the credential-safe client envelope contract.
+  finalSanitizeOrThrow(error, method);
 }
 
 function isCredentialSafePayload(error: unknown): string {
@@ -223,6 +229,59 @@ function isCredentialSafePayload(error: unknown): string {
     return error.status !== undefined ? `status ${error.status}` : "transport timeout/network";
   }
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Credential-safe final failure envelope for non-transient unknown errors.
+ * Applied only AFTER retry classification — never before. Special-cased
+ * safe messages (not configured / invalid method) pass through their
+ * client-safe forms; everything else gets the generic sanitized fallback.
+ */
+function finalSanitizeOrThrow(error: unknown, method: string): never {
+  if (error instanceof BitrixItemError) throw error;
+  if (error instanceof BitrixTransientError) throw error;
+  throw sanitizeError(error, method);
+}
+
+/**
+ * Preserves/classifies a native transport exception so the shared retry
+ * layer decides — raw transport exceptions are never sanitized ahead of
+ * retry classification. Checks the error itself and nested `cause` levels
+ * (Node wraps network failures, e.g. `TypeError: fetch failed` with
+ * `cause.code = ECONNRESET`; undici wraps timeouts with a TimeoutError cause).
+ */
+function isTransportException(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current instanceof Error && depth < 5; depth++) {
+    const name = current.name ?? "";
+    const code = (current as NodeJS.ErrnoException).code ?? "";
+    const msg = current.message ?? "";
+    if (name === "AbortError" || name === "TimeoutError") return true;
+    if (code === "ECONNRESET" || code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "EAI_AGAIN" || code === "EPIPE") return true;
+    const lower = msg.toLowerCase();
+    if (
+      lower.includes("timeout") ||
+      lower.includes("timed out") ||
+      lower.includes("fetch failed") ||
+      lower.includes("network") ||
+      lower.includes("terminated") ||
+      lower.includes("socket hang up") ||
+      msg.includes("ECONNRESET") ||
+      msg.includes("ECONNREFUSED") ||
+      msg.includes("ETIMEDOUT")
+    ) {
+      return true;
+    }
+    current = (current as Error & { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+function asTransientTransportError(error: unknown): BitrixTransientError | null {
+  if (isTransportException(error)) {
+    return new BitrixTransientError("Bitrix transport failure (timeout/network)", undefined, error);
+  }
+  return null;
 }
 
 /**
@@ -246,7 +305,8 @@ async function retryTransient<T>(
       // Deterministic failures propagate immediately (no retry, no masking).
       if (error instanceof BitrixItemError) throw error;
       if (!isTransientFailure(error)) {
-        classifyDeterministicError(error);
+        classifyDeterministicError(error, method);
+        // Not reached — classifyDeterministicError always throws.
       }
       lastError = error;
       if (attempt < RETRY_MAX_ATTEMPTS) {
@@ -322,11 +382,33 @@ async function doPost<T = unknown>(
     // the special mapping to that status so system-level 403 ACCESS_DENIED
     // remains a generic integration failure instead of a company permission error.
     if (method === "crm.item.get") {
-      const data = await response.json();
+      let data: { error?: string };
+      try {
+        data = (await response.json()) as { error?: string };
+      } catch (parseError) {
+        // Corrupted / non-JSON envelope: transient verdicts (429/503 etc.)
+        // MUST reach the shared retry path — preserve the HTTP status.
+        if (!response.ok) {
+          throw new BitrixTransientError(
+            `API returned status ${response.status}`,
+            response.status,
+            parseError
+          );
+        }
+        throw new BitrixTransientError("Malformed JSON response", undefined, parseError);
+      }
       if (response.status === 400 && (data.error === "NOT_FOUND" || data.error === "ACCESS_DENIED")) {
         throw new BitrixItemError(data.error);
       }
-      if (!response.ok || data.error) throw new Error("CRM item request failed.");
+      if (!response.ok) {
+        // 429/503 and other non-deterministic statuses use the SHARED retry
+        // path — never prematurely classified as deterministic item failures.
+        throw new BitrixTransientError(
+          `API returned status ${response.status}`,
+          response.status
+        );
+      }
+      if (data.error) throw new Error("API request failed");
       return data as T;
     }
 
@@ -355,7 +437,11 @@ async function doPost<T = unknown>(
       // (schema/material corruption surfaces truthfully after exhaustion).
       throw new BitrixTransientError("Malformed JSON response", undefined, error);
     }
-    throw sanitizeError(error, method);
+    // Preserve native transport exceptions for retry classification: wrap
+    // instead of sanitizing. Unknown shapes propagate unclassified (fail-closed).
+    const transport = asTransientTransportError(error);
+    if (transport) throw transport;
+    throw error;
   }
 }
 

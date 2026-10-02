@@ -117,13 +117,15 @@ export function DealPreview({
         })
       : null;
 
-  // Scoped lazy activities fetch: when the drawer opens and trustworthy
-  // cached activities for THIS deal are absent, fetch just this deal —
-  // independent of selected table columns.
+  // Scoped lazy activities fetch: DealPreview is the SINGLE owner of the
+  // fetch lifecycle — when the drawer opens (or an explicit retry is
+  // requested) it fetches just this deal, independent of selected columns.
+  // The section renders state and invokes retry callbacks only.
+  const [activitiesRetrySeq, setActivitiesRetrySeq] = useState(0);
   useEffect(() => {
     if (state.status !== "success" || !fetchDealActivities) return;
-    void fetchDealActivities(id);
-  }, [state.status, id, fetchDealActivities]);
+    void fetchDealActivities(id, activitiesRetrySeq > 0 ? { force: true } : undefined);
+  }, [state.status, id, activitiesRetrySeq, fetchDealActivities]);
 
   const dealTitle = model ? model.dealTitle : "Сделка";
 
@@ -312,7 +314,7 @@ export function DealPreview({
               )}
 
               {/* Дела и активности */}
-              <DealActivitiesSection dealId={id} />
+              <DealActivitiesSection dealId={id} onRetry={() => setActivitiesRetrySeq((n) => n + 1)} />
 
               {/* CURRENT DEAL CARD FIELDS (8 to 16) */}
               <div className="pt-3 space-y-3">
@@ -382,29 +384,22 @@ type ActivityEntry = {
 
 /**
  * «Дела и активности» section inside Deal Preview.
- * Distinguishes three truthful states:
+ * Presentational only: DealPreview owns the scoped fetch lifecycle; this
+ * section renders state from the explicit per-deal request state and invokes
+ * the retry callback. Distinguishes three truthful states:
  * - loaded with items → ordered list (planned first by nearest deadline, then completed newest first);
- * - no activities → «Активностей нет»;
+ * - no activities → «Активностей нет» (a successful empty result is truthful);
  * - temporarily unavailable → retryable message.
  * Raw TYPE_ID / PROVIDER_ID tokens never render; unknown types → «Дело».
  */
-function DealActivitiesSection({ dealId }: { dealId: string }) {
-  const { activitiesData, activitiesDataFetchedAt, activitiesDataLoading, usersCoverage, userNames, fetchDealActivities } =
+function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: () => void }) {
+  const { activitiesData, activitiesRequestState, activitiesDataLoading, usersCoverage, userNames } =
     useDashboardStore();
-  const [attempt, setAttempt] = useState(0);
+  const requestState = activitiesRequestState?.[dealId] ?? "idle";
+  const entry: { all?: ActivityEntry[] } | undefined = activitiesData?.[dealId];
 
-  const entry: { all?: ActivityEntry[]; dataKnown?: boolean } | undefined = activitiesData?.[dealId];
-  const fetchedAt = activitiesDataFetchedAt?.[dealId];
-  const hasData = Boolean(entry && (entry as { dataKnown?: boolean }).dataKnown);
-
-  useEffect(() => {
-    if (!fetchDealActivities) return;
-    void fetchDealActivities(dealId);
-    setAttempt(0);
-  }, [dealId, fetchDealActivities]);
-
-  // Loading: no data known yet and a fetch is either in flight or just triggered.
-  if (!hasData && (activitiesDataLoading || (fetchedAt === undefined && attempt === 0))) {
+  // Loading: scoped request in flight (or not yet started, and no cached data).
+  if (requestState === "loading" || (requestState === "idle" && (activitiesDataLoading || !entry))) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -419,7 +414,9 @@ function DealActivitiesSection({ dealId }: { dealId: string }) {
     );
   }
 
-  if (!hasData) {
+  // Error: scoped fetch for this deal failed. Previous valid data stays
+  // rendered when present; otherwise the truthful unavailable state.
+  if (requestState === "error" && !entry) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -432,7 +429,32 @@ function DealActivitiesSection({ dealId }: { dealId: string }) {
             variant="outline"
             size="sm"
             className="h-7 text-xs"
-            onClick={() => setAttempt((n) => n + 1)}
+            onClick={onRetry}
+            data-activities-retry
+          >
+            Повторить
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // No entry of any kind without an error → keep the unavailable disclosure
+  // (fail-closed: absence of a marked-successful response is never "empty").
+  if (!entry) {
+    return (
+      <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Дела и активности
+        </h4>
+        <div role="alert" className="space-y-2 text-xs">
+          <p className="text-muted-foreground">Дела и активности временно недоступны.</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={onRetry}
             data-activities-retry
           >
             Повторить
