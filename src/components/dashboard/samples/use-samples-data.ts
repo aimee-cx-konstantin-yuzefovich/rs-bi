@@ -15,6 +15,13 @@ import {
   clearSamplesCache,
 } from "@/lib/samples/samples-cache";
 
+export type AnalyticalDataState =
+  | "loading"
+  | "ready"
+  | "partial"
+  | "refresh_failed"
+  | "failed";
+
 export interface SamplesLoadState {
   samples: SampleSummary[];
   meta: SamplesResponseMeta | null;
@@ -24,6 +31,9 @@ export interface SamplesLoadState {
   error: string | null;
   refreshError: string | null;
   isDemoMode: boolean;
+  dataState: AnalyticalDataState;
+  loadedAt: number | null;
+  isStale: boolean;
   reload: () => void;
 }
 
@@ -42,6 +52,9 @@ export function useSamplesData(): SamplesLoadState {
   const [error, setError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
+  const [dataState, setDataState] = useState<AnalyticalDataState>("loading");
 
   const [attempt, setAttempt] = useState<number>(0);
   const isMountedRef = useRef<boolean>(true);
@@ -96,11 +109,17 @@ export function useSamplesData(): SamplesLoadState {
       setSamples(cached.samples);
       setMeta(cached.meta);
       setOrphanDealCount(cached.orphanDealCount);
+      setLoadedAt(cached.timestamp);
+      setIsStale(false);
+      setDataState("ready");
       setLoading(false);
       setRefreshing(true);
       setError(null);
       setRefreshError(null);
     } else {
+      setLoadedAt(null);
+      setIsStale(false);
+      setDataState("loading");
       setLoading(true);
       setRefreshing(false);
       setError(null);
@@ -118,6 +137,9 @@ export function useSamplesData(): SamplesLoadState {
           setSamples(result.samples);
           setMeta(result.meta);
           setOrphanDealCount(result.orphanDealCount);
+          setLoadedAt(result.timestamp);
+          setIsStale(false);
+          setDataState("ready");
           setLoading(false);
           setRefreshing(false);
           setError(null);
@@ -128,11 +150,16 @@ export function useSamplesData(): SamplesLoadState {
           if (hasCachedData) {
             setRefreshing(false);
             setRefreshError(result.error);
+            setIsStale(true);
+            setDataState("refresh_failed");
             setIsDemoMode(result.isDemoMode);
           } else {
             setLoading(false);
             setRefreshing(false);
             setError(result.error);
+            setLoadedAt(null);
+            setIsStale(false);
+            setDataState("failed");
             setIsDemoMode(result.isDemoMode);
           }
         }
@@ -143,10 +170,15 @@ export function useSamplesData(): SamplesLoadState {
         if (hasCachedData) {
           setRefreshing(false);
           setRefreshError(msg);
+          setIsStale(true);
+          setDataState("refresh_failed");
         } else {
           setLoading(false);
           setRefreshing(false);
           setError(msg);
+          setLoadedAt(null);
+          setIsStale(false);
+          setDataState("failed");
         }
       });
 
@@ -164,6 +196,9 @@ export function useSamplesData(): SamplesLoadState {
     error,
     refreshError,
     isDemoMode,
+    dataState,
+    loadedAt,
+    isStale,
     reload,
   };
 }

@@ -28,6 +28,7 @@ export interface SamplesFetchSuccess {
   samples: SampleSummary[];
   meta: SamplesResponseMeta | null;
   orphanDealCount: number;
+  timestamp: number;
 }
 
 export interface SamplesFetchFailure {
@@ -61,6 +62,7 @@ export function setCachedSamples(
     samples: SampleSummary[];
     meta: SamplesResponseMeta | null;
     orphanDealCount: number;
+    timestamp?: number;
   }
 ): void {
   if (!principal) return;
@@ -69,7 +71,7 @@ export function setCachedSamples(
     samples: data.samples,
     meta: data.meta,
     orphanDealCount: data.orphanDealCount,
-    timestamp: Date.now(),
+    timestamp: data.timestamp ?? Date.now(),
   };
 }
 
@@ -152,11 +154,13 @@ export async function fetchSamplesWithDeduplication(
         };
       }
 
+      const nowTs = Date.now();
       const result: SamplesFetchSuccess = {
         success: true,
         samples: data.samples as SampleSummary[],
         meta: (data.meta as SamplesResponseMeta) ?? null,
         orphanDealCount: Number(data.orphanDealCount ?? 0),
+        timestamp: nowTs,
       };
 
       // Atomically store into cache only for matching principal

@@ -59,7 +59,7 @@ const CARDS: Array<{
   {
     key: "ambiguous",
     title: "С неоднозначными данными",
-    hint: "противоречивые источники",
+    hint: "смешанные или противоречивые данные",
     accent: "text-yellow-600 dark:text-yellow-400",
   },
 ];
@@ -67,9 +67,11 @@ const CARDS: Array<{
 export function SamplesKpiCards({
   kpis,
   loading,
+  unavailable = false,
 }: {
   kpis: SamplesKpis;
   loading: boolean;
+  unavailable?: boolean;
 }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -84,7 +86,7 @@ export function SamplesKpiCards({
             ) : (
               <>
                 <div className={`text-2xl font-bold tabular-nums leading-none ${accent}`}>
-                  {kpis[key]}
+                  {unavailable ? "—" : kpis[key]}
                 </div>
                 <div className="mt-1.5 text-[11px] font-medium leading-tight text-foreground/80">
                   {title}
