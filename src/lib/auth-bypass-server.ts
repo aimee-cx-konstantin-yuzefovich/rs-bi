@@ -11,8 +11,11 @@ import {
  * is permitted for the current incoming HTTP request.
  *
  * Invariants:
- * - On Vercel: strictly checks request host against DEV_BYPASS_HOSTS and
- *   client IP against DEV_BYPASS_ALLOWED_IPS.
+ * - On Vercel: the canonical development host (CANONICAL_VERCEL_DEV_BYPASS_HOST,
+ *   exact normalized equality) gets the synthetic dev/admin bypass automatically
+ *   — no AUTH_MODE, DEV_BYPASS_HOSTS, or DEV_BYPASS_ALLOWED_IPS requirement.
+ * - On Vercel, other hosts: strictly checks request host against DEV_BYPASS_HOSTS
+ *   and client IP against DEV_BYPASS_ALLOWED_IPS (AUTH_MODE=bypass required).
  * - Outside Vercel (local dev): allows bypass if AUTH_MODE=bypass and NODE_ENV=development.
  * - Fails closed on any error or missing requirement.
  */

@@ -1,6 +1,25 @@
 import { isValidIp, normalizeClientIp } from "@/lib/client-ip";
 
 /**
+ * Canonical Vercel development URL for the BI terminal.
+ *
+ * When the app runs on Vercel (VERCEL === "1") and the normalized request
+ * hostname EXACTLY equals this constant, the synthetic development/admin
+ * auth bypass (DEV_USER / DEV_SESSION) is enabled automatically — without
+ * WordPress login, without AUTH_MODE=bypass, without DEV_BYPASS_HOSTS and
+ * without DEV_BYPASS_ALLOWED_IPS (no client-IP requirement).
+ *
+ * SECURITY BOUNDARY:
+ * - Strict equality after normalization (trim, lowercase, port strip).
+ *   Wildcard (*.vercel.app), substring, and suffix matching are forbidden.
+ * - Custom production domains (bi.russilica.com, bi-terminal.rus-silica.com),
+ *   arbitrary Vercel preview/branch URLs, and non-Vercel hosts NEVER match.
+ * - This deployment is additionally protected by Vercel Deployment Protection
+ *   (ssoProtection.deploymentType: "all_except_custom_domains").
+ */
+export const CANONICAL_VERCEL_DEV_BYPASS_HOST = "rs-bi.vercel.app";
+
+/**
  * Context input for the pure authentication bypass evaluator.
  */
 export interface AuthBypassContext {
@@ -69,10 +88,15 @@ export function parseAllowlist(raw: string | null | undefined): string[] {
  *
  * INVARIANTS:
  * 1. Default is ALWAYS false (fail-closed).
- * 2. AUTH_MODE must be explicitly "bypass".
- * 3. Local development:
+ * 2. Canonical Vercel development host: when running on Vercel
+ *    (isVercel === true) and the normalized request host EXACTLY equals
+ *    CANONICAL_VERCEL_DEV_BYPASS_HOST, bypass is enabled automatically
+ *    (no AUTH_MODE, host allowlist, or client-IP requirement). Strict
+ *    equality after normalization only — never wildcard/substring/suffix.
+ * 3. Otherwise AUTH_MODE must be explicitly "bypass".
+ * 4. Local development:
  *    - Allowed when !isVercel AND nodeEnv === "development".
- * 4. Vercel runtime:
+ * 5. Vercel runtime (non-canonical hosts, AUTH_MODE=bypass):
  *    - Allowed ONLY when isVercel is true AND
  *      normalized host strictly matches an entry in allowedHosts AND
  *      normalized clientIp strictly matches an entry in allowedIps.
@@ -81,6 +105,18 @@ export function parseAllowlist(raw: string | null | undefined): string[] {
  *    - Missing, invalid, or "unknown" client IP ALWAYS returns false.
  */
 export function evaluateAuthBypass(context: AuthBypassContext): boolean {
+  // Vercel canonical development host: automatic synthetic dev/admin bypass.
+  // Requires VERCEL=1 AND the normalized request host to EXACTLY equal
+  // CANONICAL_VERCEL_DEV_BYPASS_HOST. No AUTH_MODE, host allowlist, or client
+  // IP requirement applies on this host. All other hosts fall through to the
+  // normal (WordPress/NextAuth or explicit local-dev) rules below.
+  if (
+    context.isVercel === true &&
+    normalizeHost(context.host) === CANONICAL_VERCEL_DEV_BYPASS_HOST
+  ) {
+    return true;
+  }
+
   if (context.authMode !== "bypass") {
     return false;
   }

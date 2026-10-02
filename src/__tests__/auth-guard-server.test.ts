@@ -136,4 +136,64 @@ describe("Server Auth Guards with Request-Scoped Bypass", () => {
       expect((result as NextResponse).status).toBe(403);
     });
   });
+
+  describe("Canonical Vercel development host (rs-bi.vercel.app) — automatic bypass", () => {
+    const canonicalHost = "rs-bi.vercel.app";
+
+    beforeEach(() => {
+      // NO AUTH_MODE, NO DEV_BYPASS_HOSTS, NO DEV_BYPASS_ALLOWED_IPS.
+      setEnv("AUTH_MODE", undefined);
+      setEnv("DEV_BYPASS_HOSTS", undefined);
+      setEnv("DEV_BYPASS_ALLOWED_IPS", undefined);
+      setEnv("VERCEL", "1");
+      setEnv("VERCEL_ENV", "production");
+      setEnv("NODE_ENV", "production");
+    });
+
+    it("requireAuth returns DEV_USER on the canonical host without WordPress session", async () => {
+      mockHeaders(canonicalHost); // no client IP header at all
+
+      const result = await requireAuth();
+      expect(result).toEqual({
+        userId: DEV_USER.id,
+        email: DEV_USER.email,
+        name: DEV_USER.name,
+        role: DEV_USER.role,
+      });
+      expect(getServerSession).not.toHaveBeenCalled();
+    });
+
+    it("requireAdmin returns the admin DEV_USER on the canonical host", async () => {
+      mockHeaders(`${canonicalHost}:443`); // normalized (port stripped)
+
+      const result = await requireAdmin();
+      expect(result).toEqual({
+        userId: DEV_USER.id,
+        email: DEV_USER.email,
+        name: DEV_USER.name,
+        role: DEV_USER.role,
+      });
+      expect(getServerSession).not.toHaveBeenCalled();
+    });
+
+    it("custom production domain without bypass env still requires a real WordPress session", async () => {
+      mockHeaders("bi.russilica.com");
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+
+      const result = await requireAuth();
+      expect(result).toBeInstanceOf(NextResponse);
+      expect((result as NextResponse).status).toBe(401);
+      expect(getServerSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("arbitrary Vercel host (preview URL) without bypass env still requires a real session", async () => {
+      mockHeaders("rs-bi-git-feature-xyz.vercel.app");
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+
+      const result = await requireAuth();
+      expect(result).toBeInstanceOf(NextResponse);
+      expect((result as NextResponse).status).toBe(401);
+      expect(getServerSession).toHaveBeenCalledTimes(1);
+    });
+  });
 });

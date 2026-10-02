@@ -186,6 +186,80 @@ describe("Request-Scoped Development Auth Bypass Policy", () => {
     });
   });
 
+  describe("Canonical Vercel development host bypass (rs-bi.vercel.app)", () => {
+    const canonical = "rs-bi.vercel.app";
+
+    // Context emulating the canonical Vercel deployment WITHOUT any manual
+    // bypass configuration: no AUTH_MODE, no DEV_BYPASS_HOSTS, no allowed IPs.
+    const canonicalNoEnv: AuthBypassContext = {
+      authMode: undefined,
+      isVercel: true,
+      nodeEnv: "production",
+      vercelEnv: "production",
+      host: canonical,
+      clientIp: "unknown",
+      allowedHosts: [],
+      allowedIps: [],
+    };
+
+    it("V1: VERCEL=1 + exact rs-bi.vercel.app -> TRUE without any bypass env", () => {
+      expect(evaluateAuthBypass(canonicalNoEnv)).toBe(true);
+    });
+
+    it("V2: rs-bi.vercel.app:443 -> TRUE after normalization", () => {
+      expect(
+        evaluateAuthBypass({ ...canonicalNoEnv, host: "rs-bi.vercel.app:443" })
+      ).toBe(true);
+    });
+
+    it("V3: bi-terminal.rus-silica.com -> FALSE (WordPress-protected)", () => {
+      expect(
+        evaluateAuthBypass({ ...canonicalNoEnv, host: "bi-terminal.rus-silica.com" })
+      ).toBe(false);
+    });
+
+    it("V4: bi.russilica.com -> FALSE (WordPress-protected)", () => {
+      expect(evaluateAuthBypass({ ...canonicalNoEnv, host: "bi.russilica.com" })).toBe(false);
+    });
+
+    it("V5: arbitrary preview URL rs-bi-git-feature-xyz.vercel.app -> FALSE", () => {
+      expect(
+        evaluateAuthBypass({ ...canonicalNoEnv, host: "rs-bi-git-feature-xyz.vercel.app" })
+      ).toBe(false);
+    });
+
+    it("V6: prefix attack evil-rs-bi.vercel.app -> FALSE", () => {
+      expect(
+        evaluateAuthBypass({ ...canonicalNoEnv, host: "evil-rs-bi.vercel.app" })
+      ).toBe(false);
+    });
+
+    it("V7: suffix attack rs-bi.vercel.app.evil.com -> FALSE", () => {
+      expect(
+        evaluateAuthBypass({ ...canonicalNoEnv, host: "rs-bi.vercel.app.evil.com" })
+      ).toBe(false);
+    });
+
+    it("V8: wildcard *.vercel.app is never accepted (only the exact constant)", () => {
+      // Any other *.vercel.app host must fail even with permissive allowlists absent.
+      expect(
+        evaluateAuthBypass({ ...canonicalNoEnv, host: "anything-else.vercel.app" })
+      ).toBe(false);
+      // Uppercase is normalized to the exact host and is therefore accepted.
+      expect(evaluateAuthBypass({ ...canonicalNoEnv, host: "RS-BI.VERCEL.APP" })).toBe(true);
+    });
+
+    it("V9: canonical host requires VERCEL=1 (isVercel=false) -> FALSE", () => {
+      expect(evaluateAuthBypass({ ...canonicalNoEnv, isVercel: false })).toBe(false);
+    });
+
+    it("V10: canonical host works regardless of AUTH_MODE value", () => {
+      expect(
+        evaluateAuthBypass({ ...canonicalNoEnv, authMode: "wordpress" })
+      ).toBe(true);
+    });
+  });
+
   describe("Additional Edge Cases & Integrations", () => {
     it("handles multiple comma-separated hosts and IPs correctly", () => {
       const multiContext: AuthBypassContext = {

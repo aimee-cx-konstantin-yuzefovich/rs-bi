@@ -28,9 +28,12 @@ import { IS_PRODUCTION } from "@/lib/config";
 // via `node server.js` under PM2 or Docker container) behind a Caddy reverse proxy.
 // In this single-instance architecture, this in-memory Map provides robust, fast,
 // zero-dependency rate limiting across all client requests without external store overhead.
-// Note: Vercel is used exclusively for ephemeral developer preview testing (with AUTH_MODE=bypass
-// and IP allowlist). If production is horizontally scaled to multiple Node.js instances in the
-// future, this rate limiter must be backed by an external distributed store (e.g. Redis).
+// Note: Vercel is used exclusively for ephemeral developer preview testing
+// (the canonical rs-bi.vercel.app host gets an automatic server-side auth
+// bypass; other hosts may use AUTH_MODE=bypass with a host/IP allowlist).
+// If production is horizontally scaled to multiple Node.js instances in the
+// future, this rate limiter must be backed by an external distributed store
+// (e.g. Redis).
 
 interface RateLimitEntry {
   count: number;

@@ -1,8 +1,14 @@
 /**
  * Authentication Mode & Development Bypass Helper — RusSilica BI Terminal
  *
- * Centralized authority for determining whether the authentication bypass
- * is enabled for local development and Vercel Preview deployments.
+ * Centralized authority for the request-LESS bypass mode and the synthetic
+ * development identity (DEV_USER / DEV_SESSION).
+ *
+ * Request-scoped bypass decisions (including the automatic canonical Vercel
+ * development host `rs-bi.vercel.app`) are owned by the server-authoritative
+ * evaluator in `src/lib/auth-bypass-policy.ts` via `isRequestAuthBypassEnabled`
+ * — this module only covers the legacy env-based mode for local development
+ * and explicitly allowlisted Vercel hosts.
  *
  * SECURITY INVARIANTS:
  * 1. Default mode is ALWAYS "wordpress" (fail secure).

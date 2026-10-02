@@ -169,7 +169,27 @@ the restart policy applies when its process exits.
 
 ## Vercel Development Bypass & Security Policy
 
-`AUTH_MODE=bypass` on Vercel is request-scoped and strictly restricted to approved hosts and client IPs:
+Authentication bypass on Vercel is request-scoped and server-authoritative, with two independent paths:
+
+**1. Canonical Vercel development host (automatic):**
+
+```text
+AUTH BYPASS = TRUE  <=>
+  1. Running on Vercel (VERCEL=1)
+  2. Request hostname (normalized: trim, lowercase, port stripped)
+     EXACTLY equals rs-bi.vercel.app
+```
+
+On this host the synthetic development/admin identity (`DEV_USER` / `DEV_SESSION`)
+is enabled automatically — no WordPress login, no `AUTH_MODE`, no `DEV_BYPASS_HOSTS`,
+no `DEV_BYPASS_ALLOWED_IPS` and no client-IP requirement. Matching is strict
+equality after normalization: wildcard `*.vercel.app`, substring and suffix
+matching are forbidden, so arbitrary preview/branch Vercel URLs, custom production
+domains and non-Vercel hosts never activate the bypass. This deployment is
+additionally protected by Vercel Deployment Protection
+(`ssoProtection.deploymentType: "all_except_custom_domains"`).
+
+**2. Explicit host + IP allowlist path (other Vercel hosts):**
 
 ```text
 AUTH BYPASS = TRUE  <=>
@@ -209,9 +229,16 @@ Existing environment variables remain unchanged:
 
 ### Vercel Development Deployment
 
+The canonical development URL `https://rs-bi.vercel.app` requires no manual
+bypass configuration — the automatic host-based bypass applies (see policy
+above) as long as `VERCEL=1` in the Vercel runtime.
+
+Optional legacy path for other explicitly approved Vercel hosts (requires a
+fixed client IP and both allowlist variables):
+
 ```text
 AUTH_MODE=bypass
-DEV_BYPASS_HOSTS=rs-bi-git-main-constantinejozefowicz-8563s-projects.vercel.app
+DEV_BYPASS_HOSTS=<approved vercel host>
 DEV_BYPASS_ALLOWED_IPS=<fixed user public IPv4>
 NEXTAUTH_SECRET=<valid secret>
 BITRIX_WEBHOOK_URL=<approved webhook>
