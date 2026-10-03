@@ -63,6 +63,31 @@ let activeInFlightRequestId: symbol | null = null;
 
 const CLIENT_FETCH_TIMEOUT_MS = 180_000;
 
+/**
+ * THE one Smart Process cache freshness policy (named, module-owned — no
+ * scattered component logic).
+ *
+ * - Cache older than this → expired: consumers render the cached snapshot
+ *   immediately and refresh in the background.
+ * - Cache younger than this → fresh: consumers reuse the snapshot WITHOUT
+ *   triggering another full Smart Process fetch merely because they mounted.
+ * - Explicit reload() always performs a real request regardless of freshness.
+ *
+ * In-memory only (never persisted to localStorage); mirrors the enrichment
+ * freshness used elsewhere in the app.
+ */
+export const SMART_PROCESS_CACHE_FRESHNESS_MS = 5 * 60 * 1000;
+
+/**
+ * Truthful freshness check: true only when a complete snapshot exists for
+ * this principal and is younger than SMART_PROCESS_CACHE_FRESHNESS_MS.
+ */
+export function isSmartProcessCacheFresh(principal: string): boolean {
+  const cached = getCachedSmartProcessItems(principal);
+  if (!cached) return false;
+  return Date.now() - cached.timestamp < SMART_PROCESS_CACHE_FRESHNESS_MS;
+}
+
 /** Retrieves the current cached complete snapshot if the principal matches. */
 export function getCachedSmartProcessItems(
   principal: string

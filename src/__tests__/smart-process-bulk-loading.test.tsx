@@ -236,4 +236,80 @@ describe("Smart Process bulk loading — coalescing (§8.14)", () => {
     expect(latest.isStale).toBe(true);
     expect(latest.refreshError).toBeTruthy();
   });
+
+  it("FRESH cache is reused without any fetch when another consumer mounts (ONE named freshness policy)", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/api/bitrix/smart-process-items")) {
+        return new Response(JSON.stringify(SP_SUCCESS_BODY), { status: 200 });
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    });
+
+    // First consumer: cold cache → one real request.
+    let first!: ReturnType<typeof useSmartProcessData>;
+    render(<SPProbe onState={(s) => (first = s)} />);
+    await waitFor(() => {
+      expect(first.dataState).toBe("ready");
+    });
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/api/bitrix/smart-process-items"))).toHaveLength(1);
+
+    // Second consumer mounts while the cache is FRESH: reuse, no request,
+    // no refreshing flag, no loading state.
+    cleanup();
+    let second!: ReturnType<typeof useSmartProcessData>;
+    render(<SPProbe onState={(s) => (second = s)} />);
+    await waitFor(() => {
+      expect(second.dataState).toBe("ready");
+      expect(second.items).toHaveLength(1);
+    });
+    expect(second.refreshing).toBe(false);
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/api/bitrix/smart-process-items"))).toHaveLength(1);
+  });
+
+  it("EXPIRED cache renders the snapshot immediately and refreshes in the background; explicit reload always fetches", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/api/bitrix/smart-process-items")) {
+        return new Response(JSON.stringify(SP_SUCCESS_BODY), { status: 200 });
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    });
+
+    let first!: ReturnType<typeof useSmartProcessData>;
+    render(<SPProbe onState={(s) => (first = s)} />);
+    await waitFor(() => {
+      expect(first.dataState).toBe("ready");
+    });
+
+    // Age the cached snapshot past the named freshness policy.
+    const { setCachedSmartProcessItems, SMART_PROCESS_CACHE_FRESHNESS_MS } =
+      await import("@/lib/samples/smart-process-client-cache");
+    expect(SMART_PROCESS_CACHE_FRESHNESS_MS).toBeGreaterThan(0);
+    setCachedSmartProcessItems(mockSession.userId, {
+      items: first.items,
+      byDealId: {},
+      byCompanyId: {},
+      stageDirectoryAvailable: true,
+      timestamp: Date.now() - SMART_PROCESS_CACHE_FRESHNESS_MS - 1000,
+    });
+
+    cleanup();
+    fetchMock.mockClear();
+    let second!: ReturnType<typeof useSmartProcessData>;
+    render(<SPProbe onState={(s) => (second = s)} />);
+    // Cached snapshot renders immediately (no cold loading state).
+    await waitFor(() => {
+      expect(second.dataState).toBe("ready");
+      expect(second.items).toHaveLength(1);
+    });
+    // …and an expired cache triggers exactly ONE background refresh.
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/api/bitrix/smart-process-items"))).toHaveLength(1);
+    });
+
+    // Explicit reload always performs a real request.
+    second.reload();
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/api/bitrix/smart-process-items"))).toHaveLength(2);
+    });
+  });
 });

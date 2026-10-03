@@ -56,10 +56,9 @@ function validateDealsRequest(body: unknown): DealsRequestBody {
     });
   }
 
-  // Force COMPANY_TITLE to be requested so the frontend can use it as a fallback
-  if (!select.includes("COMPANY_TITLE") && !select.includes("*")) {
-    select.push("COMPANY_TITLE");
-  }
+  // NOTE: COMPANY_TITLE is intentionally NOT force-augmented here —
+  // crm.deal.list does not return it; the Deals table column is resolved
+  // client-side from the companies dictionary (splitDealTableColumns).
 
   // Validate `filter`
   let filter: Record<string, string | string[]> = {};

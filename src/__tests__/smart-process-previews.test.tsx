@@ -40,6 +40,17 @@ import { clearSmartProcessCache } from "@/lib/samples/smart-process-client-cache
 
 const fetchMock = vi.fn();
 
+/** Extracts the JSON body of the most recent /api/bitrix/samples call. */
+function mockBodyOfLastSamplesCall(): Record<string, unknown> {
+  for (let i = fetchMock.mock.calls.length - 1; i >= 0; i--) {
+    const [u, init] = fetchMock.mock.calls[i] as [unknown, { body?: string } | undefined];
+    if (String(u).includes("/api/bitrix/samples")) {
+      return JSON.parse(String(init?.body ?? "{}"));
+    }
+  }
+  return {};
+}
+
 const SP_BODY = {
   success: true,
   stageDirectoryAvailable: true,
@@ -229,8 +240,19 @@ beforeEach(() => {
       );
     }
     if (url.includes("/api/bitrix/samples")) {
+      // Company-scoped canonical Samples response embeds the trustworthy
+      // Smart Process cycles for the requested company (Lite item views).
+      // CompanyPreview fixtures only request company 10 / 99.
+      let companyId = "";
+      try {
+        companyId = String(mockBodyOfLastSamplesCall().companyId ?? "");
+      } catch { companyId = ""; }
+      const items = companyId === "99" ? [] : SP_BODY.byCompanyId["10"];
       return new Response(
-        JSON.stringify({ success: true, samples: [] }),
+        JSON.stringify({
+          success: true,
+          samples: items.length > 0 ? [{ companyId, companyTitle: "ООО Ромашка", smartProcessItems: items, activeSmartProcessCount: items.filter((i) => i.isActive).length, currentActiveStageLabels: [] }] : [],
+        }),
         { status: 200 }
       );
     }
@@ -327,27 +349,43 @@ describe("Deal Preview — Тестирование образцов (§8.15)", 
 });
 
 describe("Company Preview — Циклы тестирования (§8.16)", () => {
-  it("shows correct active/terminal counts and ALL trustworthy company cycles; no conflict leakage", async () => {
+  it("uses ONE company-scoped data path: correct active/terminal counts and ALL trustworthy company cycles; no conflict leakage; no bulk SP fetch", async () => {
     render(<CompanyPreview id="10" onClose={() => {}} />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Циклы тестирования")).toBeTruthy();
-    });
     await waitFor(() => {
       expect(screen.getByText(/Активных: 2 · Завершённых: 1/)).toBeTruthy();
     });
 
-    // All three trustworthy cycles render.
+    // All three trustworthy cycles render (multiple active never collapsed).
     expect(screen.getByText("Цикл активный")).toBeTruthy();
     expect(screen.getByText("Цикл завершён")).toBeTruthy();
     expect(screen.getByText("Без сделки")).toBeTruthy();
+
+    // Deal titles resolve client-side from the store (no extra fetch).
+    // Two trustworthy cycles link to deal 505 → the title appears twice.
+    expect(screen.getAllByText(/Поставка партии/).length).toBe(2);
+
+    // THE one data path: the bulk smart-process-items endpoint is never
+    // called by Company Preview — data arrives via /api/bitrix/samples.
+    const spCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/bitrix/smart-process-items")
+    );
+    expect(spCalls).toHaveLength(0);
+    const samplesCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/bitrix/samples")
+    );
+    expect(samplesCalls).toHaveLength(1);
+
+    // Conflict/orphan items never leak into company aggregation (fixture
+    // contains a foreign-company cycle that must not appear).
+    expect(screen.queryByText("Чужой цикл")).toBeNull();
   });
 
   it("company without cycles → truthful empty disclosure", async () => {
     fetchMock.mockImplementation(async (url: string) => {
-      if (url.includes("/api/bitrix/smart-process-items")) {
+      if (url.includes("/api/bitrix/samples")) {
         return new Response(
-          JSON.stringify({ success: true, items: [], byDealId: {}, byCompanyId: {}, stageDirectoryAvailable: true, total: 0 }),
+          JSON.stringify({ success: true, samples: [] }),
           { status: 200 }
         );
       }
@@ -364,5 +402,87 @@ describe("Company Preview — Циклы тестирования (§8.16)", () 
     await waitFor(() => {
       expect(screen.getByText("Циклы тестирования не найдены")).toBeTruthy();
     });
+  });
+
+  it("initial Samples failure → explicit error + retry performs a real request; failure after success preserves prior cycles with stale disclosure", async () => {
+    let failing = true;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/api/bitrix/samples")) {
+        if (failing) return new Response(JSON.stringify({ error: "upstream down" }), { status: 502 });
+        return new Response(
+          JSON.stringify({
+            success: true,
+            samples: [
+              {
+                companyId: "10",
+                companyTitle: "ООО Ромашка",
+                responsibleId: "7",
+                productFamilies: [],
+                grades: [],
+                quantities: [],
+                sentDates: [],
+                sampleIndicators: [],
+                processStatuses: [],
+                normalizedResult: "pending",
+                relatedDeals: [],
+                dataIssues: [],
+                smartProcessItems: [
+                  {
+                    processItemId: "9001",
+                    title: "Цикл активный",
+                    companyId: "10",
+                    linkedDealId: "505",
+                    stageId: "DT1032_15:CLIENT",
+                    stageLabel: "Образцы на испытании",
+                    isActive: true,
+                    isTerminal: false,
+                    sentDates: ["2026-03-10"],
+                    grades: [],
+                    quantities: [],
+                    normalizedResult: "pending",
+                    dataIssues: [],
+                  },
+                ],
+                activeSmartProcessCount: 1,
+                currentActiveStageLabels: ["Образцы на испытании"],
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.includes("/api/bitrix/companies/")) {
+        return new Response(
+          JSON.stringify({ success: true, company: { ID: "10", TITLE: "ООО Ромашка" }, bitrixUrl: null }),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    });
+
+    render(<CompanyPreview id="10" onClose={() => {}} />);
+
+    // Initial failure is explicit and truthful (server error disclosed,
+    // never a masquerading empty state).
+    await waitFor(() => {
+      expect(screen.getByText("upstream down")).toBeTruthy();
+    });
+    const spSection = () => document.querySelector("[data-sp-company-section]")!;
+    expect(spSection().querySelector("[data-sp-retry]")).toBeTruthy();
+
+    failing = false;
+    fireEvent.click(spSection().querySelector("[data-sp-retry]")!);
+    await waitFor(() => {
+      expect(screen.getByText("Цикл активный")).toBeTruthy();
+    });
+
+    // Refresh failure AFTER success: prior cycles preserved + stale note.
+    failing = true;
+    fireEvent.click(spSection().querySelector("[data-sp-retry]")!);
+    await waitFor(() => {
+      expect(screen.getByText(/показаны ранее загруженные данные/i)).toBeTruthy();
+    });
+    // Prior data survives the failed refresh.
+    expect(screen.getByText("Цикл активный")).toBeTruthy();
   });
 });

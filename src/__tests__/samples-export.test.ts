@@ -177,6 +177,8 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
       "Количество",
       "Дата передачи",
       "Статус",
+      "Текущий этап тестирования",
+      "Активных процессов",
       "Результат",
       "Сделки",
     ];
@@ -224,18 +226,65 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
       expect(dateVal).toBe("15.02.2026");
     }
     expect(row7.getCell(9).value).toBe("Переданы, В работе");
-    expect(row7.getCell(10).value).toBe("Успешно");
-    expect(row7.getCell(11).value).toBe("Сделка №501");
+    // No active Smart Process stages in fixture 1 → empty stage cell + count 0
+    expect(row7.getCell(10).value).toBeNull();
+    expect(row7.getCell(11).value).toBe(0);
+    expect(row7.getCell(12).value).toBe("Успешно");
+    expect(row7.getCell(13).value).toBe("Сделка №501");
 
     // Verify Row 8 formula escaping
     const row8 = ws!.getRow(8);
     expect(row8.getCell(2).value).toBe("'=MALICIOUS_CMD()");
-    expect(row8.getCell(10).value).toBe("На доработке");
+    expect(row8.getCell(12).value).toBe("На доработке");
 
     // Verify Row 9 unmapped responsible displays properly (never raw ID 999)
     const row9 = ws!.getRow(9);
     expect(row9.getCell(3).value).toBe("Сотрудник не найден");
-    expect(row9.getCell(10).value).toBe("Неизвестно");
+    expect(row9.getCell(12).value).toBe("Неизвестно");
+  });
+
+  it("SMP-EXP-5: active Smart Process stages export without winner selection", async () => {
+    const summaries: SampleSummary[] = [
+      {
+        ...MOCK_EXPORT_SAMPLES[0],
+        companyId: "110",
+        companyTitle: "ООО МультиАктив",
+        currentActiveStageLabels: ["Испытания", "Ожидание ответа"],
+        activeSmartProcessCount: 2,
+      },
+      {
+        ...MOCK_EXPORT_SAMPLES[0],
+        companyId: "111",
+        companyTitle: "ООО ОдинАктив",
+        currentActiveStageLabels: ["Отправка образцов"],
+        activeSmartProcessCount: 1,
+      },
+    ];
+    const workbook = await buildSamplesWorkbook({
+      summaries,
+      userNames: MOCK_USER_NAMES,
+    });
+    const ws = workbook.getWorksheet("Образцы")!;
+
+    // >1 active: ALL unique stage labels disclosed, no winner chosen.
+    const multiRow = ws.getRow(7);
+    expect(multiRow.getCell(2).value).toBe("ООО МультиАктив");
+    expect(multiRow.getCell(10).value).toBe("Испытания, Ожидание ответа");
+    expect(multiRow.getCell(11).value).toBe(2);
+
+    // Exactly 1 active: its stage label.
+    const singleRow = ws.getRow(8);
+    expect(singleRow.getCell(2).value).toBe("ООО ОдинАктив");
+    expect(singleRow.getCell(10).value).toBe("Отправка образцов");
+    expect(singleRow.getCell(11).value).toBe(1);
+
+    // Binary round-trip keeps the count numeric.
+    const buffer = await workbook.xlsx.writeBuffer();
+    const reloaded = new ExcelJS.Workbook();
+    await reloaded.xlsx.load(buffer as ArrayBuffer);
+    const reWs = reloaded.getWorksheet("Образцы")!;
+    expect(reWs.getRow(7).getCell(11).value).toBe(2);
+    expect(reWs.getRow(8).getCell(11).value).toBe(1);
   });
 
   it("SMP-EXP-DOWNLOAD: exportSamplesToExcel triggers browser download when summaries exist", async () => {

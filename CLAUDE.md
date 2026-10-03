@@ -114,7 +114,7 @@ The Commercial Funnel provides management insight across exactly five permanent 
 - [`src/app/commercial-funnel/page.tsx`](src/app/commercial-funnel/page.tsx): Subsystem orchestrator managing the frozen `analysisNow` clock, global filter bar, filtered analytical slice, tab navigation, and drill-down sheet dispatch.
 - [`src/lib/deal-type.ts`](src/lib/deal-type.ts): Authoritative Deal Type registry (`buildDealTypeRegistry`) and shared resolver (`resolveDealType`) consuming Bitrix `crm.status.list` (`ENTITY_ID = DEAL_TYPE`).
 - [`src/lib/deal-preview.ts`](src/lib/deal-preview.ts): Shared Deal Preview model (`buildDealPreviewModel`) for drawer and Deal Excel export; enforces strict timeline mapping (`DATE_MODIFY` is never customer touch).
-- [`src/lib/company-preview.ts`](src/lib/company-preview.ts): Shared Company Preview model (`buildCompanyPreviewModel`), 24-field whitelist (`COMPANY_PREVIEW_CURRENT_FIELDS`), consumed identically by UI drawer and Company Excel export.
+- [`src/lib/company-preview.ts`](src/lib/company-preview.ts): Shared Company Preview model (`buildCompanyPreviewModel`), 21-business-field whitelist (`COMPANY_PREVIEW_CURRENT_FIELDS`), consumed identically by UI drawer and Company Excel export.
 
 #### Natural-grain filtering & re-projection model
 
@@ -283,11 +283,16 @@ The system distinguishes five conceptual analytical lifecycle states across Samp
 #### Company Preview architecture
 
 - The Company Preview model (`buildCompanyPreviewModel` in `src/lib/company-preview.ts`) governs all company inspection surfaces (drawer and Company Excel export):
-  - **ONE approved current-card whitelist**: strictly 24 fields (`COMPANY_PREVIEW_CURRENT_FIELDS`) mirroring the live Bitrix Company card layout; no page-specific field lists; no generic `UF_CRM_*` iteration.
+  - **ONE approved current-card whitelist**: 21 business fields (`COMPANY_PREVIEW_CURRENT_FIELDS`) mirroring the live Bitrix Company card layout and order, plus the `Тестирование образцов` marker field and the system `DATE_CREATE`/`DATE_MODIFY` pair; no page-specific field lists; no generic `UF_CRM_*` iteration.
   - **Current fields authoritative**: Current approved fields (`UF_CRM_1784195884554` Industry, `UF_CRM_1784200275341` Direction, `UF_CRM_69259C45D3399` Region) are authoritative; legacy `Сфера деятельности` and retired fields must never substitute.
+  - **Empty-field invariant**: every whitelisted field renders even when empty — an unresolvable value becomes the truthful `—` placeholder; fields are never dropped, values never fabricated. UI and Excel inherit this from the same resolved model.
   - Product type is analytical, separate from Company card preview.
   - Legacy sample fields remain in canonical analytics, never rendering as individual current-card rows.
-  - BI-specific sample analytics and related Deals render in dedicated sections below the native card fields.
+- The drawer (`src/components/dashboard/company-preview.tsx`) is the single canonical company drawer for every "open this company" action; callers pass only navigation/focus callbacks. Its Smart Process section consumes exactly ONE data path — the company-scoped `POST /api/bitrix/samples { companyId }` response (`SampleSummary.smartProcessItems`, active/terminal counts); the shared bulk cache (`smart-process-client-cache.ts`, one named freshness policy `SMART_PROCESS_CACHE_FRESHNESS_MS`) remains for Deals table / Deal Preview bulk consumers. Company Excel export mirrors the drawer sections; the Smart Process cycle table renders one physical item per row with exactly 12 columns. See the "Company Preview canonical drawer contract" section in `AGENTS.md`.
+
+#### Samples registry Excel
+
+- `buildSamplesWorkbook` (Samples registry export) renders ONE COMPANY = ONE row from the canonical `SampleSummary` and includes the Smart Process presentation facts `Текущий этап тестирования` (from `currentActiveStageLabels`: empty for 0 active, the label for exactly 1, all unique labels joined for >1 — never a winner) and `Активных процессов` (numeric `activeSmartProcessCount`). No second Smart Process fetch is performed for export.
 
 #### Samples ambiguity semantics
 

@@ -13,7 +13,7 @@ import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
 import type { DatasetCoverage } from "@/lib/dataset-coverage";
 import { CompanyPreview } from "./company-preview";
 import { DealPreview } from "./deal-preview";
-import { isCompanyId, defaultSampleFields } from "@/lib/company-preview";
+import { isCompanyId } from "@/lib/company-preview";
 import { CompanyColumnSelector } from "./company-column-selector";
 import { CompanyDateFilter } from "./company-date-filter";
 import {
@@ -574,9 +574,6 @@ export function CompanyBrowser() {
     }
   }, [sortedItems, columns, fieldMap, userNames, highlightSamples, activeName, columnFilters, companyDateFilter]);
 
-  const previewSampleFields = (company: Record<string, unknown>) => {
-    return defaultSampleFields(company, fields);
-  };
   const openPreview = (id: string, row: HTMLTableRowElement | null) => {
     if (!isCompanyId(id)) return;
     previewTrigger.current = row?.querySelector<HTMLButtonElement>("[data-company-preview]") || null;
@@ -1002,7 +999,6 @@ export function CompanyBrowser() {
         <CompanyPreview
           key={previewId}
           id={previewId}
-          sampleFieldsFor={previewSampleFields}
           onClose={() => setPreviewId(null)}
           onRestoreFocus={() => previewTrigger.current?.focus()}
           onOpenDealPreview={(dealId) => {

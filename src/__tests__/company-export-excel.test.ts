@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 describe("createCompanyExcelWorkbook", () => {
-  it("creates a branded Account Report with logo, corporate header, sections, samples, and deals", () => {
+  it("creates a branded Account Report with logo, corporate header, sections, marker, Smart Process cycles and deals", () => {
     const fixedDate = new Date("2026-09-10T12:00:00Z");
     const workbook = createCompanyExcelWorkbook({
       companyTitle: "ООО РусСилика",
@@ -15,18 +15,36 @@ describe("createCompanyExcelWorkbook", () => {
       companyFields: [
         { label: "Ответственный компании", value: "Иван Иванов" },
         { label: "Телефон", value: "+7 999 123-45-67" },
-        { label: "Дата создания", value: "10.01.2025" },
-        { label: "Дата изменения", value: "01.07.2026" },
       ],
-      sampleFields: [
-        { label: "Марка предоставленных образцов (ГЕЛЬ)", value: "Гель-1" },
-        { label: "Кол-во переданного образца (ГЕЛЬ) кг", value: "50" },
-        { label: "Марка предоставленных образцов (ЗОЛЬ)", value: "Золь-2" },
-        { label: "Кол-во переданного образца (ЗОЛЬ) л", value: "30" },
-        { label: "Дата передачи образцов", value: "15.06.2026" },
-        { label: "Результат испытаний", value: "Успешно пройдены" },
-        { label: "Комментарий", value: "Тестовая партия" },
-      ],
+      companyModel: {
+        fields: [
+          { id: "ASSIGNED_BY_ID", label: "Ответственный", value: "Иван Иванов", type: "user" },
+          { id: "DATE_CREATE", label: "Дата создания", value: "10.01.2025", type: "date" },
+          { id: "DATE_MODIFY", label: "Дата изменения", value: "01.07.2026", type: "date" },
+        ],
+      },
+      testingMarkerField: { label: "Тестирование образцов", value: "Да" },
+      smartProcess: {
+        activeCount: 1,
+        completedCount: 0,
+        items: [
+          {
+            processItemId: "551",
+            title: "Тестирование образца",
+            stageLabel: "Испытания",
+            linkedDealId: "999",
+            sentDates: ["15.06.2026"],
+            grades: [{ productFamily: "Гель", value: "Гель-1" }],
+            quantities: [{ productFamily: "Гель", value: 50 }],
+            rawTestResult: "Успешно пройдены",
+            normalizedResult: "SUCCESS",
+            responsibleId: "7",
+            dataIssues: [],
+          },
+        ],
+      },
+      dealTitleById: new Map([["999", "Поставка партии кремния"]]),
+      userNames: { "7": "Иван Иванов" },
       deals: [
         {
           id: "999",
@@ -56,54 +74,60 @@ describe("createCompanyExcelWorkbook", () => {
     // Check sections exist
     const rowsValues: string[] = [];
     worksheet?.eachRow((row) => {
-      const val = row.getCell(1).value;
-      if (typeof val === "string") {
-        rowsValues.push(val);
+      for (let c = 1; c <= 12; c++) {
+        const val = row.getCell(c).value;
+        if (typeof val === "string") rowsValues.push(val);
       }
     });
 
-    expect(rowsValues).toContain("Основная информация");
-    expect(rowsValues).toContain("Образцы");
+    expect(rowsValues).toContain("Информация о компании");
+    expect(rowsValues).toContain("Информация об образцах");
+    expect(rowsValues).toContain("Тестирование образцов");
     expect(rowsValues).toContain("Связанные сделки (1)");
+    expect(rowsValues).toContain("Системная информация");
 
-    // Check sample fields in column 1
-    expect(rowsValues).toContain("Марка предоставленных образцов (ГЕЛЬ)");
-    expect(rowsValues).toContain("Кол-во переданного образца (ГЕЛЬ) кг");
-    expect(rowsValues).toContain("Марка предоставленных образцов (ЗОЛЬ)");
-    expect(rowsValues).toContain("Кол-во переданного образца (ЗОЛЬ) л");
-    expect(rowsValues).toContain("Дата передачи образцов");
-    expect(rowsValues).toContain("Результат испытаний");
-    expect(rowsValues).toContain("Комментарий");
+    // Check the Smart Process cycle table (12-column contract).
+    expect(rowsValues).toContain("ID процесса");
+    expect(rowsValues).toContain("Количество ГЕЛЬ, кг");
+    expect(rowsValues).toContain("Количество ЗОЛЬ, л");
+    expect(rowsValues).toContain("Качество данных / предупреждение");
+    expect(rowsValues).toContain("551");
+    expect(rowsValues).toContain("Поставка партии кремния (ID 999)");
+    expect(rowsValues).toContain("Активных процессов");
+    expect(rowsValues).toContain("Завершённых процессов");
 
     // Check footer exists
     expect(worksheet?.headerFooter.oddFooter).toContain("RusSilica BI Terminal");
   });
 
-  it("handles empty deals and empty sample fields gracefully", () => {
+  it("handles empty deals and empty Smart Process data gracefully", () => {
     const workbook = createCompanyExcelWorkbook({
       companyTitle: "Пустая компания",
       companyId: "456",
       companyFields: [],
-      sampleFields: [],
       deals: [],
+      smartProcess: {
+        activeCount: 0,
+        completedCount: 0,
+        items: [],
+      },
     });
 
     const worksheet = workbook.getWorksheet("Отчёт по компании");
     expect(worksheet).toBeDefined();
 
     let foundEmptyDealsMessage = false;
-    let foundEmptySamplesMessage = false;
+    let foundEmptyCyclesMessage = false;
     worksheet?.eachRow((row) => {
-      if (row.getCell(1).value === "Нет связанных сделок") {
-        foundEmptyDealsMessage = true;
-      }
-      if (row.getCell(1).value === "Нет данных по образцам") {
-        foundEmptySamplesMessage = true;
+      for (let c = 1; c <= 12; c++) {
+        const v = row.getCell(c).value;
+        if (v === "Нет связанных сделок") foundEmptyDealsMessage = true;
+        if (v === "Циклы тестирования не найдены") foundEmptyCyclesMessage = true;
       }
     });
 
     expect(foundEmptyDealsMessage).toBe(true);
-    expect(foundEmptySamplesMessage).toBe(true);
+    expect(foundEmptyCyclesMessage).toBe(true);
   });
 
   it("handles special characters and newlines in company title", () => {
@@ -129,10 +153,8 @@ describe("createCompanyExcelWorkbook", () => {
     const ExcelJS = (await import("exceljs")).default;
 
     const {
-      COMPANY_SAMPLES_FIELD_ID,
       COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
       COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID,
-      DEAL_SAMPLE_SENT_DATE_FIELD_ID,
     } = await import("@/lib/crm-constants");
 
     const workbook = createCompanyExcelWorkbook({
@@ -144,16 +166,8 @@ describe("createCompanyExcelWorkbook", () => {
         { id: COMPANY_SAMPLES_DATE_MULTI_FIELD_ID, label: "Дата образцов (мульти)", value: "" },
         { id: COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID, label: "Дата образцов (сингл пустая)", value: "—" },
         { id: COMPANY_SAMPLES_DATE_SINGLE_FIELD_ID, label: "Дата образцов (сингл заполнена)", value: "20.03.2026" },
-        { id: COMPANY_SAMPLES_FIELD_ID, label: "Образцы", value: "требуются образцы" },
-        { id: COMPANY_SAMPLES_FIELD_ID, label: "Образцы множественные", value: "требуются образцы, образцы отправлены" },
         { label: "Дата следующего контакта", value: "", type: "date" },
         { label: "Комментарий", value: null, type: "string" },
-      ],
-      sampleFields: [
-        { id: DEAL_SAMPLE_SENT_DATE_FIELD_ID, label: "Дата отправки сделки", value: undefined },
-        { label: "Дата отправки образцов", value: "2026-04-10", type: "date" },
-        { label: "Дата передачи образцов", value: null, type: "date" },
-        { label: "Результат испытаний", value: "", type: "string" },
       ],
       deals: [],
     });
@@ -180,27 +194,17 @@ describe("createCompanyExcelWorkbook", () => {
     expect(cellMap.get("Дата создания")).toBeInstanceOf(Date);
     expect(numFmtMap.get("Дата создания")).toBe(NUMFMT.DATE);
 
-    expect(cellMap.get("Дата отправки образцов")).toBeInstanceOf(Date);
-    expect(numFmtMap.get("Дата отправки образцов")).toBe(NUMFMT.DATE);
-
     expect(cellMap.get("Дата образцов (сингл заполнена)")).toBeInstanceOf(Date);
     expect(numFmtMap.get("Дата образцов (сингл заполнена)")).toBe(NUMFMT.DATE);
 
-    // 2. Sample status fields (UF_CRM_1753187313314) must NOT be null and NOT Date — full text preserved
-    expect(cellMap.get("Образцы")).toBe("требуются образцы");
-    expect(cellMap.get("Образцы множественные")).toBe("требуются образцы, образцы отправлены");
-
-    // 3. Empty dates (null or "") must be genuinely null in Excel cell
+    // 2. Empty dates (null or "") must be genuinely null in Excel cell
     expect(cellMap.get("Дата изменения")).toBeNull();
     expect(cellMap.get("Дата следующего контакта")).toBeNull();
-    expect(cellMap.get("Дата передачи образцов")).toBeNull();
     expect(cellMap.get("Дата образцов (мульти)")).toBeNull();
     expect(cellMap.get("Дата образцов (сингл пустая)")).toBeNull();
-    expect(cellMap.get("Дата отправки сделки")).toBeNull();
 
-    // 4. Ordinary empty text fields may remain "—"
+    // 3. Ordinary empty text fields may remain "—"
     expect(cellMap.get("Комментарий")).toBe("—");
-    expect(cellMap.get("Результат испытаний")).toBe("—");
 
     // 5. Binary serialization round-trip: blank date remains blank/null, populated date remains Date, status remains text
     const buffer = await workbook.xlsx.writeBuffer();
@@ -219,13 +223,9 @@ describe("createCompanyExcelWorkbook", () => {
     expect(reloadedMap.get("Дата создания")).toBeInstanceOf(Date);
     expect(reloadedMap.get("Дата изменения")).toBeNull();
     expect(reloadedMap.get("Дата следующего контакта")).toBeNull();
-    expect(reloadedMap.get("Дата передачи образцов")).toBeNull();
     expect(reloadedMap.get("Дата образцов (мульти)")).toBeNull();
     expect(reloadedMap.get("Дата образцов (сингл пустая)")).toBeNull();
     expect(reloadedMap.get("Дата образцов (сингл заполнена)")).toBeInstanceOf(Date);
-    expect(reloadedMap.get("Образцы")).toBe("требуются образцы");
-    expect(reloadedMap.get("Образцы множественные")).toBe("требуются образцы, образцы отправлены");
-    expect(reloadedMap.get("Дата отправки сделки")).toBeNull();
     expect(reloadedMap.get("Комментарий")).toBe("—");
   });
 
@@ -420,12 +420,27 @@ describe("Company Excel Formula-Injection Security & Binary Round-Trip Regressio
         { label: "Дополнительно", value: "@SUM(A1:A2)" },
         { label: "Дата создания", value: "10.01.2025" }, // Native date invariant
       ],
-      sampleFields: [
-        { label: "Марка предоставленных образцов (ГЕЛЬ)", value: "=2+2" },
-        { label: "Результат испытаний", value: "+SUM(A1:A2)" },
-        { label: "Комментарий по образцам", value: "-1+1" },
-        { label: "Особые отметки", value: "@SUM(A1:A2)" },
-      ],
+      testingMarkerField: { label: "Тестирование образцов", value: "=2+2" },
+      smartProcess: {
+        activeCount: 0,
+        completedCount: 0,
+        items: [
+          {
+            processItemId: "proc-1",
+            title: "=2+2",
+            stageLabel: "+SUM(A1:A2)",
+            linkedDealId: "deal-1",
+            sentDates: [],
+            grades: [{ productFamily: "Гель", value: "=2+2" }],
+            quantities: [{ productFamily: "Гель", value: "+SUM(A1:A2)" }],
+            rawTestResult: "-1+1",
+            normalizedResult: "UNKNOWN",
+            responsibleId: "@bad",
+            dataIssues: [],
+          },
+        ],
+      },
+      userNames: {},
       deals: [
         {
           id: "deal-1",
@@ -476,18 +491,45 @@ describe("Company Excel Formula-Injection Security & Binary Round-Trip Regressio
       if (label) preMap.set(label, val);
     });
 
-    // A. Основная информация
+    // A. Информация о компании
     expect(preMap.get("Комментарий")).toBe("'=2+2");
     expect(preMap.get("Телефон")).toBe("'+SUM(A1:A2)");
     expect(preMap.get("Эл. почта")).toBe("'-1+1");
     expect(preMap.get("Дополнительно")).toBe("'@SUM(A1:A2)");
     expect(preMap.get("Дата создания")).toBeInstanceOf(Date);
 
-    // B. Образцы
-    expect(preMap.get("Марка предоставленных образцов (ГЕЛЬ)")).toBe("'=2+2");
-    expect(preMap.get("Результат испытаний")).toBe("'+SUM(A1:A2)");
-    expect(preMap.get("Комментарий по образцам")).toBe("'-1+1");
-    expect(preMap.get("Особые отметки")).toBe("'@SUM(A1:A2)");
+    // B. Информация об образцах (marker) + Smart Process cycle table
+    expect(preMap.get("Тестирование образцов")).toBe("'=2+2");
+
+    // SP cycle row (one physical process): find by its process ID column.
+    const spRows: Array<{ cells: any[]; types: number[] }> = [];
+    worksheet!.eachRow((row) => {
+      const c1 = String(row.getCell(1).value || "");
+      if (c1 === "proc-1") {
+        const cells: any[] = [];
+        const types: number[] = [];
+        for (let c = 1; c <= 12; c++) {
+          cells.push(row.getCell(c).value);
+          types.push(row.getCell(c).type);
+        }
+        spRows.push({ cells, types });
+      }
+    });
+    expect(spRows).toHaveLength(1);
+    const sp = spRows[0]!;
+    // stage label (col 3) sanitized
+    expect(sp.cells[2]).toBe("'+SUM(A1:A2)");
+    expect(sp.types[2]).not.toBe(ExcelJS.ValueType.Formula);
+    // relation (col 4): title + retained ID
+    expect(String(sp.cells[3])).toContain("deal-1");
+    // quantity (col 7) sanitized string, not formula
+    expect(sp.cells[6]).toBe("'+SUM(A1:A2)");
+    expect(sp.types[6]).not.toBe(ExcelJS.ValueType.Formula);
+    // result (col 10)
+    expect(sp.cells[9]).toBe("'-1+1");
+    expect(sp.types[9]).not.toBe(ExcelJS.ValueType.Formula);
+    // responsible (col 11): never a raw user ID as a label
+    expect(String(sp.cells[10])).not.toBe("@bad");
 
     // ─── 2. Full Binary XLSX Serialization Round-Trip ───
     const buffer = await workbook.xlsx.writeBuffer();
@@ -513,7 +555,7 @@ describe("Company Excel Formula-Injection Security & Binary Round-Trip Regressio
       if (label) reloadedMap.set(label, { value: cell.value, type: cell.type });
     });
 
-    // A. Основная информация verification after binary reload
+    // A. Информация о компании verification after binary reload
     const c1 = reloadedMap.get("Комментарий")!;
     expect(c1.type).not.toBe(ExcelJS.ValueType.Formula);
     expect(c1.value).toBe("'=2+2");
@@ -535,22 +577,23 @@ describe("Company Excel Formula-Injection Security & Binary Round-Trip Regressio
     expect(cDate.type).toBe(ExcelJS.ValueType.Date);
     expect(cDate.value).toBeInstanceOf(Date);
 
-    // B. Образцы verification after binary reload
-    const s1 = reloadedMap.get("Марка предоставленных образцов (ГЕЛЬ)")!;
-    expect(s1.type).not.toBe(ExcelJS.ValueType.Formula);
-    expect(s1.value).toBe("'=2+2");
-
-    const s2 = reloadedMap.get("Результат испытаний")!;
-    expect(s2.type).not.toBe(ExcelJS.ValueType.Formula);
-    expect(s2.value).toBe("'+SUM(A1:A2)");
-
-    const s3 = reloadedMap.get("Комментарий по образцам")!;
-    expect(s3.type).not.toBe(ExcelJS.ValueType.Formula);
-    expect(s3.value).toBe("'-1+1");
-
-    const s4 = reloadedMap.get("Особые отметки")!;
-    expect(s4.type).not.toBe(ExcelJS.ValueType.Formula);
-    expect(s4.value).toBe("'@SUM(A1:A2)");
+    // B. Smart Process cycle row after binary reload — no formula cells
+    let reloadedSpStage: any;
+    let reloadedSpStageType: number | undefined;
+    let reloadedSpQty: any;
+    let reloadedSpQtyType: number | undefined;
+    reloadedSheet.eachRow((row) => {
+      if (String(row.getCell(1).value || "") === "proc-1") {
+        reloadedSpStage = row.getCell(3).value;
+        reloadedSpStageType = row.getCell(3).type;
+        reloadedSpQty = row.getCell(7).value;
+        reloadedSpQtyType = row.getCell(7).type;
+      }
+    });
+    expect(reloadedSpStageType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(reloadedSpStage).toBe("'+SUM(A1:A2)");
+    expect(reloadedSpQtyType).not.toBe(ExcelJS.ValueType.Formula);
+    expect(reloadedSpQty).toBe("'+SUM(A1:A2)");
 
     // C. Связанные сделки — title & D. Связанные сделки — stage
     const dealRowsReloaded: Array<{

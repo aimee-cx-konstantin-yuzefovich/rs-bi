@@ -65,8 +65,8 @@ const EXPECTED_FIELD_ORDER = [
   COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
   COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
   COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
-  COMPANY_ACTUAL_PRICES_FIELD_ID,
   COMPANY_COMMENTS_PRODUCT_FIELD_ID,
+  COMPANY_ACTUAL_PRICES_FIELD_ID,
   "COMMENTS",
   COMPANY_TESTING_MARKER_FIELD_ID,
   "DATE_CREATE",
@@ -214,14 +214,17 @@ describe("Phase D — Company Preview current-card contract", () => {
     expect(model.fields.some((f) => f.value === "obsolete-industry")).toBe(false);
   });
 
-  it("absent current industry field is truthful absence (no legacy fallback)", () => {
+  it("absent current industry field is truthful absence of a VALUE, not of the ROW", () => {
     const company = adversarialCompany();
     delete company[COMPANY_INDUSTRY_CURRENT_FIELD_ID];
     const model = buildCompanyPreviewModel(company, {
       fields: FIELDS_META,
       userNames: { "7": "Анна Иванова" },
     });
-    expect(model.fields.some((f) => f.id === COMPANY_INDUSTRY_CURRENT_FIELD_ID)).toBe(false);
+    // Empty field remains VISIBLE as the truthful «—» placeholder.
+    const industry = model.fields.find((f) => f.id === COMPANY_INDUSTRY_CURRENT_FIELD_ID);
+    expect(industry).toBeDefined();
+    expect(industry!.value).toBe("—");
     // And the legacy INDUSTRY value never sneaks in under any label.
     expect(model.fields.some((f) => f.value === "old-standard-industry")).toBe(false);
   });
@@ -267,12 +270,11 @@ describe("Phase D — Company Preview current-card contract", () => {
     // UI values = model field values.
     const uiValues = new Map(model.fields.map((f) => [f.label, f.value]));
 
-    // Excel renders the SAME model.
+    // Excel renders the SAME model (sections split inside the builder).
     const wb = createCompanyExcelWorkbook({
       companyTitle: model.title,
       companyId: model.companyId,
       companyFields: model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type })),
-      sampleFields: [],
       deals: [],
       currentDate: new Date("2026-09-26T12:00:00Z"),
       companyModel: {
@@ -280,6 +282,11 @@ describe("Phase D — Company Preview current-card contract", () => {
         createdAt: model.createdAt,
         modifiedAt: model.modifiedAt,
         comments: model.comments,
+      },
+      testingMarkerField: {
+        label: "Тестирование образцов",
+        value: String(model.fields.find((f) => f.id === COMPANY_TESTING_MARKER_FIELD_ID)?.value ?? "—"),
+        rawValue: company[COMPANY_TESTING_MARKER_FIELD_ID],
       },
     });
     const buffer = await wb.xlsx.writeBuffer();
@@ -289,7 +296,12 @@ describe("Phase D — Company Preview current-card contract", () => {
 
     const excelPairs = new Map<string, string | Date>();
     ws.eachRow((row) => {
-      const label = String(row.getCell(1).value ?? "").trim();
+      // Skip merged section-header rows (title merged across columns) —
+      // e.g. the «Тестирование образцов» SECTION header must not shadow the
+      // identically named marker FIELD row.
+      const first = row.getCell(1);
+      if (first.isMerged) return;
+      const label = String(first.value ?? "").trim();
       const value = row.getCell(2).value;
       if (label && value !== null && value !== undefined && String(value).trim() !== "") {
         excelPairs.set(label, value as string | Date);
@@ -300,7 +312,8 @@ describe("Phase D — Company Preview current-card contract", () => {
     // Exceptions (documented artifacts of the Excel writer):
     //  - formula-injection guard prefixes values starting with =,+,-,@ with
     //    an apostrophe (phone numbers);
-    //  - Date Created / Date Modified serialize as native Date cells (§27).
+    //  - Date Created / Date Modified serialize as native Date cells (§27)
+    //    in the «Системная информация» section.
     for (const [label, value] of uiValues) {
       if (label === "Дата создания" || label === "Дата изменения") continue;
       const expected = /^[=\-+\@]/.test(value) ? `'${value}` : value;
@@ -324,7 +337,6 @@ describe("Phase D — Company Preview current-card contract", () => {
     const joined = allExcelText.join("\n");
     expect(joined).not.toContain("Марка предоставленных образцов");
     expect(joined).not.toContain("Кол-во переданного образца");
-    expect(joined).not.toContain("Результат испытаний");
     expect(joined).not.toContain("UF_CRM_");
     expect(joined).not.toContain("obsolete-industry");
     expect(joined).not.toContain("old-standard-industry");
@@ -418,22 +430,27 @@ describe("Phase D — Company Preview current-card contract", () => {
     expect(COMPANY_PREVIEW_CURRENT_FIELDS.length).toBe(24);
   });
 
-  it("zero legacy fallback: current field empty never displays legacy equivalent", () => {
+  it("zero legacy fallback: current field empty renders «—», never the legacy equivalent", () => {
     // 1. GEL grade empty, legacy populated
     const gelLegacyOnly = buildCompanyPreviewModel({
       ID: "101",
       UF_CRM_1764079092: "Старый гель 1",
       [COMPANY_MARK_GEL_FIELD_ID]: ["201"],
     });
-    expect(gelLegacyOnly.fields.some((f) => f.id === COMPANY_GEL_GRADE_CURRENT_FIELD_ID)).toBe(false);
+    const gelField = gelLegacyOnly.fields.find((f) => f.id === COMPANY_GEL_GRADE_CURRENT_FIELD_ID);
+    expect(gelField).toBeDefined();
+    expect(gelField!.value).toBe("—");
     expect(gelLegacyOnly.fields.some((f) => String(f.value).includes("Старый гель"))).toBe(false);
+    expect(gelLegacyOnly.fields.some((f) => String(f.value).includes("КСМГ-9"))).toBe(false);
 
     // 2. GEL consumption empty, legacy populated
     const gelConsLegacyOnly = buildCompanyPreviewModel({
       ID: "102",
       UF_CRM_1764076968: "500",
     });
-    expect(gelConsLegacyOnly.fields.some((f) => f.id === COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID)).toBe(false);
+    const gelConsField = gelConsLegacyOnly.fields.find((f) => f.id === COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID);
+    expect(gelConsField).toBeDefined();
+    expect(gelConsField!.value).toBe("—");
     expect(gelConsLegacyOnly.fields.some((f) => String(f.value).includes("500"))).toBe(false);
 
     // 3. SOL grade empty, legacy populated
@@ -442,15 +459,20 @@ describe("Phase D — Company Preview current-card contract", () => {
       UF_CRM_1764079114: "Старый золь 1",
       [COMPANY_MARK_SOL_FIELD_ID]: ["301"],
     });
-    expect(solLegacyOnly.fields.some((f) => f.id === COMPANY_SOL_GRADE_CURRENT_FIELD_ID)).toBe(false);
+    const solField = solLegacyOnly.fields.find((f) => f.id === COMPANY_SOL_GRADE_CURRENT_FIELD_ID);
+    expect(solField).toBeDefined();
+    expect(solField!.value).toBe("—");
     expect(solLegacyOnly.fields.some((f) => String(f.value).includes("Старый золь"))).toBe(false);
+    expect(solLegacyOnly.fields.some((f) => String(f.value).includes("СКСГ-4"))).toBe(false);
 
     // 4. SOL consumption empty, legacy populated
     const solConsLegacyOnly = buildCompanyPreviewModel({
       ID: "104",
       UF_CRM_1764076998: "600",
     });
-    expect(solConsLegacyOnly.fields.some((f) => f.id === COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID)).toBe(false);
+    const solConsField = solConsLegacyOnly.fields.find((f) => f.id === COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID);
+    expect(solConsField).toBeDefined();
+    expect(solConsField!.value).toBe("—");
     expect(solConsLegacyOnly.fields.some((f) => String(f.value).includes("600"))).toBe(false);
 
     // 5. Actual prices empty, legacy populated
@@ -458,7 +480,9 @@ describe("Phase D — Company Preview current-card contract", () => {
       ID: "105",
       UF_CRM_1764156667679: "99000|RUB",
     });
-    expect(priceLegacyOnly.fields.some((f) => f.id === COMPANY_ACTUAL_PRICES_FIELD_ID)).toBe(false);
+    const priceField = priceLegacyOnly.fields.find((f) => f.id === COMPANY_ACTUAL_PRICES_FIELD_ID);
+    expect(priceField).toBeDefined();
+    expect(priceField!.value).toBe("—");
     expect(priceLegacyOnly.fields.some((f) => String(f.value).includes("99000"))).toBe(false);
   });
 

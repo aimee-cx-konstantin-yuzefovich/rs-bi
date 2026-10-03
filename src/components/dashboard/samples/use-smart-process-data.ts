@@ -12,6 +12,7 @@ import { useSession } from "next-auth/react";
 import type { SmartProcessItemView } from "@/lib/samples/smart-process-view";
 import {
   getCachedSmartProcessItems,
+  isSmartProcessCacheFresh,
   fetchSmartProcessItemsWithDeduplication,
   syncSmartProcessPrincipal,
   clearSmartProcessCache,
@@ -100,6 +101,11 @@ export function useSmartProcessData(): SmartProcessLoadState {
     // Cache hit = stored snapshot exists. A successful authoritative response
     // with items: [] is a truthful empty snapshot (never a cold spinner loop).
     const hasCachedData = cached !== null;
+    // ONE named freshness policy (smart-process-client-cache): a FRESH
+    // complete snapshot is reused WITHOUT any fetch — mounting another
+    // consumer must never duplicate full Smart Process pagination. An
+    // EXPIRED snapshot renders immediately and refreshes in the background.
+    const cacheIsFresh = isSmartProcessCacheFresh(principal);
 
     if (hasCachedData && cached) {
       setItems(cached.items);
@@ -110,7 +116,7 @@ export function useSmartProcessData(): SmartProcessLoadState {
       setIsStale(false);
       setDataState("ready");
       setLoading(false);
-      setRefreshing(true);
+      setRefreshing(!cacheIsFresh);
       setError(null);
       setRefreshError(null);
     } else {
@@ -121,6 +127,11 @@ export function useSmartProcessData(): SmartProcessLoadState {
       setRefreshing(false);
       setError(null);
       setRefreshError(null);
+    }
+
+    // Fresh complete cache + no explicit retry: reuse the snapshot, no fetch.
+    if (hasCachedData && cacheIsFresh && attempt === 0) {
+      return;
     }
 
     let isEffectActive = true;

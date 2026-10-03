@@ -105,10 +105,27 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
         { label: "Ответственный компании", value: "Леонид Грош" },
         { label: "Телефон", value: "+7 495 123-45-67" },
       ],
-      sampleFields: [
-        { label: "Марка предоставленных образцов (ГЕЛЬ)", value: "Гель-Стандарт" },
-        { label: "Результат испытаний", value: "Успешно пройдены" },
-      ],
+      testingMarkerField: { label: "Тестирование образцов", value: "Да" },
+      smartProcess: {
+        activeCount: 1,
+        completedCount: 0,
+        items: [
+          {
+            processItemId: "7001",
+            title: "Тестирование образца",
+            stageLabel: "Испытания",
+            linkedDealId: "3001",
+            sentDates: ["20.06.2026"],
+            grades: [{ productFamily: "Гель", value: "Гель-Стандарт" }],
+            quantities: [],
+            rawTestResult: "Успешно пройдены",
+            normalizedResult: "SUCCESS",
+            responsibleId: "7",
+            dataIssues: [],
+          },
+        ],
+      },
+      userNames: { "7": "Леонид Грош" },
       deals: [
         {
           id: "3001",
@@ -139,8 +156,8 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
       if (typeof v === "string") firstColValues.push(v);
     });
 
-    expect(firstColValues).toContain("Основная информация");
-    expect(firstColValues).toContain("Образцы");
+    expect(firstColValues).toContain("Информация о компании");
+    expect(firstColValues).toContain("Информация об образцах");
     expect(firstColValues).toContain("Связанные сделки (1)");
 
     // Opportunity formatted
@@ -324,8 +341,6 @@ describe("RusSilica Excel Round-Trip File Validation (All 4 Report Types)", () =
       companyFields: [
         { label: "Дата создания", value: "2026-05-15" },
         { label: "Телефон", value: "" }, // Non-date empty field -> " — "
-      ],
-      sampleFields: [
         { label: "Дата передачи / отправки", value: "" }, // Date empty field -> genuine null
         { label: "Статус образцов", value: "Не требуется" }, // Negated neutral phrase -> NEUTRAL, not ATTENTION
         { label: "Результат испытаний", value: "Не требуются" }, // Negated neutral phrase -> NEUTRAL

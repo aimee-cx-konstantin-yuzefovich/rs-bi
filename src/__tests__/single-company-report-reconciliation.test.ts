@@ -18,7 +18,6 @@ vi.mock("@/lib/config.server", () => config);
 vi.mock("@/lib/auth-guard", () => auth);
 import { GET as companyDealsGET } from "@/app/api/bitrix/companies/[id]/deals/route";
 import * as bitrix from "@/lib/bitrix";
-import { defaultCompanyFields } from "@/lib/company-preview";
 import { createCompanyExcelWorkbook } from "@/lib/export-utils";
 
 // ─────────────────────────────────────────────────────────────────────
@@ -94,38 +93,43 @@ describe("single company report independent reconciliation", () => {
     expect(body.missingIdCount).toBe(1);
   });
 
-  it("preview field builders keep string-typed values as text despite date/money-looking content", () => {
-    const company = {
-      ID: "42",
-      TITLE: "Компания C1",
-      ASSIGNED_BY_ID: "7",
-      // impossible date value must never roll to March 1
-      UF_CRM_IMPOSSIBLE_DATE: "2026-02-31",
-      // text field with date-looking label and value
-      UF_CRM_TEXT_DATE: "2026-09-01",
-      // text field with money-looking value
-      UF_CRM_TEXT_MONEY: "50000 RUB",
-    };
+  it("string-typed values stay text in the Excel raw field path despite date/money-looking content", async () => {
+    // The canonical model renders ONLY whitelisted card fields, so this
+    // invariant lives in the Excel builder's explicit-field path (the same
+    // normalizeCompanyReportFieldValue used by the Company Preview parity
+    // rows). Adversarial fixture: date/money-looking strings typed as text.
+    const { createCompanyExcelWorkbook: buildWorkbook } = await import("@/lib/export-utils");
+    const fields = [
+      { id: "UF_CRM_TEXT_DATE", label: "Дата договора текстом", value: "2026-09-01", type: "string" },
+      { id: "UF_CRM_TEXT_MONEY", label: "Комментарий по сумме", value: "50000 RUB", type: "string" },
+      { id: "UF_CRM_IMPOSSIBLE_DATE", label: "Дата события", value: "2026-02-31", type: "string" },
+    ];
 
-    const fields = defaultCompanyFields(
-      company,
-      { "7": "Анна" },
-      [
-        { id: "UF_CRM_TEXT_DATE", title: "Дата договора текстом", type: "string" },
-        { id: "UF_CRM_TEXT_MONEY", title: "Комментарий по сумме", type: "string" },
-        { id: "UF_CRM_IMPOSSIBLE_DATE", title: "Дата события", type: "string" },
-      ]
-    );
+    const wb = buildWorkbook({
+      companyTitle: "Компания C1",
+      companyId: "42",
+      companyFields: fields,
+      deals: [],
+      currentDate: new Date("2026-09-26T12:00:00Z"),
+    });
 
-    const dateTextField = fields.find((f) => f.id === "UF_CRM_TEXT_DATE")!;
-    expect(dateTextField.value).toBe(EXPECTED.textFieldDate.value);
+    const buffer = await wb.xlsx.writeBuffer();
+    const fresh = new ExcelJS.Workbook();
+    await fresh.xlsx.load(buffer as ArrayBuffer);
+    const ws = fresh.getWorksheet("Отчёт по компании")!;
 
-    const moneyTextField = fields.find((f) => f.id === "UF_CRM_TEXT_MONEY")!;
-    expect(moneyTextField.value).toBe(EXPECTED.textFieldMoney.value);
+    const pairs = new Map<string, unknown>();
+    ws.eachRow((row) => {
+      const label = String(row.getCell(1).value ?? "").trim();
+      if (label && !row.getCell(1).isMerged) pairs.set(label, row.getCell(2).value);
+    });
 
-    const impossibleDate = fields.find((f) => f.id === "UF_CRM_IMPOSSIBLE_DATE")!;
-    // Unparseable → preserved as raw text, never rolled to 2026-03-01
-    expect(impossibleDate.value).toBe("2026-02-31");
+    // String-typed values survive as TEXT (never coerced into dates/numbers).
+    expect(pairs.get("Дата договора текстом")).toBe("2026-09-01");
+    expect(pairs.get("Комментарий по сумме")).toBe("50000 RUB");
+    // Unparseable date → preserved as raw text, never rolled to 2026-03-01.
+    expect(pairs.get("Дата события")).toBe("2026-02-31");
+    expect(pairs.has("Дата создания")).toBe(false);
   });
 
   it("Excel workbook serializes, reloads, and preserves the ledger exactly", async () => {
@@ -147,7 +151,6 @@ describe("single company report independent reconciliation", () => {
       companyTitle: "Компания C1",
       companyId: "42",
       companyFields,
-      sampleFields: [],
       deals,
       currentDate: new Date("2026-09-26T12:00:00Z"),
     });

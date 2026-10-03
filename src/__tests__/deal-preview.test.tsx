@@ -429,12 +429,13 @@ describe("Deal Preview Component and Navigation", () => {
       // 4. Company Preview itself remains rendered / usable
       expect(await screen.findByRole("heading", { name: "Компания С Ошибкой" })).toBeInTheDocument();
 
-      // 1. alert contains approved neutral message
-      const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent("Связанные сделки временно недоступны.");
+      // 1. deals alert contains approved neutral message (multiple alerts
+      // exist: deals + Samples sections disclose their failures separately).
+      const dealsAlert = await screen.findByText("Связанные сделки временно недоступны.");
+      expect(dealsAlert.closest('[role="alert"]')).toBeTruthy();
 
-      // 2. Retry button exists
-      expect(screen.getByRole("button", { name: "Повторить" })).toBeInTheDocument();
+      // 2. Retry buttons exist
+      expect(screen.getAllByRole("button", { name: "Повторить" }).length).toBeGreaterThan(0);
 
       // 3. no raw technical diagnostic is exposed to user
       expect(screen.queryByText(/502|status|failed/i)).not.toBeInTheDocument();

@@ -603,7 +603,9 @@ export const useDashboardStore = create<DashboardState>()(
           if (!select.includes("OPPORTUNITY")) select.push("OPPORTUNITY");
           if (!select.includes("CURRENCY_ID")) select.push("CURRENCY_ID");
           if (!select.includes("COMPANY_ID")) select.push("COMPANY_ID");
-          if (!select.includes("COMPANY_TITLE")) select.push("COMPANY_TITLE");
+          // NOTE: COMPANY_TITLE is intentionally NOT requested upstream —
+          // crm.deal.list does not return it; the column is resolved
+          // client-side from companiesData (splitDealTableColumns).
 
           const response = await fetchWithTimeout("/api/bitrix/deals", {
             method: "POST",

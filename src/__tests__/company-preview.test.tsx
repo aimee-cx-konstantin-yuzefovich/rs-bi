@@ -120,7 +120,7 @@ it("keeps details visible when the portal link is not configured", async () => {
   expect(screen.getByText("Ссылка на портал Bitrix24 не настроена.")).toBeInTheDocument();
 });
 
-it("displays Образцы section with 7 rows, excludes Последняя активность, and formats Дата изменения as date only", async () => {
+it("shows the marker section separate from the analytical section and never renders legacy sample card rows", async () => {
   fetchMock.mockResolvedValue(
     ok({
       success: true,
@@ -132,6 +132,7 @@ it("displays Образцы section with 7 rows, excludes Последняя а�
         DATE_MODIFY: "2026-07-01T11:59:00Z",
         LAST_ACTIVITY_TIME: "2025-12-15T14:00:00Z",
         COMMENTS: "Тестовый комментарий",
+        // Legacy Company sample fields — MUST NOT appear as card rows.
         UF_CRM_1764155817232: "Гель-А",
         UF_CRM_1764156004815: "150",
         UF_CRM_1764155891815: "Золь-Б",
@@ -150,37 +151,74 @@ it("displays Образцы section with 7 rows, excludes Последняя а�
   // 1. "Последняя активность" should NOT be present
   expect(screen.queryByText("Последняя активность")).not.toBeInTheDocument();
 
-  // 2. "Дата изменения" should only contain date (no 11:59)
+  // 2. "Дата изменения" renders date-only (Section: Системная информация)
   expect(screen.getByText("01.07.2026")).toBeInTheDocument();
   expect(screen.queryByText("01.07.2026 11:59")).not.toBeInTheDocument();
 
-  // 3. Subheader "Образцы" should be present
-  expect(screen.getByRole("heading", { name: "Образцы" })).toBeInTheDocument();
+  // 3. Marker section («Информация об образцах») is distinct from the
+  //    analytical section («Тестирование образцов»).
+  expect(screen.getByRole("heading", { name: "Информация об образцах" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Тестирование образцов" })).toBeInTheDocument();
 
-  // 4. The 7 sample fields should be present
-  expect(screen.getByText("Марка предоставленных образцов (ГЕЛЬ)")).toBeInTheDocument();
-  expect(screen.getByText("Гель-А")).toBeInTheDocument();
-  expect(screen.getByText("Кол-во переданного образца (ГЕЛЬ) кг")).toBeInTheDocument();
-  expect(screen.getByText("150")).toBeInTheDocument();
-  expect(screen.getByText("Марка предоставленных образцов (ЗОЛЬ)")).toBeInTheDocument();
-  expect(screen.getByText("Золь-Б")).toBeInTheDocument();
-  expect(screen.getByText("Кол-во переданного образца (ЗОЛЬ) л")).toBeInTheDocument();
-  expect(screen.getByText("200")).toBeInTheDocument();
-  expect(screen.getByText("Дата передачи образцов")).toBeInTheDocument();
-  expect(screen.getByText("20.06.2026")).toBeInTheDocument();
-  expect(screen.getByText("Результат испытаний")).toBeInTheDocument();
-  expect(screen.getByText("Успешно")).toBeInTheDocument();
-  // COMMENTS appears in the legacy sample block (Комментарий row) AND the
-  // new general comment section — both are the same source value, so the
-  // text may legitimately appear twice. Assert presence, not count.
-  expect(screen.getAllByText("Тестовый комментарий").length).toBeGreaterThanOrEqual(1);
+  // 4. Legacy sample fields NEVER render as card rows.
+  expect(screen.queryByText("Марка предоставленных образцов (ГЕЛЬ)")).not.toBeInTheDocument();
+  expect(screen.queryByText("Кол-во переданного образца (ГЕЛЬ) кг")).not.toBeInTheDocument();
+  expect(screen.queryByText("Марка предоставленных образцов (ЗОЛЬ)")).not.toBeInTheDocument();
+  expect(screen.queryByText("Кол-во переданного образца (ЗОЛЬ) л")).not.toBeInTheDocument();
+  expect(screen.queryByText("Дата передачи образцов")).not.toBeInTheDocument();
+
+  // 5. The general comment field renders (canonical card field).
+  expect(screen.getByText("Тестовый комментарий")).toBeInTheDocument();
 });
 
-it("renders secondary outlined export button and triggers export with company title and sample fields", async () => {
+it("renders the export button and triggers export with the canonical model, SP cycles and no sampleFields", async () => {
   const { exportCompanyToExcel } = await import("@/lib/export-utils");
   fetchMock.mockImplementation(async (url: string) => {
     if (String(url).endsWith("/deals")) {
       return { ok: true, json: async () => ({ success: true, deals: [] }) };
+    }
+    if (String(url).endsWith("/api/bitrix/samples")) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          samples: [
+            {
+              companyId: "42",
+              companyTitle: "Экспортная компания",
+              responsibleId: "7",
+              productFamilies: ["Гель"],
+              grades: [{ productFamily: "Гель", value: "Гель-100" }],
+              quantities: [],
+              sentDates: ["2026-06-20"],
+              sampleIndicators: ["В работе"],
+              processStatuses: [],
+              normalizedResult: "positive",
+              relatedDeals: [],
+              dataIssues: [],
+              smartProcessItems: [
+                {
+                  processItemId: "9001",
+                  title: "Тестирование образца",
+                  stageLabel: "Испытания",
+                  stageId: "DT1032_15:UC_SP94UZ",
+                  isActive: true,
+                  isTerminal: false,
+                  linkedDealId: undefined,
+                  sentDates: ["2026-06-20"],
+                  grades: [{ productFamily: "Гель", value: "Гель-100" }],
+                  quantities: [],
+                  normalizedResult: "positive",
+                  responsibleId: "7",
+                  dataIssues: [],
+                },
+              ],
+              activeSmartProcessCount: 1,
+              currentActiveStageLabels: ["Испытания"],
+            },
+          ],
+        }),
+      };
     }
     return ok({
       success: true,
@@ -191,7 +229,6 @@ it("renders secondary outlined export button and triggers export with company ti
         DATE_CREATE: "2025-12-15T14:00:00Z",
         DATE_MODIFY: "2026-07-01T11:59:00Z",
         COMMENTS: "Комментарий для экспорта",
-        UF_CRM_1764155817232: "Гель-100",
       },
       bitrixUrl: "https://portal.example/crm/company/details/42/",
     });
@@ -200,7 +237,7 @@ it("renders secondary outlined export button and triggers export with company ti
   render(<CompanyBrowser />);
   fireEvent.click(screen.getByRole("button", { name: "Компания из таблицы" }));
   await screen.findByRole("heading", { name: "Экспортная компания" });
-  // Full report export requires related deals to have succeeded first.
+  // Full report export requires related deals AND Samples/SP data first.
   await waitFor(() => {
     const btn = screen.getByRole("button", { name: "Экспорт отчёта" });
     expect(btn).not.toBeDisabled();
@@ -208,7 +245,6 @@ it("renders secondary outlined export button and triggers export with company ti
 
   const exportBtn = screen.getByRole("button", { name: "Экспорт отчёта" });
   expect(exportBtn).toBeInTheDocument();
-  expect(exportBtn).not.toBeDisabled();
   expect(exportBtn.className).toContain("border-brand-blue");
 
   fireEvent.click(exportBtn);
@@ -219,18 +255,34 @@ it("renders secondary outlined export button and triggers export with company ti
         companyId: "42",
         companyTitle: "Экспортная компания",
         companyFields: expect.any(Array),
-        sampleFields: expect.any(Array),
+        companyModel: expect.any(Object),
+        testingMarkerField: expect.any(Object),
+        smartProcess: expect.objectContaining({
+          activeCount: 1,
+          completedCount: 0,
+          items: expect.arrayContaining([expect.objectContaining({ processItemId: "9001" })]),
+        }),
       })
     );
   });
+  // Legacy sample fields can never ride the export call again.
+  const call = (exportCompanyToExcel as unknown as ReturnType<typeof vi.fn>).mock
+    .calls[0][0] as Record<string, unknown>;
+  expect(call).not.toHaveProperty("sampleFields");
 });
 
-it("full report export stays disabled while related deals are loading, and becomes enabled once loaded", async () => {
+it("full report export stays disabled while related deals or Samples data are loading, and becomes enabled once loaded", async () => {
   const { exportCompanyToExcel } = await import("@/lib/export-utils");
   let resolveDeals!: (value: unknown) => void;
   fetchMock.mockImplementation(async (url: string) => {
     if (String(url).endsWith("/deals")) {
       return new Promise((done) => { resolveDeals = done; });
+    }
+    if (String(url).endsWith("/api/bitrix/samples")) {
+      return {
+        ok: true,
+        json: async () => ({ success: true, samples: [] }),
+      };
     }
     return ok(detail("42", "Компания с ожидающими сделками"));
   });

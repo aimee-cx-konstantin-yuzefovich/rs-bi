@@ -51,6 +51,8 @@ import {
   type DatasetCoverage,
 } from "./dataset-coverage";
 import { resolveResponsibleDisplay } from "./enrichment-coverage";
+import { STALE_SNAPSHOT_DISCLOSURE } from "./commercial-funnel/disclosure";
+import { SAMPLE_DATA_ISSUE_LABELS, NORMALIZED_RESULT_LABELS } from "./samples/constants";
 import type { SampleSummary, NormalizedResult } from "./samples/types";
 import {
   buildDealPreviewModel,
@@ -482,11 +484,41 @@ export interface CompanyExportDeal {
   currency?: string;
 }
 
+/** Lite Smart Process item view for the Company workbook cycle table. */
+export interface CompanyExportSmartProcessItem {
+  processItemId: string;
+  title: string;
+  stageLabel: string;
+  linkedDealId?: string;
+  sentDates: string[];
+  grades: Array<{ productFamily?: string; value: string }>;
+  quantities: Array<{ productFamily?: string; value: number | string; unit?: string }>;
+  rawTestResult?: string;
+  normalizedResult: string;
+  responsibleId?: string;
+  dataIssues: string[];
+}
+
+export interface CompanyExportSmartProcess {
+  /** Active physical Smart Process cycles for this company. */
+  activeCount: number;
+  /** Terminal (completed) physical Smart Process cycles for this company. */
+  completedCount: number;
+  /** Canonical Lite item views — one physical cycle = one Excel row. */
+  items: CompanyExportSmartProcessItem[];
+  /** True when a background refresh failed and a prior snapshot is shown. */
+  stale?: boolean;
+}
+
 export interface ExportCompanyOptions {
   companyTitle: string;
   companyId?: string;
   companyFields?: CompanyExportField[];
   fields?: CompanyExportField[];
+  /**
+   * @deprecated Legacy sample-field block removed: Company Excel parity now
+   * comes exclusively from the resolved Company Preview model.
+   */
   sampleFields?: CompanyExportField[];
   deals?: CompanyExportDeal[];
   currentDate?: Date;
@@ -495,9 +527,9 @@ export interface ExportCompanyOptions {
   workbook?: ExcelJS.Workbook;
   logoImageId?: number | null;
   /**
-   * Phase D: the resolved Company Preview model (buildCompanyPreviewModel).
-   * When present, the current-card section renders the EXACT same resolved
-   * fields as the UI — no independent raw-field enumeration.
+   * The resolved Company Preview model (buildCompanyPreviewModel).
+   * The current-card section renders the EXACT same resolved fields as the
+   * UI — no independent raw-field enumeration.
    */
   companyModel?: {
     fields: Array<{ id: string; label: string; value: string; type?: string }>;
@@ -505,6 +537,22 @@ export interface ExportCompanyOptions {
     modifiedAt?: string | null;
     comments?: string | null;
   };
+  /**
+   * Section 2 row: the Bitrix Company-card marker «Тестирование образцов»
+   * (MARKER_ONLY — distinct from the analytical Smart Process section).
+   */
+  testingMarkerField?: { label: string; value: string; rawValue?: unknown } | null;
+  /**
+   * Section 3: canonical Smart Process testing cycles (from the company-
+   * scoped Samples response — never a second fetch, never re-parsed raw
+   * Bitrix fields).
+   */
+  smartProcess?: CompanyExportSmartProcess;
+  /** Deal ID → readable title map for Smart Process relation resolution. */
+  dealTitleById?: Map<string, string>;
+  /** User directory for the human-name responsible resolver. */
+  userNames?: Record<string, string>;
+  usersCoverage?: import("./enrichment-coverage").DatasetCoverage | null;
 }
 
 /**
@@ -667,6 +715,185 @@ export function normalizeCompanyReportFieldValue(field: CompanyExportField): {
 }
 
 /**
+ * Section «ТЕСТИРОВАНИЕ ОБРАЗЦОВ» of the Company workbook: canonical Smart
+ * Process analytics from the company-scoped Samples data.
+ *
+ * Invariants:
+ * - one physical Smart Process item = one Excel row (never collapsed);
+ * - canonical Lite item views only — no raw Bitrix field parsing here;
+ * - readable values only: safe stage label, human responsible name,
+ *   readable issue labels; raw IDs never leak;
+ * - a failed refresh with a preserved snapshot stamps a stale disclosure.
+ */
+function addCompanySmartProcessSection(
+  worksheet: ExcelJS.Worksheet,
+  options: ExportCompanyOptions
+): void {
+  addSectionHeader(worksheet, "Тестирование образцов", 5);
+
+  const sp = options.smartProcess;
+  const sanitize = (s: string) => (/^[=\-+\@]/.test(s) ? "'" + s : s);
+
+  // Stale disclosure (failed refresh with preserved snapshot) — agrees with
+  // the UI stale warning; an export must never masquerade stale as fresh.
+  if (sp?.stale) {
+    const staleRow = worksheet.addRow([STALE_SNAPSHOT_DISCLOSURE]);
+    staleRow.height = 20;
+    worksheet.mergeCells(staleRow.number, 1, staleRow.number, 5);
+    const cell = staleRow.getCell(1);
+    cell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+    cell.alignment = { vertical: "middle", indent: 1 };
+    applyRowBorders(staleRow, 1, 5);
+  }
+
+  if (!sp) {
+    const emptyRow = worksheet.addRow(["Данные тестирования образцов недоступны"]);
+    emptyRow.height = 20;
+    worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, 5);
+    const cell = emptyRow.getCell(1);
+    cell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+    cell.fill = FILL_SECTION_HEADER_SOFT;
+    cell.alignment = { vertical: "middle", indent: 1 };
+    applyRowBorders(emptyRow, 1, 5);
+    return;
+  }
+
+  // Summary rows
+  const summaryRows: Array<[string, number]> = [
+    ["Активных процессов", sp.activeCount],
+    ["Завершённых процессов", sp.completedCount],
+  ];
+  for (const [label, value] of summaryRows) {
+    const row = worksheet.addRow([label, value]);
+    row.height = 20;
+    worksheet.mergeCells(row.number, 2, row.number, 5);
+    const labelCell = row.getCell(1);
+    labelCell.font = FONT_METADATA_LABEL;
+    labelCell.fill = FILL_SECTION_HEADER_SOFT;
+    labelCell.alignment = { vertical: "middle", indent: 1 };
+    const valueCell = row.getCell(2);
+    valueCell.font = FONT_DATA;
+    valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    applyRowBorders(row, 1, 5);
+  }
+
+  worksheet.addRow([]);
+
+  // Physical-cycle table — EXACTLY the requested 12 columns.
+  const cycleHeaders = [
+    "ID процесса",
+    "Название",
+    "Стадия",
+    "Связанная сделка",
+    "Дата отправки",
+    "Марка ГЕЛЬ",
+    "Количество ГЕЛЬ, кг",
+    "Марка ЗОЛЬ",
+    "Количество ЗОЛЬ, л",
+    "Результат испытаний",
+    "Ответственный",
+    "Качество данных / предупреждение",
+  ];
+  const headerRow = worksheet.addRow(cycleHeaders);
+  styleTableHeader(headerRow, { colCount: cycleHeaders.length });
+
+  if (sp.items.length === 0) {
+    const emptyRow = worksheet.addRow(["Циклы тестирования не найдены"]);
+    emptyRow.height = 20;
+    worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, cycleHeaders.length);
+    const cell = emptyRow.getCell(1);
+    cell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+    cell.alignment = { vertical: "middle", indent: 1 };
+    applyRowBorders(emptyRow, 1, cycleHeaders.length);
+    return;
+  }
+
+  for (const item of sp.items) {
+    // Readable relation: title (when known) + ID retained for ambiguity-free
+    // reference; no linked deal → explicit truthful label.
+    const dealTitle = item.linkedDealId
+      ? options.dealTitleById?.get(item.linkedDealId)
+      : undefined;
+    const relation = item.linkedDealId
+      ? dealTitle
+        ? `${dealTitle} (ID ${item.linkedDealId})`
+        : `Сделка ID ${item.linkedDealId}`
+      : "Без связанной сделки";
+
+    // Human-readable responsible (never a raw user ID as the label).
+    const responsible = item.responsibleId
+      ? resolveResponsibleDisplay(item.responsibleId, options.userNames ?? {}, options.usersCoverage)
+      : "—";
+
+    // Result: factual free text first; classification label as fallback.
+    const rawResult = item.rawTestResult?.trim() ?? "";
+    const result = sanitize(
+      rawResult || NORMALIZED_RESULT_LABELS[item.normalizedResult] || "Не определён"
+    );
+
+    // Readable deterministic quality issues (no raw issue codes).
+    const quality =
+      item.dataIssues.length > 0
+        ? item.dataIssues
+            .map(
+              (issue) =>
+                SAMPLE_DATA_ISSUE_LABELS[issue as keyof typeof SAMPLE_DATA_ISSUE_LABELS] ??
+                UNCLASSIFIED_LABEL
+            )
+            .join("; ")
+        : "—";
+
+    const sentDate = item.sentDates.length > 0 ? item.sentDates.join(", ") : "—";
+    // Safe display stage label only — raw DT1032_* IDs never leak here.
+    const stageLabel = sanitize(item.stageLabel || UNCLASSIFIED_LABEL);
+
+    // Grade cells show the grade value; quantity columns (7/9) are filled
+    // separately below so numeric quantities stay numeric in Excel.
+    const gelGrade = item.grades.find((g) => g.productFamily === "Гель")?.value ?? "—";
+    const solGrade = item.grades.find((g) => g.productFamily === "Золь")?.value ?? "—";
+
+    const row = worksheet.addRow([
+      sanitize(item.processItemId),
+      sanitize(item.title || "Тестирование образца"),
+      stageLabel,
+      sanitize(relation),
+      sentDate,
+      sanitize(gelGrade),
+      "—", // Количество ГЕЛЬ, кг — filled below (numeric when parseable)
+      sanitize(solGrade),
+      "—", // Количество ЗОЛЬ, л — filled below (numeric when parseable)
+      result,
+      sanitize(responsible),
+      sanitize(quality),
+    ]);
+    const gelQty = item.quantities.find((q) => q.productFamily === "Гель");
+    const solQty = item.quantities.find((q) => q.productFamily === "Золь");
+    row.getCell(7).value =
+      gelQty !== undefined
+        ? typeof gelQty.value === "number"
+          ? gelQty.value
+          : sanitize(String(gelQty.value))
+        : "—";
+    row.getCell(9).value =
+      solQty !== undefined
+        ? typeof solQty.value === "number"
+          ? solQty.value
+          : sanitize(String(solQty.value))
+        : "—";
+    row.height = 20;
+    for (let c = 1; c <= cycleHeaders.length; c++) {
+      const cell = row.getCell(c);
+      cell.border = THIN_BORDER;
+      cell.font = FONT_DATA;
+      cell.alignment =
+        c === 1
+          ? { vertical: "middle", horizontal: "center" }
+          : { vertical: "middle", horizontal: "left", wrapText: true };
+    }
+  }
+}
+
+/**
  * Creates an ExcelJS Workbook representing a full branded Account Report for a company card,
  * including main information, sample fields, and related deals.
  */
@@ -718,27 +945,25 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     colCount: 5,
   });
 
-  // Section 1: Основная информация
-  addSectionHeader(worksheet, "Основная информация", 5);
+  // Section 1: ИНФОРМАЦИЯ О КОМПАНИИ
+  // Company Preview UI = Company Excel: when the resolved model is provided,
+  // render the EXACT same resolved fields in the canonical order — including
+  // empty fields as truthful «—» rows. Legacy/unknown UF fields can never
+  // leak into the current-card section.
+  addSectionHeader(worksheet, "Информация о компании", 5);
 
-  // Phase D: when the resolved Company Preview model is provided, render
-  // the EXACT same resolved fields as the UI (one source of truth), plus
-  // Date Created / Date Modified / Comments. Legacy/unknown UF fields can
-  // never leak into the current-card section.
   const model = options.companyModel;
 
   let fields: Array<{ id: string; label: string; value: string; type?: string }> = [...rawCompanyFields];
   if (model) {
-    fields = model.fields.map((f) => ({ id: f.id, label: f.label, value: f.value, type: f.type }));
-    if (model.createdAt && !fields.some((f) => f.id === "DATE_CREATE")) {
-      fields.push({ id: "DATE_CREATE", label: "Дата создания", value: model.createdAt, type: "datetime" });
-    }
-    if (model.modifiedAt && !fields.some((f) => f.id === "DATE_MODIFY")) {
-      fields.push({ id: "DATE_MODIFY", label: "Дата изменения", value: model.modifiedAt, type: "datetime" });
-    }
-    if (model.comments && !fields.some((f) => f.id === "COMMENTS")) {
-      fields.push({ id: "COMMENTS", label: "Комментарий", value: model.comments, type: "string" });
-    }
+    // Split the canonical model into its sections (single shared definition
+    // with the UI drawer — no second manual whitelist here). Section 1
+    // renders ONLY business card fields; the marker rides its own Section 2
+    // and system dates their own Section 6 — never duplicated.
+    const markerId = "UF_CRM_1790787974";
+    fields = model.fields.filter(
+      (f) => f.id !== markerId && f.id !== "DATE_CREATE" && f.id !== "DATE_MODIFY"
+    );
   }
   if (options.companyId && !fields.some((f) => f.id === "ID" || f.label?.toLowerCase().includes("id компании"))) {
     fields.unshift({ id: "ID", label: "ID компании", value: options.companyId });
@@ -775,64 +1000,40 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
 
   worksheet.addRow([]);
 
-  // Section 2: Образцы
-  addSectionHeader(worksheet, "Образцы", 5);
+  // Section 2: ИНФОРМАЦИЯ ОБ ОБРАЗЦАХ — the Bitrix Company-card marker
+  // «Тестирование образцов» (MARKER_ONLY; distinct from the analytical
+  // Smart Process section below).
+  addSectionHeader(worksheet, "Информация об образцах", 5);
 
-  const sampleFields = options.sampleFields || [];
-  if (sampleFields.length > 0) {
-    for (const field of sampleFields) {
-      const cleanLabel = formatHeaderToRussian(field.label, { preserveProvenance: false });
-      const parsed = normalizeCompanyReportFieldValue(field);
-      const cellValue = parsed.isDateField
-        ? (parsed.value instanceof Date ? parsed.value : null)
-        : (parsed.value ?? "—");
-      const row = worksheet.addRow([cleanLabel, cellValue]);
-      row.height = 20;
-      worksheet.mergeCells(row.number, 2, row.number, 5);
-
-      const labelCell = row.getCell(1);
-      labelCell.font = FONT_METADATA_LABEL;
-      labelCell.fill = FILL_SECTION_HEADER_SOFT;
-      labelCell.alignment = { vertical: "middle", indent: 1 };
-
-      const valueCell = row.getCell(2);
-      if (cellValue instanceof Date) {
-        valueCell.font = FONT_DATA;
-        valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
-        valueCell.numFmt = parsed.numFmt || NUMFMT.DATE;
-      } else if (cellValue === null) {
-        valueCell.font = FONT_DATA;
-        valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
-      } else {
-        const valStr = String(cellValue).trim();
-        const semantic = mapBusinessStatusToSemantic(valStr);
-        if (
-          (cleanLabel.includes("Результат") || cleanLabel.includes("Статус")) &&
-          (semantic === "SUCCESS" || semantic === "ATTENTION" || semantic === "NEGATIVE")
-        ) {
-          applyStatusCell(valueCell, valStr);
-        } else {
-          valueCell.font = FONT_DATA;
-          valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
-        }
-      }
-
-      applyRowBorders(row, 1, 5);
-    }
-  } else {
-    const emptyRow = worksheet.addRow(["Нет данных по образцам"]);
-    emptyRow.height = 20;
-    worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, 5);
-    const emptyCell = emptyRow.getCell(1);
-    emptyCell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
-    emptyCell.fill = FILL_SECTION_HEADER_SOFT;
-    emptyCell.alignment = { vertical: "middle", indent: 1 };
-    applyRowBorders(emptyRow, 1, 5);
+  const marker = options.testingMarkerField;
+  {
+    const markerValue = marker?.value ?? "—";
+    const markerRow = worksheet.addRow([
+      marker ? formatHeaderToRussian(marker.label, { preserveProvenance: false }) : "Тестирование образцов",
+      typeof markerValue === "string" && /^[=\-+\@]/.test(markerValue) ? "'" + markerValue : markerValue,
+    ]);
+    markerRow.height = 20;
+    worksheet.mergeCells(markerRow.number, 2, markerRow.number, 5);
+    const labelCell = markerRow.getCell(1);
+    labelCell.font = FONT_METADATA_LABEL;
+    labelCell.fill = FILL_SECTION_HEADER_SOFT;
+    labelCell.alignment = { vertical: "middle", indent: 1 };
+    const valueCell = markerRow.getCell(2);
+    valueCell.font = FONT_DATA;
+    valueCell.alignment = { vertical: "middle", indent: 1 };
+    applyRowBorders(markerRow, 1, 5);
   }
 
   worksheet.addRow([]);
 
-  // Section 3: Связанные сделки
+  // Section 3: ТЕСТИРОВАНИЕ ОБРАЗЦОВ — canonical Smart Process analytics.
+  // One physical cycle = one Excel row (never collapsed); canonical Lite
+  // item views only — no raw Bitrix field parsing in export code.
+  addCompanySmartProcessSection(worksheet, options);
+
+  worksheet.addRow([]);
+
+  // Section 4: Связанные сделки
   const deals = options.deals || [];
   addSectionHeader(worksheet, `Связанные сделки (${deals.length})`, 5);
 
@@ -888,6 +1089,44 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     emptyCell.fill = FILL_SECTION_HEADER_SOFT;
     emptyCell.alignment = { vertical: "middle", indent: 1 };
     applyRowBorders(emptyRow, 1, 5);
+  }
+
+  worksheet.addRow([]);
+
+  // Section 6: СИСТЕМНАЯ ИНФОРМАЦИЯ (Дата создания / Дата изменения —
+  // the same canonical model rows the UI renders in its Section 5). When no
+  // resolved model is provided, the section is omitted entirely: the
+  // placeholder path must never shadow label/value pairs of other sections.
+  if (model) {
+    addSectionHeader(worksheet, "Системная информация", 5);
+    const systemPairs: Array<[string, string | number | Date | null]> = [];
+    for (const f of model.fields) {
+      if (f.id === "DATE_CREATE" || f.id === "DATE_MODIFY") {
+        const parsed = normalizeCompanyReportFieldValue(f);
+        systemPairs.push([
+          f.label,
+          parsed.isDateField && parsed.value instanceof Date ? parsed.value : (parsed.value ?? "—"),
+        ]);
+      }
+    }
+    for (const [label, value] of systemPairs) {
+      const row = worksheet.addRow([label, value]);
+      row.height = 20;
+      worksheet.mergeCells(row.number, 2, row.number, 5);
+      const labelCell = row.getCell(1);
+      labelCell.font = FONT_METADATA_LABEL;
+      labelCell.fill = FILL_SECTION_HEADER_SOFT;
+      labelCell.alignment = { vertical: "middle", indent: 1 };
+      const valueCell = row.getCell(2);
+      valueCell.font = FONT_DATA;
+      if (value instanceof Date) {
+        valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+        valueCell.numFmt = NUMFMT.DATETIME;
+      } else {
+        valueCell.alignment = { vertical: "middle", indent: 1 };
+      }
+      applyRowBorders(row, 1, 5);
+    }
   }
 
   // Column Widths
@@ -1228,6 +1467,8 @@ export async function buildSamplesWorkbook(
     "Количество",
     "Дата передачи",
     "Статус",
+    "Текущий этап тестирования",
+    "Активных процессов",
     "Результат",
     "Сделки",
   ];
@@ -1276,6 +1517,23 @@ export async function buildSamplesWorkbook(
       return st;
     });
     const statuses = statusesList.length > 0 ? statusesList.join(", ") : null;
+
+    // Smart Process presentation facts (canonical SampleSummary — no second
+    // fetch, no re-parse):
+    // - 0 active → empty stage cell (workbook convention), count 0;
+    // - 1 active → its stage label;
+    // - >1 active → ALL unique active stage labels (never one winner).
+    const activeStageLabels = (s.currentActiveStageLabels ?? [])
+      .map((st) => (/^\d+$/.test(st) || /^DT1032_/i.test(st) ? UNCLASSIFIED_LABEL : st))
+      .filter(Boolean);
+    const currentStage =
+      activeStageLabels.length === 1
+        ? activeStageLabels[0]
+        : activeStageLabels.length > 1
+        ? activeStageLabels.join(", ")
+        : null;
+    const activeSpCount = s.activeSmartProcessCount ?? 0;
+
     const result = RESULT_LABELS[s.normalizedResult] || "Неизвестно";
     const deals =
       s.relatedDeals.length > 0
@@ -1292,6 +1550,8 @@ export async function buildSamplesWorkbook(
       quantities,
       sentDates,
       statuses,
+      currentStage,
+      activeSpCount,
       result,
       deals,
     ];

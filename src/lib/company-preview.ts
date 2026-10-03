@@ -412,34 +412,82 @@ export function resolvePricesRaw(company: Record<string, unknown>): { display: s
 }
 
 // ─── THE strict current-card whitelist (ordered) ──────────────────────
-// Exact 24-point current-card sequence mirroring the verified Bitrix card layout
-// (Note: "Тип продукта" UF_CRM_69257BBAB86F6 exists in schema but is absent from the live card layout):
-// 1. Ответственный
-// 2. Контакт
-// 3. Сайт
-// 4. Телефон
-// 5. E-mail (verified present on live card between PHONE and REVENUE)
-// 6. Годовой оборот
-// 7. Реквизиты
-// 8. Документы
-// 9. Адрес
+// Canonical Company Preview field sequence, mirroring the current Bitrix
+// Company card in content and order. Consumed identically by the UI drawer,
+// the Company Excel export and the regression tests — never a second list.
+//
+// Section 1 «ИНФОРМАЦИЯ О КОМПАНИИ» (21 business fields, in card order):
+//  1. Ответственный
+//  2. Контакт
+//  3. Сайт
+//  4. Телефон
+//  5. E-mail
+//  6. Годовой оборот
+//  7. Реквизиты
+//  8. Документы контрагента
+//  9. Адрес
 // 10. Регион
 // 11. Карточка компании
 // 12. Тип компании
-// 13. Отрасль
-// 14. Направление
-// 15. Используемая марка — ГЕЛЬ
-// 16. Потребление — ГЕЛЬ
-// 17. Используемая марка — ЗОЛЬ
-// 18. Потребление — ЗОЛЬ
-// 19. Фактические цены
-// 20. Комментарий по используемым продуктам
-// 21. Общие комментарии
-// 22. Тестирование образцов (marker, MARKER_ONLY)
+// 13. Отрасль (согл. список)
+// 14. Направление (согл. список)
+// 15. Используемая марка гель
+// 16. Гель потребление (тн/год)
+// 17. Используемая марка золь
+// 18. Золь потребление (тн/год)
+// 19. Комментарий по используемым продуктам
+// 20. Фактические цены
+// 21. Комментарий (general comments; long field)
+//
+// Section 2 «ИНФОРМАЦИЯ ОБ ОБРАЗЦАХ»:
+// 22. Тестирование образцов (Company-card marker, MARKER_ONLY)
+//
+// Section 5 «СИСТЕМНАЯ ИНФОРМАЦИЯ»:
 // 23. Дата создания
 // 24. Дата изменения
+//
+// Empty fields are NEVER dropped: buildCompanyPreviewModel renders every
+// whitelisted field; an unresolvable value becomes the truthful «—»
+// placeholder (identical behaviour in UI and Excel).
 
 export const TOTAL_APPROVED_FIELDS = 24;
+
+/** Truthful empty-value placeholder shared by the UI drawer and Excel. */
+export const EMPTY_FIELD_PLACEHOLDER = "—";
+
+/** Field IDs of Section 1 (business card fields, canonical order). */
+export const COMPANY_BUSINESS_FIELD_IDS: readonly string[] = [
+  "ASSIGNED_BY_ID",
+  "CONTACT",
+  "WEB",
+  "PHONE",
+  "EMAIL",
+  "REVENUE",
+  COMPANY_INN_FIELD_ID,
+  "UF_CRM_1782742600447",
+  "ADDRESS",
+  COMPANY_REGION_FIELD_ID,
+  "UF_CRM_691EB8983DE7D",
+  "COMPANY_TYPE",
+  COMPANY_INDUSTRY_CURRENT_FIELD_ID,
+  COMPANY_DIRECTION_CURRENT_FIELD_ID,
+  COMPANY_GEL_GRADE_CURRENT_FIELD_ID,
+  COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
+  COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
+  COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
+  COMPANY_COMMENTS_PRODUCT_FIELD_ID,
+  COMPANY_ACTUAL_PRICES_FIELD_ID,
+  "COMMENTS",
+];
+
+/** Field IDs of Section 5 (system information). */
+export const COMPANY_SYSTEM_FIELD_IDS: readonly string[] = [
+  "DATE_CREATE",
+  "DATE_MODIFY",
+];
+
+/** The Section 2 marker field (Bitrix Company card, MARKER_ONLY). */
+export const COMPANY_MARKER_FIELD_ID = COMPANY_TESTING_MARKER_FIELD_ID;
 
 export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] = [
   // 1. Ответственный
@@ -556,17 +604,17 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 8. Документы
+  // 8. Документы контрагента
   {
     id: "UF_CRM_1782742600447",
-    label: "Документы",
+    label: "Документы контрагента",
     type: "file",
     resolve: (company) => {
       const value = resolveFileRaw(company.UF_CRM_1782742600447);
       return value
         ? {
             id: "UF_CRM_1782742600447",
-            label: "Документы",
+            label: "Документы контрагента",
             value,
             rawValue: company.UF_CRM_1782742600447,
             type: "file",
@@ -654,10 +702,10 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 13. Отрасль
+  // 13. Отрасль (согл. список)
   {
     id: COMPANY_INDUSTRY_CURRENT_FIELD_ID,
-    label: "Отрасль",
+    label: "Отрасль (согл. список)",
     type: "enumeration",
     resolve: (company, ctx) => {
       const raw = company[COMPANY_INDUSTRY_CURRENT_FIELD_ID];
@@ -665,7 +713,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
       return display
         ? {
             id: COMPANY_INDUSTRY_CURRENT_FIELD_ID,
-            label: "Отрасль",
+            label: "Отрасль (согл. список)",
             value: display,
             rawValue: raw,
             type: "enumeration",
@@ -674,10 +722,10 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 14. Направление
+  // 14. Направление (согл. список)
   {
     id: COMPANY_DIRECTION_CURRENT_FIELD_ID,
-    label: "Направление",
+    label: "Направление (согл. список)",
     type: "enumeration",
     resolve: (company, ctx) => {
       const raw = company[COMPANY_DIRECTION_CURRENT_FIELD_ID];
@@ -685,7 +733,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
       return display
         ? {
             id: COMPANY_DIRECTION_CURRENT_FIELD_ID,
-            label: "Направление",
+            label: "Направление (согл. список)",
             value: display,
             rawValue: raw,
             type: "enumeration",
@@ -694,10 +742,10 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 15. Используемая марка — ГЕЛЬ
+  // 15. Используемая марка гель
   {
     id: COMPANY_GEL_GRADE_CURRENT_FIELD_ID,
-    label: "Используемая марка — ГЕЛЬ",
+    label: "Используемая марка гель",
     type: "string",
     resolve: (company) => {
       const raw = company[COMPANY_GEL_GRADE_CURRENT_FIELD_ID];
@@ -708,7 +756,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
       return display
         ? {
             id: COMPANY_GEL_GRADE_CURRENT_FIELD_ID,
-            label: "Используемая марка — ГЕЛЬ",
+            label: "Используемая марка гель",
             value: display,
             rawValue: raw,
             type: "string",
@@ -717,10 +765,10 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 16. Потребление — ГЕЛЬ
+  // 16. Гель потребление (тн/год)
   {
     id: COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
-    label: "Потребление — ГЕЛЬ",
+    label: "Гель потребление (тн/год)",
     type: "double",
     resolve: (company) => {
       const raw = company[COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID];
@@ -728,7 +776,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
       return res
         ? {
             id: COMPANY_GEL_CONSUMPTION_CURRENT_FIELD_ID,
-            label: "Потребление — ГЕЛЬ",
+            label: "Гель потребление (тн/год)",
             value: res.display,
             rawValue: raw,
             type: "double",
@@ -737,10 +785,10 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 17. Используемая марка — ЗОЛЬ
+  // 17. Используемая марка золь
   {
     id: COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
-    label: "Используемая марка — ЗОЛЬ",
+    label: "Используемая марка золь",
     type: "string",
     resolve: (company) => {
       const raw = company[COMPANY_SOL_GRADE_CURRENT_FIELD_ID];
@@ -751,7 +799,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
       return display
         ? {
             id: COMPANY_SOL_GRADE_CURRENT_FIELD_ID,
-            label: "Используемая марка — ЗОЛЬ",
+            label: "Используемая марка золь",
             value: display,
             rawValue: raw,
             type: "string",
@@ -760,10 +808,10 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 18. Потребление — ЗОЛЬ
+  // 18. Золь потребление (тн/год)
   {
     id: COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
-    label: "Потребление — ЗОЛЬ",
+    label: "Золь потребление (тн/год)",
     type: "double",
     resolve: (company) => {
       const raw = company[COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID];
@@ -771,30 +819,11 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
       return res
         ? {
             id: COMPANY_SOL_CONSUMPTION_CURRENT_FIELD_ID,
-            label: "Потребление — ЗОЛЬ",
+            label: "Золь потребление (тн/год)",
             value: res.display,
             rawValue: raw,
             type: "double",
             excelValue: res.excel,
-          }
-        : null;
-    },
-  },
-  // 19. Фактические цены
-  {
-    id: COMPANY_ACTUAL_PRICES_FIELD_ID,
-    label: "Фактические цены",
-    type: "money",
-    resolve: (company) => {
-      const res = resolvePricesRaw(company);
-      return res
-        ? {
-            id: COMPANY_ACTUAL_PRICES_FIELD_ID,
-            label: "Фактические цены",
-            value: res.display,
-            rawValue: company[COMPANY_ACTUAL_PRICES_FIELD_ID],
-            type: "money",
-            excelValue: res.excel as any,
           }
         : null;
     },
@@ -818,7 +847,26 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
         : null;
     },
   },
-  // 21. Общие комментарии
+  // 20. Фактические цены
+  {
+    id: COMPANY_ACTUAL_PRICES_FIELD_ID,
+    label: "Фактические цены",
+    type: "money",
+    resolve: (company) => {
+      const res = resolvePricesRaw(company);
+      return res
+        ? {
+            id: COMPANY_ACTUAL_PRICES_FIELD_ID,
+            label: "Фактические цены",
+            value: res.display,
+            rawValue: company[COMPANY_ACTUAL_PRICES_FIELD_ID],
+            type: "money",
+            excelValue: res.excel as any,
+          }
+        : null;
+    },
+  },
+  // 21. Комментарий (general comments; long field)
   {
     id: "COMMENTS",
     label: "Комментарий",
@@ -903,6 +951,11 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
  * Builds the ONE resolved Company Preview model consumed by both the UI
  * drawer and the Excel export. Only explicit current-card whitelist
  * fields can appear — never a generic UF_CRM dump.
+ *
+ * Empty-field invariant: every whitelisted field renders, even when its
+ * resolved value is empty — an unresolvable field becomes the truthful
+ * «—» placeholder (never dropped, never fabricated). UI and Excel inherit
+ * this behaviour from the same resolved model.
  */
 export function buildCompanyPreviewModel(
   company: Record<string, unknown>,
@@ -923,7 +976,22 @@ export function buildCompanyPreviewModel(
   const fields: CompanyPreviewResolvedField[] = [];
   for (const def of COMPANY_PREVIEW_CURRENT_FIELDS) {
     const resolved = def.resolve(company, ctx);
-    if (resolved) fields.push(resolved);
+    if (resolved) {
+      fields.push(resolved);
+    } else if (def.id === COMPANY_MARKER_FIELD_ID && !(COMPANY_TESTING_MARKER_FIELD_ID && COMPANY_HAS_DISCOVERED_CARD_CONTRACT)) {
+      // Marker field without a verified discovered contract: the field is
+      // not part of the verified live card — no placeholder is fabricated.
+      continue;
+    } else {
+      // Truthful empty placeholder: field stays visible with «—».
+      fields.push({
+        id: def.id,
+        label: def.label,
+        value: EMPTY_FIELD_PLACEHOLDER,
+        rawValue: null,
+        type: def.type,
+      });
+    }
   }
 
   const createdField = fields.find((f) => f.id === "DATE_CREATE");
@@ -934,24 +1002,11 @@ export function buildCompanyPreviewModel(
     title: String(company.TITLE ?? "").trim() || "Без названия",
     companyId: String(company.ID ?? ""),
     fields,
-    createdAt: createdField?.value ?? null,
-    modifiedAt: modifiedField?.value ?? null,
-    comments: commentsField?.value ?? null,
+    createdAt: createdField && createdField.value !== EMPTY_FIELD_PLACEHOLDER ? createdField.value : null,
+    modifiedAt: modifiedField && modifiedField.value !== EMPTY_FIELD_PLACEHOLDER ? modifiedField.value : null,
+    comments: commentsField && commentsField.value !== EMPTY_FIELD_PLACEHOLDER ? commentsField.value : null,
   };
 }
-
-// ─── Legacy sample fields (kept for backward compatibility of existing
-// tests/callers; NOT part of the current-card whitelist) ──────────────
-
-export const COMPANY_SAMPLE_FIELDS = [
-  { id: "UF_CRM_1764155817232", label: "Марка предоставленных образцов (ГЕЛЬ)" },
-  { id: "UF_CRM_1764156004815", label: "Кол-во переданного образца (ГЕЛЬ) кг" },
-  { id: "UF_CRM_1764155891815", label: "Марка предоставленных образцов (ЗОЛЬ)" },
-  { id: "UF_CRM_1764156064272", label: "Кол-во переданного образца (ЗОЛЬ) л" },
-  { id: "UF_CRM_1764156557536", label: "Дата передачи образцов" },
-  { id: "UF_CRM_1764156593", label: "Результат испытаний" },
-  { id: "COMMENTS", label: "Комментарий" },
-] as const;
 
 export interface PreviewField {
   id: string;
@@ -959,150 +1014,6 @@ export interface PreviewField {
   value: string;
   /** CRM field type metadata — preserved through export so explicit type wins. */
   type?: string;
-}
-
-/**
- * @deprecated Phase D: legacy sample-field builder retained only for the
- * transitional company-browser sample block. The current-card section of
- * Company Preview uses buildCompanyPreviewModel.
- */
-export function defaultSampleFields(
-  company: Record<string, unknown>,
-  fields: Array<{ id: string; title: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }> = []
-): PreviewField[] {
-  const fieldMap = new Map(fields.map(f => [f.id, f]));
-  return COMPANY_SAMPLE_FIELDS.map(({ id, label }) => {
-    let raw = company[id] ?? company[`COMPANY_${id}`];
-    if ((raw === undefined || raw === null || raw === "") && id === "COMMENTS") {
-      raw = company.COMMENTS ?? company.comments ?? company.COMPANY_COMMENTS;
-    }
-
-    const meta = fieldMap.get(id) || fieldMap.get(`COMPANY_${id}`);
-    const metaType = meta?.type?.toLowerCase();
-    const explicitTypeIsNotDate =
-      metaType !== undefined &&
-      ["string", "text", "enumeration", "crm_status", "boolean", "char", "integer", "double", "money", "user", "file", "url"].includes(metaType);
-
-    if ((id === "UF_CRM_1764156557536" || label.toLowerCase().includes("дата")) && !explicitTypeIsNotDate) {
-      if (raw) {
-        const d = parseStrictDate(String(raw));
-        if (d) {
-          return {
-            id,
-            label,
-            value: d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }),
-            type: metaType,
-          };
-        }
-      }
-    }
-
-    if (meta?.listValues && meta.listValues.length > 0 && raw !== undefined && raw !== null && raw !== "") {
-      if (Array.isArray(raw)) {
-        return {
-          id,
-          label,
-          value: raw.map(v => meta.listValues?.find(lv => lv.ID === String(v))?.VALUE || String(v)).join(", "),
-          type: metaType,
-        };
-      }
-      const found = meta.listValues.find(lv => lv.ID === String(raw));
-      if (found) {
-        return { id, label, value: found.VALUE, type: metaType };
-      }
-    }
-
-    const isBool = metaType === "boolean" || metaType === "char";
-    const s = String(raw).trim();
-    const isSentinel = !isBool && (raw === false || s.toLowerCase() === "false" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined");
-    const value = raw !== undefined && raw !== null && s !== "" && !isSentinel ? s : "–";
-    return { id, label, value, type: metaType };
-  });
-}
-
-/**
- * @deprecated Phase D: generic-field builder retained only for the
- * transitional company-browser previewFields path. The current-card
- * section of Company Preview uses buildCompanyPreviewModel — this
- * function must NOT be used for the drawer's current-card fields.
- */
-export function defaultCompanyFields(
-  company: Record<string, unknown>,
-  userNames: Record<string, string> = {},
-  fields: Array<{ id: string; title: string; type?: string }> = [],
-  usersCoverage?: DatasetCoverage | null
-): PreviewField[] {
-  const fieldMap = new Map(fields.map(f => [f.id, f]));
-  const typeOf = (id: string): string | undefined =>
-    fieldMap.get(id)?.type || fieldMap.get(`COMPANY_${id}`)?.type;
-
-  const out: PreviewField[] = [];
-
-  if (company.ASSIGNED_BY_ID) {
-    const id = String(company.ASSIGNED_BY_ID);
-    out.push({
-      id: "ASSIGNED_BY_ID",
-      label: "Ответственный компании",
-      value: resolveResponsibleDisplay(id, userNames, usersCoverage),
-      type: "user",
-    });
-  }
-
-  if (company.PHONE && String(company.PHONE).trim()) {
-    out.push({ id: "PHONE", label: "Телефон", value: String(company.PHONE), type: "phone" });
-  }
-
-  if (company.EMAIL && String(company.EMAIL).trim()) {
-    out.push({ id: "EMAIL", label: "Email", value: String(company.EMAIL), type: "email" });
-  }
-
-  if (company.DATE_CREATE && String(company.DATE_CREATE).trim()) {
-    const d = parseStrictDate(String(company.DATE_CREATE));
-    out.push({
-      id: "DATE_CREATE",
-      label: "Дата создания",
-      value: d ? d.toLocaleDateString("ru-RU") : String(company.DATE_CREATE),
-      type: "datetime",
-    });
-  }
-
-  if (company.DATE_MODIFY && String(company.DATE_MODIFY).trim()) {
-    const d = parseStrictDate(String(company.DATE_MODIFY));
-    out.push({
-      id: "DATE_MODIFY",
-      label: "Дата изменения",
-      value: d ? d.toLocaleDateString("ru-RU") : String(company.DATE_MODIFY),
-      type: "datetime",
-    });
-  }
-
-  const sampleFieldIds = new Set<string>(COMPANY_SAMPLE_FIELDS.map(f => f.id));
-  sampleFieldIds.add("UF_CRM_1753187313314");
-  sampleFieldIds.add("LAST_ACTIVITY_TIME");
-  sampleFieldIds.add("LAST_ACTIVITY_BY");
-  sampleFieldIds.add("COMMENTS");
-
-  // Render ONLY explicitly configured metadata fields — no generic UF_CRM dump
-  for (const f of fields) {
-    if (sampleFieldIds.has(f.id)) continue;
-    const raw = company[f.id] ?? company[`COMPANY_${f.id}`];
-    if (raw !== null && raw !== "" && raw !== undefined) {
-      const fType = typeOf(f.id)?.toLowerCase();
-      const isBool = fType === "boolean" || fType === "char";
-      const s = String(raw).trim();
-      const isSentinel = !isBool && (raw === false || s.toLowerCase() === "false" || s.toLowerCase() === "null" || s.toLowerCase() === "undefined");
-      if (!isSentinel) {
-        out.push({
-          id: f.id,
-          label: f.title || f.id,
-          value: typeof raw === "object" ? JSON.stringify(raw) : s,
-          type: fType,
-        });
-      }
-    }
-  }
-
-  return out;
 }
 
 /** Re-export for the Excel builder's native typing. */

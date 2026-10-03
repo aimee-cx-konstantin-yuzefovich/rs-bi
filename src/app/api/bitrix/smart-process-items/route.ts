@@ -9,11 +9,14 @@
 // Invariants:
 // - auth required (WordPress SSO principal);
 // - read-only Bitrix access (the service performs only list/fields/status reads);
+// - strict body contract: {} or { companyId: "<positive integer string>" } only;
+//   unknown keys and invalid companyId values are HTTP 400 BEFORE any Bitrix
+//   work — an invalid scope never degrades into an unscoped/full load;
 // - fail-closed contract gate (unverified SP contract never reaches transport);
 // - initial failure is explicit (502) — never an empty-dataset masquerade;
 // - a successful empty dataset is a truthful empty result (items: []);
 // - no-store caching (client session cache owns snapshot semantics);
-// - request body not required; if present it is size-guarded.
+// - oversized body guard (10KB → 413).
 // ─────────────────────────────────────────────────────────────────────
 
 import { NextResponse } from "next/server";
@@ -25,8 +28,36 @@ export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 10 * 1024;
 
-interface SmartProcessItemsPayload {
-  companyId?: string;
+/** Positive integer string (no leading zeros, no zero, no negatives/decimals). */
+const ID_PATTERN = /^[1-9]\d*$/;
+
+/**
+ * Strict body contract (mirrors /api/bitrix/samples validation philosophy):
+ *   {}  → full population scope
+ *   { "companyId": "<positive integer string>" } → single-company scope
+ * Anything else is an explicit HTTP 400 BEFORE any Bitrix work: an invalid
+ * scope must NEVER degrade into an unscoped/full population query.
+ */
+function validateBody(body: unknown): { companyId?: string } {
+  if (body === undefined || body === null) return {};
+  if (typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("Parameter 'body' must be an object");
+  }
+  const raw = body as Record<string, unknown>;
+  const out: { companyId?: string } = {};
+
+  if (Object.prototype.hasOwnProperty.call(raw, "companyId") && raw.companyId !== undefined) {
+    if (typeof raw.companyId !== "string" || !ID_PATTERN.test(raw.companyId)) {
+      throw new Error("Parameter 'companyId' must be a positive integer string");
+    }
+    out.companyId = raw.companyId;
+  }
+  for (const key of Object.keys(raw)) {
+    if (key !== "companyId") {
+      throw new Error(`Unknown parameter '${key}'`);
+    }
+  }
+  return out;
 }
 
 export async function POST(request: Request) {
@@ -40,20 +71,23 @@ export async function POST(request: Request) {
       headers: { "Cache-Control": "no-store" },
     });
 
-  // Optional body: { companyId?: string } for single-company scope.
-  let payload: SmartProcessItemsPayload = {};
+  // Strictly validated optional body; validation errors return BEFORE any
+  // Smart Process load (no unscoped fallback for invalid scopes).
+  let payload: { companyId?: string } = {};
   try {
     const raw = await request.text();
     if (raw.length > MAX_BODY_BYTES) {
       return respond({ success: false, error: "Request body too large" }, 413);
     }
-    if (raw.trim()) {
+    if (raw.trim() !== "") {
       const parsed: unknown = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        const companyId = (parsed as { companyId?: unknown }).companyId;
-        if (typeof companyId === "string" && /^\d+$/.test(companyId.trim())) {
-          payload = { companyId: companyId.trim() };
-        }
+      try {
+        payload = validateBody(parsed);
+      } catch (error) {
+        return respond(
+          { success: false, error: error instanceof Error ? error.message : "Invalid request" },
+          400
+        );
       }
     }
   } catch {
@@ -77,7 +111,6 @@ export async function POST(request: Request) {
     const load = await loadSmartProcessItemViews(
       payload.companyId ? { companyId: payload.companyId } : {}
     );
-
     return respond({
       success: true,
       items: load.views,
