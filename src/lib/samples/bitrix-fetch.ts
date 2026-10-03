@@ -44,7 +44,11 @@ import {
   SMART_PROCESS_DEAL_FIELD_ID,
   SMART_PROCESS_GRADE_GEL_FIELD_ID,
   SMART_PROCESS_GRADE_SOL_FIELD_ID,
+  SMART_PROCESS_QTY_GEL_FIELD_ID,
+  SMART_PROCESS_QTY_SOL_FIELD_ID,
   SMART_PROCESS_TEST_RESULT_FIELD_ID,
+  SMART_PROCESS_STAGE_STATUS_ENTITY_ID,
+  SMART_PROCESS_STAGE_LABELS,
   SMART_PROCESS_HAS_DISCOVERED_CONTRACT,
   assertSmartProcessContractReady,
 } from "./smart-process-contract";
@@ -345,8 +349,64 @@ export const SMART_PROCESS_ITEM_SELECT = [
   ...(SMART_PROCESS_DEAL_FIELD_ID ? [SMART_PROCESS_DEAL_FIELD_ID] : []),
   ...(SMART_PROCESS_GRADE_GEL_FIELD_ID ? [SMART_PROCESS_GRADE_GEL_FIELD_ID] : []),
   ...(SMART_PROCESS_GRADE_SOL_FIELD_ID ? [SMART_PROCESS_GRADE_SOL_FIELD_ID] : []),
+  ...(SMART_PROCESS_QTY_GEL_FIELD_ID ? [SMART_PROCESS_QTY_GEL_FIELD_ID] : []),
+  ...(SMART_PROCESS_QTY_SOL_FIELD_ID ? [SMART_PROCESS_QTY_SOL_FIELD_ID] : []),
   ...(SMART_PROCESS_TEST_RESULT_FIELD_ID ? [SMART_PROCESS_TEST_RESULT_FIELD_ID] : []),
 ];
+
+/**
+ * Read-only live Smart Process stage directory loader (`crm.status.list`,
+ * ENTITY_ID = DYNAMIC_1032_STAGE_15).
+ *
+ * Separation of responsibilities:
+ * - BUSINESS SEMANTICS stay keyed on the committed stable stage IDs and
+ *   `SMART_PROCESS_STAGE_SEMANTICS` — this loader NEVER influences
+ *   active/terminal classification;
+ * - DISPLAY LABELS prefer the live NAME for a known committed stage ID;
+ * - the static Russian labels are only a fallback while the directory is
+ *   temporarily unavailable;
+ * - unknown stage IDs must never be classified by matching Russian names.
+ *
+ * Non-fatal by contract: on failure returns the committed static labels with
+ * `available: false` so callers can disclose the fallback.
+ */
+export interface SmartProcessStageDirectory {
+  /** stageId -> display label (live NAME for known IDs, static fallback). */
+  labels: Record<string, string>;
+  /** True when the live crm.status.list directory was reachable. */
+  available: boolean;
+}
+
+export async function fetchSmartProcessStageDirectory(): Promise<SmartProcessStageDirectory> {
+  // Static labels as fallback for the committed stage IDs.
+  const labels: Record<string, string> = { ...SMART_PROCESS_STAGE_LABELS };
+  let available = false;
+
+  try {
+    const data = await bitrixPost<{
+      result?: Array<{ STATUS_ID: string; NAME: string }>;
+    }>("crm.status.list", {
+      filter: { ENTITY_ID: SMART_PROCESS_STAGE_STATUS_ENTITY_ID },
+    });
+    if (Array.isArray(data.result)) {
+      for (const s of data.result) {
+        const stageId = String(s.STATUS_ID ?? "").trim();
+        const name = String(s.NAME ?? "").trim();
+        // Only known committed stage IDs receive live display labels;
+        // unknown stage IDs keep their neutral unclassified treatment and
+        // are never classified by matching Russian wording.
+        if (stageId && name && stageId in labels) {
+          labels[stageId] = name;
+        }
+      }
+      available = true;
+    }
+  } catch {
+    // Non-fatal: static labels remain the fallback; available=false discloses it.
+  }
+
+  return { labels, available };
+}
 
 /**
  * Fetches the COMPLETE relevant Smart Process 1032 (categoryId 15)

@@ -87,6 +87,18 @@ const REQUIRED_FIELD_ROLES = [
     required: true,
   },
   {
+    role: "Кол-во переданного образца (ГЕЛЬ) кг",
+    acceptedTitles: ["кол-во переданного образца (гель) кг"],
+    expectedTypes: ["double", "integer", "string"],
+    required: true,
+  },
+  {
+    role: "Кол-во переданного образца (ЗОЛЬ) л",
+    acceptedTitles: ["кол-во переданного образца (золь) л"],
+    expectedTypes: ["double", "integer", "string"],
+    required: true,
+  },
+  {
     role: "Company navigation marker (optional UF field)",
     acceptedTitles: ["образцы", "образцы (статус / наличие)"],
     expectedTypes: ["enumeration"],
@@ -303,10 +315,15 @@ async function main() {
     }
 
     // 5. Detect relation fields.
-    // Deal relation: system field whose title is «Сделка» (already resolved above)
-    // or a PARENT_ID_<entityTypeId> system field.
+    // Deal relation: canonical Bitrix24 universal parent relation rule is
+    // `parentId{parentEntityTypeId}`. Deal entityTypeId is 2, so the expected
+    // field is exactly `parentId2`. We verify `parentId2` explicitly and never
+    // infer the Deal relation from the auxiliary custom UF field.
     const dealRelationCandidates = Object.keys(fields).filter(
-      (k) => k === `parentIds_${EXPECTED_ENTITY_TYPE_ID}` || k === `PARENT_ID_${EXPECTED_ENTITY_TYPE_ID}`
+      (k) => k === "parentId2"
+    );
+    const wrongDealRelationCandidates = Object.keys(fields).filter(
+      (k) => k === `parentId${EXPECTED_ENTITY_TYPE_ID}` || k === `parentIds_${EXPECTED_ENTITY_TYPE_ID}` || k === `PARENT_ID_${EXPECTED_ENTITY_TYPE_ID}`
     );
     const companyRelationCandidates = Object.keys(fields).filter(
       (k) => k === "companyId" || k === "COMPANY_ID" || k === "companyId2"
@@ -314,23 +331,40 @@ async function main() {
 
     // 6. Stage dictionary via crm.status.list DYNAMIC_1032_STAGE_15.
     let stageStatuses = [];
+    let stageDirectoryAvailable = false;
     try {
       const statusResult = await callReadOnly(webhookUrl, "crm.status.list", {
         filter: { ENTITY_ID: EXPECTED_STAGE_ENTITY },
       });
       stageStatuses = Array.isArray(statusResult) ? statusResult : [];
+      stageDirectoryAvailable = stageStatuses.length > 0;
     } catch {
       console.warn("crm.status.list for stage entity failed (stages verified via item list instead)");
     }
 
+    // Verify live stage IDs cover the committed semantic map; any live stage
+    // missing from the committed map is a warning (never auto-extended here).
+    const committedStageIds = new Set(Object.keys(EXPECTED_STAGES));
+    const liveStageIds = new Set(stageStatuses.map((s) => String(s.STATUS_ID)));
+    const liveStagesMissingFromCommittedMap = [...liveStageIds].filter(
+      (id) => !committedStageIds.has(id)
+    );
+    const committedStagesMissingLive = [...committedStageIds].filter(
+      (id) => !liveStageIds.has(id)
+    );
+
     // 7. One sanitized sample page of items (≤5) to observe actual field presence.
+    // Official Universal CRM request shape: entityTypeId / select / filter /
+    // order / start top-level; categoryId strictly INSIDE filter.
     let sampleItems = [];
     try {
       const itemsResult = await callReadOnly(webhookUrl, "crm.item.list", {
         entityTypeId: EXPECTED_ENTITY_TYPE_ID,
-        categoryId: EXPECTED_CATEGORY_ID,
         select: ["id", "stageId", "assignedById", "createdTime"],
+        filter: { categoryId: EXPECTED_CATEGORY_ID },
+        order: { id: "ASC" },
         start: 0,
+        useOriginalUfNames: "Y",
       });
       const rawItems = Array.isArray(itemsResult?.items) ? itemsResult.items : Array.isArray(itemsResult) ? itemsResult : [];
       sampleItems = rawItems.slice(0, 5).map((row) => sanitizeItemRow(row, resolved));
@@ -351,7 +385,11 @@ async function main() {
       relationCandidates: {
         deal: dealRelationCandidates,
         company: companyRelationCandidates,
+        wrongDealRelationPresent: wrongDealRelationCandidates,
       },
+      stageDirectoryAvailable,
+      liveStagesMissingFromCommittedMap,
+      committedStagesMissingLive,
       resolvedFields: resolved,
       ambiguousFields: ambiguous,
       sampleItemFieldPresence: sampleItems,
@@ -367,6 +405,25 @@ async function main() {
       for (const m of requiredMissing) console.error(`  - ${m}`);
       console.log("DISCOVERY_STATUS=LIVE_SMART_PROCESS_CONTRACT_INCOMPLETE");
       process.exit(2);
+    }
+
+    if (dealRelationCandidates.length === 0) {
+      console.error("\nDeal relation `parentId2` NOT FOUND in crm.item.fields — canonical Deal relation unverified.");
+      console.log("DISCOVERY_STATUS=LIVE_SMART_PROCESS_CONTRACT_INCOMPLETE");
+      process.exit(2);
+    }
+    if (companyRelationCandidates.length === 0) {
+      console.error("\nCompany relation `companyId` NOT FOUND in crm.item.fields — Company relation unverified.");
+      console.log("DISCOVERY_STATUS=LIVE_SMART_PROCESS_CONTRACT_INCOMPLETE");
+      process.exit(2);
+    }
+    if (liveStagesMissingFromCommittedMap.length > 0) {
+      console.warn("\nWARNING: live stage IDs missing from committed semantic map (never auto-extended):");
+      for (const id of liveStagesMissingFromCommittedMap) console.warn(`  - ${id}`);
+    }
+    if (committedStagesMissingLive.length > 0) {
+      console.warn("\nWARNING: committed semantic map stage IDs not present live:");
+      for (const id of committedStagesMissingLive) console.warn(`  - ${id}`);
     }
 
     console.log("\nAll required Smart Process contract fields resolved.");
