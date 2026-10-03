@@ -13,6 +13,8 @@ import { parseStrictNumber } from "@/lib/scalar-safety";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { SampleSummary } from "@/lib/samples/types";
 import { getDealStageDisplayLabel } from "@/lib/crm-constants";
+import { useSmartProcessData } from "@/components/dashboard/samples/use-smart-process-data";
+import { SmartProcessItemCard } from "@/components/dashboard/samples/smart-process-item-card";
 
 function formatPreviewValue(val: unknown, isBoolean?: boolean): string {
   if (val === null || val === undefined || val === "") return "–";
@@ -358,6 +360,10 @@ export function CompanyPreview({
                 {/* Compact «Образцы» analytics block (Samples v1 cross-nav).
                     Lazy-fetched summary from the authoritative Samples API. */}
                 <CompanySamplesSummary companyId={id} />
+
+                {/* Canonical Smart Process physical testing cycles indexed
+                    to this company (trustworthy attribution only). */}
+                <CompanySmartProcessCycles companyId={id} onOpenDealPreview={onOpenDealPreview} />
               </div>
 
               {/* Related Deals (Связанные сделки) */}
@@ -659,3 +665,123 @@ function CompanySamplesSummary({ companyId }: { companyId: string }) {
   );
 }
 
+
+/**
+ * «Циклы тестирования» — canonical Smart Process physical cycles indexed to
+ * this company (trustworthy attribution only: relation-conflict and orphan
+ * items are excluded by the canonical company index). Shows the active/
+ * terminal summary, then EVERY trustworthy cycle — multiple active cycles
+ * all render (never collapsed into one fabricated winner; the canonical
+ * AMBIGUOUS_MULTIPLE_ACTIVE resolution stays visible in the Samples
+ * analytics summary above).
+ *
+ * Fetch owner: the shared session cache hook (`useSmartProcessData`) —
+ * concurrent consumers coalesce into ONE bulk request.
+ */
+function CompanySmartProcessCycles({
+  companyId,
+  onOpenDealPreview,
+}: {
+  companyId: string;
+  onOpenDealPreview?: (dealId: string) => void;
+}) {
+  const sp = useSmartProcessData();
+  const allDeals = useDashboardStore((s) => s.allDeals);
+
+  const dealTitleById = new Map(
+    Array.isArray(allDeals)
+      ? allDeals.map((d: Record<string, unknown>) => [
+          String(d.ID ?? d.id ?? ""),
+          String(d.TITLE ?? "").trim(),
+        ])
+      : []
+  );
+
+  if (sp.dataState === "failed") {
+    return (
+      <div className="mt-3 rounded-md border bg-muted/30 p-2.5 text-xs space-y-1.5" data-sp-company-section>
+        <div className="flex items-center gap-1.5 font-medium text-foreground/80">
+          <FlaskConical className="h-3 w-3" />
+          Циклы тестирования
+        </div>
+        <div role="alert" className="space-y-2">
+          <p className="text-muted-foreground">Процессы тестирования временно недоступны.</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={sp.reload}
+            data-sp-retry
+          >
+            Повторить
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (sp.dataState === "loading") {
+    return (
+      <div className="mt-3 rounded-md border bg-muted/30 p-2.5 text-xs space-y-1.5" data-sp-company-section>
+        <div className="flex items-center gap-1.5 font-medium text-foreground/80">
+          <FlaskConical className="h-3 w-3" />
+          Циклы тестирования
+        </div>
+        <Skeleton className="h-6 w-full" />
+      </div>
+    );
+  }
+
+  // Trustworthy company attribution only (canonical byCompanyId index).
+  const cycles = sp.byCompanyId[companyId] ?? [];
+  const activeCount = cycles.filter((c) => c.isActive).length;
+  const terminalCount = cycles.filter((c) => c.isTerminal).length;
+
+  return (
+    <div className="mt-3 rounded-md border bg-muted/30 p-2.5 text-xs space-y-1.5" data-sp-company-section>
+      <div className="flex items-center gap-1.5 font-medium text-foreground/80">
+        <FlaskConical className="h-3 w-3" />
+        Циклы тестирования
+      </div>
+      {sp.dataState === "refresh_failed" && (
+        <div
+          role="note"
+          data-sp-stale-warning
+          className="flex items-center gap-2 flex-wrap rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive"
+        >
+          <span className="break-words">Обновление не удалось — показаны ранее загруженные данные.</span>
+          <Button type="button" variant="outline" size="sm" className="h-7 text-[11px]" onClick={sp.reload} data-sp-retry>
+            Повторить
+          </Button>
+        </div>
+      )}
+      {cycles.length === 0 ? (
+        <p className="text-muted-foreground" data-sp-company-empty>
+          Циклы тестирования не найдены
+        </p>
+      ) : (
+        <>
+          <div className="text-muted-foreground" data-sp-company-summary>
+            Активных: {activeCount} · Завершённых: {terminalCount}
+          </div>
+          <ul className="space-y-2" data-sp-company-list>
+            {cycles.map((view) => (
+              <SmartProcessItemCard
+                key={view.processItemId}
+                view={view}
+                dealTitle={
+                  view.linkedDealId
+                    ? dealTitleById.get(view.linkedDealId) || `Сделка ID ${view.linkedDealId}`
+                    : undefined
+                }
+                onOpenDealPreview={onOpenDealPreview}
+                dataTestId="sp-company-cycle"
+              />
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}

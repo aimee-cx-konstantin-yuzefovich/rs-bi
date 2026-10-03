@@ -17,6 +17,8 @@ import { Building2, Download, ExternalLink, FlaskConical, Loader2 } from "lucide
 import { useDashboardStore } from "@/store/dashboard-store";
 import { buildDealPreviewModel, buildDealActivitiesModel } from "@/lib/deal-preview";
 import { exportDealToExcel } from "@/lib/export-utils";
+import { useSmartProcessData } from "@/components/dashboard/samples/use-smart-process-data";
+import { SmartProcessItemCard } from "@/components/dashboard/samples/smart-process-item-card";
 
 type PreviewState =
   | { status: "loading" }
@@ -316,6 +318,10 @@ export function DealPreview({
               {/* Дела и активности */}
               <DealActivitiesSection dealId={id} onRetry={() => setActivitiesRetrySeq((n) => n + 1)} />
 
+              {/* Тестирование образцов — canonical Smart Process items with
+                  exact linkedDealId === currentDealId */}
+              <DealSmartProcessSection dealId={id} onOpenCompanyPreview={onOpenCompanyPreview} />
+
               {/* CURRENT DEAL CARD FIELDS (8 to 16) */}
               <div className="pt-3 space-y-3">
                 {model.cardFields.map((field) => (
@@ -567,6 +573,136 @@ function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: (
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * «Тестирование образцов» section inside Deal Preview.
+ * Renders ALL canonical Smart Process item views with exact
+ * `linkedDealId === currentDealId` — active first, terminal later (the
+ * canonical ordering). The fetch owner is the shared session cache hook
+ * (`useSmartProcessData`): concurrent consumers coalesce into ONE bulk
+ * request; retry performs a real request; no duplicate request effects.
+ *
+ * Truthful states:
+ * - successful empty → «Процессы тестирования не найдены»;
+ * - initial failure → explicit unavailable + retry;
+ * - failed refresh with a preserved snapshot → previous rows stay rendered
+ *   under a compact stale-data disclosure with retry (mirrors activities).
+ */
+function DealSmartProcessSection({
+  dealId,
+  onOpenCompanyPreview,
+}: {
+  dealId: string;
+  onOpenCompanyPreview?: (companyId: string) => void;
+}) {
+  const sp = useSmartProcessData();
+  const allDeals = useDashboardStore((s) => s.allDeals);
+
+  // Exact attribution only: parentId2 === dealId (index from the canonical view).
+  const items = sp.byDealId[String(dealId)] ?? [];
+  const hasLoadedData = sp.dataState === "ready" || sp.dataState === "refresh_failed";
+
+  const dealTitleById = new Map(
+    Array.isArray(allDeals)
+      ? allDeals.map((d: Record<string, unknown>) => [
+          String(d.ID ?? d.id ?? ""),
+          String(d.TITLE ?? "").trim(),
+        ])
+      : []
+  );
+
+  if (sp.dataState === "failed" && !hasLoadedData) {
+    return (
+      <div className="pt-3 space-y-2 border-t border-border/60" data-sp-section>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Тестирование образцов
+        </h4>
+        <div role="alert" className="space-y-2 text-xs">
+          <p className="text-muted-foreground">
+            Процессы тестирования временно недоступны.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={sp.reload}
+            data-sp-retry
+          >
+            Повторить
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (sp.dataState === "loading" && !hasLoadedData) {
+    return (
+      <div className="pt-3 space-y-2 border-t border-border/60" data-sp-section>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Тестирование образцов
+        </h4>
+        <div role="status" className="space-y-2">
+          <span className="sr-only">Загрузка процессов тестирования</span>
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-3/4" />
+        </div>
+      </div>
+    );
+  }
+
+  const staleRefresh = sp.dataState === "refresh_failed";
+
+  return (
+    <div className="pt-3 space-y-2 border-t border-border/60" data-sp-section>
+      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        Тестирование образцов
+      </h4>
+      {staleRefresh && (
+        <div
+          role="note"
+          data-sp-stale-warning
+          className="flex items-center gap-2 flex-wrap rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+        >
+          <span className="break-words">
+            Показаны ранее загруженные данные. Обновление не удалось.
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={sp.reload}
+            data-sp-retry
+          >
+            Повторить
+          </Button>
+        </div>
+      )}
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-sp-empty>
+          Процессы тестирования не найдены
+        </p>
+      ) : (
+        <ul className="space-y-2" data-sp-list>
+          {items.map((view) => (
+            <SmartProcessItemCard
+              key={view.processItemId}
+              view={view}
+              dealTitle={dealTitleById.get(view.linkedDealId ?? "")}
+              dataTestId="sp-item-card"
+            />
+          ))}
+        </ul>
+      )}
+      {sp.refreshing && !staleRefresh && (
+        <div className="text-[10px] text-muted-foreground" role="status">
+          Обновление данных…
+        </div>
+      )}
     </div>
   );
 }
