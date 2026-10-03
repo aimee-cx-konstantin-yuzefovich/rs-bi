@@ -57,7 +57,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const COMMERCIAL_COMPANY_SELECT = [
+// Exported (keyword only, zero logic change) so the Samples pipeline
+// diagnostic (PROBE J — Commercial Funnel INPUT contract) imports the
+// EXACT production selects instead of retyping them.
+export const COMMERCIAL_COMPANY_SELECT = [
   "ID",
   "TITLE",
   "ASSIGNED_BY_ID",
@@ -79,7 +82,7 @@ const COMMERCIAL_COMPANY_SELECT = [
   COMPANY_DIRECTION_FIELD_ID,
 ];
 
-const COMMERCIAL_DEAL_SELECT = [
+export const COMMERCIAL_DEAL_SELECT = [
   "ID",
   "TITLE",
   "COMPANY_ID",
@@ -106,7 +109,9 @@ const COMMERCIAL_DEAL_SELECT = [
   DEAL_REGION_FIELD_ID, // Регион
 ];
 
-async function fetchUserDirectory(): Promise<Record<string, string>> {
+// Exported (keyword only, zero logic change) for the Samples pipeline
+// diagnostic PROBE J — same user directory as production.
+export async function fetchUserDirectory(): Promise<Record<string, string>> {
   const users: Record<string, string> = {};
   try {
     const data = await bitrixPost<{
