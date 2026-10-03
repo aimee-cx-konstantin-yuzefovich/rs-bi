@@ -28,6 +28,10 @@ vi.mock("@/store/dashboard-store", () => {
     fields: [],
     dealTypeRegistry: null,
     activitiesData: {} as Record<string, unknown>,
+    fieldsLoading: false,
+    userNamesLoading: false,
+    fetchFields: vi.fn(async () => {}),
+    fetchUserNames: vi.fn(async () => {}),
   };
   const useDashboardStore = (selector?: (s: typeof state) => unknown) =>
     selector ? selector(state) : state;

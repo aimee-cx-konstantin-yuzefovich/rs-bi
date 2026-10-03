@@ -5,6 +5,8 @@ import { CompanyBrowser } from "@/components/dashboard/company-browser";
 
 const store = vi.hoisted(() => ({
   fields: [], companyResponsibleCounts: {}, userNames: { "7": "Анна" }, selectedColumns: [],
+  fieldsLoading: false, userNamesLoading: false,
+  fetchFields: vi.fn(async () => {}), fetchUserNames: vi.fn(async () => {}),
   companyBrowserItems: [{ ID: "42", TITLE: "Компания из таблицы", ASSIGNED_BY_ID: "7" }],
   companyBrowserResponsibleId: "all", companyColumnWidths: {},
   allDeals: [] as Array<Record<string, unknown>>,

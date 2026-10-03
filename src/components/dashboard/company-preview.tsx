@@ -31,12 +31,14 @@ import Link from "next/link";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Download, ExternalLink, Loader2, FlaskConical, ArrowRight, Link2 } from "lucide-react";
+import { AlertTriangle, Download, ExternalLink, Loader2, FlaskConical, ArrowRight, Link2 } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
 import {
   buildCompanyPreviewModel,
   partitionCompanyPreviewFields,
   EMPTY_FIELD_PLACEHOLDER,
+  LOOKUP_LOADING_PLACEHOLDER,
+  type CompanyPreviewMetadataState,
   type CompanyPreviewModel,
 } from "@/lib/company-preview";
 import { exportCompanyToExcel } from "@/lib/export-utils";
@@ -71,20 +73,37 @@ function formatPreviewValue(val: unknown, isBoolean?: boolean): string {
   return str;
 }
 
+/**
+ * Every async slice below is EXPLICITLY scoped to its Company ID: a
+ * snapshot is stamped with the `companyId` it belongs to and can never
+ * render under a different `id`, even for one intermediate render when the
+ * `id` prop changes while the drawer stays mounted.
+ */
 type PreviewState =
-  | { status: "loading" }
-  | { status: "error"; message: string; retry: boolean }
-  | { status: "success"; company: Record<string, unknown>; bitrixUrl: string | null };
+  | { status: "loading"; companyId: string }
+  | { status: "error"; companyId: string; message: string; retry: boolean }
+  | { status: "success"; companyId: string; company: Record<string, unknown>; bitrixUrl: string | null };
+
+type DealsState =
+  | { status: "loading"; companyId: string; deals: Array<Record<string, unknown>> } // deals: cached seed shown immediately
+  | { status: "success"; companyId: string; deals: Array<Record<string, unknown>>; source: "server" | "cached" }
+  | { status: "error"; companyId: string; message: string; deals: Array<Record<string, unknown>> }; // deals: cached rows kept
 
 /**
  * Company-scoped canonical Samples/Smart Process load state.
  * Exactly ONE data path: POST /api/bitrix/samples { companyId }.
+ *
+ * Stale-refresh invariant: a failure after a prior successful load for the
+ * SAME company preserves that snapshot as `refresh_failed` — through ANY
+ * number of repeated failed retries. A second failure must never convert
+ * `refresh_failed` into a hard `failed` state and discard previously valid
+ * data. Snapshots are never carried across different companies.
  */
 type SamplesState =
-  | { status: "loading" }
-  | { status: "failed"; error: string }
-  | { status: "ready"; summary: SampleSummary | null }
-  | { status: "refresh_failed"; summary: SampleSummary | null; error: string };
+  | { status: "loading"; companyId: string }
+  | { status: "failed"; companyId: string; error: string }
+  | { status: "ready"; companyId: string; summary: SampleSummary | null }
+  | { status: "refresh_failed"; companyId: string; summary: SampleSummary | null; error: string };
 
 export interface CompanyPreviewProps {
   id: string;
@@ -101,64 +120,111 @@ export function CompanyPreview({
   onRestoreFocus,
   onOpenDealPreview,
 }: CompanyPreviewProps) {
-  const [state, setState] = useState<PreviewState>({ status: "loading" });
-  const [dealsState, setDealsState] = useState<
-    | { status: "loading"; deals: Array<Record<string, unknown>> } // deals: cached seed shown immediately
-    | { status: "success"; deals: Array<Record<string, unknown>>; source: "server" | "cached" }
-    | { status: "error"; message: string; deals: Array<Record<string, unknown>> } // deals: cached rows kept
-  >({ status: "loading", deals: [] });
-  const [samplesState, setSamplesState] = useState<SamplesState>({ status: "loading" });
+  const [state, setState] = useState<PreviewState>({ status: "loading", companyId: id });
+  const [dealsState, setDealsState] = useState<DealsState>({ status: "loading", companyId: id, deals: [] });
+  const [samplesState, setSamplesState] = useState<SamplesState>({ status: "loading", companyId: id });
   const [samplesAttempt, setSamplesAttempt] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
 
-  const { userNames, fields, usersCoverage, allDeals, dealsCoverage } = useDashboardStore() as {
+  // Request-sequence guards: a monotonically increasing sequence per async
+  // slice; responses belonging to an older company/render are ignored even
+  // if their AbortController cleanup raced (belt-and-braces alongside the
+  // abort + companyId stamping).
+  const companySeq = useRef(0);
+  const dealsSeq = useRef(0);
+  const samplesSeq = useRef(0);
+
+  const {
+    userNames, fields, usersCoverage, allDeals, dealsCoverage,
+    userNamesLoading, fieldsLoading,
+    fetchFields, fetchUserNames,
+  } = useDashboardStore() as {
     userNames: Record<string, string> | null;
     fields: Array<{ id: string; title?: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }> | null;
     usersCoverage: import("@/lib/dataset-coverage").DatasetCoverage | null;
     allDeals: Array<Record<string, unknown>>;
     dealsCoverage: import("@/lib/dataset-coverage").DatasetCoverage | null;
+    userNamesLoading: boolean;
+    fieldsLoading: boolean;
+    fetchFields: () => Promise<void>;
+    fetchUserNames: () => Promise<void>;
   };
 
-  /**
-   * Cache-first related deals: trustworthy deal rows already present in the
-   * client store are shown immediately (drawer does not wait for the server).
-   * Cached scope is trustworthy ONLY when the store deals dataset is
-   * verifiably COMPLETE: PARTIAL (partial failures) and CAPPED (truncated by
-   * loading limit) are both incomplete — and unknown coverage (null) is
-   * likewise never presented as a complete related-deal set. The server
-   * refresh still runs regardless.
-   */
-  function seedDealsFromCache(): Array<Record<string, unknown>> {
-    if (dealsCoverage?.status !== "COMPLETE") return [];
-    if (!allDeals || allDeals.length === 0) return [];
-    const idNum = Number(id);
-    if (!Number.isSafeInteger(idNum) || idNum <= 0) return [];
-    const seen = new Set<string>();
-    const cached: Array<Record<string, unknown>> = [];
-    for (const deal of allDeals) {
-      const companyId = String(deal.COMPANY_ID ?? "").trim();
-      if (companyId !== id) continue;
-      const dealId = String(deal.ID ?? deal.id ?? "").trim();
-      if (!dealId || seen.has(dealId)) continue;
-      seen.add(dealId);
-      cached.push(deal);
+  // ─── Caller-independent lookup bootstrap (§2) ───
+  // The canonical drawer must NOT depend on whether another page happened
+  // to warm the shared lookups first. Opening a company from /samples, the
+  // Commercial Funnel, or a cold store bootstraps the SAME canonical store
+  // metadata paths (fetchFields / fetchUserNames) the main page uses — no
+  // duplicate metadata parser, no DEMO fallback.
+  useEffect(() => {
+    if (!fieldsLoading && (!fields || fields.length === 0)) {
+      void fetchFields();
     }
-    return cached;
-  }
+  }, [fields, fieldsLoading, fetchFields]);
+
+  useEffect(() => {
+    if (!userNamesLoading && (!userNames || Object.keys(userNames).length === 0)) {
+      void fetchUserNames();
+    }
+  }, [userNames, userNamesLoading, fetchUserNames]);
+
+  // Truthful metadata provisioning state for enum/status resolution:
+  // loading → interim placeholder (never a premature «Не классифицировано»,
+  // never raw IDs); failed → final canonical unclassified label plus a
+  // visible incompleteness disclosure below. Never DEMO metadata.
+  const metadataState: CompanyPreviewMetadataState = useMemo(() => {
+    if (fieldsLoading || userNamesLoading) return "loading";
+    const fieldsUsable = Array.isArray(fields) && fields.length > 0;
+    const usersUsable = Boolean(userNames && Object.keys(userNames).length > 0);
+    if (fieldsUsable || usersUsable) return "ready";
+    // Nothing usable and nothing loading → bootstrap failed (or the store
+    // has not mounted data): truthful failure disclosure upstream.
+    return "failed";
+  }, [fields, fieldsLoading, userNames, userNamesLoading]);
+
+  /** Cache-first related deals (complete-store coverage only). */
+  const seedDealsFromCache = useMemo(() => {
+    return () => {
+      if (dealsCoverage?.status !== "COMPLETE") return [];
+      if (!allDeals || allDeals.length === 0) return [];
+      const idNum = Number(id);
+      if (!Number.isSafeInteger(idNum) || idNum <= 0) return [];
+      const seen = new Set<string>();
+      const cached: Array<Record<string, unknown>> = [];
+      for (const deal of allDeals) {
+        const companyId = String(deal.COMPANY_ID ?? "").trim();
+        if (companyId !== id) continue;
+        const dealId = String(deal.ID ?? deal.id ?? "").trim();
+        if (!dealId || seen.has(dealId)) continue;
+        seen.add(dealId);
+        cached.push(deal);
+      }
+      return cached;
+    };
+  }, [dealsCoverage, allDeals, id]);
 
   // ONE canonical current-card model (buildCompanyPreviewModel) drives the
   // card. Selected table columns and callers can never influence contents.
   // Sections come from the ONE canonical partition helper (the same one the
-  // Company Excel export uses) — no hard-coded UF tokens here.
-  const resolvedModel: CompanyPreviewModel | null =
-    state.status === "success"
-      ? buildCompanyPreviewModel(state.company, {
-          fields: (fields ?? []) as any,
-          userNames: userNames ?? {},
-          usersCoverage,
-        })
-      : null;
+  // Company Excel export uses) — no hard-coded UF tokens here. The model is
+  // built ONLY from the snapshot whose companyId matches the current id:
+  // Company A's data can never render under Company B.
+  const scopedCompany =
+    state.status === "success" && state.companyId === id ? state.company : null;
+
+  const resolvedModel: CompanyPreviewModel | null = useMemo(
+    () =>
+      scopedCompany
+        ? buildCompanyPreviewModel(scopedCompany, {
+            fields: (fields ?? []) as any,
+            userNames: userNames ?? {},
+            usersCoverage,
+            metadataState,
+          })
+        : null,
+    [scopedCompany, fields, userNames, usersCoverage, metadataState]
+  );
 
   const { business: businessFields, marker: markerField, system: systemFields } = useMemo(
     () =>
@@ -185,7 +251,10 @@ export function CompanyPreview({
         if (dealId && title) map.set(dealId, title);
       }
     }
-    if (samplesState.status === "ready" || samplesState.status === "refresh_failed") {
+    const sameCompanySamples =
+      (samplesState.status === "ready" || samplesState.status === "refresh_failed") &&
+      samplesState.companyId === id;
+    if (sameCompanySamples) {
       const summary = samplesState.summary;
       if (summary && Array.isArray(summary.relatedDeals)) {
         for (const rd of summary.relatedDeals) {
@@ -194,20 +263,27 @@ export function CompanyPreview({
       }
     }
     return map;
-  }, [allDeals, samplesState]);
+  }, [allDeals, samplesState, id]);
 
-  const spItems: SmartProcessItemViewLite[] =
-    samplesState.status === "ready" || samplesState.status === "refresh_failed"
-      ? samplesState.summary?.smartProcessItems ?? []
-      : [];
+  // Scope-aware slices: SP cycles and the exportable summary exist ONLY for
+  // the snapshot whose companyId matches the current id.
+  const sameCompanySamples =
+    (samplesState.status === "ready" || samplesState.status === "refresh_failed") &&
+    samplesState.companyId === id;
+
+  const spItems: SmartProcessItemViewLite[] = sameCompanySamples
+    ? samplesState.summary?.smartProcessItems ?? []
+    : [];
 
   const handleExport = async () => {
-    if (state.status !== "success" || !resolvedModel) return;
+    if (state.status !== "success" || state.companyId !== id || !resolvedModel) return;
     // Full report requires company card + related deals + Samples/SP data to
     // have succeeded — a loading/error state must never silently map to an
-    // empty-but-complete-looking report (data-trust invariant B).
-    if (dealsState.status !== "success") return;
-    if (samplesState.status !== "ready" && samplesState.status !== "refresh_failed") return;
+    // empty-but-complete-looking report (data-trust invariant B). Every
+    // snapshot must belong to the CURRENT company: no cross-company data
+    // can ever enter the workbook.
+    if (dealsState.status !== "success" || dealsState.companyId !== id) return;
+    if (!sameCompanySamples) return;
     try {
       setIsExporting(true);
       const company = state.company;
@@ -235,10 +311,7 @@ export function CompanyPreview({
         };
       });
 
-      const summary =
-        samplesState.status === "ready" || samplesState.status === "refresh_failed"
-          ? samplesState.summary
-          : null;
+      const summary = sameCompanySamples ? samplesState.summary : null;
 
       await exportCompanyToExcel({
         companyTitle,
@@ -259,7 +332,7 @@ export function CompanyPreview({
             ? (summary.smartProcessItems ?? []).filter((v) => v.isTerminal).length
             : 0,
           items: summary?.smartProcessItems ?? [],
-          stale: samplesState.status === "refresh_failed",
+          stale: samplesState.status === "refresh_failed" && samplesState.companyId === id,
         },
         dealTitleById,
         userNames: userNames ?? {},
@@ -274,18 +347,19 @@ export function CompanyPreview({
 
   useEffect(() => {
     const controller = new AbortController();
-    setState({ status: "loading" });
+    const seq = ++companySeq.current;
+    setState({ status: "loading", companyId: id });
     // Cache-first: re-seed from the store so cached deals render during load.
-    setDealsState({ status: "loading", deals: seedDealsFromCache() });
+    setDealsState({ status: "loading", companyId: id, deals: seedDealsFromCache() });
 
     async function load() {
       try {
         const response = await fetch(`/api/bitrix/companies/${encodeURIComponent(id)}`, {
           signal: controller.signal, cache: "no-store",
         });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || seq !== companySeq.current) return;
         if (!response.ok) {
-          setState({ status: "error", retry: ![401, 403, 404].includes(response.status),
+          setState({ companyId: id, status: "error", retry: ![401, 403, 404].includes(response.status),
             message: response.status === 404 ? "Компания не найдена" : response.status === 403
               ? "Нет доступа к компании" : response.status === 401 ? "Требуется авторизация"
                 : "Не удалось загрузить компанию. Попробуйте ещё раз." });
@@ -293,21 +367,26 @@ export function CompanyPreview({
         }
         const data = await response.json();
         if (!data.success || !data.company || String(data.company.ID) !== id) throw new Error("Invalid preview");
-        if (!controller.signal.aborted) setState({ status: "success", company: data.company, bitrixUrl: data.bitrixUrl });
+        if (!controller.signal.aborted && seq === companySeq.current) {
+          setState({ status: "success", companyId: id, company: data.company, bitrixUrl: data.bitrixUrl });
+        }
       } catch {
-        if (!controller.signal.aborted) setState({ status: "error", retry: true,
-          message: "Не удалось загрузить компанию. Попробуйте ещё раз." });
+        if (!controller.signal.aborted && seq === companySeq.current) {
+          setState({ companyId: id, status: "error", retry: true,
+            message: "Не удалось загрузить компанию. Попробуйте ещё раз." });
+        }
       }
     }
 
     async function loadDeals() {
       const cachedSeed = seedDealsFromCache();
+      const dealSeq = ++dealsSeq.current;
       try {
         const response = await fetch(`/api/bitrix/companies/${encodeURIComponent(id)}/deals`, {
           signal: controller.signal,
           cache: "no-store",
         });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || dealSeq !== dealsSeq.current) return;
         if (!response.ok) {
           const errData = await response.json().catch(() => null);
           const message =
@@ -319,9 +398,9 @@ export function CompanyPreview({
               : "Связанные сделки временно недоступны.");
           if (cachedSeed.length > 0) {
             // Refresh failure: keep trustworthy cached rows, non-blocking stale warning.
-            setDealsState({ status: "success", deals: cachedSeed, source: "cached" });
+            setDealsState({ companyId: id, status: "success", deals: cachedSeed, source: "cached" });
           } else {
-            setDealsState({ status: "error", message, deals: [] });
+            setDealsState({ companyId: id, status: "error", message, deals: [] });
           }
           return;
         }
@@ -340,16 +419,16 @@ export function CompanyPreview({
           }
         }
 
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && dealSeq === dealsSeq.current) {
           // Refresh success: replace cached rows with refreshed (deduplicated) data.
-          setDealsState({ status: "success", deals: deduped, source: "server" });
+          setDealsState({ companyId: id, status: "success", deals: deduped, source: "server" });
         }
       } catch {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && dealSeq === dealsSeq.current) {
           if (cachedSeed.length > 0) {
-            setDealsState({ status: "success", deals: cachedSeed, source: "cached" });
+            setDealsState({ companyId: id, status: "success", deals: cachedSeed, source: "cached" });
           } else {
-            setDealsState({ status: "error", message: "Связанные сделки временно недоступны.", deals: [] });
+            setDealsState({ companyId: id, status: "error", message: "Связанные сделки временно недоступны.", deals: [] });
           }
         }
       }
@@ -361,14 +440,24 @@ export function CompanyPreview({
   }, [id, attempt]);
 
   // ONE company-scoped Samples/Smart Process data path for the drawer.
-  // retry bump performs a real request; failure after a prior success
-  // preserves the previous snapshot with a stale disclosure.
+  // - ID change A → B resets the slice immediately: A's summary can never
+  //   render under B (the prior-state check below is company-scoped).
+  // - Retry bump performs a real request; failure after a prior success FOR
+  //   THE SAME company preserves that snapshot as `refresh_failed` — through
+  //   ANY number of repeated failed retries (a second failure must never
+  //   convert to a hard `failed` state and discard previously valid data).
+  // - Request-sequence + companyId guards: a late A response can never
+  //   overwrite a B state.
   useEffect(() => {
     const controller = new AbortController();
-    const hasPrior =
-      samplesState.status === "ready" ||
-      samplesState.status === "refresh_failed";
-    if (!hasPrior) setSamplesState({ status: "loading" });
+    const seq = ++samplesSeq.current;
+    setSamplesState((prev) =>
+      prev.companyId === id && (prev.status === "ready" || prev.status === "refresh_failed")
+        ? // Same company, prior snapshot exists: keep it visible (stale-aware)
+          // while this refresh is in flight.
+          prev
+        : { status: "loading", companyId: id }
+    );
 
     (async () => {
       try {
@@ -379,37 +468,37 @@ export function CompanyPreview({
           signal: controller.signal,
           cache: "no-store",
         });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || seq !== samplesSeq.current) return;
         if (!res.ok) {
           const payload = await res.json().catch(() => null);
           const message =
             payload?.error ||
             (res.status === 401 ? "Требуется авторизация" : "Процессы тестирования временно недоступны.");
           setSamplesState((prev) =>
-            prev.status === "ready" && samplesAttempt > 0
-              ? { status: "refresh_failed", summary: prev.summary, error: message }
-              : { status: "failed", error: message }
+            prev.companyId === id && (prev.status === "ready" || prev.status === "refresh_failed")
+              ? { status: "refresh_failed", companyId: id, summary: prev.summary, error: message }
+              : { status: "failed", companyId: id, error: message }
           );
           return;
         }
         const data = await res.json();
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || seq !== samplesSeq.current) return;
         if (!data.success || !Array.isArray(data.samples)) {
           throw new Error("invalid samples response");
         }
         const first = data.samples[0] ?? null;
         const summary: SampleSummary | null =
           first && String(first.companyId) === id ? first : null;
-        setSamplesState({ status: "ready", summary });
+        setSamplesState({ status: "ready", companyId: id, summary });
       } catch (err) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || seq !== samplesSeq.current) return;
         const message = err instanceof Error && err.message.includes("not configured")
           ? err.message
           : "Процессы тестирования временно недоступны.";
         setSamplesState((prev) =>
-          prev.status === "ready" && samplesAttempt > 0
-            ? { status: "refresh_failed", summary: prev.summary, error: message }
-            : { status: "failed", error: message }
+          prev.companyId === id && (prev.status === "ready" || prev.status === "refresh_failed")
+            ? { status: "refresh_failed", companyId: id, summary: prev.summary, error: message }
+            : { status: "failed", companyId: id, error: message }
         );
       }
     })();
@@ -420,9 +509,9 @@ export function CompanyPreview({
   const samplesRetry = () => setSamplesAttempt((n) => n + 1);
 
   const exportBlockedReason =
-    dealsState.status !== "success"
+    dealsState.status !== "success" || dealsState.companyId !== id
       ? "Полный отчёт недоступен: связанные сделки ещё загружаются или не удалось загрузить"
-      : samplesState.status === "loading" || samplesState.status === "failed"
+      : !sameCompanySamples
       ? "Полный отчёт недоступен: данные тестирования образцов ещё загружаются или не удалось загрузить"
       : undefined;
 
@@ -433,16 +522,18 @@ export function CompanyPreview({
         className="w-full sm:max-w-2xl flex flex-col p-0 gap-0"
         onCloseAutoFocus={(event) => { if (onRestoreFocus) { event.preventDefault(); onRestoreFocus(); } }}
       >
-        {/* Sticky header */}
+        {/* Sticky header (scope-guarded title) */}
         <SheetHeader className="shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75 px-4 sm:px-6 py-4 pr-12">
           <SheetTitle className="break-words text-base leading-snug">
-            {state.status === "success" ? String(state.company.TITLE || "").trim() || "Без названия" : "Компания"}
+            {state.status === "success" && state.companyId === id
+              ? String(state.company.TITLE || "").trim() || "Без названия"
+              : "Компания"}
           </SheetTitle>
           <SheetDescription>Просмотр компании · ID {id}</SheetDescription>
         </SheetHeader>
 
         {/* Scrollable content between sticky header and footer */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 py-4" aria-live="polite" aria-busy={state.status === "loading"}>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 py-4" aria-live="polite" aria-busy={state.status === "loading" || state.companyId !== id}>
           {state.status === "loading" && <div role="status" className="space-y-3">
             <span className="sr-only">Загрузка компании</span>
             <Skeleton className="h-5 w-3/4" /><Skeleton className="h-20 w-full" />
@@ -451,8 +542,36 @@ export function CompanyPreview({
             <p>{state.message}</p>
             {state.retry && <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>Повторить</Button>}
           </div>}
-          {state.status === "success" && resolvedModel && (
+          {state.status === "success" && state.companyId === id && resolvedModel && (
             <div className="space-y-7 pb-6">
+              {/* Metadata lookup disclosure: truthful provisioning state of the
+                  shared canonical directories. While loading, enum/status cells
+                  show the interim placeholder (never a premature final
+                  «Не классифицировано», never raw IDs). An ultimate failure is
+                  disclosed — labels are never fabricated, and DEMO metadata is
+                  never substituted for a failed production lookup. */}
+              {metadataState !== "ready" && (
+                <div
+                  role="note"
+                  data-metadata-state={metadataState}
+                  className={
+                    metadataState === "loading"
+                      ? "flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground"
+                      : "flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
+                  }
+                >
+                  {metadataState === "loading" ? (
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  ) : (
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                  )}
+                  <span className="break-words" data-metadata-disclosure>
+                    {metadataState === "loading"
+                      ? "Справочники полей и сотрудников загружаются…"
+                      : "Справочники полей и сотрудников недоступны — часть значений может отображаться как «Не классифицировано»."}
+                  </span>
+                </div>
+              )}
               {/* SECTION 1: ИНФОРМАЦИЯ О КОМПАНИИ */}
               <section aria-label="Информация о компании">
                 <SectionHeading title="Информация о компании" />
@@ -507,11 +626,12 @@ export function CompanyPreview({
                 onRetry={samplesRetry}
               />
 
-              {/* SECTION 4: СВЯЗАННЫЕ СДЕЛКИ */}
+              {/* SECTION 4: СВЯЗАННЫЕ СДЕЛКИ (scope-guarded: only the current
+                  company's snapshot renders, in any state) */}
               <section aria-label="Связанные сделки" data-deals-section>
-                <SectionHeading title={`Связанные сделки${dealsState.status === "success" ? ` (${dealsState.deals.length})` : ""}`} />
+                <SectionHeading title={`Связанные сделки${dealsState.status === "success" && dealsState.companyId === id ? ` (${dealsState.deals.length})` : ""}`} />
                 <div className="mt-3">
-                  {dealsState.status === "loading" && dealsState.deals.length === 0 && (
+                  {dealsState.status === "loading" && dealsState.companyId === id && dealsState.deals.length === 0 && (
                     <div role="status" className="space-y-2">
                       <span className="sr-only">Загрузка связанных сделок</span>
                       <Skeleton className="h-9 w-full" />
@@ -520,16 +640,16 @@ export function CompanyPreview({
                   )}
 
                   {/* Cache-first: trustworthy cached deals render while refresh is in flight. */}
-                  {dealsState.status === "loading" && dealsState.deals.length > 0 && (
+                  {dealsState.status === "loading" && dealsState.companyId === id && dealsState.deals.length > 0 && (
                     <DealRows
                       deals={dealsState.deals}
                       resolveStage={resolveStage}
-                      dealBitrixUrlBase={state.bitrixUrl}
+                      dealBitrixUrlBase={state.companyId === id ? state.bitrixUrl : null}
                       onOpenDealPreview={onOpenDealPreview}
                     />
                   )}
 
-                  {dealsState.status === "error" && (
+                  {dealsState.status === "error" && dealsState.companyId === id && (
                     <div role="alert" className="space-y-2 text-xs">
                       <p className="text-destructive">{dealsState.message}</p>
                       <Button
@@ -544,7 +664,7 @@ export function CompanyPreview({
                     </div>
                   )}
 
-                  {dealsState.status === "success" && (
+                  {dealsState.status === "success" && dealsState.companyId === id && (
                     <>
                       {dealsState.deals.length === 0 ? (
                         <p className="text-xs text-muted-foreground">Нет связанных сделок</p>
@@ -552,7 +672,7 @@ export function CompanyPreview({
                         <DealRows
                           deals={dealsState.deals}
                           resolveStage={resolveStage}
-                          dealBitrixUrlBase={state.bitrixUrl}
+                          dealBitrixUrlBase={state.companyId === id ? state.bitrixUrl : null}
                           onOpenDealPreview={onOpenDealPreview}
                         />
                       )}
@@ -596,9 +716,11 @@ export function CompanyPreview({
             onClick={handleExport}
             disabled={
               state.status !== "success" ||
+              state.companyId !== id ||
               !resolvedModel ||
               dealsState.status !== "success" ||
-              (samplesState.status !== "ready" && samplesState.status !== "refresh_failed") ||
+              dealsState.companyId !== id ||
+              !sameCompanySamples ||
               isExporting
             }
             title={exportBlockedReason}
@@ -612,7 +734,7 @@ export function CompanyPreview({
             {isExporting ? "Экспорт…" : "Экспорт отчёта"}
           </Button>
 
-          {state.status === "success" && state.bitrixUrl ? (
+          {state.status === "success" && state.companyId === id && state.bitrixUrl ? (
             <Button asChild className="w-full sm:w-auto">
               <a href={state.bitrixUrl} target="_blank" rel="noopener noreferrer">
                 Открыть карточку в Bitrix24
@@ -624,7 +746,7 @@ export function CompanyPreview({
             </Button>
           )}
 
-          {state.status === "success" && !state.bitrixUrl && (
+          {state.status === "success" && state.companyId === id && !state.bitrixUrl && (
             <p className="text-xs text-muted-foreground w-full">
               Ссылка на портал Bitrix24 не настроена.
             </p>
@@ -730,8 +852,16 @@ function CompanyTestingSection({
   onOpenDealPreview?: (dealId: string) => void;
   onRetry: () => void;
 }) {
+  // Cross-company isolation: a snapshot from another company (late response,
+  // stale prior data) must never render here — treat it as loading.
+  const scoped =
+    (samplesState.status === "ready" ||
+      samplesState.status === "refresh_failed" ||
+      samplesState.status === "failed") &&
+    samplesState.companyId === companyId;
+  const effectiveStatus: SamplesState["status"] = scoped ? samplesState.status : "loading";
   const summary =
-    samplesState.status === "ready" || samplesState.status === "refresh_failed"
+    scoped && (samplesState.status === "ready" || samplesState.status === "refresh_failed")
       ? samplesState.summary
       : null;
 
@@ -739,7 +869,7 @@ function CompanyTestingSection({
     <section aria-label="Тестирование образцов" data-sp-company-section>
       <SectionHeading title="Тестирование образцов" />
       <div className="mt-3 text-xs space-y-3">
-        {samplesState.status === "loading" && (
+        {effectiveStatus === "loading" && (
           <div role="status" className="space-y-2">
             <span className="sr-only">Загрузка процессов тестирования</span>
             <Skeleton className="h-6 w-2/3" />
@@ -747,9 +877,9 @@ function CompanyTestingSection({
           </div>
         )}
 
-        {samplesState.status === "failed" && (
+        {effectiveStatus === "failed" && (
           <div role="alert" className="space-y-2" data-sp-company-failed>
-            <p className="text-muted-foreground">{samplesState.error}</p>
+            <p className="text-muted-foreground">{samplesState.status === "failed" ? samplesState.error : null}</p>
             <Button
               type="button"
               variant="outline"
@@ -763,9 +893,9 @@ function CompanyTestingSection({
           </div>
         )}
 
-        {(samplesState.status === "ready" || samplesState.status === "refresh_failed") && (
+        {(effectiveStatus === "ready" || effectiveStatus === "refresh_failed") && (
           <>
-            {samplesState.status === "refresh_failed" && (
+            {effectiveStatus === "refresh_failed" && (
               <div
                 role="note"
                 data-sp-stale-warning

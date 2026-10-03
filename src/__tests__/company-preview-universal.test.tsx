@@ -34,6 +34,10 @@ const store = vi.hoisted(() => {
     allDeals: [] as Array<Record<string, unknown>>,
     dealsCoverage: null,
     selectedColumns: [] as string[],
+    fieldsLoading: false,
+    userNamesLoading: false,
+    fetchFields: vi.fn(async () => {}),
+    fetchUserNames: vi.fn(async () => {}),
   };
   const useDashboardStore = (selector?: (s: typeof state) => unknown) =>
     selector ? selector(state) : state;

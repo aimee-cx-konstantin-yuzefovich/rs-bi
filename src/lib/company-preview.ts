@@ -150,6 +150,15 @@ export interface CompanyPreviewResolveContext {
   userNames: Record<string, string>;
   usersCoverage?: DatasetCoverage | null;
   contactNames?: Record<string, string>;
+  /**
+   * Provisioning state of the lookup metadata (field dictionaries / user
+   * directory). While `loading`, an enum/status value that cannot yet be
+   * resolved renders the interim LOOKUP_LOADING_PLACEHOLDER — never a final
+   * «Не классифицировано» for a possibly-known ID, never a raw numeric ID.
+   * `ready`/`failed` resolve enum/status values definitively (failed → the
+   * canonical UNCLASSIFIED_LABEL, disclosed upstream by the drawer).
+   */
+  metadataState?: CompanyPreviewMetadataState;
 }
 
 // ─── Shared resolvers ─────────────────────────────────────────────────
@@ -174,7 +183,8 @@ function isSentinel(raw: unknown): boolean {
 /** Resolves an enum/status raw value via metadata; unknown IDs stay unclassified. */
 function resolveEnumRaw(
   raw: unknown,
-  meta?: CompanyFieldMeta
+  meta?: CompanyFieldMeta,
+  metadataState: CompanyPreviewMetadataState = "ready"
 ): string | null {
   if (isSentinel(raw)) return null;
   const values = Array.isArray(raw) ? raw : [raw];
@@ -183,7 +193,15 @@ function resolveEnumRaw(
     if (isSentinel(v)) continue;
     const s = String(v).trim();
     const found = meta?.listValues?.find((lv) => lv.ID === s);
-    resolved.push(found ? found.VALUE : UNCLASSIFIED_LABEL);
+    if (found) {
+      resolved.push(found.VALUE);
+    } else if (metadataState === "loading") {
+      // Metadata still bootstrapping: a known ID must not be presented as
+      // a final unclassified value, and a raw ID must never leak.
+      resolved.push(LOOKUP_LOADING_PLACEHOLDER);
+    } else {
+      resolved.push(UNCLASSIFIED_LABEL);
+    }
   }
   return resolved.length > 0 ? resolved.join(", ") : null;
 }
@@ -455,6 +473,17 @@ export const TOTAL_APPROVED_FIELDS = 24;
 /** Truthful empty-value placeholder shared by the UI drawer and Excel. */
 export const EMPTY_FIELD_PLACEHOLDER = "—";
 
+/**
+ * Interim lookup placeholder: shown ONLY while the enum/status metadata
+ * directory is still loading. A known enum ID must never be presented as a
+ * final «Не классифицировано» merely because the caller had not warmed the
+ * metadata yet — and a raw numeric ID must never leak either.
+ */
+export const LOOKUP_LOADING_PLACEHOLDER = "Загрузка справочника…";
+
+/** Lookup metadata provisioning state for the Company Preview model. */
+export type CompanyPreviewMetadataState = "loading" | "ready" | "failed";
+
 /** Field IDs of Section 1 (business card fields, canonical order). */
 export const COMPANY_BUSINESS_FIELD_IDS: readonly string[] = [
   "ASSIGNED_BY_ID",
@@ -496,21 +525,29 @@ export const COMPANY_MARKER_FIELD_ID = COMPANY_TESTING_MARKER_FIELD_ID;
  * The SAME partition drives the UI drawer sections and the Company Excel
  * sections (UI/Excel parity invariant).
  */
-export interface CompanyPreviewFieldPartition {
-  /** Section 1 «Информация о компании» — canonical business-field order. */
-  business: CompanyPreviewResolvedField[];
-  /** Section 2 «Информация об образцах» — the Bitrix marker field only. */
-  marker: CompanyPreviewResolvedField | null;
-  /** Section «Системная информация» — DATE_CREATE / DATE_MODIFY. */
-  system: CompanyPreviewResolvedField[];
-}
-
-export function partitionCompanyPreviewFields(
-  model: Pick<CompanyPreviewModel, "fields">
-): CompanyPreviewFieldPartition {
-  const business: CompanyPreviewResolvedField[] = [];
-  const system: CompanyPreviewResolvedField[] = [];
-  let marker: CompanyPreviewResolvedField | null = null;
+/**
+ * ONE canonical partition of a resolved Company Preview model into the
+ * drawer's fixed sections, driven exclusively by the canonical field-ID
+ * exports above — never a hard-coded UF token and never a second list.
+ * The SAME partition drives the UI drawer sections and the Company Excel
+ * sections (UI/Excel parity invariant).
+ *
+ * Accepts the full resolved model AND the export-options' companyModel
+ * (id/label/value/type projection): input rows are returned as-is
+ * (generic), so each caller keeps its precise row type.
+ */
+export function partitionCompanyPreviewFields<
+  T extends { id: string; label: string }
+>(
+  model: { fields: ReadonlyArray<T> }
+): {
+  business: T[];
+  marker: T | null;
+  system: T[];
+} {
+  const business: T[] = [];
+  const system: T[] = [];
+  let marker: T | null = null;
 
   const systemSet = new Set<string>(COMPANY_SYSTEM_FIELD_IDS);
   for (const field of model.fields) {
@@ -730,7 +767,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
     type: "crm_status",
     resolve: (company, ctx) => {
       const raw = company.COMPANY_TYPE;
-      const display = resolveEnumRaw(raw, fieldMeta("COMPANY_TYPE", ctx));
+      const display = resolveEnumRaw(raw, fieldMeta("COMPANY_TYPE", ctx), ctx.metadataState);
       return display
         ? {
             id: "COMPANY_TYPE",
@@ -750,7 +787,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
     type: "enumeration",
     resolve: (company, ctx) => {
       const raw = company[COMPANY_INDUSTRY_CURRENT_FIELD_ID];
-      const display = resolveEnumRaw(raw, fieldMeta(COMPANY_INDUSTRY_CURRENT_FIELD_ID, ctx));
+      const display = resolveEnumRaw(raw, fieldMeta(COMPANY_INDUSTRY_CURRENT_FIELD_ID, ctx), ctx.metadataState);
       return display
         ? {
             id: COMPANY_INDUSTRY_CURRENT_FIELD_ID,
@@ -770,7 +807,7 @@ export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] =
     type: "enumeration",
     resolve: (company, ctx) => {
       const raw = company[COMPANY_DIRECTION_CURRENT_FIELD_ID];
-      const display = resolveEnumRaw(raw, fieldMeta(COMPANY_DIRECTION_CURRENT_FIELD_ID, ctx));
+      const display = resolveEnumRaw(raw, fieldMeta(COMPANY_DIRECTION_CURRENT_FIELD_ID, ctx), ctx.metadataState);
       return display
         ? {
             id: COMPANY_DIRECTION_CURRENT_FIELD_ID,
@@ -1005,6 +1042,13 @@ export function buildCompanyPreviewModel(
     userNames?: Record<string, string>;
     usersCoverage?: DatasetCoverage | null;
     contactNames?: Record<string, string>;
+    /**
+     * Lookup metadata provisioning state (see CompanyPreviewResolveContext).
+     * Default `ready` preserves the previous behaviour for callers that
+     * already guarantee their metadata (e.g. the Excel builder re-using the
+     * drawer's resolved model).
+     */
+    metadataState?: CompanyPreviewMetadataState;
   } = {}
 ): CompanyPreviewModel {
   const ctx: CompanyPreviewResolveContext = {
@@ -1012,6 +1056,7 @@ export function buildCompanyPreviewModel(
     userNames: options.userNames ?? {},
     usersCoverage: options.usersCoverage,
     contactNames: options.contactNames ?? {},
+    metadataState: options.metadataState ?? "ready",
   };
 
   const fields: CompanyPreviewResolvedField[] = [];
