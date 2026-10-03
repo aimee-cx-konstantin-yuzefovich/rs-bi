@@ -32,6 +32,77 @@ const ALLOWED_METHODS = new Set([
 
 import { assertSafeWebhookUrl } from "@/lib/network-safety";
 
+// ─── Safe failure metadata (internal diagnostics only) ────────────────
+// After a failed Bitrix call, internal callers (e.g. the Smart Process
+// diagnostic endpoint) may retain ONLY these credential-safe facts:
+//   { method, httpStatus?, bitrixCode? }
+// Never retained: webhook URL/user/token, headers, raw request URL,
+// error_description, response bodies, or any business data.
+// ───────────────────────────────────────────────────────────────────────
+
+/** Safe, credential-free facts about a failed Bitrix transport call. */
+export interface BitrixSafeErrorMeta {
+  method: string;
+  /** HTTP status, when known. */
+  httpStatus?: number;
+  /** Bitrix `error` code, when known (never `error_description`). */
+  bitrixCode?: string;
+}
+
+const SAFE_ERROR_META = Symbol("bitrixSafeErrorMeta");
+
+type ErrorWithSafeMeta = Error & { [SAFE_ERROR_META]?: BitrixSafeErrorMeta };
+
+/** Attaches credential-safe metadata to an error (internal use only). */
+function attachSafeErrorMeta(error: Error, meta: BitrixSafeErrorMeta): Error {
+  try {
+    (error as ErrorWithSafeMeta)[SAFE_ERROR_META] = meta;
+  } catch {
+    // Metadata attachment must never mask the original failure.
+  }
+  return error;
+}
+
+/** Extracts already-attached safe metadata from an error, if any. */
+function inheritedSafeErrorMeta(error: unknown): Partial<BitrixSafeErrorMeta> {
+  if (error instanceof BitrixApiError) {
+    return { method: error.method, bitrixCode: error.bitrixCode };
+  }
+  if (error instanceof BitrixTransientError) {
+    return {
+      ...(error.method ? { method: error.method } : {}),
+      ...(error.status !== undefined ? { httpStatus: error.status } : {}),
+    };
+  }
+  if (error instanceof BitrixItemError) {
+    // BitrixItemError is only produced by the crm.item.get item-level mapping.
+    return { method: "crm.item.get", bitrixCode: error.code };
+  }
+  if (error instanceof Error) {
+    const meta = (error as ErrorWithSafeMeta)[SAFE_ERROR_META];
+    if (meta) return { ...meta };
+  }
+  return {};
+}
+
+/**
+ * Reads the SAFE failure facts ({ method, httpStatus?, bitrixCode? }) from a
+ * thrown Bitrix transport error, for internal diagnostics only. The external
+ * sanitizer contract is unchanged: credentials, URLs, and error_description
+ * are never included.
+ */
+export function readBitrixFailureMeta(error: unknown): BitrixSafeErrorMeta | null {
+  const meta = inheritedSafeErrorMeta(error);
+  if (meta.method || meta.httpStatus !== undefined || meta.bitrixCode !== undefined) {
+    return {
+      method: meta.method ?? "unknown",
+      ...(meta.httpStatus !== undefined ? { httpStatus: meta.httpStatus } : {}),
+      ...(meta.bitrixCode !== undefined ? { bitrixCode: meta.bitrixCode } : {}),
+    };
+  }
+  return null;
+}
+
 /**
  * Build full Bitrix24 API URL from a method path.
  * Validates method against allowlist and webhook endpoint against SSRF safety rules.
@@ -56,23 +127,38 @@ async function buildUrl(method: string): Promise<string> {
 /**
  * Sanitize error for client — removes internal details.
  * Full error is logged server-side only.
+ * Credential-safe failure facts ({ method, httpStatus?, bitrixCode? }) are
+ * attached to the returned error for internal diagnostics; the message
+ * itself is unchanged and never contains URLs, tokens, or descriptions.
  */
 function sanitizeError(error: unknown, context: string): Error {
   // Log full error server-side
   console.error(`[Bitrix24 ${context} Error]`, error);
 
   // Return generic error to client
+  let sanitized: Error;
   if (error instanceof Error) {
     // Check for specific safe error types we can expose
     if (error.message.includes("not configured")) {
-      return new Error("CRM integration is not configured. Contact your administrator.");
+      sanitized = new Error("CRM integration is not configured. Contact your administrator.");
+    } else if (error.message.includes("Invalid API method")) {
+      sanitized = new Error("Invalid request parameters.");
+    } else {
+      sanitized = new Error(`Failed to ${context.toLowerCase()}. Please try again later.`);
     }
-    if (error.message.includes("Invalid API method")) {
-      return new Error("Invalid request parameters.");
-    }
+  } else {
+    sanitized = new Error(`Failed to ${context.toLowerCase()}. Please try again later.`);
   }
 
-  return new Error(`Failed to ${context.toLowerCase()}. Please try again later.`);
+  // Preserve only the safe facts — never URLs/credentials/descriptions.
+  const meta = inheritedSafeErrorMeta(error);
+  const method = meta.method ?? context;
+  attachSafeErrorMeta(sanitized, {
+    method,
+    ...(meta.httpStatus !== undefined ? { httpStatus: meta.httpStatus } : {}),
+    ...(meta.bitrixCode !== undefined ? { bitrixCode: meta.bitrixCode } : {}),
+  });
+  return sanitized;
 }
 
 /**
@@ -83,7 +169,10 @@ export async function bitrixGet<T = unknown>(
   params?: Record<string, string | number | boolean>
 ): Promise<T> {
   return retryTransient<T>(() => doGet<T>(method, params), method, () =>
-    sanitizeError(new Error("exhausted"), method)
+    attachSafeErrorMeta(
+      sanitizeError(new Error("exhausted"), method),
+      { method }
+    )
   );
 }
 
@@ -116,7 +205,9 @@ async function doGet<T = unknown>(
     if (!response.ok) {
       throw new BitrixTransientError(
         `API returned status ${response.status}`,
-        response.status
+        response.status,
+        undefined,
+        method
       );
     }
 
@@ -126,7 +217,8 @@ async function doGet<T = unknown>(
       // SECURITY: Log sanitized error server-side only.
       // Do NOT log full error_description — it may contain internal URLs or tokens.
       console.error(`[Bitrix24 API Error] Method: ${method}, Error: ${data.error}`);
-      throw new Error(`API request failed`);
+      // Safe error code retained for internal diagnostics (never error_description).
+      throw new BitrixApiError("API request failed", method, String(data.error));
     }
 
     return data as T;
@@ -137,7 +229,7 @@ async function doGet<T = unknown>(
     }
     // Preserve native transport exceptions for retry classification: wrap
     // instead of sanitizing. Unknown shapes propagate unclassified (fail-closed).
-    const transport = asTransientTransportError(error);
+    const transport = asTransientTransportError(error, method);
     if (transport) throw transport;
     throw error;
   }
@@ -153,11 +245,34 @@ export class BitrixItemError extends Error {
 }
 
 /**
+ * Bitrix API-level error envelope (HTTP 200 body `{ error, error_description }`).
+ * Carries ONLY the credential-safe `error` code — never `error_description`
+ * or any response-body content. Classification is identical to the plain
+ * `Error("API request failed")` it replaces: deterministic, never retried.
+ */
+export class BitrixApiError extends Error {
+  constructor(
+    message: string,
+    public readonly method: string,
+    public readonly bitrixCode: string
+  ) {
+    super(message);
+    this.name = "BitrixApiError";
+  }
+}
+
+/**
  * Transient transport failure carrying the HTTP status when available.
  * Used to drive the shared bounded retry strategy — never surfaced to clients.
+ * `method` (optional) preserves which call failed for safe internal metadata.
  */
 export class BitrixTransientError extends Error {
-  constructor(message: string, public readonly status?: number, public readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public readonly status?: number,
+    public readonly cause?: unknown,
+    public readonly method?: string
+  ) {
     super(message);
   }
 }
@@ -279,9 +394,9 @@ function isTransportException(error: unknown): boolean {
   return false;
 }
 
-function asTransientTransportError(error: unknown): BitrixTransientError | null {
+function asTransientTransportError(error: unknown, method?: string): BitrixTransientError | null {
   if (isTransportException(error)) {
-    return new BitrixTransientError("Bitrix transport failure (timeout/network)", undefined, error);
+    return new BitrixTransientError("Bitrix transport failure (timeout/network)", undefined, error, method);
   }
   return null;
 }
@@ -344,7 +459,10 @@ export async function bitrixPost<T = unknown>(
   body?: Record<string, unknown>
 ): Promise<T> {
   return retryTransient<T>(() => doPost<T>(method, body), method, () =>
-    sanitizeError(new Error("exhausted"), method)
+    attachSafeErrorMeta(
+      sanitizeError(new Error("exhausted"), method),
+      { method }
+    )
   );
 }
 
@@ -394,7 +512,8 @@ async function doPost<T = unknown>(
           throw new BitrixTransientError(
             `API returned status ${response.status}`,
             response.status,
-            parseError
+            parseError,
+            method
           );
         }
         throw new BitrixTransientError("Malformed JSON response", undefined, parseError);
@@ -407,17 +526,24 @@ async function doPost<T = unknown>(
         // path — never prematurely classified as deterministic item failures.
         throw new BitrixTransientError(
           `API returned status ${response.status}`,
-          response.status
+          response.status,
+          undefined,
+          method
         );
       }
-      if (data.error) throw new Error("API request failed");
+      if (data.error) {
+        // Safe error code retained for internal diagnostics (never error_description).
+        throw new BitrixApiError("API request failed", method, String(data.error));
+      }
       return data as T;
     }
 
     if (!response.ok) {
       throw new BitrixTransientError(
         `API returned status ${response.status}`,
-        response.status
+        response.status,
+        undefined,
+        method
       );
     }
 
@@ -427,7 +553,8 @@ async function doPost<T = unknown>(
       // SECURITY: Log sanitized error server-side only.
       // Do NOT log full error_description — it may contain internal URLs or tokens.
       console.error(`[Bitrix24 API Error] Method: ${method}, Error: ${data.error}`);
-      throw new Error(`API request failed`);
+      // Safe error code retained for internal diagnostics (never error_description).
+      throw new BitrixApiError("API request failed", method, String(data.error));
     }
 
     return data as T;
@@ -441,7 +568,7 @@ async function doPost<T = unknown>(
     }
     // Preserve native transport exceptions for retry classification: wrap
     // instead of sanitizing. Unknown shapes propagate unclassified (fail-closed).
-    const transport = asTransientTransportError(error);
+    const transport = asTransientTransportError(error, method);
     if (transport) throw transport;
     throw error;
   }
