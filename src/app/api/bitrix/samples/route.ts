@@ -25,6 +25,7 @@ import {
   makeLabelResolver,
 } from "@/lib/samples/bitrix-fetch";
 import { buildSampleSummaries } from "@/lib/samples/aggregate";
+import { collectCompanyScopedSmartProcessCandidates } from "@/lib/samples/smart-process-service";
 import { SAMPLE_DATA_ISSUE_LABELS } from "@/lib/samples/constants";
 import { SMART_PROCESS_HAS_DISCOVERED_CONTRACT } from "@/lib/samples/smart-process-contract";
 import type { SamplesResponseMeta } from "@/lib/samples/types";
@@ -122,26 +123,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fetch metadata, companies, deals, Smart Process items, and the live
+    // Fetch metadata, companies, Smart Process candidates, and the live
     // stage directory concurrently: independent until aggregation.
     // Metadata/stage-directory failure remains non-fatal; Company/Deal/SP
     // fetch is fail-closed.
-    const [fieldMetadata, companies, deals, smartProcessItems, stageDirectory] = await Promise.all([
-      fetchFieldLabelMaps(),
-      fetchSampleCompanies(scope),
-      fetchSampleDeals(scope),
-      fetchSmartProcessSampleItems(scope),
-      fetchSmartProcessStageDirectory(),
-    ]);
+    //
+    // Company scope goes through the ONE shared trustworthy company-scope
+    // mechanism (candidates = direct company ∪ exact parentId2 → Deal of X;
+    // complete Deal→Company map incl. foreign-linked deals) so fallback-by-
+    // Deal items are never lost and relation conflicts are detected from a
+    // complete map — identical attribution semantics to
+    // /api/bitrix/smart-process-items { companyId }. The mechanism's Deal
+    // rows double as the aggregate's Deal input: exactly one scoped
+    // crm.deal.list read per request (no duplicate scope reads, no N+1).
+    const scopedPromise = scope.companyId
+      ? collectCompanyScopedSmartProcessCandidates(scope.companyId)
+      : null;
+
+    const [fieldMetadata, companies, scoped, smartProcessItems, stageDirectory, fullScopeDeals] =
+      await Promise.all([
+        fetchFieldLabelMaps(),
+        fetchSampleCompanies(scope),
+        scopedPromise ?? Promise.resolve(null),
+        scopedPromise
+          ? scopedPromise.then((s) => s.rows)
+          : fetchSmartProcessSampleItems(scope),
+        fetchSmartProcessStageDirectory(),
+        // Full scope only (company scope reuses the candidate mechanism's
+        // own scoped Deal rows — exactly one scoped deal read per request).
+        scopedPromise ? Promise.resolve([]) : fetchSampleDeals(scope),
+      ]);
     const labelResolver = makeLabelResolver(fieldMetadata.labels);
 
     const { summaries, orphanDeals, qualityCounts } = buildSampleSummaries(
       companies,
-      deals,
+      scoped ? scoped.companyDealRows : fullScopeDeals,
       smartProcessItems,
       {
         labelResolver,
         liveStageLabels: stageDirectory.available ? stageDirectory.labels : undefined,
+        // Scoped loads supply the complete authoritative Deal→Company map so
+        // conflict detection never runs on the scoped deal subset. Full
+        // scope omits it → global semantics unchanged.
+        authoritativeDealCompanyById: scoped?.dealCompanyById,
       }
     );
 

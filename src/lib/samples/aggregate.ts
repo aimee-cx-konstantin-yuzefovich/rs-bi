@@ -61,6 +61,16 @@ export interface AggregateOptions {
    * committed stage ID). Display-only: never affects semantics.
    */
   liveStageLabels?: Record<string, string>;
+  /**
+   * Optional authoritative Deal → COMPANY_ID relation map (built by the ONE
+   * shared company-scope seam in smart-process-service.ts from ALL Deal IDs
+   * referenced by candidate SP items, including foreign-linked deals needed
+   * for conflict detection). When provided it is overlaid onto the locally
+   * derived map (authoritative entries win) so scoped loads can never detect
+   * conflicts from an incomplete Deal→Company map. Omitted → the full-scope
+   * semantics are unchanged (map derived from the passed Deal rows only).
+   */
+  authoritativeDealCompanyById?: ReadonlyMap<string, string>;
 }
 
 /** Sanitized aggregate data-quality counts for the Smart Process source. */
@@ -116,12 +126,22 @@ export function buildCanonicalSampleDomain(
   const resolve = options.labelResolver ?? identityLabelResolver;
 
   // 1. Deal → COMPANY_ID map for SP relation verification (no N+1).
+  // An authoritative map (scoped loads) overlays the locally derived one:
+  // authoritative entries win, so relation-conflict detection never runs on
+  // an incomplete map. Full-scope callers omit it → identical semantics.
   const dealCompanyById = new Map<string, string>();
   for (const deal of deals) {
     const dealId = rowString(deal, "ID");
     const companyId = rowString(deal, "COMPANY_ID");
     if (dealId && companyId && companyId !== "0") {
       dealCompanyById.set(dealId, companyId);
+    }
+  }
+  if (options.authoritativeDealCompanyById) {
+    for (const [dealId, companyId] of options.authoritativeDealCompanyById) {
+      if (dealId && companyId && companyId !== "0") {
+        dealCompanyById.set(dealId, companyId);
+      }
     }
   }
 

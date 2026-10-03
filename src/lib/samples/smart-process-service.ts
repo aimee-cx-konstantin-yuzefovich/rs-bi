@@ -21,6 +21,7 @@
 import {
   fetchAllPages,
   fetchFieldLabelMaps,
+  fetchSampleDeals,
   fetchSmartProcessSampleItems,
   fetchSmartProcessStageDirectory,
   makeLabelResolver,
@@ -116,27 +117,146 @@ export interface LoadSmartProcessItemViewsOptions {
   companyId?: string;
 }
 
+/** Result of the ONE shared trustworthy company-scope candidate mechanism. */
+export interface CompanyScopedSmartProcessCandidates {
+  /** Requested Company ID (normalized positive-integer string). */
+  companyId: string;
+  /**
+   * Deduplicated candidate SP rows that can factually belong to the target:
+   * direct companyId === X, or exact parentId2 → a Deal of X. Relation
+   * conflicts are NOT resolved here — the canonical adapter + complete
+   * Deal→Company map decide attribution after adaptation.
+   */
+  rows: BitrixRow[];
+  /**
+   * Complete Deal → COMPANY_ID map for ALL Deal IDs referenced by the
+   * candidates' parentId2 (including foreign-linked deals needed to detect
+   * relation conflicts). Fail-closed: any chunk failure throws.
+   */
+  dealCompanyById: Map<string, string>;
+  /** Company X's own Deal IDs (bounded bulk read; ≥1 chunk when non-empty). */
+  companyDealIds: string[];
+  /**
+   * Raw Company X Deal rows already fetched for candidate determination —
+   * reusable by scoped routes as the aggregate's Deal input (one scoped
+   * deal read per request, never a duplicate).
+   */
+  companyDealRows: BitrixRow[];
+}
+
+/**
+ * ONE shared trustworthy company-scope mechanism (used by BOTH
+ * /api/bitrix/samples { companyId } and /api/bitrix/smart-process-items
+ * { companyId }).
+ *
+ * Scope semantics (canonical attribution rules preserved):
+ * - INCLUDE candidates: SP item with direct companyId = X; SP item with no
+ *   direct company whose exact parentId2 points to a Deal of X.
+ * - EXCLUDE (post-adaptation): relation-conflicted items (direct company ≠
+ *   linked Deal company — detected via a COMPLETE Deal→Company map, never a
+ *   scoped subset), orphans, and items attributed to other companies.
+ *
+ * Candidate acquisition is the bounded, correct fallback: the complete SP
+ * population via existing fail-closed pagination, filtered in-memory. A
+ * `crm.item.list` `@parentId2` IN-filter optimization is deliberately NOT
+ * used: the filter contract has not been live-verified read-only, and an
+ * unverified optimization must never trade correctness (the
+ * fallback-by-Deal case is silently lost under a direct-company-only
+ * filter). No per-item Deal requests; Deal relation reads are bounded bulk
+ * chunks only.
+ */
+export async function collectCompanyScopedSmartProcessCandidates(
+  companyId: string
+): Promise<CompanyScopedSmartProcessCandidates> {
+  const target = companyId.trim();
+  if (!/^[1-9]\d*$/.test(target)) {
+    throw new Error("companyId must be a positive integer string");
+  }
+
+  // 1. Target Company's Deal IDs via the existing bounded bulk seam
+  //    (crm.deal.list, fixed SELECT, fail-closed pagination).
+  const companyDeals = await fetchSampleDeals({ companyId: target });
+  const companyDealIds: string[] = [];
+  for (const deal of companyDeals) {
+    const id = String(deal.ID ?? deal.id ?? "").trim();
+    if (id && id !== "0") companyDealIds.push(id);
+  }
+  const companyDealIdSet = new Set(companyDealIds);
+
+  // 2./3. SP candidates = direct-company rows ∪ exact parentId2 rows,
+  //       deduplicated by process item ID.
+  const spRows = await fetchSmartProcessSampleItems({});
+  const seen = new Set<string>();
+  const rows: BitrixRow[] = [];
+  for (const row of spRows) {
+    const itemId = String(row.id ?? row.ID ?? "").trim();
+    if (!itemId || seen.has(itemId)) continue;
+    const directCompany = String(row.companyId ?? row.COMPANY_ID ?? "").trim();
+    const linkedDealId = String(row.parentId2 ?? "").trim();
+    if (
+      directCompany === target ||
+      (linkedDealId && linkedDealId !== "0" && companyDealIdSet.has(linkedDealId))
+    ) {
+      seen.add(itemId);
+      rows.push(row);
+    }
+  }
+
+  // 4. COMPLETE Deal → Company map for ALL Deal IDs referenced by the
+  //    candidates (including foreign-linked deals for conflict detection).
+  const referencedDealIds = rows
+    .map((row) => String(row.parentId2 ?? "").trim())
+    .filter((id) => id && id !== "0");
+  const dealCompanyById = await fetchDealCompanyMap(referencedDealIds);
+
+  return { companyId: target, rows, dealCompanyById, companyDealIds, companyDealRows: companyDeals };
+}
+
 /**
  * ONE bulk read seam: complete SP population → canonical views + indexes.
  * Throws on any authoritative fetch failure (initial load must be explicit,
  * never an empty dataset masquerade).
+ *
+ * Scoped (`companyId`) loads go through the ONE shared trustworthy
+ * company-scope mechanism: candidates = direct company ∪ exact parentId2 →
+ * Deal of X, complete Deal→Company map before adaptation, and Company X's
+ * population selected only AFTER adaptation/indexing (relation-conflicted
+ * and orphan items are excluded from company attribution by the canonical
+ * adapter + view projector).
  */
 export async function loadSmartProcessItemViews(
   options: LoadSmartProcessItemViewsOptions = {}
 ): Promise<SmartProcessDomainLoad> {
-  // 1. Complete fail-closed SP population (also runs the contract gate).
-  const spRows = await fetchSmartProcessSampleItems(
-    options.companyId ? { companyId: options.companyId } : {}
-  );
+  // 1. Candidate rows + complete Deal→Company map. Full scope: the existing
+  //    fail-closed complete population (contract gate runs inside).
+  //    Company scope: the shared company-scope mechanism (which runs the
+  //    same gate through fetchSmartProcessSampleItems).
+  let spRows: BitrixRow[];
+  let prebuiltDealCompanyById: Map<string, string> | undefined;
+  if (options.companyId) {
+    const scoped = await collectCompanyScopedSmartProcessCandidates(options.companyId);
+    spRows = scoped.rows;
+    prebuiltDealCompanyById = scoped.dealCompanyById;
+  } else {
+    spRows = await fetchSmartProcessSampleItems({});
+  }
 
   // 2. Live stage display directory (non-fatal; static fallback inside).
   const stageDirectory = await fetchSmartProcessStageDirectory();
 
-  // 3. Minimal Deal → Company map for relation verification.
-  const referencedDealIds = spRows
-    .map((row: BitrixRow) => String(row.parentId2 ?? "").trim())
-    .filter((id: string) => id && id !== "0");
-  const dealCompanyById = await fetchDealCompanyMap(referencedDealIds);
+  // 3. Minimal Deal → Company map for relation verification (full scope:
+  //    bounded bulk chunks over the referenced Deal IDs; company scope: the
+  //    complete prebuilt map from the shared mechanism).
+  let referencedDealIds: string[] = [];
+  let dealCompanyById: Map<string, string>;
+  if (prebuiltDealCompanyById) {
+    dealCompanyById = prebuiltDealCompanyById;
+  } else {
+    referencedDealIds = spRows
+      .map((row: BitrixRow) => String(row.parentId2 ?? "").trim())
+      .filter((id: string) => id && id !== "0");
+    dealCompanyById = await fetchDealCompanyMap(referencedDealIds);
+  }
 
   // 4. Adapt with the existing canonical adapter.
   const labelMaps = await fetchSmartProcessLabelMaps();
@@ -148,7 +268,7 @@ export async function loadSmartProcessItemViews(
     )
     .filter((u): u is NonNullable<typeof u> => u !== null);
 
-  // 5./6. Project + index.
+  // 5./6. Project + index (byCompanyId excludes conflicts/orphans canonically).
   const views = buildSmartProcessItemViews(evidenceUnits, {
     liveStageLabels: stageDirectory.available ? stageDirectory.labels : undefined,
   });

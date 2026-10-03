@@ -197,10 +197,23 @@ describe("POST /api/bitrix/samples — fixed Bitrix calls", () => {
       "start",
       "useOriginalUfNames",
     ]);
-    expect(spBody.filter).toEqual({ categoryId: 15, companyId: "42" });
+    expect(spBody.filter).toEqual({ categoryId: 15 });
     expect(spBody.order).toEqual({ id: "ASC" });
     expect(spBody.useOriginalUfNames).toBe("Y");
     expect(spBody.select).toContain("stageId");
+
+    // Company scope: the ONE shared trustworthy company-scope mechanism
+    // (candidates = direct company ∪ exact parentId2 → Deal of X) reads the
+    // COMPLETE SP population — a direct-company-only filter is forbidden
+    // because it silently loses the fallback-by-Deal case. The scoped deal
+    // read (FILTER { COMPANY_ID: "42" }) is the mechanism's own candidate
+    // input and is reused as the aggregate's Deal rows (no duplicate reads).
+    const scopedDealCalls = fetchMock.mock.calls.filter((c) => {
+      if (!String(c[0]).endsWith("crm.deal.list")) return false;
+      const body = JSON.parse(c[1].body);
+      return body.FILTER && body.FILTER.COMPANY_ID === "42";
+    });
+    expect(scopedDealCalls).toHaveLength(1);
   });
 
   it("joins by company ID and returns one summary per company with nested deals", async () => {
