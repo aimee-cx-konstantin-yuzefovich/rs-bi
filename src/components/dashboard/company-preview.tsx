@@ -28,6 +28,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,6 +37,7 @@ import { useDashboardStore } from "@/store/dashboard-store";
 import {
   buildCompanyPreviewModel,
   partitionCompanyPreviewFields,
+  buildCompanyLookupWarnings,
   EMPTY_FIELD_PLACEHOLDER,
   LOOKUP_LOADING_PLACEHOLDER,
   type CompanyPreviewMetadataState,
@@ -135,14 +137,24 @@ export function CompanyPreview({
   const dealsSeq = useRef(0);
   const samplesSeq = useRef(0);
 
+  // Auth principal: lookup bootstrap is one-shot per mounted drawer /
+  // principal. A principal change re-arms exactly one automatic attempt for
+  // the new principal; no timers, no automatic infinite retry.
+  const { data: session } = useSession();
+  const principalKey =
+    session?.user?.id ?? session?.user?.email ?? session?.user?.name ?? "__anonymous__";
+
   const {
-    userNames, fields, usersCoverage, allDeals, dealsCoverage,
+    userNames, fields, usersCoverage, fieldsCoverage, fieldsError, isDemoMode, allDeals, dealsCoverage,
     userNamesLoading, fieldsLoading,
     fetchFields, fetchUserNames,
   } = useDashboardStore() as {
     userNames: Record<string, string> | null;
     fields: Array<{ id: string; title?: string; type?: string; listValues?: Array<{ ID: string; VALUE: string }> }> | null;
     usersCoverage: import("@/lib/dataset-coverage").DatasetCoverage | null;
+    fieldsCoverage: import("@/lib/dataset-coverage").DatasetCoverage | null;
+    fieldsError: string | null;
+    isDemoMode: boolean;
     allDeals: Array<Record<string, unknown>>;
     dealsCoverage: import("@/lib/dataset-coverage").DatasetCoverage | null;
     userNamesLoading: boolean;
@@ -151,37 +163,107 @@ export function CompanyPreview({
     fetchUserNames: () => Promise<void>;
   };
 
-  // ─── Caller-independent lookup bootstrap (§2) ───
+  // ─── Caller-independent lookup bootstrap — ONE-SHOT per principal (§2) ───
   // The canonical drawer must NOT depend on whether another page happened
   // to warm the shared lookups first. Opening a company from /samples, the
   // Commercial Funnel, or a cold store bootstraps the SAME canonical store
   // metadata paths (fetchFields / fetchUserNames) the main page uses — no
   // duplicate metadata parser, no DEMO fallback.
-  useEffect(() => {
-    if (!fieldsLoading && (!fields || fields.length === 0)) {
-      void fetchFields();
-    }
-  }, [fields, fieldsLoading, fetchFields]);
+  //
+  // Invariants:
+  // - missing fields → fetchFields() attempted ONCE per principal; missing
+  //   users → fetchUserNames() attempted ONCE per principal;
+  // - a failed attempt STOPS automatic retry (no request storm against
+  //   /api/bitrix/fields or /api/bitrix/users) — explicit user retry
+  //   (metadata retry button) re-arms a single further attempt;
+  // - an already in-flight shared request coalesces through existing store
+  //   logic (never a duplicate request);
+  // - a valid shared lookup already present (e.g. warmed by the main page)
+  //   means NO bootstrap at all — switching Company ID never re-bootstraps;
+  // - principal change → fresh one-shot attempt for the new principal.
+  const fieldsBootstrapAttemptedRef = useRef<string | null>(null);
+  const usersBootstrapAttemptedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!userNamesLoading && (!userNames || Object.keys(userNames).length === 0)) {
-      void fetchUserNames();
+    // Already attempted for this principal → never automatically again.
+    if (fieldsBootstrapAttemptedRef.current === principalKey) return;
+    // Valid shared lookup already present → nothing to bootstrap.
+    if (fields && fields.length > 0) {
+      fieldsBootstrapAttemptedRef.current = principalKey;
+      return;
     }
-  }, [userNames, userNamesLoading, fetchUserNames]);
+    // In-flight shared request → coalesces; do not stack attempts.
+    if (fieldsLoading) return;
+    fieldsBootstrapAttemptedRef.current = principalKey;
+    void fetchFields();
+  }, [principalKey, fields, fieldsLoading, fetchFields]);
 
-  // Truthful metadata provisioning state for enum/status resolution:
-  // loading → interim placeholder (never a premature «Не классифицировано»,
-  // never raw IDs); failed → final canonical unclassified label plus a
-  // visible incompleteness disclosure below. Never DEMO metadata.
-  const metadataState: CompanyPreviewMetadataState = useMemo(() => {
-    if (fieldsLoading || userNamesLoading) return "loading";
-    const fieldsUsable = Array.isArray(fields) && fields.length > 0;
-    const usersUsable = Boolean(userNames && Object.keys(userNames).length > 0);
-    if (fieldsUsable || usersUsable) return "ready";
-    // Nothing usable and nothing loading → bootstrap failed (or the store
-    // has not mounted data): truthful failure disclosure upstream.
-    return "failed";
-  }, [fields, fieldsLoading, userNames, userNamesLoading]);
+  useEffect(() => {
+    if (usersBootstrapAttemptedRef.current === principalKey) return;
+    if (userNames && Object.keys(userNames).length > 0) {
+      usersBootstrapAttemptedRef.current = principalKey;
+      return;
+    }
+    if (userNamesLoading) return;
+    usersBootstrapAttemptedRef.current = principalKey;
+    void fetchUserNames();
+  }, [principalKey, userNames, userNamesLoading, fetchUserNames]);
+
+  // Explicit user retry: re-arm ONE attempt and perform a real request.
+  // Automatic loops never call these.
+  const retryFieldsLookup = () => {
+    fieldsBootstrapAttemptedRef.current = null;
+    void fetchFields();
+  };
+  const retryUsersLookup = () => {
+    usersBootstrapAttemptedRef.current = null;
+    void fetchUserNames();
+  };
+
+  // ─── INDEPENDENT lookup source states (never collapsed) ───
+  // Field dictionaries and the user directory are separate provenance
+  // sources. NO combined `fieldsUsable || usersUsable` rule exists: field
+  // success can never mark the user directory ready, and user success can
+  // never mark field metadata ready. Derivation is driven by real store
+  // provenance (coverage / error / demo-mode), never by array length alone.
+  const fieldMetadataState: CompanyPreviewMetadataState = useMemo(() => {
+    if (fieldsLoading) return "loading";
+    // DEMO dictionaries are never authoritative metadata for a real Bitrix
+    // Company card — demo provenance is a truthful failure, not ready.
+    if (isDemoMode) return "failed";
+    if (fieldsError) return "failed";
+    const hasFields = Array.isArray(fields) && fields.length > 0;
+    if (!hasFields) return "failed";
+    if (fieldsCoverage?.status === "COMPLETE") return "ready";
+    if (
+      fieldsCoverage?.status === "PARTIAL" ||
+      fieldsCoverage?.status === "CAPPED"
+    ) {
+      return "partial";
+    }
+    // Fields present without trustworthy provenance (e.g. restored from
+    // localStorage): usable labels may resolve, but completeness is
+    // unverifiable → disclosed as partial, never silently ready.
+    return "partial";
+  }, [fields, fieldsLoading, fieldsError, fieldsCoverage, isDemoMode]);
+
+  const userDirectoryState: CompanyPreviewMetadataState = useMemo(() => {
+    if (userNamesLoading) return "loading";
+    // Demo user names are not a production directory.
+    if (isDemoMode) return "failed";
+    const hasUsers = Boolean(userNames && Object.keys(userNames).length > 0);
+    if (!hasUsers) return "failed";
+    if (usersCoverage?.status === "COMPLETE") return "ready";
+    if (
+      usersCoverage?.status === "PARTIAL" ||
+      usersCoverage?.status === "CAPPED"
+    ) {
+      return "partial";
+    }
+    // Names present without coverage provenance: resolvable names may
+    // display, but directory completeness is unverifiable → partial.
+    return "partial";
+  }, [userNames, userNamesLoading, usersCoverage, isDemoMode]);
 
   /** Cache-first related deals (complete-store coverage only). */
   const seedDealsFromCache = useMemo(() => {
@@ -217,13 +299,21 @@ export function CompanyPreview({
     () =>
       scopedCompany
         ? buildCompanyPreviewModel(scopedCompany, {
-            fields: (fields ?? []) as any,
+            // DEMO field dictionaries are never authoritative metadata for a
+            // real Bitrix Company card: in demo mode no dictionary is handed
+            // to the model, so a real card can never resolve enum/status
+            // values against DEMO labels and present them as authoritative
+            // (the failed state is disclosed; unclassified label applies).
+            fields: (isDemoMode ? [] : fields ?? []) as any,
             userNames: userNames ?? {},
             usersCoverage,
-            metadataState,
+            // ONLY the field-metadata state controls enum/status resolution;
+            // the user directory is independent (coverage-aware responsible
+            // resolution inside the model).
+            metadataState: fieldMetadataState,
           })
         : null,
-    [scopedCompany, fields, userNames, usersCoverage, metadataState]
+    [scopedCompany, fields, userNames, usersCoverage, fieldMetadataState, isDemoMode]
   );
 
   const { business: businessFields, marker: markerField, system: systemFields } = useMemo(
@@ -284,6 +374,9 @@ export function CompanyPreview({
     // can ever enter the workbook.
     if (dealsState.status !== "success" || dealsState.companyId !== id) return;
     if (!sameCompanySamples) return;
+    // Required lookups still loading → no export (loading placeholders are
+    // never serialized as final business data).
+    if (lookupLoading) return;
     try {
       setIsExporting(true);
       const company = state.company;
@@ -337,6 +430,10 @@ export function CompanyPreview({
         dealTitleById,
         userNames: userNames ?? {},
         usersCoverage,
+        // Same resolved lookup state the UI discloses: partial/failed field
+        // or user lookups stamp a visible data-quality disclosure into the
+        // workbook near the report header (UI/Excel agreement invariant).
+        lookupWarnings,
       });
     } catch (err) {
       console.error("Failed to export company to Excel", err);
@@ -508,8 +605,21 @@ export function CompanyPreview({
 
   const samplesRetry = () => setSamplesAttempt((n) => n + 1);
 
+  // Excel truthfulness: while REQUIRED lookup bootstrap is still loading the
+  // export is unavailable — an interim LOOKUP_LOADING_PLACEHOLDER must never
+  // be serialized into a final workbook. Once loading finishes, partial/
+  // failed lookups keep the export available but carry the same incompleteness
+  // disclosure the UI shows (UI warnings and Excel disclosures agree 100%).
+  const lookupLoading =
+    fieldMetadataState === "loading" || userDirectoryState === "loading";
+  // Plain derivation from the two independent source states (shared contract
+  // with the Excel export) — memoization adds nothing over string identity.
+  const lookupWarnings = buildCompanyLookupWarnings(fieldMetadataState, userDirectoryState);
+
   const exportBlockedReason =
-    dealsState.status !== "success" || dealsState.companyId !== id
+    lookupLoading
+      ? "Экспорт недоступен: справочники полей/сотрудников ещё загружаются"
+      : dealsState.status !== "success" || dealsState.companyId !== id
       ? "Полный отчёт недоступен: связанные сделки ещё загружаются или не удалось загрузить"
       : !sameCompanySamples
       ? "Полный отчёт недоступен: данные тестирования образцов ещё загружаются или не удалось загрузить"
@@ -544,32 +654,87 @@ export function CompanyPreview({
           </div>}
           {state.status === "success" && state.companyId === id && resolvedModel && (
             <div className="space-y-7 pb-6">
-              {/* Metadata lookup disclosure: truthful provisioning state of the
-                  shared canonical directories. While loading, enum/status cells
-                  show the interim placeholder (never a premature final
-                  «Не классифицировано», never raw IDs). An ultimate failure is
-                  disclosed — labels are never fabricated, and DEMO metadata is
-                  never substituted for a failed production lookup. */}
-              {metadataState !== "ready" && (
-                <div
-                  role="note"
-                  data-metadata-state={metadataState}
-                  className={
-                    metadataState === "loading"
-                      ? "flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground"
-                      : "flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
-                  }
-                >
-                  {metadataState === "loading" ? (
-                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                  ) : (
-                    <AlertTriangle className="h-3 w-3 shrink-0" />
+              {/* Independent lookup-source disclosures: truthful provisioning
+                  state of EACH shared canonical directory. While a source is
+                  loading, its enum/status cells show the interim placeholder
+                  (never a premature final «Не классифицировано», never raw
+                  IDs). An ultimate failure/partial state of a source is
+                  disclosed — labels are never fabricated, DEMO metadata is
+                  never substituted, and one source's success never hides the
+                  other's incompleteness. Explicit retry re-arms ONE real
+                  request per source. */}
+              {(fieldMetadataState !== "ready" || userDirectoryState !== "ready") && (
+                <div className="space-y-1.5" data-metadata-disclosures>
+                  {fieldMetadataState !== "ready" && (
+                    <div
+                      role="note"
+                      data-metadata-source="fields"
+                      data-metadata-state={fieldMetadataState}
+                      className={
+                        fieldMetadataState === "loading"
+                          ? "flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground"
+                          : "flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
+                      }
+                    >
+                      {fieldMetadataState === "loading" ? (
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                      ) : (
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                      )}
+                      <span className="break-words" data-metadata-disclosure>
+                        {fieldMetadataState === "loading"
+                          ? "Справочник полей загружается…"
+                          : "Справочник полей загружен не полностью / недоступен — часть значений может отображаться как «Не классифицировано»."}
+                      </span>
+                      {fieldMetadataState !== "loading" && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto h-6 shrink-0 px-2 text-[11px]"
+                          onClick={retryFieldsLookup}
+                          data-metadata-retry="fields"
+                        >
+                          Повторить
+                        </Button>
+                      )}
+                    </div>
                   )}
-                  <span className="break-words" data-metadata-disclosure>
-                    {metadataState === "loading"
-                      ? "Справочники полей и сотрудников загружаются…"
-                      : "Справочники полей и сотрудников недоступны — часть значений может отображаться как «Не классифицировано»."}
-                  </span>
+                  {userDirectoryState !== "ready" && (
+                    <div
+                      role="note"
+                      data-metadata-source="users"
+                      data-metadata-state={userDirectoryState}
+                      className={
+                        userDirectoryState === "loading"
+                          ? "flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground"
+                          : "flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-400"
+                      }
+                    >
+                      {userDirectoryState === "loading" ? (
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                      ) : (
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                      )}
+                      <span className="break-words" data-metadata-disclosure>
+                        {userDirectoryState === "loading"
+                          ? "Справочник сотрудников загружается…"
+                          : "Справочник сотрудников загружен не полностью / недоступен — часть ответственных может быть не определена."}
+                      </span>
+                      {userDirectoryState !== "loading" && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto h-6 shrink-0 px-2 text-[11px]"
+                          onClick={retryUsersLookup}
+                          data-metadata-retry="users"
+                        >
+                          Повторить
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {/* SECTION 1: ИНФОРМАЦИЯ О КОМПАНИИ */}
@@ -718,6 +883,7 @@ export function CompanyPreview({
               state.status !== "success" ||
               state.companyId !== id ||
               !resolvedModel ||
+              lookupLoading ||
               dealsState.status !== "success" ||
               dealsState.companyId !== id ||
               !sameCompanySamples ||

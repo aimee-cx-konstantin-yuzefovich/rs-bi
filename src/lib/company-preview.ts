@@ -151,12 +151,14 @@ export interface CompanyPreviewResolveContext {
   usersCoverage?: DatasetCoverage | null;
   contactNames?: Record<string, string>;
   /**
-   * Provisioning state of the lookup metadata (field dictionaries / user
-   * directory). While `loading`, an enum/status value that cannot yet be
-   * resolved renders the interim LOOKUP_LOADING_PLACEHOLDER — never a final
-   * «Не классифицировано» for a possibly-known ID, never a raw numeric ID.
-   * `ready`/`failed` resolve enum/status values definitively (failed → the
-   * canonical UNCLASSIFIED_LABEL, disclosed upstream by the drawer).
+   * Provisioning state of the lookup metadata (field dictionaries). While
+   * `loading`, an enum/status value that cannot yet be resolved renders the
+   * interim LOOKUP_LOADING_PLACEHOLDER — never a final «Не классифицировано»
+   * for a possibly-known ID, never a raw numeric ID. `ready`/`partial`/
+   * `failed` resolve enum/status values definitively: known labels resolve,
+   * unresolved values stay `UNCLASSIFIED_LABEL` (failed → the canonical
+   * label, disclosed upstream by the drawer). This is the FIELD-METADATA
+   * state only — user-directory success must never make it "ready".
    */
   metadataState?: CompanyPreviewMetadataState;
 }
@@ -181,6 +183,9 @@ function isSentinel(raw: unknown): boolean {
 }
 
 /** Resolves an enum/status raw value via metadata; unknown IDs stay unclassified. */
+// States: `loading` → interim placeholder; `ready|partial|failed` → known
+// labels resolve (partial/failed disclosed upstream), unresolved values →
+// UNCLASSIFIED_LABEL. Raw enum IDs never leak in any state.
 function resolveEnumRaw(
   raw: unknown,
   meta?: CompanyFieldMeta,
@@ -482,7 +487,45 @@ export const EMPTY_FIELD_PLACEHOLDER = "—";
 export const LOOKUP_LOADING_PLACEHOLDER = "Загрузка справочника…";
 
 /** Lookup metadata provisioning state for the Company Preview model. */
-export type CompanyPreviewMetadataState = "loading" | "ready" | "failed";
+export type CompanyPreviewMetadataState = "loading" | "ready" | "partial" | "failed";
+
+/**
+ * Field-metadata / user-directory provisioning states are INDEPENDENT
+ * sources and must never be collapsed into one combined ready rule:
+ * one successful source never hides the other's failure. Field enums/
+ * statuses resolve strictly by the field-metadata state; responsible
+ * persons resolve strictly by the user-directory state (coverage-aware).
+ */
+export type LookupSourceState = CompanyPreviewMetadataState;
+
+/** Disclosure: field dictionary loaded incompletely / unavailable. */
+export const FIELD_METADATA_INCOMPLETE_WARNING =
+  "Справочник полей загружен не полностью; часть значений не классифицирована.";
+
+/** Disclosure: user directory loaded incompletely / unavailable. */
+export const USER_DIRECTORY_INCOMPLETE_WARNING =
+  "Справочник сотрудников загружен не полностью; часть ответственных не удалось определить.";
+
+/**
+ * ONE shared lookup-warning contract for UI disclosure AND the Company
+ * Excel export (UI warnings and Excel disclosures must agree 100%).
+ * A `partial`/`failed` source contributes exactly its warning; `loading`
+ * never appears here (export is disabled while any required lookup is
+ * loading, so a loading placeholder can never be serialized).
+ */
+export function buildCompanyLookupWarnings(
+  fieldMetadataState: LookupSourceState,
+  userDirectoryState: LookupSourceState
+): string[] {
+  const warnings: string[] = [];
+  if (fieldMetadataState === "partial" || fieldMetadataState === "failed") {
+    warnings.push(FIELD_METADATA_INCOMPLETE_WARNING);
+  }
+  if (userDirectoryState === "partial" || userDirectoryState === "failed") {
+    warnings.push(USER_DIRECTORY_INCOMPLETE_WARNING);
+  }
+  return warnings;
+}
 
 /** Field IDs of Section 1 (business card fields, canonical order). */
 export const COMPANY_BUSINESS_FIELD_IDS: readonly string[] = [

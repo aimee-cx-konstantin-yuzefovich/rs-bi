@@ -560,6 +560,12 @@ export const useDashboardStore = create<DashboardState>()(
                 fetched: 0,
                 warning: FIELDS_METADATA_FAILED_WARNING,
               },
+              // Demo→production transition protection: when THIS call
+              // transitioned out of demo mode, the demo field arrays must
+              // not survive the failed production lookup as if they were a
+              // successful production directory (length > 0 must never be
+              // mistaken for production metadata provenance).
+              ...(wasDemo ? { fields: [], dealTypeRegistry: {} } : {}),
             });
           }
         }

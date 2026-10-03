@@ -123,6 +123,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ─── COMPANY-grain responsible scope (the ONE allowed-company scope) ───
+    // The documented Samples `responsibleId` is a COMPANY responsible filter
+    // (Company ASSIGNED_BY_ID — identical to the Companies browser). It is
+    // NEVER a Deal owner filter and NEVER a Smart Process assignee filter:
+    // evidence of allowed companies is aggregated regardless of who owns the
+    // individual Deal or SP item, via AggregateOptions.allowedCompanyIds.
+    let allowedCompanyIds: Set<string> | undefined;
+    let preFetchedCompanies: Awaited<ReturnType<typeof fetchSampleCompanies>> | null = null;
+
+    if (scope.responsibleId) {
+      // 1. Authoritative Companies population via Company ASSIGNED_BY_ID.
+      preFetchedCompanies = await fetchSampleCompanies(scope);
+      allowedCompanyIds = new Set(
+        preFetchedCompanies
+          .map((company) => String(company.ID ?? "").trim())
+          .filter((id) => id && id !== "0")
+      );
+
+      // 2. Combined scope truthfulness: when the responsible filter allows
+      // NO companies (e.g. companyId + wrong responsibleId), the scope is
+      // already known empty — return a truthful successful empty response
+      // WITHOUT any Deal or Smart Process population load (the expensive SP
+      // read is avoided entirely; no evidence can resurrect a company that
+      // failed the authoritative Company responsible filter).
+      if (allowedCompanyIds.size === 0) {
+        const emptyFieldMetadata = await fetchFieldLabelMaps();
+        return respond({
+          success: true,
+          samples: [],
+          total: 0,
+          orphanDealCount: 0,
+          metadataPartial: Boolean(emptyFieldMetadata.partial),
+          smartProcess: { qualityCounts: {
+            orphanSmartProcessItemCount: 0,
+            relationConflictCount: 0,
+            sentStageWithoutDateCount: 0,
+            multipleActiveCount: 0,
+            stageResultConflictCount: 0,
+          } },
+          meta: { statusLabels: emptyFieldMetadata.labels },
+          issueLabels: SAMPLE_DATA_ISSUE_LABELS,
+        });
+      }
+    }
+
     // Fetch metadata, companies, Smart Process candidates, and the live
     // stage directory concurrently: independent until aggregation.
     // Metadata/stage-directory failure remains non-fatal; Company/Deal/SP
@@ -136,6 +181,11 @@ export async function POST(request: NextRequest) {
     // /api/bitrix/smart-process-items { companyId }. The mechanism's Deal
     // rows double as the aggregate's Deal input: exactly one scoped
     // crm.deal.list read per request (no duplicate scope reads, no N+1).
+    //
+    // responsibleId-only scope: the normal COMPLETE Deal and Smart Process
+    // populations are fetched (correctness over optimization — no N+1, no
+    // unverified @parentId2 / @COMPANY_ID filters); the company-grain
+    // allowed set is applied inside the canonical aggregate.
     const scopedPromise = scope.companyId
       ? collectCompanyScopedSmartProcessCandidates(scope.companyId)
       : null;
@@ -143,15 +193,15 @@ export async function POST(request: NextRequest) {
     const [fieldMetadata, companies, scoped, smartProcessItems, stageDirectory, fullScopeDeals] =
       await Promise.all([
         fetchFieldLabelMaps(),
-        fetchSampleCompanies(scope),
+        preFetchedCompanies ?? fetchSampleCompanies(scope),
         scopedPromise ?? Promise.resolve(null),
         scopedPromise
           ? scopedPromise.then((s) => s.rows)
-          : fetchSmartProcessSampleItems(scope),
+          : fetchSmartProcessSampleItems({}),
         fetchSmartProcessStageDirectory(),
         // Full scope only (company scope reuses the candidate mechanism's
         // own scoped Deal rows — exactly one scoped deal read per request).
-        scopedPromise ? Promise.resolve([]) : fetchSampleDeals(scope),
+        scopedPromise ? Promise.resolve([]) : fetchSampleDeals({}),
       ]);
     const labelResolver = makeLabelResolver(fieldMetadata.labels);
 
@@ -166,6 +216,9 @@ export async function POST(request: NextRequest) {
         // conflict detection never runs on the scoped deal subset. Full
         // scope omits it → global semantics unchanged.
         authoritativeDealCompanyById: scoped?.dealCompanyById,
+        // COMPANY-grain responsible scope: only allowed companies enter the
+        // analytical population (Deal owner / SP assignee never drive it).
+        ...(allowedCompanyIds ? { allowedCompanyIds } : {}),
       }
     );
 

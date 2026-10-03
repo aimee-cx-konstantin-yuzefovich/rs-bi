@@ -555,6 +555,14 @@ export interface ExportCompanyOptions {
   /** User directory for the human-name responsible resolver. */
   userNames?: Record<string, string>;
   usersCoverage?: import("./enrichment-coverage").DatasetCoverage | null;
+  /**
+   * Lookup data-quality disclosures (ONE shared contract with the UI drawer:
+   * buildCompanyLookupWarnings). Rendered as visible rows near the report
+   * header so a detached workbook truthfully discloses incomplete field
+   * metadata / user directory provenance. Loading state never reaches here
+   * (export is disabled while lookups load); no raw errors/IDs/credentials.
+   */
+  lookupWarnings?: string[];
 }
 
 /**
@@ -974,6 +982,25 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     generatedAt: now,
     colCount: COMPANY_REPORT_SPAN,
   });
+
+  // Lookup data-quality disclosures — the SAME resolved lookup state the UI
+  // drawer discloses (UI warnings and Excel disclosures agree 100%). Rendered
+  // near the report header (before any business section) so a detached
+  // workbook truthfully discloses incomplete lookup provenance. Warnings come
+  // from the shared contract only: no raw error messages, IDs, webhook
+  // information, or credentials can ever ride this channel.
+  for (const warning of options.lookupWarnings ?? []) {
+    const text = String(warning ?? "").trim();
+    if (!text) continue;
+    const warnRow = worksheet.addRow([text]);
+    warnRow.height = 20;
+    worksheet.mergeCells(warnRow.number, 1, warnRow.number, COMPANY_REPORT_SPAN);
+    const cell = warnRow.getCell(1);
+    cell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
+    cell.fill = FILL_SECTION_HEADER_SOFT;
+    cell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
+    applyRowBorders(warnRow, 1, COMPANY_REPORT_SPAN);
+  }
 
   // Section 1: ИНФОРМАЦИЯ О КОМПАНИИ
   // Company Preview UI = Company Excel: when the resolved model is provided,

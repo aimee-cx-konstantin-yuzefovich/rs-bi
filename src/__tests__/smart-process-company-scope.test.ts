@@ -111,24 +111,24 @@ const spItemsRequest = (body?: unknown) =>
 
 // ─── Fixture: company X=42, company Y=77 ──────────────────────────────
 // Deals:
-//   D1 → X (X's own deal)
-//   D2 → Y (Y's own deal — FOREIGN to X; never inside X's scoped deal rows)
+//   501 → X (X's own deal)
+//   777 → Y (Y's own deal — FOREIGN to X; never inside X's scoped deal rows)
 // SP items (complete population):
-//   101 direct companyId=42, no deal                → included for X
-//   102 no direct company, parentId2=D1 (→ X)      → included for X (fallback-by-Deal)
-//   103 direct companyId=42, parentId2=D2 (→ Y)    → RELATION CONFLICT, excluded from both
-//   104 direct companyId=77                        → Y only, never X
-//   105 no relations at all                        → orphan, excluded
+//   9001 direct companyId=42, no deal                → included for X
+//   9002 no direct company, parentId2=501 (→ X)      → included for X (fallback-by-Deal)
+//   9003 direct companyId=42, parentId2=777 (→ Y)    → RELATION CONFLICT, excluded from both
+//   9004 direct companyId=77                        → Y only, never X
+//   9005 no relations at all                        → orphan, excluded
 const DEAL_ROWS = [
-  { ID: "D1", TITLE: "Сделка X-1", STAGE_ID: "NEW", COMPANY_ID: "42", ASSIGNED_BY_ID: "7" },
-  { ID: "D2", TITLE: "Сделка Y-1", STAGE_ID: "NEW", COMPANY_ID: "77", ASSIGNED_BY_ID: "7" },
+  { ID: "501", TITLE: "Сделка X-1", STAGE_ID: "NEW", COMPANY_ID: "42", ASSIGNED_BY_ID: "7" },
+  { ID: "777", TITLE: "Сделка Y-1", STAGE_ID: "NEW", COMPANY_ID: "77", ASSIGNED_BY_ID: "7" },
 ];
 const SP_ROWS = [
-  { id: "101", title: "SP 101", stageId: "DT1032_15:CLIENT", companyId: "42", assignedById: "7" },
-  { id: "102", title: "SP 102", stageId: "DT1032_15:CLIENT", companyId: "0", parentId2: "D1", assignedById: "7" },
-  { id: "103", title: "SP 103", stageId: "DT1032_15:CLIENT", companyId: "42", parentId2: "D2", assignedById: "7" },
-  { id: "104", title: "SP 104", stageId: "DT1032_15:CLIENT", companyId: "77", assignedById: "7" },
-  { id: "105", title: "SP 105", stageId: "DT1032_15:CLIENT", companyId: "0", assignedById: "7" },
+  { id: "9001", title: "SP 9001", stageId: "DT1032_15:CLIENT", companyId: "42", assignedById: "7" },
+  { id: "9002", title: "SP 9002", stageId: "DT1032_15:CLIENT", companyId: "0", parentId2: "501", assignedById: "7" },
+  { id: "9003", title: "SP 9003", stageId: "DT1032_15:CLIENT", companyId: "42", parentId2: "777", assignedById: "7" },
+  { id: "9004", title: "SP 9004", stageId: "DT1032_15:CLIENT", companyId: "77", assignedById: "7" },
+  { id: "9005", title: "SP 9005", stageId: "DT1032_15:CLIENT", companyId: "0", assignedById: "7" },
 ];
 const COMPANY_ROWS = [
   { ID: "42", TITLE: "Компания X", ASSIGNED_BY_ID: "7" },
@@ -219,8 +219,8 @@ describe("ONE shared company-scope mechanism — candidate collection", () => {
   it("case 1+2: includes direct-company items AND fallback-by-Deal items for X", async () => {
     const scoped = await collectCompanyScopedSmartProcessCandidates("42");
     const ids = scoped.rows.map((r) => String(r.id));
-    expect(ids).toContain("101"); // direct
-    expect(ids).toContain("102"); // fallback-by-Deal (no direct company, Deal of X)
+    expect(ids).toContain("9001"); // direct
+    expect(ids).toContain("9002"); // fallback-by-Deal (no direct company, Deal of X)
   });
 
   it("case 2: never relies on a direct-company-only SP filter (complete population read)", async () => {
@@ -237,10 +237,10 @@ describe("ONE shared company-scope mechanism — candidate collection", () => {
 
   it("case 4: fetches the COMPLETE Deal→Company map including the foreign Y deal via bounded @ID bulk chunks", async () => {
     const scoped = await collectCompanyScopedSmartProcessCandidates("42");
-    // The map must contain the foreign deal D2→Y (needed to detect 103's conflict)
-    // even though X's own scoped deal rows never include D2.
-    expect(scoped.dealCompanyById.get("D1")).toBe("42");
-    expect(scoped.dealCompanyById.get("D2")).toBe("77");
+    // The map must contain the foreign deal 777→Y (needed to detect item 9003's conflict)
+    // even though X's own scoped deal rows never include 777.
+    expect(scoped.dealCompanyById.get("501")).toBe("42");
+    expect(scoped.dealCompanyById.get("777")).toBe("77");
     // Bulk chunk contract: uppercase "@ID" IN filter, bounded chunk (≤50).
     const bulkCalls = fetchMock.mock.calls.filter(([u, init]) => {
       if (!String(u).endsWith("crm.deal.list")) return false;
@@ -285,19 +285,19 @@ describe("scoped routes agree on Company attribution", () => {
     expect(ySpItems.processItemIds.sort()).toEqual(ySamples.processItemIds.sort());
   });
 
-  it("case 1+2: X sees 101 (direct) and 102 (fallback-by-Deal)", async () => {
+  it("case 1+2: X sees 9001 (direct) and 9002 (fallback-by-Deal)", async () => {
     const { processItemIds } = await samplesCompanyItemIds("42");
-    expect(processItemIds).toContain("101");
-    expect(processItemIds).toContain("102");
+    expect(processItemIds).toContain("9001");
+    expect(processItemIds).toContain("9002");
     expect(processItemIds).toHaveLength(2);
   });
 
-  it("case 3: relation-conflicted 103 is excluded from BOTH X and Y aggregates (real adapter conflict)", async () => {
+  it("case 3: relation-conflicted 9003 is excluded from BOTH X and Y aggregates (real adapter conflict)", async () => {
     const x = await samplesCompanyItemIds("42");
-    expect(x.processItemIds).not.toContain("103");
+    expect(x.processItemIds).not.toContain("9003");
     const y = await samplesCompanyItemIds("77");
-    expect(y.processItemIds).not.toContain("103");
-    expect(y.processItemIds).toContain("104");
+    expect(y.processItemIds).not.toContain("9003");
+    expect(y.processItemIds).toContain("9004");
 
     // Canonical adapter input check: the conflict originates from
     // directCompanyId (42) ≠ linked Deal COMPANY_ID (77) — the REAL
@@ -305,7 +305,7 @@ describe("scoped routes agree on Company attribution", () => {
     const { adaptSmartProcessSampleEvidence } = await import("@/lib/samples/adapters/smart-process");
     const identity = (fieldId: string, val: string) => (fieldId === "id" ? val : val);
     const unit = adaptSmartProcessSampleEvidence(SP_ROWS[2], identity, {
-      dealCompanyById: new Map([["D2", "77"]]),
+      dealCompanyById: new Map([["777", "77"]]),
     })!;
     expect(unit.directCompanyId).toBe("42");
     expect(unit.dealCompanyId).toBe("77");
@@ -316,10 +316,10 @@ describe("scoped routes agree on Company attribution", () => {
     // Deal context (byDealId), but never inside Company aggregation.
     const { loadSmartProcessItemViews } = await import("@/lib/samples/smart-process-service");
     const load = await loadSmartProcessItemViews({ companyId: "42" });
-    const byDeal = (load.indexes.byDealId.get("D2") ?? []).map((v) => v.processItemId);
-    expect(byDeal).toContain("103");
+    const byDeal = (load.indexes.byDealId.get("777") ?? []).map((v) => v.processItemId);
+    expect(byDeal).toContain("9003");
     const byCompanyIds = (load.indexes.byCompanyId.get("42") ?? []).map((v) => v.processItemId);
-    expect(byCompanyIds).not.toContain("103");
+    expect(byCompanyIds).not.toContain("9003");
   });
 
   it("case 6 (routes): scoped /samples issues exactly one scoped deal read and no per-item deal requests", async () => {

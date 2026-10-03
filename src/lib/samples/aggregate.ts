@@ -71,6 +71,16 @@ export interface AggregateOptions {
    * semantics are unchanged (map derived from the passed Deal rows only).
    */
   authoritativeDealCompanyById?: ReadonlyMap<string, string>;
+  /**
+   * Optional COMPANY-grain analytical scope (the ONE allowed-company scope
+   * mechanism). When provided, only companies in the set may enter the
+   * analytical population — Companies reconciliation, Deal evidence and
+   * Smart Process evidence alike. Evidence is admitted through canonical
+   * Company attribution/relation provenance (`companyId`, `directCompanyId`,
+   * `dealCompanyId`) — NEVER through a Deal owner or Smart Process assignee.
+   * Omitted → full unscoped semantics are unchanged byte-for-byte.
+   */
+  allowedCompanyIds?: ReadonlySet<string>;
 }
 
 /** Sanitized aggregate data-quality counts for the Smart Process source. */
@@ -125,6 +135,13 @@ export function buildCanonicalSampleDomain(
 ): CanonicalSampleDomain {
   const resolve = options.labelResolver ?? identityLabelResolver;
 
+  // ─── COMPANY-grain allowed scope (single mechanism) ───
+  // Undefined → full unscoped behavior (every scope gate below is skipped
+  // and the pipeline is byte-for-byte identical to the unscooped contract).
+  const allowedCompanyIds = options.allowedCompanyIds;
+  const isCompanyAllowed = (companyId: string | undefined): boolean =>
+    allowedCompanyIds === undefined || (companyId !== undefined && allowedCompanyIds.has(companyId));
+
   // 1. Deal → COMPANY_ID map for SP relation verification (no N+1).
   // An authoritative map (scoped loads) overlays the locally derived one:
   // authoritative entries win, so relation-conflict detection never runs on
@@ -154,9 +171,17 @@ export function buildCanonicalSampleDomain(
 
     const rawCompanyId = rowString(deal, "COMPANY_ID");
     if (!rawCompanyId || rawCompanyId === "0") {
+      // COMPANY-grain scope: an orphan deal (no valid company) can never
+      // belong to an allowed company — it must not surface as a scoped
+      // orphan masquerading as scoped evidence.
+      if (allowedCompanyIds !== undefined) continue;
       orphanDeals.push(deal);
       continue;
     }
+
+    // COMPANY-grain scope: Deal evidence enters ONLY through its canonical
+    // Company attribution — never through the Deal's own responsible.
+    if (!isCompanyAllowed(rawCompanyId)) continue;
 
     const adaptedDeal = adaptLegacyDealSampleEvidence(deal, resolve);
     if (!adaptedDeal) continue;
@@ -184,6 +209,26 @@ export function buildCanonicalSampleDomain(
     const adapted = adaptSmartProcessSampleEvidence(item, resolve, { dealCompanyById });
     if (!adapted) continue;
 
+    if (allowedCompanyIds !== undefined) {
+      // COMPANY-grain scope: Smart Process evidence enters ONLY through its
+      // canonical Company relation provenance (canonical companyId, direct
+      // companyId, or linked-Deal COMPANY_ID) — NEVER through the SP item's
+      // own assignee.
+      const provenanceCompanies = [adapted.companyId, adapted.directCompanyId, adapted.dealCompanyId]
+        .filter((v): v is string => Boolean(v && v !== "0"));
+      const hasInScopeProvenance = provenanceCompanies.some((c) => allowedCompanyIds.has(c));
+      if (!hasInScopeProvenance) {
+        // Fully out-of-scope item: contributes NO issues, NO quality counts,
+        // NO orphan listing. Relation-conflict/orphan items of OUT-OF-SCOPE
+        // companies must not contaminate scoped quality counts.
+        continue;
+      }
+      // In-scope conflict/orphan items keep canonical behavior: issues are
+      // counted below, and they stay excluded from company attribution.
+      // Items canonically attributed to another (disallowed) company never
+      // enter this company's aggregate.
+    }
+
     // Sanitized aggregate issue counting (no customer names anywhere).
     for (const issue of adapted.issues) {
       if (issue === "smart_process_orphan_item") qualityCounts.orphanSmartProcessItemCount++;
@@ -196,6 +241,10 @@ export function buildCanonicalSampleDomain(
       orphanSmartProcessItems.push(item);
       continue;
     }
+
+    // COMPANY-grain scope: canonical attribution to a disallowed company
+    // never enters its aggregate (5b resurrection prevention at source).
+    if (!isCompanyAllowed(adapted.companyId)) continue;
 
     const existing = spByCompany.get(adapted.companyId);
     if (existing) {
@@ -248,6 +297,12 @@ export function buildCanonicalSampleDomain(
     if (!rawCompanyId) continue;
     if (canonicalByCompany.has(rawCompanyId)) continue; // authoritative first row wins
 
+    // COMPANY-grain scope: companies outside the allowed set never enter
+    // reconciliation (defensive — the scoped Company fetch is already
+    // responsible-filtered; this gate guarantees the invariant at the
+    // aggregate grain as well).
+    if (!isCompanyAllowed(rawCompanyId)) continue;
+
     const hasOwnActivity = hasCompanySampleActivity(company);
     const companyDeals = dealsByCompany.get(rawCompanyId) ?? [];
     const companySp = spByCompany.get(rawCompanyId) ?? [];
@@ -262,8 +317,12 @@ export function buildCanonicalSampleDomain(
   // 5b. SP-only companies not present in the Company fetch scope
   // (defensive: normally SP companyId ⊆ companies; if a company row is
   // missing, the SP evidence still surfaces with the known ID).
+  // COMPANY-grain scope: SP-only resurrection is possible ONLY for allowed
+  // companies — an SP-only company outside the allowed set can never
+  // re-enter (the spByCompany map itself is provenance-gated upstream).
   for (const [companyId, spUnits] of spByCompany) {
     if (canonicalByCompany.has(companyId)) continue;
+    if (!isCompanyAllowed(companyId)) continue;
     canonicalByCompany.set(companyId, reconcileOne(companyId, companyRowById.get(companyId)));
   }
 

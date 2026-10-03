@@ -316,11 +316,22 @@ export async function fetchSampleCompanies(
   );
 }
 
+/**
+ * Fetches the sample-active Deal population.
+ *
+ * SCOPE CONTRACT (Company-grain responsible scope): the documented Samples
+ * `responsibleId` is a COMPANY responsible filter (Company `ASSIGNED_BY_ID`,
+ * identical to the Companies browser) — it is consumed by
+ * `fetchSampleCompanies` and must NEVER be applied here as a Deal
+ * `ASSIGNED_BY_ID` filter. Deal responsible and Company responsible may
+ * differ; evidence of allowed companies is aggregated regardless of who owns
+ * the individual Deal. Caller-side COMPANY-grain scoping
+ * (`AggregateOptions.allowedCompanyIds`) enforces the allowed-company set.
+ */
 export async function fetchSampleDeals(
-  scope: FetchSamplesScope
+  scope: { companyId?: string } = {}
 ): Promise<BitrixRow[]> {
   const filter: Record<string, string> = {};
-  if (scope.responsibleId) filter.ASSIGNED_BY_ID = scope.responsibleId;
   if (scope.companyId) filter.COMPANY_ID = scope.companyId;
   return fetchAllPages(
     "crm.deal.list",
