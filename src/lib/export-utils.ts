@@ -530,10 +530,11 @@ export interface ExportCompanyOptions {
   /**
    * The resolved Company Preview model (buildCompanyPreviewModel).
    * The current-card section renders the EXACT same resolved fields as the
-   * UI — no independent raw-field enumeration.
+   * UI — no independent raw-field enumeration. The field shape mirrors the
+   * canonical CompanyPreviewResolvedField projection (rawValue included).
    */
   companyModel?: {
-    fields: Array<{ id: string; label: string; value: string; type?: string }>;
+    fields: Array<{ id: string; label: string; value: string; type?: string; rawValue?: unknown }>;
     createdAt?: string | null;
     modifiedAt?: string | null;
     comments?: string | null;

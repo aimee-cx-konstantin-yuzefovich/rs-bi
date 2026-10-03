@@ -228,8 +228,11 @@ describe("Excel release acceptance — Single Company", () => {
     const ws = reloaded.getWorksheet("Отчёт по компании")!;
     const texts = CELL_TEXT(ws);
 
-    // Entity identity
-    expect(texts).toContain("42");
+    // Entity identity: the Company ID lives in the workbook account header
+    // («CRM ID: 42») — never as an extra business-section row. Deal IDs stay
+    // as their own cells.
+    expect(texts.some((t) => t.includes("CRM ID: 42"))).toBe(true);
+    expect(texts).not.toContain("ID компании");
     expect(texts).toContain("101");
     expect(texts).toContain("102");
     expect(texts).toContain("103");
