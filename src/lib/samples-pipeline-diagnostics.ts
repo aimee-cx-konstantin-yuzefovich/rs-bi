@@ -153,6 +153,18 @@ function failProbe(method: string, error: unknown): ProbeFailure {
 }
 
 /**
+ * Terminal state for any Samples-upstream failure: the downstream
+ * Commercial Funnel input probe is explicitly SKIPPED with the fixed
+ * reason (never silently NOT_RUN) and the report is diagnosed.
+ */
+function finishWithUpstreamSkip(
+  probes: SamplesPipelineDiagnosticsReport["probes"]
+): SamplesPipelineDiagnosticsReport {
+  probes.commercialFunnelInput = { status: "SKIPPED", reason: "UPSTREAM_SAMPLES_FAILED" };
+  return { success: true, probes, diagnosis: diagnoseSamplesPipeline(probes) };
+}
+
+/**
  * Runs the sequential read-only probe routine. Exported for focused
  * testing; the route handler stays thin. Throws only on unexpected
  * internal setup failure (before the probe matrix can be reported) —
@@ -184,7 +196,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
     };
   } catch (error) {
     probes.fieldMetadata = failProbe("crm.company.fields", error);
-    return { success: true, probes, diagnosis: diagnoseSamplesPipeline(probes) };
+    return finishWithUpstreamSkip(probes);
   }
 
   // ─── PROBE B: full-scope sample Companies (production loader) ───
@@ -194,7 +206,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
     probes.companies = { status: "PASS", count: companies.length };
   } catch (error) {
     probes.companies = failProbe("crm.company.list", error);
-    return { success: true, probes, diagnosis: diagnoseSamplesPipeline(probes) };
+    return finishWithUpstreamSkip(probes);
   }
 
   // ─── PROBE C: full-scope sample Deals (production loader) ───
@@ -204,7 +216,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
     probes.deals = { status: "PASS", count: deals.length };
   } catch (error) {
     probes.deals = failProbe("crm.deal.list", error);
-    return { success: true, probes, diagnosis: diagnoseSamplesPipeline(probes) };
+    return finishWithUpstreamSkip(probes);
   }
 
   // ─── PROBE D: SP items via the EXACT Samples helper ───
@@ -215,7 +227,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
     probes.smartProcess = { status: "PASS", count: smartProcessItems.length };
   } catch (error) {
     probes.smartProcess = failProbe("crm.item.list", error);
-    return { success: true, probes, diagnosis: diagnoseSamplesPipeline(probes) };
+    return finishWithUpstreamSkip(probes);
   }
 
   // ─── PROBE E: live stage directory (non-fatal by production contract) ───
@@ -242,7 +254,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
     };
   } catch (error) {
     probes.dealCompanyMap = failProbe("crm.deal.list", error);
-    return { success: true, probes, diagnosis: diagnoseSamplesPipeline(probes) };
+    return finishWithUpstreamSkip(probes);
   }
 
   // ─── PROBE G: canonical aggregation (exact full-scope production call) ───
@@ -270,7 +282,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
       ...(meta?.httpStatus !== undefined ? { httpStatus: meta.httpStatus } : {}),
       ...(meta?.bitrixCode !== undefined ? { bitrixCode: meta.bitrixCode } : {}),
     };
-    return { success: true, probes, diagnosis: diagnoseSamplesPipeline(probes) };
+    return finishWithUpstreamSkip(probes);
   }
 
   // ─── PROBE H: client response contract (the ONE shared parser) ───
@@ -289,14 +301,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
   const contract = validateSamplesClientPayload(samplesRoutePayload);
   if (!contract.ok) {
     probes.clientContract = { status: "FAIL", reason: contract.reason };
-    return {
-      success: true,
-      probes,
-      diagnosis: diagnoseSamplesPipeline({
-        ...probes,
-        commercialFunnelInput: { status: "SKIPPED", reason: "UPSTREAM_SAMPLES_FAILED" },
-      }),
-    };
+    return finishWithUpstreamSkip(probes);
   }
   probes.clientContract = { status: "PASS" };
 
