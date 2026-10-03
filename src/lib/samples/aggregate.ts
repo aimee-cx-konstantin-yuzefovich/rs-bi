@@ -46,6 +46,7 @@ import {
 import { adaptSmartProcessSampleEvidence } from "./adapters/smart-process";
 import { reconcileCompanySample } from "./reconcile";
 import { projectCanonicalCompanyToSummary } from "./project";
+import { buildSmartProcessItemViews } from "./smart-process-view";
 import { identityLabelResolver, isSentinelValue, isTestingStatus } from "./normalize";
 
 export { hasCompanySampleActivity as hasSampleActivity, dealHasSampleData };
@@ -55,6 +56,11 @@ export interface AggregateOptions {
   userNames?: Record<string, string>;
   /** Field-metadata label resolver (raw enum ID → RU label). */
   labelResolver?: LabelResolver;
+  /**
+   * Live Smart Process stage directory labels (crm.status.list NAME per
+   * committed stage ID). Display-only: never affects semantics.
+   */
+  liveStageLabels?: Record<string, string>;
 }
 
 /** Sanitized aggregate data-quality counts for the Smart Process source. */
@@ -264,7 +270,36 @@ export function buildSampleSummaries(
 
   const summaries: SampleSummary[] = [];
   for (const canonical of domain.canonicalByCompany.values()) {
-    summaries.push(projectCanonicalCompanyToSummary(canonical, options.userNames));
+    const summary = projectCanonicalCompanyToSummary(canonical, options.userNames);
+    if (options.liveStageLabels) {
+      // Re-derive SP views with live display labels for the physical-cycle
+      // extension (display-only; semantics stay stage-ID based).
+      const liveViews = buildSmartProcessItemViews(canonical.evidenceUnits, {
+        liveStageLabels: options.liveStageLabels,
+      });
+      summary.smartProcessItems = liveViews.map((v) => ({
+        processItemId: v.processItemId,
+        title: v.title,
+        companyId: v.companyId,
+        ...(v.linkedDealId ? { linkedDealId: v.linkedDealId } : {}),
+        ...(v.stageId ? { stageId: v.stageId } : {}),
+        stageLabel: v.stageLabel,
+        isActive: v.isActive,
+        isTerminal: v.isTerminal,
+        ...(v.responsibleId ? { responsibleId: v.responsibleId } : {}),
+        sentDates: v.sentDates,
+        grades: v.grades,
+        quantities: v.quantities,
+        ...(v.rawTestResult ? { rawTestResult: v.rawTestResult } : {}),
+        normalizedResult: v.normalizedResult,
+        ...(v.createdTime ? { createdTime: v.createdTime } : {}),
+        dataIssues: v.dataIssues,
+      }));
+      summary.currentActiveStageLabels = [
+        ...new Set(liveViews.filter((v) => v.isActive).map((v) => v.stageLabel)),
+      ];
+    }
+    summaries.push(summary);
   }
 
   // Deterministic ordering by company ID (numeric-aware).

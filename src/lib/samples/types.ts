@@ -105,6 +105,21 @@ export interface SampleSummary {
 
   sourceQuality: SampleQuality;
   dataIssues: SampleDataIssue[];
+
+  /**
+   * Backward-compatible extension: canonical Smart Process item views
+   * projected from `CanonicalCompanySample.evidenceUnits` (no re-fetch,
+   * no raw-field reparse). Physical testing cycles for the Sample Preview
+   * «Циклы тестирования» section. Absent/empty = no SP evidence.
+   */
+  smartProcessItems?: SmartProcessItemViewLite[];
+  /** Count of SP evidence units whose stage is canonically active. */
+  activeSmartProcessCount?: number;
+  /**
+   * Distinct active stage labels (0 active → empty, no invented stage;
+   * >1 active → all labels, no winner).
+   */
+  currentActiveStageLabels?: string[];
 }
 
 /**
@@ -121,6 +136,30 @@ export type BitrixRow = Record<string, BitrixFieldValue>;
 export interface SamplesResponseMeta {
   /** fieldId -> (rawValue -> label) for status/result filter option building. */
   statusLabels: Record<string, Record<string, string>>;
+}
+
+/**
+ * UI-serializable Smart Process item view projected from canonical evidence.
+ * Mirrors `SmartProcessItemView` (smart-process-view.ts) without the
+ * internal provenance object, so the Samples API response stays JSON-safe.
+ */
+export interface SmartProcessItemViewLite {
+  processItemId: string;
+  title: string;
+  companyId: string;
+  linkedDealId?: string;
+  stageId?: string;
+  stageLabel: string;
+  isActive: boolean;
+  isTerminal: boolean;
+  responsibleId?: string;
+  sentDates: string[];
+  grades: SampleGrade[];
+  quantities: SampleQuantity[];
+  rawTestResult?: string;
+  normalizedResult: NormalizedResult;
+  createdTime?: string;
+  dataIssues: SampleDataIssue[];
 }
 
 export interface SamplesApiResponse {

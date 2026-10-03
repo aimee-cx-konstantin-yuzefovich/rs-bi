@@ -20,6 +20,7 @@ import type { SampleSummary } from "@/lib/samples/types";
 import { formatDateRu } from "./samples-registry";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
+import { SmartProcessItemCard } from "./smart-process-item-card";
 
 export interface SamplePreviewProps {
   summary: SampleSummary;
@@ -66,6 +67,17 @@ export function SamplePreview({
 
   const userNames = useDashboardStore((s) => s.userNames);
   const usersCoverage = useDashboardStore((s) => s.usersCoverage);
+  const allDeals = useDashboardStore((s) => s.allDeals);
+
+  const dealTitleById = new Map(
+    Array.isArray(allDeals)
+      ? allDeals.map((d: Record<string, unknown>) => [
+          String(d.ID ?? d.id ?? ""),
+          String(d.TITLE ?? "").trim(),
+        ])
+      : []
+  );
+  const spItems = summary.smartProcessItems ?? [];
 
   // Safe external Bitrix link is derived server-side on the main pages;
   // here we reuse the same convention via the company details route pattern.
@@ -205,6 +217,37 @@ export function SamplePreview({
                   "—"
                 )}
               </Row>
+            </Section>
+
+            <Section title="Циклы тестирования">
+              {spItems.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Процессы тестирования не найдены
+                </p>
+              ) : (
+                <>
+                  <div className="text-xs text-muted-foreground">
+                    Активных:{" "}
+                    {spItems.filter((i) => i.isActive).length} · Завершённых:{" "}
+                    {spItems.filter((i) => i.isTerminal).length}
+                  </div>
+                  <ul className="space-y-2" data-testid="sample-preview-sp-cycles">
+                    {spItems.map((view) => (
+                      <SmartProcessItemCard
+                        key={view.processItemId}
+                        view={view}
+                        dealTitle={
+                          view.linkedDealId
+                            ? dealTitleById.get(view.linkedDealId) || `Сделка ID ${view.linkedDealId}`
+                            : undefined
+                        }
+                        onOpenDealPreview={onOpenDealPreview}
+                        dataTestId="sp-sample-cycle"
+                      />
+                    ))}
+                  </ul>
+                </>
+              )}
             </Section>
 
             <Section title="Связанные сделки">

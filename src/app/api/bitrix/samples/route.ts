@@ -21,6 +21,7 @@ import {
   fetchSampleCompanies,
   fetchSampleDeals,
   fetchSmartProcessSampleItems,
+  fetchSmartProcessStageDirectory,
   makeLabelResolver,
 } from "@/lib/samples/bitrix-fetch";
 import { buildSampleSummaries } from "@/lib/samples/aggregate";
@@ -121,14 +122,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fetch metadata, companies, deals, and Smart Process items concurrently:
-    // Independent until normalization/aggregation.
-    // Metadata failure remains non-fatal; Company/Deal/SP fetch is fail-closed.
-    const [fieldMetadata, companies, deals, smartProcessItems] = await Promise.all([
+    // Fetch metadata, companies, deals, Smart Process items, and the live
+    // stage directory concurrently: independent until aggregation.
+    // Metadata/stage-directory failure remains non-fatal; Company/Deal/SP
+    // fetch is fail-closed.
+    const [fieldMetadata, companies, deals, smartProcessItems, stageDirectory] = await Promise.all([
       fetchFieldLabelMaps(),
       fetchSampleCompanies(scope),
       fetchSampleDeals(scope),
       fetchSmartProcessSampleItems(scope),
+      fetchSmartProcessStageDirectory(),
     ]);
     const labelResolver = makeLabelResolver(fieldMetadata.labels);
 
@@ -136,7 +139,10 @@ export async function POST(request: NextRequest) {
       companies,
       deals,
       smartProcessItems,
-      { labelResolver }
+      {
+        labelResolver,
+        liveStageLabels: stageDirectory.available ? stageDirectory.labels : undefined,
+      }
     );
 
     const meta: SamplesResponseMeta = { statusLabels: fieldMetadata.labels };

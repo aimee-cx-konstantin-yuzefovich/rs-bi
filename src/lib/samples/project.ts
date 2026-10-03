@@ -22,8 +22,32 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import type { CanonicalCompanySample, SampleEvidenceUnit } from "./model";
-import type { RelatedDealSampleInfo, SampleSummary } from "./types";
+import type { RelatedDealSampleInfo, SampleSummary, SmartProcessItemViewLite } from "./types";
 import { dedupe, isSentIndicator, isTestingStatus } from "./normalize";
+import { buildSmartProcessItemViews } from "./smart-process-view";
+import type { SmartProcessItemView } from "./smart-process-view";
+
+/** Strips internal provenance for JSON-safe transport over the Samples API. */
+function toLiteView(view: SmartProcessItemView): SmartProcessItemViewLite {
+  return {
+    processItemId: view.processItemId,
+    title: view.title,
+    companyId: view.companyId,
+    ...(view.linkedDealId ? { linkedDealId: view.linkedDealId } : {}),
+    ...(view.stageId ? { stageId: view.stageId } : {}),
+    stageLabel: view.stageLabel,
+    isActive: view.isActive,
+    isTerminal: view.isTerminal,
+    ...(view.responsibleId ? { responsibleId: view.responsibleId } : {}),
+    sentDates: view.sentDates,
+    grades: view.grades,
+    quantities: view.quantities,
+    ...(view.rawTestResult ? { rawTestResult: view.rawTestResult } : {}),
+    normalizedResult: view.normalizedResult,
+    ...(view.createdTime ? { createdTime: view.createdTime } : {}),
+    dataIssues: view.dataIssues,
+  };
+}
 
 export function projectCanonicalCompanyToSummary(
   canonical: CanonicalCompanySample,
@@ -94,6 +118,10 @@ export function projectCanonicalCompanyToSummary(
       ? sentDates.reduce((a, b) => (a > b ? a : b))
       : undefined;
 
+  // Canonical SP physical-cycle views for this company (from the SAME
+  // evidence units; ordering: active → terminal → other).
+  const spViews = buildSmartProcessItemViews(canonical.evidenceUnits);
+
   // Responsible: SP current item's own ASSIGNED_BY_ID wins (SP event
   // attribution never goes to the Company owner); else company owner.
   const currentResponsibleId = spCurrentUnit?.responsibleId ?? canonical.companyResponsibleId;
@@ -128,5 +156,13 @@ export function projectCanonicalCompanyToSummary(
     latestRelevantDate,
     sourceQuality: canonical.sourceQuality,
     dataIssues: canonical.dataIssues,
+    // ── Backward-compatible SP physical-cycle extension ──
+    // Derived from the SAME canonical evidence (no re-fetch, no reparse).
+    // The analytical grain stays ONE company = ONE summary row.
+    smartProcessItems: spViews.map(toLiteView),
+    activeSmartProcessCount: spViews.filter((v) => v.isActive).length,
+    currentActiveStageLabels: [
+      ...new Set(spViews.filter((v) => v.isActive).map((v) => v.stageLabel)),
+    ],
   };
 }

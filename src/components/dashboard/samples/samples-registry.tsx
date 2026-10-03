@@ -126,6 +126,8 @@ export function SamplesRegistry({
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Количество</th>
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Дата передачи</th>
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[140px]">Статус</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[120px]">Текущий этап тестирования</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Активных процессов</th>
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Результат</th>
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Сделки</th>
               </tr>
@@ -190,6 +192,32 @@ export function SamplesRegistry({
                         /^\d+$/.test(st) || /^DT1032_/i.test(st) ? UNCLASSIFIED_LABEL : st
                       )}
                     />
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2 text-xs text-muted-foreground">
+                    {s.currentActiveStageLabels && s.currentActiveStageLabels.length > 0 ? (
+                      s.currentActiveStageLabels.length === 1 ? (
+                        <span className="block max-w-[180px] truncate" title={s.currentActiveStageLabels[0]}>
+                          {s.currentActiveStageLabels[0]}
+                        </span>
+                      ) : (
+                        <Badges items={s.currentActiveStageLabels} max={2} />
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">–</span>
+                    )}
+                  </td>
+                  <td className="border-b border-border/60 py-1.5 px-2 text-xs tabular-nums">
+                    {s.activeSmartProcessCount && s.activeSmartProcessCount > 0 ? (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0 font-normal"
+                        title={`${s.activeSmartProcessCount} активных процессов тестирования`}
+                      >
+                        {s.activeSmartProcessCount}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">0</span>
+                    )}
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2">
                     <div className="flex flex-col gap-1">
