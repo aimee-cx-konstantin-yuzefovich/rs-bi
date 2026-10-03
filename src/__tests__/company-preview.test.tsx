@@ -12,6 +12,9 @@ const store = vi.hoisted(() => ({
   fetchCompanyBrowser: vi.fn(), setCompanyBrowserResponsibleId: vi.fn(),
   setCompanyColumnSelectorOpen: vi.fn(), setCompanyColumnWidth: vi.fn(),
 }));
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+}));
 vi.mock("@/store/dashboard-store", () => ({ useDashboardStore: () => store }));
 vi.mock("@/components/dashboard/company-column-selector", () => ({ CompanyColumnSelector: () => null }));
 vi.mock("@/components/dashboard/company-date-filter", () => ({ CompanyDateFilter: () => null }));

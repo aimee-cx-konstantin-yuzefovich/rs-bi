@@ -4,6 +4,7 @@ import { DealPreview } from "@/components/dashboard/deal-preview";
 import { CompanyPreview } from "@/components/dashboard/company-preview";
 import { DataTable } from "@/components/dashboard/data-table";
 
+
 const mockStore = vi.hoisted(() => ({
   deals: [
     {
@@ -75,6 +76,9 @@ const mockStore = vi.hoisted(() => ({
   fetchDeals: vi.fn(),
 }));
 
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+}));
 vi.mock("@/store/dashboard-store", () => ({
   useDashboardStore: (selector?: (s: typeof mockStore) => any) =>
     selector ? selector(mockStore) : mockStore,

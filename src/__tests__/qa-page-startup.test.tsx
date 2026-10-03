@@ -3,9 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DashboardPage from '@/app/page';
 import { useDashboardStore } from '@/store/dashboard-store';
 
+
 // ─── Mocks: NextAuth / navigation / URL state / redirect ───
 // The real store and real runDashboardStartup are used; only the environment
 // (session, URL hooks) and the store's network actions are controlled.
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+}));
 vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: { user: { name: 'QA' } }, status: 'authenticated' }),
   SessionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,

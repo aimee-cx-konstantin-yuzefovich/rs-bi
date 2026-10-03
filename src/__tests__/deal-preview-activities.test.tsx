@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DealPreview } from "@/components/dashboard/deal-preview";
 import { buildDealActivitiesModel } from "@/lib/deal-preview";
 
+
 const mockStore = vi.hoisted(() => ({
   fields: [
     { id: "STAGE_ID", title: "Стадия", type: "crm_status", listValues: [{ ID: "NEW", VALUE: "Новое" }] },
@@ -35,6 +36,9 @@ const mockStore = vi.hoisted(() => ({
   lastFetchOptions: undefined as undefined | { force?: boolean },
 }));
 
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+}));
 vi.mock("@/store/dashboard-store", () => ({
   useDashboardStore: (selector?: (s: typeof mockStore) => any) =>
     selector ? selector(mockStore) : mockStore,

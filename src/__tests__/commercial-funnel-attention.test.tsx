@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { CommercialBottlenecksTab } from "@/components/commercial-funnel/bottlenecks-tab";
 import type { ActionPlanRow } from "@/lib/commercial-funnel/types";
 
+
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+}));
+
 describe("Commercial Funnel Attention Table (Deals standard)", () => {
   const createMockRows = (count: number): ActionPlanRow[] =>
     Array.from({ length: count }, (_, i) => ({

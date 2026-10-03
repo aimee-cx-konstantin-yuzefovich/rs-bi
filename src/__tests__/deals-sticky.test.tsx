@@ -10,6 +10,10 @@ import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { DataTable } from "@/components/dashboard/data-table";
 
+
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+}));
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));

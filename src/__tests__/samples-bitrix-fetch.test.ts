@@ -151,4 +151,77 @@ describe("Smart Process crm.item.list request contract", () => {
     expect(params.select).toContain("stageId");
     expect(params.select).toContain("id");
   });
+
+  it("SMART_PROCESS_ITEM_SELECT includes BOTH quantity fields (Gel kg + Sol l)", async () => {
+    const { SMART_PROCESS_ITEM_SELECT } = await import("@/lib/samples/bitrix-fetch");
+    const { SMART_PROCESS_QTY_GEL_FIELD_ID, SMART_PROCESS_QTY_SOL_FIELD_ID } =
+      await import("@/lib/samples/smart-process-contract");
+
+    expect(SMART_PROCESS_QTY_GEL_FIELD_ID).toBe("UF_CRM_7_1766136470");
+    expect(SMART_PROCESS_QTY_SOL_FIELD_ID).toBe("UF_CRM_7_1766136546");
+    expect(SMART_PROCESS_ITEM_SELECT).toContain(SMART_PROCESS_QTY_GEL_FIELD_ID);
+    expect(SMART_PROCESS_ITEM_SELECT).toContain(SMART_PROCESS_QTY_SOL_FIELD_ID);
+  });
+
+  it("production crm.item.list shape remains: entityTypeId top-level, useOriginalUfNames top-level, categoryId INSIDE filter, lowercase keys", async () => {
+    vi.mocked(bitrixPost).mockResolvedValueOnce({
+      result: [],
+    });
+
+    await fetchSmartProcessSampleItems();
+
+    const [method, params] = vi.mocked(bitrixPost).mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+
+    expect(method).toBe("crm.item.list");
+    // Top-level official parameters only.
+    expect(params).toHaveProperty("entityTypeId", 1032);
+    expect(params).toHaveProperty("useOriginalUfNames", "Y");
+    // categoryId strictly INSIDE filter — never a top-level parameter.
+    const filter = params.filter as Record<string, unknown>;
+    expect(filter).toHaveProperty("categoryId", 15);
+    expect(params).not.toHaveProperty("categoryId");
+    // Lowercase select/filter/order keys.
+    expect(params).toHaveProperty("select");
+    expect(params).toHaveProperty("filter");
+    expect(params).toHaveProperty("order");
+    expect(params).not.toHaveProperty("SELECT");
+    expect(params).not.toHaveProperty("FILTER");
+    expect(params).not.toHaveProperty("ORDER");
+  });
+
+  it("fetchSmartProcessStageDirectory prefers live NAMEs for known committed stage IDs and keeps static fallback on failure", async () => {
+    const { fetchSmartProcessStageDirectory } = await import("@/lib/samples/bitrix-fetch");
+    const { SMART_PROCESS_STAGE_LABELS } = await import("@/lib/samples/smart-process-contract");
+
+    // Live directory returns a DIFFERENT NAME for CLIENT than the static label.
+    vi.mocked(bitrixPost).mockResolvedValueOnce({
+      result: [
+        { STATUS_ID: "DT1032_15:NEW", NAME: "Подготовка к отправке" },
+        { STATUS_ID: "DT1032_15:CLIENT", NAME: "Образцы на испытании" },
+      ],
+    });
+    const live = await fetchSmartProcessStageDirectory();
+    expect(live.available).toBe(true);
+    expect(live.labels["DT1032_15:CLIENT"]).toBe("Образцы на испытании");
+    // Live NAME overrides the committed static label for the same stage ID.
+    expect(live.labels["DT1032_15:CLIENT"]).not.toBe(SMART_PROCESS_STAGE_LABELS["DT1032_15:CLIENT"]);
+
+    // Unknown live stage IDs never receive a fabricated label.
+    vi.mocked(bitrixPost).mockResolvedValueOnce({
+      result: [{ STATUS_ID: "DT1032_15:TOTALLY_UNKNOWN", NAME: "Какой-то новый этап" }],
+    });
+    const unknownStage = await fetchSmartProcessStageDirectory();
+    expect(
+      Object.prototype.hasOwnProperty.call(unknownStage.labels, "DT1032_15:TOTALLY_UNKNOWN")
+    ).toBe(false);
+
+    // Directory failure → static fallback, disclosed as unavailable.
+    vi.mocked(bitrixPost).mockRejectedValueOnce(new Error("transport down"));
+    const fallback = await fetchSmartProcessStageDirectory();
+    expect(fallback.available).toBe(false);
+    expect(fallback.labels).toEqual(SMART_PROCESS_STAGE_LABELS);
+  });
 });

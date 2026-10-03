@@ -19,6 +19,10 @@ import {
   DEAL_DELIVERY_ADDRESS_FIELD_ID,
 } from "@/lib/crm-constants";
 
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+}));
+
 // Mock store state
 const mockStore = vi.hoisted(() => ({
   fields: [
@@ -143,7 +147,9 @@ describe("Deal Preview — Current-Card Whitelist, Timeline, Classifications & E
 
     // Current deal-card fields present
     expect(screen.getByText("Тип сделки")).toBeInTheDocument();
-    expect(screen.getByText("Тестирование образцов")).toBeInTheDocument();
+    // The marker field label may legitimately coexist with the Smart Process
+    // section heading (same wording) — assert presence, not uniqueness.
+    expect(screen.getAllByText("Тестирование образцов").length).toBeGreaterThan(0);
     expect(screen.getByText("Марка и объём поставки")).toBeInTheDocument();
     expect(screen.getByText("Статус оплаты")).toBeInTheDocument();
     expect(screen.getByText("Дата оплаты")).toBeInTheDocument();

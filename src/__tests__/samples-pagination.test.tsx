@@ -15,6 +15,10 @@ import { SamplesRegistry } from "@/components/dashboard/samples/samples-registry
 import { computeSampleKpis } from "@/lib/samples/aggregate";
 import type { SampleSummary } from "@/lib/samples/types";
 
+
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: null, status: "unauthenticated" }),
+}));
 vi.mock("@/store/dashboard-store", () => ({
   useDashboardStore: (selector?: (s: any) => any) => {
     const state = {
