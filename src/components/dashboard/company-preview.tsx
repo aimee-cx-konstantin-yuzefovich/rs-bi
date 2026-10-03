@@ -33,7 +33,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Download, ExternalLink, Loader2, FlaskConical, ArrowRight, Link2 } from "lucide-react";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { buildCompanyPreviewModel, EMPTY_FIELD_PLACEHOLDER, type CompanyPreviewModel } from "@/lib/company-preview";
+import {
+  buildCompanyPreviewModel,
+  partitionCompanyPreviewFields,
+  EMPTY_FIELD_PLACEHOLDER,
+  type CompanyPreviewModel,
+} from "@/lib/company-preview";
 import { exportCompanyToExcel } from "@/lib/export-utils";
 import { parseStrictNumber } from "@/lib/scalar-safety";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
@@ -144,6 +149,8 @@ export function CompanyPreview({
 
   // ONE canonical current-card model (buildCompanyPreviewModel) drives the
   // card. Selected table columns and callers can never influence contents.
+  // Sections come from the ONE canonical partition helper (the same one the
+  // Company Excel export uses) — no hard-coded UF tokens here.
   const resolvedModel: CompanyPreviewModel | null =
     state.status === "success"
       ? buildCompanyPreviewModel(state.company, {
@@ -153,19 +160,11 @@ export function CompanyPreview({
         })
       : null;
 
-  const markerField = useMemo(
-    () => resolvedModel?.fields.find((f) => f.id === "UF_CRM_1790787974" || f.label === "Тестирование образцов") ?? null,
-    [resolvedModel]
-  );
-  const businessFields = useMemo(
+  const { business: businessFields, marker: markerField, system: systemFields } = useMemo(
     () =>
-      (resolvedModel?.fields ?? []).filter(
-        (f) => f.id !== "DATE_CREATE" && f.id !== "DATE_MODIFY" && f.id !== "UF_CRM_1790787974"
-      ),
-    [resolvedModel]
-  );
-  const systemFields = useMemo(
-    () => (resolvedModel?.fields ?? []).filter((f) => f.id === "DATE_CREATE" || f.id === "DATE_MODIFY"),
+      resolvedModel
+        ? partitionCompanyPreviewFields(resolvedModel)
+        : { business: [], marker: null, system: [] },
     [resolvedModel]
   );
 

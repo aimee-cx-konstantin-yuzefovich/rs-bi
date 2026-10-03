@@ -489,6 +489,47 @@ export const COMPANY_SYSTEM_FIELD_IDS: readonly string[] = [
 /** The Section 2 marker field (Bitrix Company card, MARKER_ONLY). */
 export const COMPANY_MARKER_FIELD_ID = COMPANY_TESTING_MARKER_FIELD_ID;
 
+/**
+ * ONE canonical partition of a resolved Company Preview model into the
+ * drawer's fixed sections, driven exclusively by the canonical field-ID
+ * exports above — never a hard-coded UF token and never a second list.
+ * The SAME partition drives the UI drawer sections and the Company Excel
+ * sections (UI/Excel parity invariant).
+ */
+export interface CompanyPreviewFieldPartition {
+  /** Section 1 «Информация о компании» — canonical business-field order. */
+  business: CompanyPreviewResolvedField[];
+  /** Section 2 «Информация об образцах» — the Bitrix marker field only. */
+  marker: CompanyPreviewResolvedField | null;
+  /** Section «Системная информация» — DATE_CREATE / DATE_MODIFY. */
+  system: CompanyPreviewResolvedField[];
+}
+
+export function partitionCompanyPreviewFields(
+  model: Pick<CompanyPreviewModel, "fields">
+): CompanyPreviewFieldPartition {
+  const business: CompanyPreviewResolvedField[] = [];
+  const system: CompanyPreviewResolvedField[] = [];
+  let marker: CompanyPreviewResolvedField | null = null;
+
+  const systemSet = new Set<string>(COMPANY_SYSTEM_FIELD_IDS);
+  for (const field of model.fields) {
+    if (systemSet.has(field.id)) {
+      system.push(field);
+    } else if (field.id === COMPANY_MARKER_FIELD_ID) {
+      marker = field;
+    } else if (COMPANY_BUSINESS_FIELD_IDS.includes(field.id)) {
+      business.push(field);
+    } else {
+      // Defensive: the model is whitelist-built, so this cannot happen —
+      // partition membership must never silently drop a resolved field.
+      business.push(field);
+    }
+  }
+
+  return { business, marker, system };
+}
+
 export const COMPANY_PREVIEW_CURRENT_FIELDS: readonly CompanyPreviewFieldDef[] = [
   // 1. Ответственный
   {

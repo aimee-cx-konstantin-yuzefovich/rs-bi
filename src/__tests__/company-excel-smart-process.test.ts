@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import ExcelJS from "exceljs";
 import { createCompanyExcelWorkbook } from "@/lib/export-utils";
-import { buildCompanyPreviewModel } from "@/lib/company-preview";
+import { buildCompanyPreviewModel, partitionCompanyPreviewFields } from "@/lib/company-preview";
 import {
   COMPANY_INDUSTRY_CURRENT_FIELD_ID,
   COMPANY_DIRECTION_CURRENT_FIELD_ID,
@@ -116,30 +116,16 @@ describe("Company Excel — Smart Process section + parity (binary reload)", () 
   beforeEach(() => {});
   afterEach(() => {});
 
-  it("case E23: Company Excel renders the same canonical business field order as the UI", () => {
-    const EXPECTED_LABELS = [
-      "Ответственный",
-      "Контакт",
-      "Сайт",
-      "Телефон",
-      "E-mail",
-      "Годовой оборот",
-      "Реквизиты",
-      "Документы контрагента",
-      "Адрес",
-      "Регион",
-      "Карточка компании",
-      "Тип компании",
-      "Отрасль (согл. список)",
-      "Направление (согл. список)",
-      "Используемая марка гель",
-      "Гель потребление (тн/год)",
-      "Используемая марка золь",
-      "Золь потребление (тн/год)",
-      "Комментарий по используемым продуктам",
-      "Фактические цены",
-      "Комментарий",
-    ];
+  it("case E23: Company Excel Section 1 contains EXACTLY the canonical UI business fields (no extra ID компании row)", () => {
+    // Expected labels derive from the PRODUCTION canonical definition (the
+    // same partition helper the UI drawer uses) — never a manually typed
+    // second list and never a slice(1) offset for a technical ID row.
+    const model = buildCompanyPreviewModel(COMPANY, {
+      fields: FIELDS_META as any,
+      userNames: { "7": "Анна Иванова" },
+    });
+    const EXPECTED_LABELS = partitionCompanyPreviewFields(model).business.map((f) => f.label);
+
     const section1Labels: string[] = [];
     let inSection1 = false;
     for (const cells of rows) {
@@ -150,8 +136,12 @@ describe("Company Excel — Smart Process section + parity (binary reload)", () 
         section1Labels.push(first);
       }
     }
-    // First label is the technical ID row («ID компании»), then card fields.
-    expect(section1Labels.slice(1)).toEqual(EXPECTED_LABELS);
+    // Strict parity: Section 1 = exactly the canonical business-field
+    // sequence rendered by CompanyPreview. The Company ID lives in the
+    // workbook account header, not as an extra leading row here.
+    expect(section1Labels).toEqual(EXPECTED_LABELS);
+    expect(section1Labels[0]).toBe("Ответственный");
+    expect(section1Labels).not.toContain("ID компании");
   });
 
   it("case E24: an empty approved Company field is represented, not omitted (Регион → —)", () => {

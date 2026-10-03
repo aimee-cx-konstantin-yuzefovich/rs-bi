@@ -51,6 +51,7 @@ import {
   type DatasetCoverage,
 } from "./dataset-coverage";
 import { resolveResponsibleDisplay } from "./enrichment-coverage";
+import { partitionCompanyPreviewFields } from "./company-preview";
 import { STALE_SNAPSHOT_DISCLOSURE } from "./commercial-funnel/disclosure";
 import { SAMPLE_DATA_ISSUE_LABELS, NORMALIZED_RESULT_LABELS } from "./samples/constants";
 import type { SampleSummary, NormalizedResult } from "./samples/types";
@@ -556,6 +557,34 @@ export interface ExportCompanyOptions {
 }
 
 /**
+ * ONE report column-width contract for the Company workbook.
+ *
+ * The workbook contains a 12-column physical Smart Process table, so the
+ * whole report is laid out on a 12-column span: account header, section
+ * headers, stale/disclosure rows and summary rows span the report width;
+ * ordinary label/value rows merge across it and wrap. Every column 1–12 has
+ * an intentional width — nothing is left on unconfigured defaults. Print
+ * setup is landscape with fitToWidth=1.
+ */
+export const COMPANY_REPORT_SPAN = 12;
+
+/** Intentional widths for columns 1–12 of the Company report. */
+export const COMPANY_REPORT_COLUMN_WIDTHS: readonly number[] = [
+  30, // 1  Labels / ID процесса
+  26, // 2  Values / Название
+  22, // 3  Стадия
+  26, // 4  Связанная сделка
+  14, // 5  Дата отправки
+  16, // 6  Марка ГЕЛЬ
+  14, // 7  Количество ГЕЛЬ, кг
+  16, // 8  Марка ЗОЛЬ
+  14, // 9  Количество ЗОЛЬ, л
+  20, // 10 Результат испытаний
+  22, // 11 Ответственный
+  28, // 12 Качество данных / предупреждение
+];
+
+/**
  * Normalizes field values for the Single Company report:
  * converts reliable date fields into native Date objects with correct numFmt,
  * preserves blank cells for null/empty values, and translates string values.
@@ -729,7 +758,7 @@ function addCompanySmartProcessSection(
   worksheet: ExcelJS.Worksheet,
   options: ExportCompanyOptions
 ): void {
-  addSectionHeader(worksheet, "Тестирование образцов", 5);
+  addSectionHeader(worksheet, "Тестирование образцов", COMPANY_REPORT_SPAN);
 
   const sp = options.smartProcess;
   const sanitize = (s: string) => (/^[=\-+\@]/.test(s) ? "'" + s : s);
@@ -739,22 +768,22 @@ function addCompanySmartProcessSection(
   if (sp?.stale) {
     const staleRow = worksheet.addRow([STALE_SNAPSHOT_DISCLOSURE]);
     staleRow.height = 20;
-    worksheet.mergeCells(staleRow.number, 1, staleRow.number, 5);
+    worksheet.mergeCells(staleRow.number, 1, staleRow.number, COMPANY_REPORT_SPAN);
     const cell = staleRow.getCell(1);
     cell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
     cell.alignment = { vertical: "middle", indent: 1 };
-    applyRowBorders(staleRow, 1, 5);
+    applyRowBorders(staleRow, 1, COMPANY_REPORT_SPAN);
   }
 
   if (!sp) {
     const emptyRow = worksheet.addRow(["Данные тестирования образцов недоступны"]);
     emptyRow.height = 20;
-    worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, 5);
+    worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, COMPANY_REPORT_SPAN);
     const cell = emptyRow.getCell(1);
     cell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
     cell.fill = FILL_SECTION_HEADER_SOFT;
     cell.alignment = { vertical: "middle", indent: 1 };
-    applyRowBorders(emptyRow, 1, 5);
+    applyRowBorders(emptyRow, 1, COMPANY_REPORT_SPAN);
     return;
   }
 
@@ -766,7 +795,7 @@ function addCompanySmartProcessSection(
   for (const [label, value] of summaryRows) {
     const row = worksheet.addRow([label, value]);
     row.height = 20;
-    worksheet.mergeCells(row.number, 2, row.number, 5);
+    worksheet.mergeCells(row.number, 2, row.number, COMPANY_REPORT_SPAN);
     const labelCell = row.getCell(1);
     labelCell.font = FONT_METADATA_LABEL;
     labelCell.fill = FILL_SECTION_HEADER_SOFT;
@@ -774,7 +803,7 @@ function addCompanySmartProcessSection(
     const valueCell = row.getCell(2);
     valueCell.font = FONT_DATA;
     valueCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
-    applyRowBorders(row, 1, 5);
+    applyRowBorders(row, 1, COMPANY_REPORT_SPAN);
   }
 
   worksheet.addRow([]);
@@ -942,7 +971,7 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     companyId: options.companyId || "—",
     responsibleName,
     generatedAt: now,
-    colCount: 5,
+    colCount: COMPANY_REPORT_SPAN,
   });
 
   // Section 1: ИНФОРМАЦИЯ О КОМПАНИИ
@@ -950,24 +979,20 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   // render the EXACT same resolved fields in the canonical order — including
   // empty fields as truthful «—» rows. Legacy/unknown UF fields can never
   // leak into the current-card section.
-  addSectionHeader(worksheet, "Информация о компании", 5);
+  addSectionHeader(worksheet, "Информация о компании", COMPANY_REPORT_SPAN);
 
   const model = options.companyModel;
 
   let fields: Array<{ id: string; label: string; value: string; type?: string }> = [...rawCompanyFields];
   if (model) {
-    // Split the canonical model into its sections (single shared definition
-    // with the UI drawer — no second manual whitelist here). Section 1
-    // renders ONLY business card fields; the marker rides its own Section 2
-    // and system dates their own Section 6 — never duplicated.
-    const markerId = "UF_CRM_1790787974";
-    fields = model.fields.filter(
-      (f) => f.id !== markerId && f.id !== "DATE_CREATE" && f.id !== "DATE_MODIFY"
-    );
+    // ONE canonical partition (the exact helper the UI drawer uses) splits
+    // the model into its sections: Section 1 renders ONLY business card
+    // fields, the marker rides its own Section 2 and system dates their own
+    // Section 6 — never duplicated, never a hard-coded UF token here.
+    fields = partitionCompanyPreviewFields(model).business;
   }
-  if (options.companyId && !fields.some((f) => f.id === "ID" || f.label?.toLowerCase().includes("id компании"))) {
-    fields.unshift({ id: "ID", label: "ID компании", value: options.companyId });
-  }
+  // Company ID intentionally lives ONLY in the workbook account header
+  // («CRM ID: <id>»): no technical ID row inside the business section.
 
   for (const field of fields) {
     const cleanLabel = formatHeaderToRussian(field.label, { preserveProvenance: false });
@@ -977,7 +1002,7 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       : (parsed.value ?? "—");
     const row = worksheet.addRow([cleanLabel, cellValue]);
     row.height = 20;
-    worksheet.mergeCells(row.number, 2, row.number, 5);
+    worksheet.mergeCells(row.number, 2, row.number, COMPANY_REPORT_SPAN);
 
     const labelCell = row.getCell(1);
     labelCell.font = FONT_METADATA_LABEL;
@@ -995,7 +1020,7 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       valueCell.alignment = { vertical: "middle", wrapText: true, indent: 1 };
     }
 
-    applyRowBorders(row, 1, 5);
+    applyRowBorders(row, 1, COMPANY_REPORT_SPAN);
   }
 
   worksheet.addRow([]);
@@ -1003,7 +1028,7 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   // Section 2: ИНФОРМАЦИЯ ОБ ОБРАЗЦАХ — the Bitrix Company-card marker
   // «Тестирование образцов» (MARKER_ONLY; distinct from the analytical
   // Smart Process section below).
-  addSectionHeader(worksheet, "Информация об образцах", 5);
+  addSectionHeader(worksheet, "Информация об образцах", COMPANY_REPORT_SPAN);
 
   const marker = options.testingMarkerField;
   {
@@ -1013,7 +1038,7 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       typeof markerValue === "string" && /^[=\-+\@]/.test(markerValue) ? "'" + markerValue : markerValue,
     ]);
     markerRow.height = 20;
-    worksheet.mergeCells(markerRow.number, 2, markerRow.number, 5);
+    worksheet.mergeCells(markerRow.number, 2, markerRow.number, COMPANY_REPORT_SPAN);
     const labelCell = markerRow.getCell(1);
     labelCell.font = FONT_METADATA_LABEL;
     labelCell.fill = FILL_SECTION_HEADER_SOFT;
@@ -1021,7 +1046,7 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
     const valueCell = markerRow.getCell(2);
     valueCell.font = FONT_DATA;
     valueCell.alignment = { vertical: "middle", indent: 1 };
-    applyRowBorders(markerRow, 1, 5);
+    applyRowBorders(markerRow, 1, COMPANY_REPORT_SPAN);
   }
 
   worksheet.addRow([]);
@@ -1033,9 +1058,10 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
 
   worksheet.addRow([]);
 
-  // Section 4: Связанные сделки
+  // Section 4: Связанные сделки — a 5-column content table inside the
+  // wider 12-column report span (section header spans the report width).
   const deals = options.deals || [];
-  addSectionHeader(worksheet, `Связанные сделки (${deals.length})`, 5);
+  addSectionHeader(worksheet, `Связанные сделки (${deals.length})`, COMPANY_REPORT_SPAN);
 
   if (deals.length > 0) {
     const dealColHeaders = worksheet.addRow(["ID сделки", "Название сделки", "Стадия", "Сумма", "Валюта"]);
@@ -1083,12 +1109,12 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   } else {
     const emptyRow = worksheet.addRow(["Нет связанных сделок"]);
     emptyRow.height = 20;
-    worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, 5);
+    worksheet.mergeCells(emptyRow.number, 1, emptyRow.number, COMPANY_REPORT_SPAN);
     const emptyCell = emptyRow.getCell(1);
     emptyCell.font = { name: RS_FONT_FAMILY, size: 10, italic: true, color: { argb: `FF${RS_TEXT_SECONDARY}` } };
     emptyCell.fill = FILL_SECTION_HEADER_SOFT;
     emptyCell.alignment = { vertical: "middle", indent: 1 };
-    applyRowBorders(emptyRow, 1, 5);
+    applyRowBorders(emptyRow, 1, COMPANY_REPORT_SPAN);
   }
 
   worksheet.addRow([]);
@@ -1098,21 +1124,19 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
   // resolved model is provided, the section is omitted entirely: the
   // placeholder path must never shadow label/value pairs of other sections.
   if (model) {
-    addSectionHeader(worksheet, "Системная информация", 5);
+    addSectionHeader(worksheet, "Системная информация", COMPANY_REPORT_SPAN);
     const systemPairs: Array<[string, string | number | Date | null]> = [];
-    for (const f of model.fields) {
-      if (f.id === "DATE_CREATE" || f.id === "DATE_MODIFY") {
-        const parsed = normalizeCompanyReportFieldValue(f);
-        systemPairs.push([
-          f.label,
-          parsed.isDateField && parsed.value instanceof Date ? parsed.value : (parsed.value ?? "—"),
-        ]);
-      }
+    for (const f of partitionCompanyPreviewFields(model).system) {
+      const parsed = normalizeCompanyReportFieldValue(f);
+      systemPairs.push([
+        f.label,
+        parsed.isDateField && parsed.value instanceof Date ? parsed.value : (parsed.value ?? "—"),
+      ]);
     }
     for (const [label, value] of systemPairs) {
       const row = worksheet.addRow([label, value]);
       row.height = 20;
-      worksheet.mergeCells(row.number, 2, row.number, 5);
+      worksheet.mergeCells(row.number, 2, row.number, COMPANY_REPORT_SPAN);
       const labelCell = row.getCell(1);
       labelCell.font = FONT_METADATA_LABEL;
       labelCell.fill = FILL_SECTION_HEADER_SOFT;
@@ -1125,20 +1149,21 @@ export function createCompanyExcelWorkbook(options: ExportCompanyOptions): Excel
       } else {
         valueCell.alignment = { vertical: "middle", indent: 1 };
       }
-      applyRowBorders(row, 1, 5);
+      applyRowBorders(row, 1, COMPANY_REPORT_SPAN);
     }
   }
 
-  // Column Widths
-  worksheet.getColumn(1).width = 38;
-  worksheet.getColumn(2).width = 44;
-  worksheet.getColumn(3).width = 24;
-  worksheet.getColumn(4).width = 18;
-  worksheet.getColumn(5).width = 12;
+  // Column widths — the ONE report column-width contract: every column 1–12
+  // has an intentional width (nothing left on unconfigured defaults).
+  for (let c = 1; c <= COMPANY_REPORT_SPAN; c++) {
+    worksheet.getColumn(c).width = COMPANY_REPORT_COLUMN_WIDTHS[c - 1];
+  }
 
-  // Print Setup & Corporate Footer
+  // Print Setup & Corporate Footer — landscape: the 12-column physical
+  // Smart Process table requires the wider page; fitToWidth=1 keeps the
+  // report structurally readable on one page width.
   configureWorksheetPrint(worksheet, {
-    orientation: "portrait",
+    orientation: "landscape",
     fitToWidth: 1,
     fitToHeight: 0,
   });
@@ -1523,9 +1548,16 @@ export async function buildSamplesWorkbook(
     // - 0 active → empty stage cell (workbook convention), count 0;
     // - 1 active → its stage label;
     // - >1 active → ALL unique active stage labels (never one winner).
-    const activeStageLabels = (s.currentActiveStageLabels ?? [])
-      .map((st) => (/^\d+$/.test(st) || /^DT1032_/i.test(st) ? UNCLASSIFIED_LABEL : st))
-      .filter(Boolean);
+    // Sanitize FIRST, then deduplicate: two different unsafe/raw
+    // representations that both sanitize to «Не классифицировано» must
+    // produce one occurrence, not a duplicated label list.
+    const activeStageLabels = [
+      ...new Set(
+        (s.currentActiveStageLabels ?? [])
+          .map((st) => (/^\d+$/.test(st) || /^DT1032_/i.test(st) ? UNCLASSIFIED_LABEL : st))
+          .filter(Boolean)
+      ),
+    ];
     const currentStage =
       activeStageLabels.length === 1
         ? activeStageLabels[0]
