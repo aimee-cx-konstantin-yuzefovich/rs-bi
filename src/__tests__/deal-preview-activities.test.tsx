@@ -18,14 +18,21 @@ const mockStore = vi.hoisted(() => ({
   activitiesDataFetchedAt: {} as Record<string, number>,
   activitiesDataLoading: false,
   activitiesRequestState: {} as Record<string, string>,
+  // Test helper (mock-only, never a production contract): last retry force flag.
   fetchDealActivities: vi.fn(async (_id: string, _options?: { force?: boolean }) => {
-    // Simulate the store merge performed by the real action.
+    // Simulate the real store action merge: request state + data.
+    mockStore.activitiesRequestState = { ...mockStore.activitiesRequestState, [_id]: "loading" };
     const entry = scopedActivitiesResponse[_id];
     if (entry) {
       mockStore.activitiesData[_id] = entry;
       mockStore.activitiesDataFetchedAt[_id] = Date.now();
+      mockStore.activitiesRequestState = { ...mockStore.activitiesRequestState, [_id]: "success" };
+    } else {
+      mockStore.activitiesRequestState = { ...mockStore.activitiesRequestState, [_id]: "error" };
     }
+    mockStore.lastFetchOptions = _options;
   }),
+  lastFetchOptions: undefined as undefined | { force?: boolean },
 }));
 
 vi.mock("@/store/dashboard-store", () => ({
@@ -43,6 +50,7 @@ beforeEach(() => {
   mockStore.activitiesDataFetchedAt = {};
   mockStore.activitiesDataLoading = false;
   mockStore.activitiesRequestState = {};
+  mockStore.lastFetchOptions = undefined;
   mockStore.fetchDealActivities.mockClear();
   scopedActivitiesResponse = {};
   fetchMock.mockResolvedValue({
@@ -244,3 +252,49 @@ describe("Deal Preview scoped activities contract (real API shape, retry, reques
 async function rerenderAct(fn: () => Promise<void>) {
   await fn();
 }
+
+describe("failed activity refresh with preserved data (stale disclosure)", () => {
+  it("failed refresh keeps previous rows AND shows stale warning + retry; retry succeeds, warning disappears", async () => {
+    // 1. Load valid activities successfully (DealPreview lazy scoped fetch).
+    scopedActivitiesResponse["101"] = scopedEntry([
+      { ID: "1", COMPLETED: "N", SUBJECT: "Исходное дело", DEADLINE: "2026-10-05T09:00:00Z", TYPE_ID: 2 },
+    ]);
+
+    const { rerender } = render(<DealPreview id="101" onClose={() => {}} />);
+    await waitForElementToBeRemoved(() => screen.queryByText("Загрузка сделки"));
+
+    await waitFor(() => expect(mockStore.fetchDealActivities).toHaveBeenCalled());
+    await waitFor(() => expect(mockStore.activitiesRequestState["101"]).toBe("success"));
+    rerender(<DealPreview id="101" onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Исходное дело")).toBeInTheDocument());
+    expect(screen.queryByText("Показаны ранее загруженные данные. Обновление не удалось.")).not.toBeInTheDocument();
+
+    // 2-3. Force refresh (real retry contract: { force: true }) that FAILS;
+    // previous valid data stays preserved in the store.
+    scopedActivitiesResponse = {}; // next scoped fetch fails for this deal
+    const initialEntry = mockStore.activitiesData["101"];
+    await mockStore.fetchDealActivities("101", { force: true });
+    expect(mockStore.lastFetchOptions).toEqual({ force: true });
+    expect(mockStore.activitiesRequestState["101"]).toBe("error");
+    expect(mockStore.activitiesData["101"]).toBe(initialEntry);
+
+    // 4-6. Previous rows remain visible, stale warning and retry visible.
+    rerender(<DealPreview id="101" onClose={() => {}} />);
+    expect(screen.getByText("Исходное дело")).toBeInTheDocument();
+    expect(screen.getByText("Показаны ранее загруженные данные. Обновление не удалось.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Повторить" })).toBeInTheDocument();
+
+    // 7. Retry succeeds → warning disappears, refreshed rows replace old state.
+    scopedActivitiesResponse["101"] = scopedEntry([
+      { ID: "9", COMPLETED: "N", SUBJECT: "Обновлённое дело", DEADLINE: "2026-10-06T09:00:00Z", TYPE_ID: 2 },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(mockStore.activitiesRequestState["101"]).toBe("success"));
+    rerender(<DealPreview id="101" onClose={() => {}} />);
+
+    // 8-9. Warning gone, refreshed rows replace the old state.
+    await waitFor(() => expect(screen.getByText("Обновлённое дело")).toBeInTheDocument());
+    expect(screen.queryByText("Исходное дело")).not.toBeInTheDocument();
+    expect(screen.queryByText("Показаны ранее загруженные данные. Обновление не удалось.")).not.toBeInTheDocument();
+  });
+});

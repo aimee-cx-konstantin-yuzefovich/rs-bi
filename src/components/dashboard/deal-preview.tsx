@@ -386,10 +386,14 @@ type ActivityEntry = {
  * «Дела и активности» section inside Deal Preview.
  * Presentational only: DealPreview owns the scoped fetch lifecycle; this
  * section renders state from the explicit per-deal request state and invokes
- * the retry callback. Distinguishes three truthful states:
+ * the retry callback. Distinguishes truthful states:
  * - loaded with items → ordered list (planned first by nearest deadline, then completed newest first);
  * - no activities → «Активностей нет» (a successful empty result is truthful);
- * - temporarily unavailable → retryable message.
+ * - temporarily unavailable → retryable message;
+ * - failed refresh with preserved valid data → previous rows stay rendered
+ *   under a compact non-blocking stale-data warning («Показаны ранее
+ *   загруженные данные. Обновление не удалось.» + «Повторить») so cached
+ *   data is never mistaken for freshly refreshed current data.
  * Raw TYPE_ID / PROVIDER_ID tokens never render; unknown types → «Дело».
  */
 function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: () => void }) {
@@ -469,12 +473,35 @@ function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: (
     usersCoverage,
   });
 
+  const staleRefresh = requestState === "error";
+
   if (items.length === 0) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
         <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           Дела и активности
         </h4>
+        {staleRefresh && (
+          <div
+            role="note"
+            data-activities-stale-warning
+            className="flex items-center gap-2 flex-wrap rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+          >
+            <span className="break-words">
+              Показаны ранее загруженные данные. Обновление не удалось.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={onRetry}
+              data-activities-retry
+            >
+              Повторить
+            </Button>
+          </div>
+        )}
         <p className="text-xs text-muted-foreground" data-activities-empty>
           Активностей нет
         </p>
@@ -487,6 +514,27 @@ function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: (
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
         Дела и активности
       </h4>
+      {staleRefresh && (
+        <div
+          role="note"
+          data-activities-stale-warning
+          className="flex items-center gap-2 flex-wrap rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+        >
+          <span className="break-words">
+            Показаны ранее загруженные данные. Обновление не удалось.
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={onRetry}
+            data-activities-retry
+          >
+            Повторить
+          </Button>
+        </div>
+      )}
       <ul className="space-y-2" data-activities-list>
         {items.map((item, idx) => (
           <li

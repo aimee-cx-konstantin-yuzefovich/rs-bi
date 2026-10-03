@@ -168,8 +168,8 @@ export const BITRIX_POST_TIMEOUT_MS = 60_000;
 // One shared retry policy for all Bitrix transport calls (list pagination
 // middle pages, metadata, per-entity gets).
 //
-// RETRY (transient): HTTP 429, HTTP 503, timeouts / AbortError, clear
-// transport errors (network failures, non-actionable server responses).
+// RETRY (transient): HTTP 429, HTTP 500, HTTP 503, timeouts / AbortError,
+// clear transport errors (network failures, non-actionable server responses).
 //
 // NEVER RETRY (deterministic): unconfigured webhook / invalid method
 // (request-contract validation), BitrixItemError (NOT_FOUND / ACCESS_DENIED),
@@ -184,8 +184,10 @@ const RETRY_DELAYS_MS =
 
 function isTransientFailure(error: unknown): boolean {
   if (error instanceof BitrixTransientError) {
-    // 429 (rate limit) and 503 (service unavailable) are transient by design.
-    if (error.status === 429 || error.status === 503) return true;
+    // 429 (rate limit), 503 (service unavailable) and 500 (server-side
+    // internal error) are transient Bitrix server failures; bounded retry
+    // applies. 400/401/403/404 remain deterministic and NEVER retried.
+    if (error.status === 429 || error.status === 503 || error.status === 500) return true;
     // Blanket status codes are intentional: 400/401/403/404 are deterministic.
     if (error.status !== undefined) return false;
     // Status-less BitrixTransientError = unclassified transport failure

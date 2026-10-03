@@ -46,6 +46,43 @@ describe("bitrixPost transient retry", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("HTTP 500 then success -> retried and succeeds (transient server failure)", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock
+      .mockResolvedValueOnce(status(500))
+      .mockResolvedValueOnce(ok({ result: [] }));
+
+    const data = await bitrixPost("crm.company.list", {});
+    expect(data).toEqual({ result: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("HTTP 500 repeated until exhaustion -> bounded attempts + sanitized failure", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    fetchMock.mockResolvedValue(status(500));
+
+    await expect(bitrixPost("crm.company.list", {})).rejects.toThrow(
+      "Failed to crm.company.list. Please try again later."
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Exhaustion failure stays credential-safe.
+    for (const call of (console.warn as any).mock.calls.concat((console.error as any).mock.calls)) {
+      expect(JSON.stringify(call)).not.toContain("SECRET_TOKEN");
+    }
+  });
+
+  it("deterministic client failures (400/403/404) are NOT retried", async () => {
+    const { bitrixPost } = await import("@/lib/bitrix");
+    for (const code of [400, 403, 404]) {
+      fetchMock.mockClear();
+      fetchMock.mockResolvedValue(status(code));
+      await expect(bitrixPost("crm.company.list", {})).rejects.toThrow(
+        `API returned status ${code}`
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("retry exhaustion (429 x3) -> truthful failure with sanitized error", async () => {
     const { bitrixPost } = await import("@/lib/bitrix");
     fetchMock.mockResolvedValue(status(429));
@@ -129,6 +166,16 @@ describe("bitrixGet transient retry", () => {
     const { bitrixGet } = await import("@/lib/bitrix");
     fetchMock
       .mockResolvedValueOnce(status(503))
+      .mockResolvedValueOnce(ok({ result: [] }));
+    const data = await bitrixGet("crm.status.list");
+    expect(data).toEqual({ result: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("500 then success -> retried and succeeds", async () => {
+    const { bitrixGet } = await import("@/lib/bitrix");
+    fetchMock
+      .mockResolvedValueOnce(status(500))
       .mockResolvedValueOnce(ok({ result: [] }));
     const data = await bitrixGet("crm.status.list");
     expect(data).toEqual({ result: [] });
