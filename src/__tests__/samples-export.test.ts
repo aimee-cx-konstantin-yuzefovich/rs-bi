@@ -287,6 +287,32 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
     expect(reWs.getRow(8).getCell(11).value).toBe(1);
   });
 
+  it("SMP-EXP-6: stage labels are deduplicated AFTER sanitization (two raw reps sanitizing to «Не классифицировано» render once)", async () => {
+    const summaries: SampleSummary[] = [
+      {
+        ...MOCK_EXPORT_SAMPLES[0],
+        companyId: "120",
+        companyTitle: "ООО Дедуп",
+        // Two DIFFERENT unsafe/raw representations that both sanitize to the
+        // neutral label: a raw numeric enum ID and a raw DT1032_* stage ID.
+        currentActiveStageLabels: ["2695", "DT1032_15:CLIENT"],
+        activeSmartProcessCount: 2,
+      },
+    ];
+    const workbook = await buildSamplesWorkbook({
+      summaries,
+      userNames: MOCK_USER_NAMES,
+    });
+    const ws = workbook.getWorksheet("Образцы")!;
+    const row = ws.getRow(7);
+    expect(row.getCell(2).value).toBe("ООО Дедуп");
+    // ONE «Не классифицировано» — not «Не классифицировано, Не классифицировано».
+    expect(row.getCell(10).value).toBe("Не классифицировано");
+    // The active-process count stays the numeric 2 (count is independent of
+    // label deduplication).
+    expect(row.getCell(11).value).toBe(2);
+  });
+
   it("SMP-EXP-DOWNLOAD: exportSamplesToExcel triggers browser download when summaries exist", async () => {
     const originalDocument = global.document;
     const originalWindow = global.window;

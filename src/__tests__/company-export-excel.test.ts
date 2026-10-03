@@ -651,3 +651,143 @@ describe("Company Excel Formula-Injection Security & Binary Round-Trip Regressio
     expect(d4.stage).toBe("'-1+1");
   });
 });
+
+describe("Company Excel — 12-column report layout contract (binary round-trip)", () => {
+  const fixedDate = new Date("2026-09-10T12:00:00Z");
+
+  async function buildWithSpTable() {
+    const ExcelJS = (await import("exceljs")).default;
+    const workbook = createCompanyExcelWorkbook({
+      companyTitle: "Компания макет 12 колонок",
+      companyId: "300",
+      companyFields: [
+        { id: "ASSIGNED_BY_ID", label: "Ответственный", value: "Анна Иванова", type: "user" },
+      ],
+      companyModel: {
+        fields: [
+          { id: "ASSIGNED_BY_ID", label: "Ответственный", value: "Анна Иванова", type: "user", rawValue: "7" },
+          { id: "DATE_CREATE", label: "Дата создания", value: "10.01.2025", type: "date", rawValue: "2025-01-10T10:00:00Z" },
+          { id: "DATE_MODIFY", label: "Дата изменения", value: "01.07.2026", type: "date", rawValue: "2026-07-01T11:59:00Z" },
+        ],
+      },
+      testingMarkerField: { label: "Тестирование образцов", value: "Да" },
+      smartProcess: {
+        activeCount: 1,
+        completedCount: 0,
+        items: [
+          {
+            processItemId: "701",
+            title: "Цикл с длинным названием для проверки переноса текста",
+            stageLabel: "На испытании",
+            linkedDealId: "900",
+            sentDates: ["15.06.2026"],
+            grades: [{ productFamily: "Гель", value: "КСМГ-9" }],
+            quantities: [
+              { productFamily: "Гель", value: 12.5, unit: "кг" },
+              { productFamily: "Золь", value: 3, unit: "л" },
+            ],
+            rawTestResult: "Соответствует",
+            normalizedResult: "positive",
+            responsibleId: "7",
+            dataIssues: [],
+          },
+        ],
+      },
+      dealTitleById: new Map([["900", "Сделка 900"]]),
+      userNames: { "7": "Анна Иванова" },
+      deals: [
+        { id: "900", title: "Сделка 900", stage: "В работе", opportunity: 420000, currency: "RUB" },
+      ],
+      currentDate: fixedDate,
+    });
+    const buffer = await workbook.xlsx.writeBuffer();
+    const reloaded = new ExcelJS.Workbook();
+    await reloaded.xlsx.load(buffer as any);
+    return { workbook, reloaded };
+  }
+
+  it("12 SP headers, intentional widths for columns 1–12, landscape orientation (binary reload)", async () => {
+    const { reloaded } = await buildWithSpTable();
+    const ws = reloaded.getWorksheet("Отчёт по компании")!;
+
+    // 1. Exactly 12 SP table headers in order.
+    const rows: string[][] = [];
+    ws.eachRow((row) => {
+      const cells: string[] = [];
+      for (let c = 1; c <= 13; c++) {
+        const v = row.getCell(c).value;
+        cells.push(v === null || v === undefined ? "" : String(v));
+      }
+      rows.push(cells);
+    });
+    const headerIdx = rows.findIndex((cells) => cells[0] === "ID процесса");
+    expect(headerIdx).toBeGreaterThan(0);
+    expect(rows[headerIdx].slice(0, 12)).toEqual([
+      "ID процесса", "Название", "Стадия", "Связанная сделка", "Дата отправки",
+      "Марка ГЕЛЬ", "Количество ГЕЛЬ, кг", "Марка ЗОЛЬ", "Количество ЗОЛЬ, л",
+      "Результат испытаний", "Ответственный", "Качество данных / предупреждение",
+    ]);
+    expect(rows[headerIdx][12]).toBe("");
+
+    // 2. Columns 1–12 all have intentional widths (no default-width columns).
+    for (let c = 1; c <= 12; c++) {
+      const width = ws.getColumn(c).width;
+      expect(typeof width).toBe("number");
+      expect(width as number).toBeGreaterThanOrEqual(12);
+    }
+
+    // 3. Landscape print setup (12-column table cannot be portrait).
+    expect(ws.pageSetup?.orientation).toBe("landscape");
+    expect(ws.pageSetup?.fitToWidth).toBe(1);
+  });
+
+  it("report-width merges: account header, section headers and SP summary rows span the 12-column report width", async () => {
+    const { reloaded } = await buildWithSpTable();
+    const ws = reloaded.getWorksheet("Отчёт по компании")!;
+
+    // Section header bars and summary/label rows merge across columns 1–12
+    // (merge ranges cover the intended report width).
+    const wideMerges: string[] = [];
+    for (const range of Object.values(ws.model.merges ?? {})) {
+      const m = String(range);
+      const [, a, b] = m.match(/([A-Z]+\d+):([A-Z]+\d+)/) ?? [];
+      if (!a || !b) continue;
+      const colOf = (ref: string) => {
+        const letters = ref.replace(/\d+/, "");
+        let n = 0;
+        for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+        return n;
+      };
+      if (colOf(a) === 1 && colOf(b) >= 12) wideMerges.push(m);
+    }
+    // Account header title row (A1:L1), section headers (Информация о компании,
+    // Тестирование образцов, …) and the SP stale/empty rows must all be wide.
+    expect(wideMerges.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("Gel/Sol quantity cells remain numeric after binary reload; company ID stays in the account header", async () => {
+    const { reloaded } = await buildWithSpTable();
+    const ws = reloaded.getWorksheet("Отчёт по компании")!;
+
+    let gelQty: unknown;
+    let solQty: unknown;
+    ws.eachRow((row) => {
+      if (String(row.getCell(1).value ?? "") === "701") {
+        gelQty = row.getCell(7).value;
+        solQty = row.getCell(9).value;
+      }
+    });
+    expect(gelQty).toBe(12.5);
+    expect(solQty).toBe(3);
+
+    // Company ID lives in the account header (CRM ID), never as a business row.
+    const metaCell = ws.getCell("B3");
+    expect(String(metaCell.value ?? "")).toContain("CRM ID: 300");
+    const labelValues: string[] = [];
+    ws.eachRow((row) => {
+      const v = row.getCell(1).value;
+      if (typeof v === "string") labelValues.push(v);
+    });
+    expect(labelValues).not.toContain("ID компании");
+  });
+});
