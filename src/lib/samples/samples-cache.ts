@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import type { SampleSummary, SamplesResponseMeta } from "./types";
+import { validateSamplesClientPayload } from "./client-contract";
 
 export interface SamplesCacheSnapshot {
   samples: SampleSummary[];
@@ -150,7 +151,12 @@ export async function fetchSamplesWithDeduplication(
       }
 
       const data = await response.json();
-      if (!data.success || !Array.isArray(data.samples)) {
+
+      // ONE shared client response contract (extracted verbatim from the
+      // previous inline predicate — accepted/rejected semantics unchanged;
+      // both the hook and the pipeline diagnostic use the same parser).
+      const contract = validateSamplesClientPayload(data);
+      if (!contract.ok) {
         return {
           success: false,
           error: "Некорректный ответ сервера. Попробуйте ещё раз.",
@@ -161,10 +167,10 @@ export async function fetchSamplesWithDeduplication(
       const nowTs = Date.now();
       const result: SamplesFetchSuccess = {
         success: true,
-        samples: data.samples as SampleSummary[],
-        meta: (data.meta as SamplesResponseMeta) ?? null,
-        orphanDealCount: Number(data.orphanDealCount ?? 0),
-        metadataPartial: Boolean(data.metadataPartial),
+        samples: contract.samples,
+        meta: contract.meta,
+        orphanDealCount: contract.orphanDealCount,
+        metadataPartial: contract.metadataPartial,
         timestamp: nowTs,
       };
 
