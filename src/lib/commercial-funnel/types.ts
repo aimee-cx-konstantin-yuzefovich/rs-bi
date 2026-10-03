@@ -138,6 +138,13 @@ export interface CommercialCompany {
   sampleStatusRawValues?: string[];
   sampleStatusEntries?: SampleStatusEntry[];
   sampleShipmentDate?: string;
+  /**
+   * Canonical read-only presentation facts: count of canonically active
+   * Smart Process evidence units and their distinct display labels.
+   * Derived in applyCanonicalSampleDomain from the canonical domain only.
+   */
+  sampleActiveSmartProcessCount?: number;
+  sampleActiveStageLabels?: string[];
   sampleDealSentDates?: string[];
   sampleCompanyTransferDates?: string[];
   sampleEventDatesForPeriodMetrics?: string[];

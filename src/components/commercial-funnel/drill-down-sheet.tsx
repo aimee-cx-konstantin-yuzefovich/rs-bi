@@ -157,6 +157,15 @@ export function CommercialDrillDownSheet({
                                 {sampleEvidence.date}
                               </span>
                             )}
+                            {typeof c.sampleActiveSmartProcessCount === "number" &&
+                              c.sampleActiveSmartProcessCount > 0 && (
+                                <span
+                                  className="text-[10px] text-muted-foreground"
+                                  title={c.sampleActiveStageLabels?.join(", ") || undefined}
+                                >
+                                  Активных процессов: {c.sampleActiveSmartProcessCount}
+                                </span>
+                              )}
                           </div>
                         </TableCell>
 

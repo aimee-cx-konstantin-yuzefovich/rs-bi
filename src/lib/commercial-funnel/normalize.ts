@@ -19,6 +19,10 @@ import {
   PAYMENT_STATUS_LABELS,
   UNCLASSIFIED_LABEL,
 } from "./constants";
+import {
+  isSmartProcessActiveStage,
+  SMART_PROCESS_STAGE_LABELS,
+} from "@/lib/samples/smart-process-contract";
 import { calculateDaysWaiting } from "./date-utils";
 import { isValidCalendarDate, isValidTime, parseStrictDate } from "@/lib/scalar-safety";
 import { evaluateStalledDeal, isActiveDealMissingNextStep } from "./bottlenecks";
@@ -687,6 +691,28 @@ export function applyCanonicalSampleDomain(
       currentSampleStatus = "—";
     }
 
+    // Canonical presentation facts (read-only): count of canonical active
+    // SP evidence units and their distinct display labels. Derived from the
+    // SAME canonical evidence — no re-fetch, no parser, no wording-based
+    // stage classification.
+    const spEvidenceUnits = canonical.evidenceUnits.filter((u) => u.source === "SMART_PROCESS");
+    const sampleActiveSmartProcessCount = spEvidenceUnits.filter(
+      (u) => u.stageId !== undefined && isSmartProcessActiveStage(u.stageId)
+    ).length;
+    const sampleActiveStageLabels = [
+      ...new Set(
+        spEvidenceUnits
+          .filter((u) => u.stageId !== undefined && isSmartProcessActiveStage(u.stageId))
+          .map((u) => {
+            const stageId = u.stageId!;
+            // Live display labels are not available in this normalization
+            // context; committed static labels apply. Unknown stages stay
+            // neutral («Не классифицировано»); never classified by wording.
+            return SMART_PROCESS_STAGE_LABELS[stageId] ?? UNCLASSIFIED_LABEL;
+          })
+      ),
+    ];
+
     return {
       ...company,
       sampleStatus: currentSampleStatus,
@@ -703,6 +729,8 @@ export function applyCanonicalSampleDomain(
       gradeSol,
       sampleShipmentDate,
       sampleTestResult,
+      sampleActiveSmartProcessCount,
+      sampleActiveStageLabels,
       sampleSentEvents,
       // Extend the date union with SP sent dates (dedup at Company+date level).
       sampleAllDates: Array.from(
