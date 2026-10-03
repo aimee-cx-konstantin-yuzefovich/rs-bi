@@ -9,8 +9,25 @@ import {
 import { parseStrictDate, parseStrictNumber } from "@/lib/scalar-safety";
 import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
 import { resolveDealType } from "@/lib/deal-type";
+import {
+  buildSmartProcessDealSamplesCell,
+  buildSmartProcessDealSentDateCell,
+  buildSmartProcessDealStageCell,
+  buildSmartProcessDealResultCell,
+} from "@/lib/samples/smart-process-view";
+import type { SmartProcessItemView } from "@/lib/samples/smart-process-view";
 
-export function useTableState() {
+/** Stable empty SP index — keeps resolveValue identity when SP not selected. */
+const EMPTY_SP_INDEX: Record<string, never[]> = {};
+
+/** Optional Smart Process display data owned by the caller (DataTable). */
+export interface SmartProcessTableContext {
+  byDealId: Record<string, SmartProcessItemView[]>;
+}
+
+export function useTableState(
+  options: { smartProcess?: SmartProcessTableContext } = {}
+) {
   const {
     deals,
     fields,
@@ -44,10 +61,45 @@ export function useTableState() {
     [fields]
   );
 
+  // Canonical Smart Process display data comes from the CALLER (DataTable,
+  // the single fetch owner): one coalesced bulk request serves the whole
+  // table (never one request per row). Absent context → cells fall back
+  // to their truthful empty/`—` states.
+  const spSelected = useMemo(
+    () =>
+      selectedColumns.some((c) => /^SP_/.test(c)),
+    [selectedColumns]
+  );
+  const spByDealId = (spSelected && options.smartProcess?.byDealId) || EMPTY_SP_INDEX;
+
   const resolveValue = useCallback(
     (deal: DealData, colId: string): string => {
       const raw = deal[colId];
       const field = fieldMap.get(colId);
+
+      // Smart Process virtual columns — canonical display facts from the
+      // session cache; never backed by crm.deal.list fields.
+      if (colId === "SP_STAGE") {
+        const items = spByDealId[String(deal.ID || deal.id || "")];
+        if (!items) return "";
+        return buildSmartProcessDealStageCell(items).text;
+      }
+      if (colId === "SP_SENT_DATE") {
+        const items = spByDealId[String(deal.ID || deal.id || "")];
+        if (!items) return "";
+        return buildSmartProcessDealSentDateCell(items);
+      }
+      if (colId === "SP_RESULT") {
+        const items = spByDealId[String(deal.ID || deal.id || "")];
+        if (!items) return "";
+        return buildSmartProcessDealResultCell(items);
+      }
+      if (colId === "SP_SAMPLES") {
+        const items = spByDealId[String(deal.ID || deal.id || "")];
+        if (!items) return "";
+        return buildSmartProcessDealSamplesCell(items);
+      }
+
 
       // MOVED UP: обработка COMPANY_TITLE должна быть ДО раннего выхода,
       // потому что raw для этого поля всегда пустой (Bitrix не отдаёт COMPANY_TITLE в deal.list)
@@ -239,13 +291,18 @@ export function useTableState() {
 
       return String(raw);
     },
-    [fieldMap, userNames, companiesData, activitiesData, usersCoverage, dealTypeRegistry]
+    [fieldMap, userNames, companiesData, activitiesData, usersCoverage, dealTypeRegistry, spByDealId]
   );
 
   const getSortValue = useCallback(
     (deal: DealData, colId: string): string | number => {
       const field = fieldMap.get(colId);
       const raw = deal[colId];
+
+      // SP_* virtual columns sort client-side on the resolved display value.
+      if (colId.startsWith("SP_")) {
+        return resolveValue(deal, colId).toLowerCase();
+      }
 
       if (colId.startsWith("COMPANY_")) {
         return resolveValue(deal, colId).toLowerCase();
@@ -376,5 +433,9 @@ export function useTableState() {
     sortedDeals,
     columns,
     userNamesLoading,
+    smartProcess: {
+      enabled: spSelected,
+      byDealId: spByDealId,
+    },
   };
 }

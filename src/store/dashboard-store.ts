@@ -7,6 +7,7 @@ import {
   COMPANY_RESPONSIBLE_FIELD_ID,
 } from "@/lib/crm-constants";
 import { parseStrictDate } from "@/lib/date-safety";
+import { splitDealTableColumns } from "@/lib/deal-table-columns";
 import {
   isDealActiveStage,
   isTerminalLostStage,
@@ -583,8 +584,12 @@ export const useDashboardStore = create<DashboardState>()(
             filter["ASSIGNED_BY_ID"] = responsibleFilter;
           }
 
-          const select = selectedColumns.length > 0
-            ? [...selectedColumns]
+          // ONE canonical split: the Bitrix Deal request receives ONLY real
+          // Deal CRM fields. Virtual/enrichment columns (SP_*, activity,
+          // COMPANY_TITLE-style non-upstream) are resolved client-side.
+          const { bitrixSelect } = splitDealTableColumns(selectedColumns);
+          const select = bitrixSelect.length > 0
+            ? [...bitrixSelect]
             : ["*", "UF_*"];
 
           if (!select.includes("DATE_CREATE")) select.push("DATE_CREATE");

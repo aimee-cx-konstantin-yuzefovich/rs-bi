@@ -36,6 +36,7 @@ import { Sparklines, SparklinesLine, SparklinesSpots } from 'react-sparklines';
 import { searchParams } from "@/lib/search-params";
 import { DealPreview } from "./deal-preview";
 import { CompanyPreview } from "./company-preview";
+import { useSmartProcessData } from "./samples/use-smart-process-data";
 import { isDealId } from "@/lib/deal-preview";
 import { parseStrictNumber } from "@/lib/scalar-safety";
 import { isUnknownResponsibleLabel } from "@/lib/enrichment-coverage";
@@ -166,13 +167,22 @@ export function DataTable() {
     }
   }, [activeFilterCol]);
 
+  // Smart Process display data: the DataTable is the single fetch owner for
+  // the table surface. The hook's session-aware effect coalesces concurrent
+  // consumers; without an authenticated principal it stays truthfully empty.
+  const smartProcessData = useSmartProcessData();
   const {
     fieldMap,
     resolveValue,
     sortedDeals,
     columns,
     userNamesLoading: namesStillLoading,
-  } = useTableState();
+  } = useTableState({ smartProcess: { byDealId: smartProcessData.byDealId } });
+
+  const smartProcessUi = {
+    loading: smartProcessData.loading || smartProcessData.refreshing,
+    enabled: selectedColumns.some((c: string) => /^SP_/.test(c)),
+  };
 
   const isUserNamesLoading = userNamesLoading || namesStillLoading;
 
@@ -496,6 +506,7 @@ export function DataTable() {
                                 companiesLoading={companiesDataLoading}
                                 activitiesLoading={activitiesDataLoading}
                                 userNamesLoading={isUserNamesLoading}
+                                smartProcessLoading={Boolean(smartProcessUi.enabled && smartProcessUi.loading)}
                                 onOpenDealPreview={openDealPreview}
                               />
                             </td>
@@ -613,6 +624,7 @@ function CellValue({
   companiesLoading,
   activitiesLoading,
   userNamesLoading,
+  smartProcessLoading,
   onOpenDealPreview,
 }: {
   raw: string | string[] | number | null;
@@ -623,8 +635,25 @@ function CellValue({
   companiesLoading: boolean;
   activitiesLoading: boolean;
   userNamesLoading: boolean;
+  smartProcessLoading?: boolean;
   onOpenDealPreview?: (id: string, row: HTMLTableRowElement | null) => void;
 }) {
+  // Smart Process virtual columns — canonical display facts from the
+  // session cache. Loading → skeleton; truthfully empty → `—`.
+  if (colId === "SP_STAGE" || colId === "SP_SENT_DATE" || colId === "SP_RESULT" || colId === "SP_SAMPLES") {
+    if (smartProcessLoading) {
+      return <Skeleton className="h-4 w-28 rounded" />;
+    }
+    if (!resolved) {
+      return <span className="text-muted-foreground">—</span>;
+    }
+    return (
+      <span className="truncate block max-w-[200px]" title={resolved}>
+        {resolved}
+      </span>
+    );
+  }
+
   if (colId === "TITLE") {
     const rawTitle = typeof raw === "string" ? raw.trim() : "";
     const title = rawTitle || resolved?.trim() || "Без названия";

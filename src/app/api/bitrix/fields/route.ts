@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { bitrixGet, isSystemField, type BitrixFieldsResponse, type BitrixField } from "@/lib/bitrix";
 import { requireAuth, isAuthError } from "@/lib/auth-guard";
 import { buildDealTypeRegistry } from "@/lib/deal-type";
+import { SMART_PROCESS_HAS_DISCOVERED_CONTRACT } from "@/lib/crm-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -324,6 +325,41 @@ export async function GET() {
       isMultiple: false,
       isSortable: false,
     });
+
+    // Inject Smart Process 1032 virtual columns (canonical display facts from
+    // /api/bitrix/smart-process-items). Client-only: these are NEVER sent
+    // upstream in crm.deal.list select (splitDealTableColumns enforces it).
+    // Optional columns — not added to the default column set.
+    if (SMART_PROCESS_HAS_DISCOVERED_CONTRACT) {
+      cleanFields.push({
+        id: "SP_STAGE",
+        title: "Испытание / этап",
+        type: "string",
+        isMultiple: false,
+        isSortable: false,
+      });
+      cleanFields.push({
+        id: "SP_SENT_DATE",
+        title: "Дата отправки",
+        type: "string",
+        isMultiple: false,
+        isSortable: false,
+      });
+      cleanFields.push({
+        id: "SP_RESULT",
+        title: "Результат испытания",
+        type: "string",
+        isMultiple: false,
+        isSortable: false,
+      });
+      cleanFields.push({
+        id: "SP_SAMPLES",
+        title: "Образцы",
+        type: "string",
+        isMultiple: false,
+        isSortable: false,
+      });
+    }
 
     const typeField = cleanFields.find((f) => f.id === "TYPE_ID");
     const dealTypes = buildDealTypeRegistry(typeField?.listValues);
