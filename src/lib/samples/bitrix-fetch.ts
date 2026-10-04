@@ -498,24 +498,139 @@ export async function fetchSampleDeals(
 }
 
 /**
- * Fixed Smart Process SELECT — only fields the canonical sample contract
- * consumes. Uses the live-discovered original UF names; system fields
- * (id, stageId, assignedById, createdTime, companyId) are always included.
+ * Standard (non-UF) Smart Process fields the canonical sample contract
+ * consumes. These are documented Universal CRM fields whose camelCase names
+ * are fixed by the official contract — independent of
+ * `useOriginalUfNames`. `id` is the documented item identifier and is
+ * ALWAYS part of every production read (required-ID invariant is never
+ * weakened).
  */
-export const SMART_PROCESS_ITEM_SELECT = [
+export const SMART_PROCESS_SYSTEM_SELECT = [
   "id",
   "title",
   "stageId",
   "assignedById",
   "createdTime",
   "companyId",
-  ...(SMART_PROCESS_SENT_DATE_FIELD_ID ? [SMART_PROCESS_SENT_DATE_FIELD_ID] : []),
-  ...(SMART_PROCESS_DEAL_FIELD_ID ? [SMART_PROCESS_DEAL_FIELD_ID] : []),
-  ...(SMART_PROCESS_GRADE_GEL_FIELD_ID ? [SMART_PROCESS_GRADE_GEL_FIELD_ID] : []),
-  ...(SMART_PROCESS_GRADE_SOL_FIELD_ID ? [SMART_PROCESS_GRADE_SOL_FIELD_ID] : []),
-  ...(SMART_PROCESS_QTY_GEL_FIELD_ID ? [SMART_PROCESS_QTY_GEL_FIELD_ID] : []),
-  ...(SMART_PROCESS_QTY_SOL_FIELD_ID ? [SMART_PROCESS_QTY_SOL_FIELD_ID] : []),
-  ...(SMART_PROCESS_TEST_RESULT_FIELD_ID ? [SMART_PROCESS_TEST_RESULT_FIELD_ID] : []),
+] as const;
+
+/**
+ * Semantic role → Smart Process SELECT field id. Roles let diagnostics and
+ * partition definitions speak about required fields WITHOUT exposing raw
+ * UF field ids in user-facing or diagnostic output. The Deal relation uses
+ * the canonical `parentId2` universal field (a relation, not a UF field).
+ */
+export const SMART_PROCESS_ROLE_FIELD_IDS: Readonly<Record<string, string>> = {
+  SENT_DATE: SMART_PROCESS_SENT_DATE_FIELD_ID,
+  DEAL_RELATION: SMART_PROCESS_DEAL_FIELD_ID,
+  GRADE_GEL: SMART_PROCESS_GRADE_GEL_FIELD_ID,
+  GRADE_SOL: SMART_PROCESS_GRADE_SOL_FIELD_ID,
+  QTY_GEL: SMART_PROCESS_QTY_GEL_FIELD_ID,
+  QTY_SOL: SMART_PROCESS_QTY_SOL_FIELD_ID,
+  TEST_RESULT: SMART_PROCESS_TEST_RESULT_FIELD_ID,
+};
+
+/**
+ * Semantic roles in the exact canonical production select order (after the
+ * system fields). Only roles whose committed field id resolved non-empty
+ * participate — an unverified/empty field id is never sent upstream.
+ */
+export const SMART_PROCESS_REQUIRED_ROLES: readonly string[] = [
+  "SENT_DATE",
+  "DEAL_RELATION",
+  "GRADE_GEL",
+  "GRADE_SOL",
+  "QTY_GEL",
+  "QTY_SOL",
+  "TEST_RESULT",
+].filter((role) => Boolean(SMART_PROCESS_ROLE_FIELD_IDS[role]));
+
+/**
+ * Candidate partition composition for the select-interaction workaround
+ * (diagnostic §7 / remediation §8). Verified LIVE by the pipeline
+ * diagnostic's partition probes before any production remediation — never
+ * assumed. Initial split (task §7 example, subject to live measurement):
+ * system + relation + sent date + result vs. the four grade/quantity
+ * fields. Every partition read includes the documented `id` and is merged
+ * strictly by exact string item ID.
+ *
+ * Exactly the FIRST partition carries the full system select; remaining
+ * partitions carry `id` plus their roles only, keeping each field fact in
+ * ONE partition (no duplicated facts for a merge to arbitrate).
+ */
+export interface SmartProcessPartitionDefinition {
+  /** Partition carries the full production system select. */
+  includeSystemSelect: boolean;
+  /** Semantic role fields carried by this partition (field-disjoint). */
+  roles: readonly string[];
+}
+
+export const SMART_PROCESS_CANDIDATE_PARTITION_ROLES: readonly SmartProcessPartitionDefinition[] = [
+  {
+    includeSystemSelect: true,
+    roles: ["DEAL_RELATION", "SENT_DATE", "TEST_RESULT"].filter(
+      (role) => SMART_PROCESS_ROLE_FIELD_IDS[role] !== undefined
+    ),
+  },
+  {
+    includeSystemSelect: false,
+    roles: ["GRADE_GEL", "GRADE_SOL", "QTY_GEL", "QTY_SOL"].filter(
+      (role) => SMART_PROCESS_ROLE_FIELD_IDS[role] !== undefined
+    ),
+  },
+];
+
+/**
+ * Builds the concrete SELECT for one partition: the system select (or the
+ * documented `id` alone) plus the partition's role fields. `id` is always
+ * present — the required-ID invariant holds for every partition read.
+ */
+export function buildSmartProcessPartitionSelect(
+  partition: SmartProcessPartitionDefinition
+): string[] {
+  const fields: string[] = partition.includeSystemSelect
+    ? [...SMART_PROCESS_SYSTEM_SELECT]
+    : ["id"];
+  for (const role of partition.roles) {
+    const fieldId = SMART_PROCESS_ROLE_FIELD_IDS[role];
+    if (!fieldId) {
+      throw new Error(`Unknown Smart Process semantic role: ${role}`);
+    }
+    if (!fields.includes(fieldId)) fields.push(fieldId);
+  }
+  return fields;
+}
+
+/**
+ * Verifies the committed candidate partitions cover the complete required
+ * production contract (every required role present in ≥1 partition).
+ * Deterministic local gate — throws BEFORE any transport work when the
+ * committed composition is incomplete, so a coverage gap can never
+ * silently drop a required field from production reads.
+ */
+export function assertPartitionsCoverContract(): void {
+  const covered = new Set<string>();
+  for (const partition of SMART_PROCESS_CANDIDATE_PARTITION_ROLES) {
+    for (const role of partition.roles) covered.add(role);
+  }
+  const missing = SMART_PROCESS_REQUIRED_ROLES.filter((role) => !covered.has(role));
+  if (missing.length > 0) {
+    throw new Error(
+      `Smart Process partition composition does not cover required roles: ${missing.join(", ")}`
+    );
+  }
+}
+
+/**
+ * Fixed Smart Process SELECT — only fields the canonical sample contract
+ * consumes. Uses the live-discovered original UF names; system fields
+ * (id, stageId, assignedById, createdTime, companyId) are always included.
+ * Derived from the semantic role registry in the exact production order —
+ * never retyped at call sites.
+ */
+export const SMART_PROCESS_ITEM_SELECT: string[] = [
+  ...SMART_PROCESS_SYSTEM_SELECT,
+  ...SMART_PROCESS_REQUIRED_ROLES.map((role) => SMART_PROCESS_ROLE_FIELD_IDS[role]),
 ];
 
 /**
@@ -588,6 +703,34 @@ export async function fetchSmartProcessStageDirectory(): Promise<SmartProcessSta
 export function buildSmartProcessListParams(
   scope: FetchSamplesScope = {}
 ): Record<string, unknown> {
+  return buildSmartProcessListParamsWithSelect(scope, SMART_PROCESS_ITEM_SELECT);
+}
+
+/**
+ * Select-parameterized variant of `buildSmartProcessListParams`. EVERY other
+ * request parameter (entityTypeId, categoryId filter, order, start,
+ * useOriginalUfNames, transport) is byte-identical to the production
+ * builder — the ONLY variable is `select`. This is the structural
+ * parameter-parity guarantee for the select matrix and for the partitioned
+ * production reads: any measured select difference is attributable to the
+ * selected fields alone.
+ *
+ * `select` must always contain the documented `id` field (required-ID
+ * invariant — never weakened, never substituted by an alternate key).
+ *
+ * `options.useOriginalUfNames` exists ONLY for the diagnostic Y/N
+ * comparison (§5): UF-name-mode can be compared with STANDARD fields only —
+ * a request carrying custom UF field ids must never be sent with "N"
+ * (the official contract changes the expected custom field names).
+ */
+export function buildSmartProcessListParamsWithSelect(
+  scope: FetchSamplesScope = {},
+  select: readonly string[],
+  options: { useOriginalUfNames?: "Y" | "N" } = {}
+): Record<string, unknown> {
+  if (!select.includes("id")) {
+    throw new Error("Smart Process select must always include the documented 'id' field");
+  }
   const filter: Record<string, unknown> = { categoryId: SMART_PROCESS_CATEGORY_ID };
   if (scope.companyId) filter.companyId = scope.companyId;
 
@@ -596,8 +739,8 @@ export function buildSmartProcessListParams(
   // aliases (SELECT/FILTER/ORDER) must never be sent to `crm.item.list`.
   return {
     entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
-    useOriginalUfNames: "Y",
-    select: SMART_PROCESS_ITEM_SELECT,
+    useOriginalUfNames: options.useOriginalUfNames ?? "Y",
+    select,
     filter,
     order: { id: "ASC" },
   };

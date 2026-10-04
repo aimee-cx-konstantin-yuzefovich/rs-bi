@@ -48,7 +48,14 @@ import {
   fetchSmartProcessStageDirectory,
   makeLabelResolver,
   buildSmartProcessListParams,
+  buildSmartProcessListParamsWithSelect,
+  buildSmartProcessPartitionSelect,
+  SMART_PROCESS_SYSTEM_SELECT,
+  SMART_PROCESS_REQUIRED_ROLES,
+  SMART_PROCESS_ROLE_FIELD_IDS,
+  SMART_PROCESS_CANDIDATE_PARTITION_ROLES,
 } from "@/lib/samples/bitrix-fetch";
+import { SMART_PROCESS_ENTITY_TYPE_ID } from "@/lib/samples/smart-process-contract";
 import { fetchDealCompanyMap } from "@/lib/samples/smart-process-service";
 import { assertSmartProcessContractReady } from "@/lib/samples/smart-process-contract";
 import {
@@ -151,8 +158,130 @@ export type SmartProcessProbe =
   | ({ status: "FAIL" } & ProbeFailure & {
       firstPage?: SmartProcessFirstPageComparison;
       localInvariant?: SmartProcessLocalInvariant;
+      selectMatrix?: SmartProcessSelectMatrixReport;
     })
   | { status: "SKIPPED"; reason: string };
+
+// ─── Select-interaction matrix (diagnostic-only; §2–§7) ────────────────
+// Identifies exactly which SELECT field/combination makes Bitrix drop the
+// documented `id` field on this portal, and measures whether a safe
+// ID-bearing 2–3 partition read exists. STRICTLY READ-ONLY:
+// crm.item.list / crm.item.fields only. Every probe reuses the exact
+// production request shape (structurally shared via
+// buildSmartProcessListParamsWithSelect) — the ONLY variable is `select`
+// (plus the explicit Y/N diagnostic toggle on standard-only selects).
+// Output carries ONLY anonymous counts / booleans / semantic role names —
+// never item IDs, titles, UF field ids, field values, webhook material,
+// or raw response bodies.
+
+/** One select probe measured on the first `crm.item.list` page. */
+export interface SelectProbeResult {
+  /** Status: PASS = every row has a usable id; FAIL otherwise. */
+  status: "PASS" | "FAIL";
+  /** Row count of the probed page (envelope parsed). */
+  itemCount: number;
+  /** Total Bitrix reported on the page (null when absent). */
+  reportedTotal: number | null;
+  /** Rows carrying a usable `id`. */
+  rowsWithId: number;
+  /** Whether the page carried a `next` continuation token. */
+  nextPresent: boolean;
+  /** Envelope invalid / transport failure → safe failure metadata. */
+  method?: string;
+  httpStatus?: number;
+  bitrixCode?: string;
+  /** HTTP 200 but unusable envelope → INVALID_RESULT_ENVELOPE. */
+  invalidEnvelope?: boolean;
+}
+
+/** One-field probe: A2 (system select) + exactly ONE extra role. */
+export interface SelectSingleFieldProbe {
+  role: string;
+  result: SelectProbeResult;
+}
+
+/** Cumulative probe: SYSTEM + prefixes of the canonical role ordering. */
+export interface SelectCumulativeProbe {
+  roles: string[];
+  result: SelectProbeResult;
+}
+
+/** One partition probe: full fail-closed pagination over a role subset. */
+export interface SelectPartitionProbe {
+  roles: string[];
+  status: "PASS" | "FAIL";
+  itemCount: number;
+  reportedTotal: number | null;
+  rowsWithId: number;
+  nextPresent: boolean;
+  /** Duplicate IDs remaining after canonical pagination (fetch dedups). */
+  duplicateIdCount: number;
+  /** Unique item IDs in this partition (anonymous count). */
+  uniqueIdCount: number;
+}
+
+export interface SelectPartitionSetProbe {
+  partitions: SelectPartitionProbe[];
+  /** Whether all partitions resolved to the same exact unique ID set. */
+  sameIdSets: boolean;
+  /** Whether the partitions jointly cover every required role. */
+  coversRequiredRoles: boolean;
+  status: "PASS" | "FAIL";
+}
+
+/** §6: presence of each committed role field in live crm.item.fields. */
+export interface SelectMetadataRolePresence {
+  /** role → field exists in live metadata (boolean only). */
+  roles: Record<string, boolean>;
+  /** At least one committed custom field is missing live. */
+  contractDrift: boolean;
+  status: "PASS" | "FAIL";
+  /** Safe failure metadata when the metadata read itself failed. */
+  method?: string;
+  httpStatus?: number;
+  bitrixCode?: string;
+}
+
+/** §5: Y/N comparison — STANDARD fields only, never UF ids with "N". */
+export interface SelectUfNamesComparison {
+  result: SelectProbeResult;
+}
+
+export interface SmartProcessSelectMatrixReport {
+  /** A1/A2/A3: documented id baseline → system select → + relation. */
+  baseline: {
+    A1: SelectProbeResult;
+    A2: SelectProbeResult;
+    A3: SelectProbeResult;
+  };
+  /** A2 + exactly one required role each. */
+  singleField: SelectSingleFieldProbe[];
+  /** Cumulative canonical prefixes; stops at the first failing prefix. */
+  cumulative: SelectCumulativeProbe[];
+  /** useOriginalUfNames Y/N comparison on selects WITHOUT custom fields. */
+  ufNames: {
+    N1: SelectUfNamesComparison;
+    N2: SelectUfNamesComparison;
+    /** Y on the same standard selects, for direct comparison. */
+    Y1: SelectUfNamesComparison;
+    Y2: SelectUfNamesComparison;
+  };
+  /** Live crm.item.fields role presence (booleans only). */
+  metadataRoles: SelectMetadataRolePresence;
+  /** §7 partition feasibility probes (only when baseline A3 passed). */
+  partitions?: SelectPartitionSetProbe;
+  /** §12 diagnostic-only star read (only when NO safe partition exists). */
+  star?: SelectProbeResult & { requiredRolesPresentCount: number };
+  /** ONE machine-readable verdict derived from the measured probes. */
+  verdict: SelectMatrixVerdict;
+}
+
+export type SelectMatrixVerdict =
+  | "SELECT_MATRIX_OK"
+  | "SELECT_MATRIX_INCONCLUSIVE"
+  | "NO_SAFE_LIST_PARTITION"
+  | "SMART_PROCESS_CONTRACT_DRIFT"
+  | `OFFENDING_ROLE:${string}`;
 
 export type DealCompanyMapProbe =
   | { status: "PASS"; referencedDealCount: number; resolvedRelationCount: number }
@@ -231,6 +360,442 @@ function finishWithUpstreamSkip(
   probes.commercialFunnelInput = { status: "SKIPPED", reason: "UPSTREAM_SAMPLES_FAILED" };
   return { success: true, probes, diagnosis: diagnoseSamplesPipeline(probes) };
 }
+
+// ─── Select-interaction matrix runner (diagnostic-only, read-only) ─────
+
+/** Minimal documented id-only select (baseline A1). */
+const ID_ONLY_SELECT: readonly string[] = ["id"];
+
+/**
+ * §12 diagnostic-only full-field select. NEVER used by any production
+ * read path (guarded by a source-scan regression on bitrix-fetch.ts).
+ */
+const STAR_SELECT: readonly string[] = ["*"];
+
+/** Canonical cumulative probe ordering (§4): relation first, then roles. */
+const CUMULATIVE_ROLE_ORDER: readonly string[] = [
+  "DEAL_RELATION",
+  "SENT_DATE",
+  "GRADE_GEL",
+  "GRADE_SOL",
+  "QTY_GEL",
+  "QTY_SOL",
+  "TEST_RESULT",
+];
+
+/**
+ * Parses a raw `crm.item.list` response envelope into rows (official
+ * `result.items` array or a top-level array). Same acceptance as the
+ * existing first-page comparison pre-step.
+ */
+function parseListEnvelope(rawResult: unknown): unknown[] | undefined {
+  if (Array.isArray(rawResult)) return rawResult;
+  if (
+    rawResult !== null &&
+    rawResult !== undefined &&
+    typeof rawResult === "object" &&
+    Array.isArray((rawResult as { items?: unknown }).items)
+  ) {
+    return (rawResult as { items: unknown[] }).items;
+  }
+  return undefined;
+}
+
+/** Counts rows carrying a usable (non-empty) documented `id`. */
+function countRowsWithUsableId(rows: readonly unknown[]): number {
+  let count = 0;
+  for (const row of rows) {
+    const rawId =
+      row !== null && typeof row === "object"
+        ? (row as { id?: unknown; ID?: unknown }).id ?? (row as { id?: unknown; ID?: unknown }).ID
+        : undefined;
+    const id = rawId === undefined || rawId === null ? "" : String(rawId).trim();
+    if (id !== "") count++;
+  }
+  return count;
+}
+
+/**
+ * ONE first-page select probe with the exact production request shape —
+ * the ONLY variables are `select` and the explicit diagnostic
+ * useOriginalUfNames toggle. Records anonymous structure facts only.
+ */
+async function probeSelectFirstPage(
+  select: readonly string[],
+  useOriginalUfNames: "Y" | "N"
+): Promise<SelectProbeResult> {
+  try {
+    const rawPage = await bitrixPost<{
+      result?: unknown;
+      total?: unknown;
+      next?: unknown;
+    }>(
+      "crm.item.list",
+      {
+        ...buildSmartProcessListParamsWithSelect({}, select, { useOriginalUfNames }),
+        start: 0,
+      }
+    );
+    const items = parseListEnvelope(rawPage?.result);
+    if (!items) {
+      return {
+        status: "FAIL",
+        itemCount: 0,
+        reportedTotal: null,
+        rowsWithId: 0,
+        nextPresent: false,
+        invalidEnvelope: true,
+      };
+    }
+    const parsedTotal =
+      rawPage?.total === undefined || rawPage?.total === null ? null : Number(rawPage.total);
+    const rowsWithId = countRowsWithUsableId(items);
+    return {
+      status: rowsWithId === items.length ? "PASS" : "FAIL",
+      itemCount: items.length,
+      reportedTotal:
+        parsedTotal !== null && Number.isFinite(parsedTotal) && parsedTotal >= 0
+          ? parsedTotal
+          : null,
+      rowsWithId,
+      nextPresent: rawPage?.next !== undefined && rawPage?.next !== null,
+    };
+  } catch (error) {
+    const meta = readBitrixFailureMeta(error);
+    return {
+      status: "FAIL",
+      itemCount: 0,
+      reportedTotal: null,
+      rowsWithId: 0,
+      nextPresent: false,
+      ...(meta
+        ? {
+            method: meta.method,
+            ...(meta.httpStatus !== undefined ? { httpStatus: meta.httpStatus } : {}),
+            ...(meta.bitrixCode !== undefined ? { bitrixCode: meta.bitrixCode } : {}),
+          }
+        : {}),
+    };
+  }
+}
+
+/** §6: live crm.item.fields role presence — booleans only, never names. */
+async function probeMetadataRolePresence(): Promise<SelectMetadataRolePresence> {
+  try {
+    const raw = await bitrixPost<{ result?: unknown }>("crm.item.fields", {
+      entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
+      useOriginalUfNames: "Y",
+    });
+    const rawResult = raw?.result;
+    const fields =
+      rawResult && typeof rawResult === "object" && (rawResult as Record<string, unknown>).fields
+        ? ((rawResult as Record<string, unknown>).fields as Record<string, unknown>)
+        : rawResult;
+    if (!fields || typeof fields !== "object") {
+      return { roles: {}, contractDrift: true, status: "FAIL" };
+    }
+    const fieldIds = new Set(Object.keys(fields));
+    const roles: Record<string, boolean> = {};
+    let contractDrift = false;
+    for (const role of SMART_PROCESS_REQUIRED_ROLES) {
+      const fieldId = SMART_PROCESS_ROLE_FIELD_IDS[role];
+      // Standard universal fields (e.g. parentId2) are documented contract
+      // fields — verified against the official standard-field contract,
+      // not live metadata listing only.
+      const present = STANDARD_UNIVERSAL_ROLES.has(role) || fieldIds.has(fieldId);
+      roles[role] = present;
+      if (!present) contractDrift = true;
+    }
+    return { roles, contractDrift, status: contractDrift ? "FAIL" : "PASS" };
+  } catch (error) {
+    const meta = readBitrixFailureMeta(error);
+    return {
+      roles: {},
+      contractDrift: false,
+      status: "FAIL",
+      ...(meta
+        ? {
+            method: meta.method,
+            ...(meta.httpStatus !== undefined ? { httpStatus: meta.httpStatus } : {}),
+            ...(meta.bitrixCode !== undefined ? { bitrixCode: meta.bitrixCode } : {}),
+          }
+        : {}),
+    };
+  }
+}
+
+/**
+ * Roles whose field ids are documented standard Universal CRM fields
+ * (relation field) — verified against the official standard-field
+ * contract rather than the live UF metadata listing.
+ */
+const STANDARD_UNIVERSAL_ROLES: ReadonlySet<string> = new Set(["DEAL_RELATION"]);
+
+/**
+ * §7 partition feasibility: per candidate partition — one full fail-closed
+ * canonical pagination read (fetchAllPages) plus one raw first-page probe
+ * for envelope/total facts. ID sets collected for strict set comparison.
+ */
+async function probePartitions(): Promise<SelectPartitionSetProbe> {
+  const partitions: SelectPartitionProbe[] = [];
+  const idSets: Set<string>[] = [];
+  let allPassed = true;
+
+  for (const partition of SMART_PROCESS_CANDIDATE_PARTITION_ROLES) {
+    const select = buildSmartProcessPartitionSelect(partition);
+    try {
+      const rows = await fetchAllPages("crm.item.list", buildSmartProcessListParamsWithSelect({}, select), "id");
+      const uniqueIds = new Set(
+        rows.map((row) => String(row.id ?? row.ID ?? "").trim()).filter((id) => id !== "")
+      );
+      idSets.push(uniqueIds);
+      const firstPage = await probeSelectFirstPage(select, "Y");
+      partitions.push({
+        roles: [...partition.roles],
+        status: firstPage.status,
+        itemCount: firstPage.itemCount,
+        reportedTotal: firstPage.reportedTotal,
+        rowsWithId: firstPage.rowsWithId,
+        nextPresent: firstPage.nextPresent,
+        duplicateIdCount: 0, // fetchAllPages dedups by ID; duplicates never survive
+        uniqueIdCount: uniqueIds.size,
+      });
+      if (firstPage.status !== "PASS") allPassed = false;
+    } catch {
+      allPassed = false;
+      partitions.push({
+        roles: [...partition.roles],
+        status: "FAIL",
+        itemCount: 0,
+        reportedTotal: null,
+        rowsWithId: 0,
+        nextPresent: false,
+        duplicateIdCount: 0,
+        uniqueIdCount: 0,
+      });
+      idSets.push(new Set());
+    }
+  }
+
+  let sameIdSets = idSets.length > 0;
+  for (const set of idSets) {
+    if (set.size !== idSets[0].size) {
+      sameIdSets = false;
+      break;
+    }
+    for (const id of set) {
+      if (!idSets[0].has(id)) {
+        sameIdSets = false;
+        break;
+      }
+    }
+    if (!sameIdSets) break;
+  }
+
+  const covered = new Set<string>();
+  for (const partition of SMART_PROCESS_CANDIDATE_PARTITION_ROLES) {
+    for (const role of partition.roles) covered.add(role);
+  }
+  const coversRequiredRoles = SMART_PROCESS_REQUIRED_ROLES.every((role) => covered.has(role));
+
+  return {
+    partitions,
+    sameIdSets,
+    coversRequiredRoles,
+    status: allPassed && sameIdSets && coversRequiredRoles ? "PASS" : "FAIL",
+  };
+}
+
+/**
+ * Derives ONE machine-readable verdict from the measured probes (pure).
+ * Never exposes raw field ids — role names only. Probe stages are run
+ * conditionally by the runner (later stages only after earlier ones
+ * pass), so absent stages here mean "not reached", never "passed".
+ *
+ * Precedence:
+ *  1. live contract drift (committed field missing from metadata);
+ *  2. system-select id drop (partitions cannot exist without it);
+ *  3. one-field offender (relation, then any role) — per §11 a field that
+ *     kills `id` alone makes the list-partition workaround impossible;
+ *  4. transport/infrastructure failure (rows never arrived) — evidence
+ *     quality, never an offender verdict;
+ *  5. partition measurement — the workaround is viable ONLY when the
+ *     measured partitions PASS (equal ID sets, coverage). A cumulative
+ *     boundary in a combined select does NOT block remediation when the
+ *     partitioned reads themselves preserve ids; the boundary detail
+ *     remains visible in the cumulative[] report entries.
+ */
+export function deriveSelectMatrixVerdict(
+  report: Omit<SmartProcessSelectMatrixReport, "verdict">
+): SelectMatrixVerdict {
+  const idDrop = (r: SelectProbeResult): boolean =>
+    r.status === "FAIL" && r.itemCount > 0 && r.rowsWithId < r.itemCount;
+  const transportFail = (r: SelectProbeResult): boolean =>
+    r.status === "FAIL" && r.itemCount === 0;
+
+  if (report.metadataRoles.contractDrift) return "SMART_PROCESS_CONTRACT_DRIFT";
+
+  if (idDrop(report.baseline.A2)) return "NO_SAFE_LIST_PARTITION";
+  if (idDrop(report.baseline.A3)) return "OFFENDING_ROLE:DEAL_RELATION";
+
+  for (const probe of report.singleField) {
+    if (idDrop(probe.result)) return `OFFENDING_ROLE:${probe.role}`;
+  }
+
+  const transportFailed =
+    transportFail(report.baseline.A1) ||
+    transportFail(report.baseline.A2) ||
+    transportFail(report.baseline.A3) ||
+    report.singleField.some((probe) => transportFail(probe.result)) ||
+    report.cumulative.some((probe) => transportFail(probe.result));
+  if (transportFailed) return "SELECT_MATRIX_INCONCLUSIVE";
+
+  if (!report.partitions || report.partitions.status !== "PASS") {
+    return "NO_SAFE_LIST_PARTITION";
+  }
+  return "SELECT_MATRIX_OK";
+}
+
+/**
+ * Runs the complete select-interaction matrix (§2–§7): baseline, one-field,
+ * cumulative, Y/N standard-field comparison, live metadata role presence,
+ * and partition feasibility. STRICTLY READ-ONLY — crm.item.list and
+ * crm.item.fields only, exact production request shape, `select` as the
+ * only variable. Bounded: one first-page request per select probe plus one
+ * full canonical pagination per partition candidate. Output is safe by
+ * construction (anonymous counts, booleans, semantic role names).
+ *
+ * §12 star read runs ONLY when the partition probes fail — diagnostic
+ * evidence for NO_SAFE_LIST_PARTITION, never a production path.
+ */
+export async function runSmartProcessSelectMatrix(): Promise<SmartProcessSelectMatrixReport> {
+  // ─── A. Baseline ───
+  const A1 = await probeSelectFirstPage(ID_ONLY_SELECT, "Y");
+  const A2 = await probeSelectFirstPage(SMART_PROCESS_SYSTEM_SELECT, "Y");
+  const A3 = await probeSelectFirstPage(
+    buildSmartProcessPartitionSelect({
+      includeSystemSelect: true,
+      roles: ["DEAL_RELATION"],
+    }),
+    "Y"
+  );
+
+  const systemSelectHealthy = A2.status === "PASS";
+  const relationHealthy = A3.status === "PASS";
+
+  // ─── B. One extra required field at a time (A2 + role) ───
+  // Runs only when the plain system select still carries ids (otherwise
+  // the interaction is already system-level).
+  const singleField: SelectSingleFieldProbe[] = [];
+  if (systemSelectHealthy) {
+    for (const role of SMART_PROCESS_REQUIRED_ROLES) {
+      singleField.push({
+        role,
+        result: await probeSelectFirstPage(
+          buildSmartProcessPartitionSelect({ includeSystemSelect: true, roles: [role] }),
+          "Y"
+        ),
+      });
+    }
+  }
+
+  // ─── C. Cumulative canonical prefixes (stop at first failing boundary) ───
+  const cumulative: SelectCumulativeProbe[] = [];
+  if (relationHealthy) {
+    const cumulativeRoles: string[] = [];
+    for (const role of CUMULATIVE_ROLE_ORDER) {
+      if (!SMART_PROCESS_REQUIRED_ROLES.includes(role)) continue;
+      cumulativeRoles.push(role);
+      const result = await probeSelectFirstPage(
+        buildSmartProcessPartitionSelect({
+          includeSystemSelect: true,
+          roles: [...cumulativeRoles],
+        }),
+        "Y"
+      );
+      cumulative.push({ roles: [...cumulativeRoles], result });
+      if (result.status === "FAIL" && result.rowsWithId < result.itemCount) break;
+    }
+  }
+
+  // ─── N. useOriginalUfNames Y/N comparison (STANDARD selects only) ───
+  const N1 = { result: await probeSelectFirstPage(ID_ONLY_SELECT, "N") };
+  const N2 = { result: await probeSelectFirstPage(SMART_PROCESS_SYSTEM_SELECT, "N") };
+  const Y1 = { result: await probeSelectFirstPage(ID_ONLY_SELECT, "Y") };
+  const Y2 = { result: await probeSelectFirstPage(SMART_PROCESS_SYSTEM_SELECT, "Y") };
+
+  // ─── §6. Live metadata role presence (booleans only) ───
+  const metadataRoles = await probeMetadataRolePresence();
+
+  const partial: Omit<SmartProcessSelectMatrixReport, "verdict"> = {
+    baseline: { A1, A2, A3 },
+    singleField,
+    cumulative,
+    ufNames: { N1, N2, Y1, Y2 },
+    metadataRoles,
+  };
+
+  // ─── §7. Partition feasibility (skipped only for verdicts that make it
+  // moot: contract drift, a single-field offender, or infrastructure
+  // failure — §11 stops there). A system-select id drop already maps to
+  // NO_SAFE_LIST_PARTITION; every other case reaches the partition probe. ───
+  const verdictWithoutPartitions = deriveSelectMatrixVerdict({
+    ...partial,
+    partitions: undefined,
+  });
+  if (
+    verdictWithoutPartitions === "SMART_PROCESS_CONTRACT_DRIFT" ||
+    verdictWithoutPartitions.startsWith("OFFENDING_ROLE:") ||
+    verdictWithoutPartitions === "SELECT_MATRIX_INCONCLUSIVE"
+  ) {
+    return { ...partial, verdict: verdictWithoutPartitions };
+  }
+
+  const partitions = await probePartitions();
+  const finalVerdict = deriveSelectMatrixVerdict({ ...partial, partitions });
+
+  // ─── §12. Star diagnostic — ONLY when no safe partition exists. ───
+  if (finalVerdict === "NO_SAFE_LIST_PARTITION") {
+    const starPage = await probeSelectFirstPage(STAR_SELECT, "Y");
+    let requiredRolesPresentCount = 0;
+    try {
+      const rawPage = await bitrixPost<{ result?: unknown }>(
+        "crm.item.list",
+        {
+          ...buildSmartProcessListParamsWithSelect({}, STAR_SELECT, { useOriginalUfNames: "Y" }),
+          start: 0,
+        }
+      );
+      const items = parseListEnvelope(rawPage?.result) ?? [];
+      const presentKeys = new Set<string>();
+      for (const row of items) {
+        if (row !== null && typeof row === "object") {
+          for (const key of Object.keys(row as Record<string, unknown>)) {
+            presentKeys.add(key);
+          }
+        }
+      }
+      for (const role of SMART_PROCESS_REQUIRED_ROLES) {
+        const fieldId = SMART_PROCESS_ROLE_FIELD_IDS[role];
+        if (STANDARD_UNIVERSAL_ROLES.has(role) || presentKeys.has(fieldId)) {
+          requiredRolesPresentCount++;
+        }
+      }
+    } catch {
+      // Star probe stays diagnostic-only; the count stays at the
+      // first-page-derived value (0) when the repeat read fails.
+    }
+    return {
+      ...partial,
+      partitions,
+      star: { ...starPage, requiredRolesPresentCount },
+      verdict: finalVerdict,
+    };
+  }
+
+  return { ...partial, partitions, verdict: finalVerdict };
+}
+
 
 /**
  * Runs the sequential read-only probe routine. Exported for focused
@@ -400,6 +965,16 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
     } catch (error) {
       const base = failProbe("crm.item.list", error);
       if (isBitrixListInvariantError(error)) {
+        // Select-interaction matrix (diagnostic-only, read-only): runs ONLY
+        // when the helper failed with the locally-measured
+        // MISSING_REQUIRED_ID invariant — the exact production anomaly
+        // (rows arrive, documented `id` absent). Transport-down and other
+        // invariants never trigger the matrix (bounded cost, targeted
+        // evidence).
+        const selectMatrix: SmartProcessSelectMatrixReport | undefined =
+          error.category === "MISSING_REQUIRED_ID"
+            ? await runSmartProcessSelectMatrix().catch(() => undefined)
+            : undefined;
         probes.smartProcess = {
           ...base,
           firstPage,
@@ -415,6 +990,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
             ...(error.start !== undefined ? { start: error.start } : {}),
             ...(error.nextPresent !== undefined ? { nextPresent: error.nextPresent } : {}),
           },
+          ...(selectMatrix ? { selectMatrix } : {}),
         };
       } else {
         probes.smartProcess = { ...base, ...(firstPage ? { firstPage } : {}) };
