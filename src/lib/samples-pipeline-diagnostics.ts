@@ -114,6 +114,23 @@ export interface SmartProcessFirstPageComparison {
   method?: string;
   httpStatus?: number;
   bitrixCode?: string;
+  // ─── Safe key-NAME casing facts (first row; never any VALUE) ───
+  /** Own enumerable key count of the first row. */
+  firstRowKeyCount?: number;
+  /** The lowercase documented item key `id` is present. */
+  firstRowHasIdKey?: boolean;
+  /** The classic uppercase `ID` key is present. */
+  firstRowHasUppercaseIdKey?: boolean;
+  /**
+   * Present key NAMES that are ID-like (among the documented casing
+   * candidates) — names only, never values.
+   */
+  firstRowIdLikeKeys?: string[];
+  /**
+   * Present key NAMES that are NOT in the production select — the exact
+   * structural anomaly signal. Names only, never values.
+   */
+  firstRowUnmatchedKeys?: string[];
 }
 
 /** Safe structured view of a local pagination invariant failure. */
@@ -326,6 +343,22 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
         rawPage?.total === undefined || rawPage?.total === null
           ? null
           : Number(rawPage.total);
+      // Safe key-NAME casing facts from the first row (never any value):
+      // identifies the exact structural delta between the raw response and
+      // the documented `id`/`ID` keys when rowsWithUsableId === 0.
+      const firstRow =
+        items && items.length > 0 && items[0] !== null && typeof items[0] === "object"
+          ? (items[0] as Record<string, unknown>)
+          : undefined;
+      const firstRowKeys = firstRow ? Object.keys(firstRow) : [];
+      const selectParams = buildSmartProcessListParams({});
+      const selectList = Array.isArray(selectParams.select) ? selectParams.select : [];
+      const idLikeKeys = firstRowKeys.filter((k) =>
+        ["id", "ID", "Id", "iD"].includes(k)
+      );
+      const unmatchedKeys = firstRowKeys.filter(
+        (k) => !selectList.includes(k)
+      );
       firstPage = {
         status: "PASS",
         itemsIsArray: Array.isArray(items),
@@ -337,6 +370,15 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
             ? parsedTotal
             : null,
         nextPresent: rawPage?.next !== undefined && rawPage?.next !== null,
+        ...(firstRow
+          ? {
+              firstRowKeyCount: firstRowKeys.length,
+              firstRowHasIdKey: firstRowKeys.includes("id"),
+              firstRowHasUppercaseIdKey: firstRowKeys.includes("ID"),
+              firstRowIdLikeKeys: idLikeKeys,
+              firstRowUnmatchedKeys: unmatchedKeys,
+            }
+          : {}),
       };
     } catch (error) {
       const meta = readBitrixFailureMeta(error);

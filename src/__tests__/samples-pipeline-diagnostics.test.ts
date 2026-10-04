@@ -906,10 +906,18 @@ describe("Probe D extension: first-page comparison + localInvariant", () => {
       duplicateIdCount: 0,
       reportedTotal: 2,
       nextPresent: false,
+      firstRowKeyCount: 9,
+      firstRowHasIdKey: true,
+      firstRowHasUppercaseIdKey: false,
+      firstRowIdLikeKeys: ["id"],
+      firstRowUnmatchedKeys: [],
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain("Элемент образца");
-    expect(serialized).not.toContain('"id"');
+    // Key NAMES (idLikeKeys) are safe facts; the mock's ID VALUES (1, 2)
+    // must never appear as row payloads.
+    expect(serialized).not.toContain('"id":1');
+    expect(serialized).not.toContain('"id":2');
   });
 
   it("raw probe and helper run with IDENTICAL params (structural parity, start=0 first)", async () => {
@@ -966,6 +974,11 @@ describe("Probe D extension: first-page comparison + localInvariant", () => {
       duplicateIdCount: 0,
       reportedTotal: 8,
       nextPresent: false,
+      firstRowKeyCount: 2,
+      firstRowHasIdKey: true,
+      firstRowHasUppercaseIdKey: false,
+      firstRowIdLikeKeys: ["id"],
+      firstRowUnmatchedKeys: [],
     });
     expect(body.diagnosis).toBe("SMART_PROCESS_HELPER_FAILED");
     // Zero identity leakage: the mocked titles/IDs never appear.
@@ -1008,6 +1021,11 @@ describe("Probe D extension: first-page comparison + localInvariant", () => {
       duplicateIdCount: 0,
       reportedTotal: 1,
       nextPresent: false,
+      firstRowKeyCount: 1,
+      firstRowHasIdKey: true,
+      firstRowHasUppercaseIdKey: false,
+      firstRowIdLikeKeys: ["id"],
+      firstRowUnmatchedKeys: [],
     });
   });
 
@@ -1035,5 +1053,51 @@ describe("Probe D extension: first-page comparison + localInvariant", () => {
       method: "crm.item.list",
       bitrixCode: "ACCESS_DENIED",
     });
+  });
+
+  it("live-measured shape: envelope valid but rows lack any id-like key → MISSING_REQUIRED_ID + key-name facts", async () => {
+    // Mirrors the measured live Vercel facts (de4db2c): result.items array
+    // of 8, reportedTotal 8, no next — but rowsWithUsableId 0. The helper
+    // must fail closed with MISSING_REQUIRED_ID while the firstPage facts
+    // expose exactly WHICH keys the rows DO carry (names only, no values).
+    const mysteryRows = Array.from({ length: 8 }, (_, i) => ({
+      [`key_${i}`]: `value-${i}`,
+      other: null,
+    }));
+    bitrixPostMock.mockImplementation(async (method: string) => {
+      if (method === "crm.company.fields" || method === "crm.deal.fields" || method === "crm.item.fields") {
+        return emptyFields;
+      }
+      if (method === "crm.status.list") return { result: [] };
+      if (method === "crm.company.list") return { result: [], total: 0 };
+      if (method === "crm.deal.list") return { result: [], total: 0 };
+      if (method === "crm.item.list") {
+        return { result: mysteryRows, total: 8 };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    });
+    const body = await (await GET_REQUEST()).json();
+    expect(body.probes.smartProcess.status).toBe("FAIL");
+    expect(body.probes.smartProcess.localInvariant).toMatchObject({
+      localInvariant: "MISSING_REQUIRED_ID",
+      pageItemCount: 8,
+      accumulatedUniqueCount: 0,
+      missingIdCount: 1,
+      nextPresent: false,
+    });
+    expect(body.probes.smartProcess.firstPage).toMatchObject({
+      status: "PASS",
+      itemsIsArray: true,
+      itemCount: 8,
+      rowsWithUsableId: 0,
+      reportedTotal: 8,
+      nextPresent: false,
+      firstRowHasIdKey: false,
+      firstRowHasUppercaseIdKey: false,
+      firstRowIdLikeKeys: [],
+    });
+    // No values leak — only key names.
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain("value-0");
   });
 });
