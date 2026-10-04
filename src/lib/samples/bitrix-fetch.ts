@@ -12,7 +12,11 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { bitrixPost } from "@/lib/bitrix";
-import { BitrixListInvariantError } from "@/lib/bitrix-list-invariant";
+import {
+  BitrixListInvariantError,
+  isBitrixListInvariantError,
+  type BitrixListInvariantCategory,
+} from "@/lib/bitrix-list-invariant";
 import type { BitrixRow } from "./types";
 import {
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
@@ -68,6 +72,34 @@ export const PAGINATION_RETRY_DELAY_MS =
   process.env.NODE_ENV === "test" || process.env.VITEST ? 5 : 500;
 
 function isPaginationRetryable(error: unknown): boolean {
+  // Deterministic LOCAL invariant failures (post-transport): the response
+  // already arrived and was rejected by a local rule — restarting the
+  // identical pagination cannot change the verdict. Task §6: no redundant
+  // full-pagination restart for these, while Bitrix transport retry
+  // behavior (bitrixPost) stays unchanged. Some invariant categories can
+  // legitimately change between restarts (mutable dataset / shifting
+  // totals) — those keep the existing restart semantics.
+  if (isBitrixListInvariantError(error)) {
+    if (DETERMINISTIC_INVARIANT_CATEGORIES.has(error.category)) {
+      return false;
+    }
+    // A stable total mismatch on the SAME one-page response (no `next`
+    // token was ever followed, no dedup/ID anomalies involved) is
+    // deterministic: the restart would observe the identical page and
+    // reach the identical verdict (task §6). Multi-page mismatches may
+    // legitimately differ across a restart (dataset shifted between
+    // page reads) and keep the existing restart semantics.
+    if (
+      error.category === "TOTAL_COUNT_MISMATCH" &&
+      error.start === 0 &&
+      error.nextPresent === false &&
+      error.duplicateCount === 0 &&
+      error.missingIdCount === 0
+    ) {
+      return false;
+    }
+    return true;
+  }
   if (!(error instanceof Error)) return true;
   const msg = error.message;
   // Non-retryable invariant/schema corruption errors: fail immediately
@@ -80,6 +112,20 @@ function isPaginationRetryable(error: unknown): boolean {
   }
   return true;
 }
+
+/**
+ * Local invariant categories that are deterministic for a one-page
+ * response: re-running the exact same pagination would observe the same
+ * rejected response. Categories that may legitimately differ across a
+ * restart (mutable datasets, shifting totals) keep retry semantics.
+ */
+const DETERMINISTIC_INVARIANT_CATEGORIES: ReadonlySet<BitrixListInvariantCategory> = new Set([
+  "INVALID_RESULT_ENVELOPE",
+  "INVALID_ROW",
+  "MISSING_REQUIRED_ID",
+  "INVALID_NEXT_TOKEN",
+  "NON_ADVANCING_NEXT",
+]);
 
 /**
  * Sequentially pages through a Bitrix list method until completion.
