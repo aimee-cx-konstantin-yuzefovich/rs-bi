@@ -375,4 +375,49 @@ describe("Samples Session Cache (C1 .. C8)", () => {
     expect(res.success).toBe(true);
     expect(getCachedSamples("user-1")?.samples).toEqual(dataB);
   });
+
+  // ─── Atomic malformed-payload rejection (client contract hardening) ───
+
+  it("CONTRACT-1: malformed payload is rejected as failure and NEVER cached", async () => {
+    // Seed a valid prior snapshot so we also prove the failure does not
+    // discard the last successful snapshot.
+    const good = [mockSummary("1", "Хороший снимок")];
+    setCachedSamples("user-1", { samples: good, meta: null, orphanDealCount: 0 });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          samples: [mockSummary("2", "Поломанная строка"), { companyId: 42 }],
+          orphanDealCount: 0,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    const res = await fetchSamplesWithDeduplication("user-1", { force: true });
+    expect(res.success).toBe(false); // malformed payload → failure result
+
+    // Cache untouched: previous successful snapshot survives, malformed
+    // data never entered the cache.
+    const cached = getCachedSamples("user-1");
+    expect(cached?.samples).toEqual(good);
+  });
+
+  it("CONTRACT-2: cold malformed payload leaves cache empty (never partially accepted)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          samples: [mockSummary("1", "Почти валидно")],
+          orphanDealCount: "не число",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    const res = await fetchSamplesWithDeduplication("user-1");
+    expect(res.success).toBe(false);
+    expect(getCachedSamples("user-1")).toBeNull();
+  });
 });

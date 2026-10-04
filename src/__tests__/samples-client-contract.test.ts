@@ -2,15 +2,19 @@
 // src/__tests__/samples-client-contract.test.ts
 // ─────────────────────────────────────────────────────────────────────
 // Tests for the ONE shared Samples client response contract
-// (src/lib/samples/client-contract.ts):
+// (src/lib/samples/client-contract.ts), hardened pre-production:
 //
 // - accepts the exact production response shape (route contract incl.
-//   meta / issueLabels / smartProcess.qualityCounts);
-// - rejects falsy success → INVALID_SUCCESS_FLAG;
+//   meta / issueLabels / smartProcess.qualityCounts) and valid
+//   samples: [] datasets;
+// - rejects falsy/non-true success → INVALID_SUCCESS_FLAG;
 // - rejects non-array samples → SAMPLES_NOT_ARRAY;
-// - applies the identical coercions as the previous inline predicate;
-// - NO stricter validation was introduced (diagnostic patch is
-//   semantics-preserving);
+// - ATOMIC per-sample structural validation: one malformed SampleSummary
+//   rejects the ENTIRE payload → INVALID_SAMPLE_SUMMARY_SHAPE;
+// - malformed meta → INVALID_META_SHAPE; non-numeric orphanDealCount →
+//   INVALID_ORPHAN_DEAL_COUNT; non-boolean metadataPartial →
+//   INVALID_METADATA_PARTIAL;
+// - legitimate optional null/undefined values remain accepted;
 // - source scan: samples-cache.ts consumes the shared validator and no
 //   second inline Samples response parser exists (single-parser rule).
 // ─────────────────────────────────────────────────────────────────────
@@ -117,50 +121,178 @@ describe("validateSamplesClientPayload — rejection", () => {
   });
 });
 
-describe("validateSamplesClientPayload — coercion parity with the previous inline predicate", () => {
-  it("coerces string orphanDealCount to Number (parity: Number(value ?? 0))", () => {
-    const payload = { ...productionShapedResponse(), orphanDealCount: "3" };
+describe("validateSamplesClientPayload — numeric/boolean contract", () => {
+  it("accepts a finite numeric orphanDealCount as-is", () => {
+    const payload = { ...productionShapedResponse(), orphanDealCount: 3 };
     const result = validateSamplesClientPayload(payload);
     if (!isOk(result)) throw new Error("expected ok");
     expect(result.orphanDealCount).toBe(3);
   });
 
-  it("defaults missing orphanDealCount to 0 (parity: Number(value ?? 0))", () => {
+  it("defaults missing orphanDealCount to 0", () => {
     const { orphanDealCount: _omit, ...payload } = productionShapedResponse();
     const result = validateSamplesClientPayload(payload);
     if (!isOk(result)) throw new Error("expected ok");
     expect(result.orphanDealCount).toBe(0);
   });
 
-  it("coerces truthy metadataPartial to true (parity: Boolean(value))", () => {
-    const payload = { ...productionShapedResponse(), metadataPartial: "yes" };
+  it("accepts null orphanDealCount as 0", () => {
+    const payload = { ...productionShapedResponse(), orphanDealCount: null };
+    const result = validateSamplesClientPayload(payload);
+    if (!isOk(result)) throw new Error("expected ok");
+    expect(result.orphanDealCount).toBe(0);
+  });
+
+  it("rejects a string orphanDealCount (no arbitrary coercion of values) with INVALID_ORPHAN_DEAL_COUNT", () => {
+    const payload = { ...productionShapedResponse(), orphanDealCount: "3" };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_ORPHAN_DEAL_COUNT" });
+  });
+
+  it("rejects a non-finite orphanDealCount with INVALID_ORPHAN_DEAL_COUNT", () => {
+    const result = validateSamplesClientPayload({
+      ...productionShapedResponse(),
+      orphanDealCount: Number.NaN,
+    });
+    expect(result).toEqual({ ok: false, reason: "INVALID_ORPHAN_DEAL_COUNT" });
+  });
+
+  it("accepts boolean metadataPartial as-is", () => {
+    const payload = { ...productionShapedResponse(), metadataPartial: true };
     const result = validateSamplesClientPayload(payload);
     if (!isOk(result)) throw new Error("expected ok");
     expect(result.metadataPartial).toBe(true);
   });
 
-  it("normalizes missing meta to null (parity: ?? null)", () => {
+  it("rejects a truthy non-boolean metadataPartial with INVALID_METADATA_PARTIAL", () => {
+    const payload = { ...productionShapedResponse(), metadataPartial: "yes" };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_METADATA_PARTIAL" });
+  });
+
+  it("normalizes missing meta to null", () => {
     const { meta: _omit, ...payload } = productionShapedResponse();
     const result = validateSamplesClientPayload(payload);
     if (!isOk(result)) throw new Error("expected ok");
     expect(result.meta).toBeNull();
   });
+});
 
-  it("does NOT reject malformed per-item summaries — acceptance semantics unchanged (no stricter validation added)", () => {
-    // The previous inline predicate accepted any array items; this
-    // patch must not silently tighten that contract.
+describe("validateSamplesClientPayload — atomic per-sample validation", () => {
+  it("rejects a malformed summary item with INVALID_SAMPLE_SUMMARY_SHAPE (atomic, no partial acceptance)", () => {
     const payload = {
       ...productionShapedResponse(),
-      samples: [{ companyId: 42 }, "not-an-object", null],
+      samples: [mkSummary("1"), { companyId: 42 }, "not-an-object", null],
     };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_SAMPLE_SUMMARY_SHAPE" });
+  });
+
+  it("rejects a summary with missing required string fields", () => {
+    const payload = {
+      ...productionShapedResponse(),
+      samples: [{ companyTitle: "Нет ID компании" }],
+    };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_SAMPLE_SUMMARY_SHAPE" });
+  });
+
+  it("rejects a summary with an out-of-enum normalizedResult", () => {
+    const bad = { ...mkSummary("1"), normalizedResult: "победа" };
+    const payload = { ...productionShapedResponse(), samples: [bad] };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_SAMPLE_SUMMARY_SHAPE" });
+  });
+
+  it("rejects a summary with an out-of-enum sourceQuality", () => {
+    const bad = { ...mkSummary("1"), sourceQuality: "магия" };
+    const payload = { ...productionShapedResponse(), samples: [bad] };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_SAMPLE_SUMMARY_SHAPE" });
+  });
+
+  it("rejects a summary whose productFamilies contains a non-string", () => {
+    const bad = { ...mkSummary("1"), productFamilies: ["Гель", 7] };
+    const payload = { ...productionShapedResponse(), samples: [bad] };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_SAMPLE_SUMMARY_SHAPE" });
+  });
+
+  it("rejects a summary with malformed relatedDeals entries", () => {
+    const bad = { ...mkSummary("1"), relatedDeals: [{ id: "1" }] }; // missing title
+    const payload = { ...productionShapedResponse(), samples: [bad] };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_SAMPLE_SUMMARY_SHAPE" });
+  });
+
+  it("rejects a summary with malformed smartProcessItems enrichment", () => {
+    const bad = { ...mkSummary("1"), smartProcessItems: [{ processItemId: 1 }] };
+    const payload = { ...productionShapedResponse(), samples: [bad] };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_SAMPLE_SUMMARY_SHAPE" });
+  });
+
+  it("legitimate optional values remain accepted: absent, null, and valid present values", () => {
+    const rich = {
+      ...mkSummary("1"),
+      responsibleId: null,
+      responsibleName: null,
+      companyResponsibleId: "7",
+      companyResponsibleName: "Менеджер 7",
+      rawTestResult: null,
+      industry: "Химия",
+      application: null,
+      latestRelevantDate: "2026-10-02",
+      smartProcessItems: [
+        {
+          processItemId: "9001",
+          title: "Цикл 1",
+          companyId: "1",
+          linkedDealId: "505",
+          stageId: "DT1032_15:CLIENT",
+          stageLabel: "Образцы на испытании",
+          isActive: true,
+          isTerminal: false,
+          sentDates: ["2026-03-10"],
+          grades: [{ productFamily: "Гель", value: "КРТ-2" }],
+          quantities: [{ productFamily: "Гель", value: 5, unit: "кг" }],
+          rawTestResult: "Соответствует",
+          normalizedResult: "positive",
+          createdTime: "2026-03-01T10:00:00+03:00",
+          dataIssues: [],
+        },
+      ],
+      activeSmartProcessCount: 1,
+      currentActiveStageLabels: ["Образцы на испытании"],
+    };
+    const payload = { ...productionShapedResponse(), samples: [rich] };
     const result = validateSamplesClientPayload(payload);
     expect(isOk(result)).toBe(true);
   });
 
-  it("does NOT reject missing success flag as SAMPLES_NOT_ARRAY — same reject class as before", () => {
-    // Old code: (!data.success || !Array.isArray(...)) → one rejection path.
-    const result = validateSamplesClientPayload({ samples: [] });
-    expect(result).toEqual({ ok: false, reason: "INVALID_SUCCESS_FLAG" });
+  it("rejects malformed meta with INVALID_META_SHAPE", () => {
+    const payload = { ...productionShapedResponse(), meta: { statusLabels: "нет" } };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_META_SHAPE" });
+  });
+
+  it("rejects meta whose inner label maps contain non-strings", () => {
+    const payload = {
+      ...productionShapedResponse(),
+      meta: { statusLabels: { UF_CRM_TEST_FIELD: { "5": 42 } } },
+    };
+    const result = validateSamplesClientPayload(payload);
+    expect(result).toEqual({ ok: false, reason: "INVALID_META_SHAPE" });
+  });
+
+  it("accepts meta: null and meta with empty statusLabels", () => {
+    const a = validateSamplesClientPayload({ ...productionShapedResponse(), meta: null });
+    expect(isOk(a)).toBe(true);
+    const b = validateSamplesClientPayload({
+      ...productionShapedResponse(),
+      meta: { statusLabels: {} },
+    });
+    expect(isOk(b)).toBe(true);
   });
 });
 
