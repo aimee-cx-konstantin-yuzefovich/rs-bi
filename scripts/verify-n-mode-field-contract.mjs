@@ -30,7 +30,9 @@ import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const jiti = createJiti(import.meta.url);
+const jiti = createJiti(import.meta.url, {
+  alias: { "@": resolve(root, "src") },
+});
 
 // ONE source of truth from production code (no duplicated role registry).
 const contract = await jiti.import(
@@ -131,11 +133,38 @@ function firstPageFacts(data) {
   };
 }
 
+function getWebhookUrl() {
+  if (process.env.BITRIX_WEBHOOK_URL && process.env.BITRIX_WEBHOOK_URL.trim()) {
+    return process.env.BITRIX_WEBHOOK_URL.trim();
+  }
+  for (const envFile of [".env", ".env.local", ".env.production.local"]) {
+    const p = resolve(root, envFile);
+    if (fs.existsSync(p)) {
+      try {
+        const content = fs.readFileSync(p, "utf-8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("BITRIX_WEBHOOK_URL=")) {
+            const val = trimmed
+              .slice("BITRIX_WEBHOOK_URL=".length)
+              .trim()
+              .replace(/^["']|["']$/g, "");
+            if (val) return val;
+          }
+        }
+      } catch {
+        // ignore read error
+      }
+    }
+  }
+  return null;
+}
+
 async function main() {
   console.log("=== RusSilica BI — Smart Process N-mode field-contract verifier ===");
   console.log("READ-ONLY: crm.item.fields + crm.item.list only.");
 
-  const webhookUrl = process.env.BITRIX_WEBHOOK_URL?.trim();
+  const webhookUrl = getWebhookUrl();
   if (!webhookUrl) {
     console.log("LIVE N-MODE AUDIT: BLOCKED — BITRIX_WEBHOOK_URL NOT AVAILABLE");
     console.log("LIVE AUDIT NOT EXECUTED");
