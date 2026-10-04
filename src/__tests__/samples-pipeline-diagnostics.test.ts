@@ -791,6 +791,7 @@ describe("diagnosis mapping (pure function)", () => {
     } as const,
     clientContract: { status: "PASS" } as const,
     commercialFunnelInput: { status: "PASS", companyCount: 1, dealCount: 1 } as const,
+    nModeFieldContract: { status: "SKIPPED", reason: "NOT_RUN" } as const,
   });
 
   it("maps each failing layer to exactly one diagnosis", () => {

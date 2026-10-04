@@ -55,7 +55,7 @@ import {
   SMART_PROCESS_ROLE_FIELD_IDS,
   SMART_PROCESS_CANDIDATE_PARTITION_ROLES,
 } from "@/lib/samples/bitrix-fetch";
-import { SMART_PROCESS_ENTITY_TYPE_ID } from "@/lib/samples/smart-process-contract";
+import { SMART_PROCESS_ENTITY_TYPE_ID, correlateSmartProcessNModeFieldNames } from "@/lib/samples/smart-process-contract";
 import { fetchDealCompanyMap } from "@/lib/samples/smart-process-service";
 import { assertSmartProcessContractReady } from "@/lib/samples/smart-process-contract";
 import {
@@ -309,6 +309,59 @@ export type CommercialFunnelInputProbe =
   | ProbeFailure
   | { status: "SKIPPED"; reason: "UPSTREAM_SAMPLES_FAILED" | "NOT_RUN" };
 
+// ─── N-mode field-contract section (diagnostic-only; read-only) ────────
+// Proves the live Bitrix24 custom field-naming contract under
+// `useOriginalUfNames = "N"` for ALL custom fields required by Smart
+// Process 1032, using ONLY read-only methods (crm.item.fields /
+// crm.item.list). FIXED probes — no request-controlled method names, no
+// caller-supplied selects. Output carries semantic roles and anonymous
+// structure facts ONLY — never business values, company/item/Deal IDs,
+// N-mode or original field NAMES, grades, quantities, comments, webhook
+// material, raw bodies, or error_description.
+// ─────────────────────────────────────────────────────────────────────
+
+/** Per-role N-mode contract facts (semantic role only, booleans/counts). */
+export interface NModeRoleContract {
+  /** Exactly one N-mode field correlated via documented `upperName`. */
+  resolved: boolean;
+  /** No duplicate/ambiguous N-mode candidate exists. */
+  unique: boolean;
+  /** The role's N-mode select probe returned a usable envelope. */
+  selectable: boolean;
+  /** The role's N-mode select probe delivered ids for every row. */
+  returned: boolean;
+  /** Candidate count (0 = missing, 1 = unique, >1 = ambiguous). */
+  candidateCount: number;
+}
+
+export interface NModeFullSelectProbe {
+  status: "PASS" | "FAIL";
+  itemCount: number;
+  rowsWithUsableId: number;
+  duplicateIdCount: number;
+  reportedTotal: number | null;
+  nextPresent: boolean;
+  /** All six role keys structurally present on the first row's key set. */
+  allRoleKeysCompatible: boolean;
+  /** Safe failure metadata when the probe call itself failed. */
+  method?: string;
+  httpStatus?: number;
+  bitrixCode?: number | string;
+}
+
+export interface NModeFieldContractReport {
+  status: "PASS" | "FAIL";
+  /** role → measured facts. */
+  roles: Record<string, NModeRoleContract>;
+  fullSelect: NModeFullSelectProbe;
+  /** Machine-readable verdict for the deployment gate. */
+  verdict:
+    | "N_MODE_FIELD_CONTRACT_OK"
+    | "N_MODE_FIELD_MAPPING_AMBIGUOUS"
+    | "N_MODE_FULL_SELECT_FAILED"
+    | "BITRIX_FIELD_NAMING_CONTRACT_CONFLICT";
+}
+
 export interface SamplesPipelineDiagnosticsReport {
   success: boolean;
   probes: {
@@ -321,6 +374,7 @@ export interface SamplesPipelineDiagnosticsReport {
     aggregation: AggregationProbe;
     clientContract: ClientContractProbe;
     commercialFunnelInput: CommercialFunnelInputProbe;
+    nModeFieldContract: NModeFieldContractReport | { status: "SKIPPED"; reason: string };
   };
   diagnosis: SamplesPipelineDiagnosis;
 }
@@ -807,6 +861,209 @@ export async function runSmartProcessSelectMatrix(): Promise<SmartProcessSelectM
   return { ...partial, partitions, verdict: finalVerdict };
 }
 
+// ─── N-mode field-contract runner (diagnostic-only, read-only) ─────────
+
+/**
+ * Roles measured by the N-mode single-role probes — the six CUSTOM (UF)
+ * roles. The relation role (parentId2) is a documented standard field and
+ * rides on the full-select probe.
+ */
+const N_MODE_PROBED_CUSTOM_ROLES: readonly string[] = [
+  "SENT_DATE",
+  "GRADE_GEL",
+  "GRADE_SOL",
+  "QTY_GEL",
+  "QTY_SOL",
+  "TEST_RESULT",
+];
+
+/**
+ * ONE fixed, read-only N-mode field-contract verification:
+ *   1. Y-mode + N-mode `crm.item.fields` — deterministic correlation of
+ *      every required custom role's N-mode name via the documented
+ *      `upperName` attribute (exactly ONE candidate per role required);
+ *   2. per-role N-mode single-field `crm.item.list` probes
+ *      (`select = ["id", <n-mode name>]`, production scope) — structure
+ *      facts only;
+ *   3. full proposed N-mode production select probe — valid envelope,
+ *      every row usable unique `id`, all role keys structurally present.
+ *
+ * NEVER reads or emits business values; never emits field NAMES (semantic
+ * roles + booleans/counts only). Uses `buildSmartProcessListParamsWithSelect`
+ * with `useOriginalUfNames: "N"` — the N-mode select carries the resolved
+ * N-mode custom names (contractually correct) and always the documented
+ * `id`.
+ */
+export async function runNModeFieldContractDiagnostics(): Promise<NModeFieldContractReport> {
+  const emptyRoles = (): Record<string, NModeRoleContract> => {
+    const roles: Record<string, NModeRoleContract> = {};
+    for (const role of N_MODE_PROBED_CUSTOM_ROLES) {
+      roles[role] = {
+        resolved: false,
+        unique: false,
+        selectable: false,
+        returned: false,
+        candidateCount: 0,
+      };
+    }
+    return roles;
+  };
+
+  const roles = emptyRoles();
+  const failReport = (
+    verdict: NModeFieldContractReport["verdict"],
+    fullSelect: NModeFullSelectProbe
+  ): NModeFieldContractReport => ({ status: "FAIL", roles, fullSelect, verdict });
+
+  const fullSelectFail = (extra?: Partial<NModeFullSelectProbe>): NModeFullSelectProbe => ({
+    status: "FAIL",
+    itemCount: 0,
+    rowsWithUsableId: 0,
+    duplicateIdCount: 0,
+    reportedTotal: null,
+    nextPresent: false,
+    allRoleKeysCompatible: false,
+    ...extra,
+  });
+
+  // ─── Step 1: metadata correlation (Y-mode original names + N-mode upperName) ───
+  let nModeFields: Record<string, { upperName?: unknown }>;
+  try {
+    const [yMeta, nMeta] = await Promise.all([
+      bitrixPost<{ result?: unknown }>("crm.item.fields", {
+        entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
+        useOriginalUfNames: "Y",
+      }),
+      bitrixPost<{ result?: unknown }>("crm.item.fields", {
+        entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
+        useOriginalUfNames: "N",
+      }),
+    ]);
+    const unwrap = (raw: { result?: unknown } | undefined): unknown =>
+      raw?.result &&
+      typeof raw.result === "object" &&
+      (raw.result as { fields?: unknown }).fields &&
+      typeof (raw.result as { fields?: unknown }).fields === "object" &&
+      !Array.isArray((raw.result as { fields?: unknown }).fields)
+        ? (raw.result as { fields: unknown }).fields
+        : null;
+    const yFields = unwrap(yMeta);
+    const nFieldsRaw = unwrap(nMeta);
+    if (
+      !yFields ||
+      typeof yFields !== "object" ||
+      !nFieldsRaw ||
+      typeof nFieldsRaw !== "object"
+    ) {
+      return failReport("BITRIX_FIELD_NAMING_CONTRACT_CONFLICT", fullSelectFail());
+    }
+    // Original name per role from Y-mode metadata keys (canonical provenance).
+    const roleOriginalNames: Record<string, string> = {};
+    for (const role of N_MODE_PROBED_CUSTOM_ROLES) {
+      const fieldId = SMART_PROCESS_ROLE_FIELD_IDS[role];
+      if (fieldId && fieldId in (yFields as Record<string, unknown>)) {
+        roleOriginalNames[role] = fieldId;
+      }
+    }
+    nModeFields = nFieldsRaw as Record<string, { upperName?: unknown }>;
+    const correlation = correlateSmartProcessNModeFieldNames(roleOriginalNames, nModeFields);
+    for (const role of N_MODE_PROBED_CUSTOM_ROLES) {
+      const count = correlation.candidates[role] ?? 0;
+      roles[role] = {
+        resolved: count === 1,
+        unique: count === 1,
+        selectable: false,
+        returned: false,
+        candidateCount: count,
+      };
+    }
+    if (!correlation.complete) {
+      return failReport("N_MODE_FIELD_MAPPING_AMBIGUOUS", fullSelectFail());
+    }
+    // ─── Step 2: per-role N-mode single-field list probes ───
+    let anyRoleProbeFailed = false;
+    for (const role of N_MODE_PROBED_CUSTOM_ROLES) {
+      const nModeName = correlation.resolved[role];
+      if (!nModeName) {
+        anyRoleProbeFailed = true;
+        continue;
+      }
+      const probe = await probeSelectFirstPage(["id", nModeName], "N");
+      const envelopeOk = probe.itemCount > 0 && !probe.invalidEnvelope && probe.status === "PASS";
+      roles[role] = {
+        ...roles[role],
+        selectable: envelopeOk,
+        returned: envelopeOk,
+      };
+      if (!envelopeOk) anyRoleProbeFailed = true;
+    }
+    if (anyRoleProbeFailed) {
+      return failReport("N_MODE_FULL_SELECT_FAILED", fullSelectFail());
+    }
+
+    // ─── Step 3: full proposed N-mode production select probe ───
+    const nModeSelect = [
+      ...SMART_PROCESS_SYSTEM_SELECT,
+      "parentId2",
+      ...N_MODE_PROBED_CUSTOM_ROLES.map((role) => correlation.resolved[role]),
+    ];
+    const full = await probeSelectFirstPage(nModeSelect, "N");
+    const firstRowKeys = new Set<string>();
+    if (full.status === "PASS" && full.itemCount > 0) {
+      try {
+        const rawPage = await bitrixPost<{ result?: unknown }>("crm.item.list", {
+          ...buildSmartProcessListParamsWithSelect({}, nModeSelect, { useOriginalUfNames: "N" }),
+          start: 0,
+        });
+        const items = parseListEnvelope(rawPage?.result);
+        const firstRow =
+          items && items.length > 0 && items[0] !== null && typeof items[0] === "object"
+            ? (items[0] as Record<string, unknown>)
+            : undefined;
+        for (const key of firstRow ? Object.keys(firstRow) : []) firstRowKeys.add(key);
+      } catch {
+        // Key-compat stays false; the structural probe result above already
+        // carries the verdict facts.
+      }
+    }
+    const allRoleKeysCompatible =
+      full.status === "PASS" &&
+      full.itemCount > 0 &&
+      N_MODE_PROBED_CUSTOM_ROLES.every((role) => firstRowKeys.has(correlation.resolved[role]));
+    const fullSelect: NModeFullSelectProbe = {
+      status: full.status === "PASS" && allRoleKeysCompatible ? "PASS" : "FAIL",
+      itemCount: full.itemCount,
+      rowsWithUsableId: full.rowsWithId,
+      // probeSelectFirstPage rejects pages with any unusable id; on PASS
+      // every row carried a usable id, so duplicates cannot survive the
+      // single first-page probe (pagination-convergence duplicates would
+      // already fail the helper invariant — the full-select probe is a
+      // first-page structural probe by design).
+      duplicateIdCount: full.status === "PASS" ? 0 : full.itemCount - full.rowsWithId,
+      reportedTotal: full.reportedTotal,
+      nextPresent: full.nextPresent,
+      allRoleKeysCompatible,
+      ...(full.method ? { method: full.method } : {}),
+      ...(full.httpStatus !== undefined ? { httpStatus: full.httpStatus } : {}),
+      ...(full.bitrixCode !== undefined ? { bitrixCode: full.bitrixCode } : {}),
+    };
+    if (fullSelect.status !== "PASS") {
+      return failReport("N_MODE_FULL_SELECT_FAILED", fullSelect);
+    }
+    return { status: "PASS", roles, fullSelect, verdict: "N_MODE_FIELD_CONTRACT_OK" };
+  } catch (error) {
+    const meta = readBitrixFailureMeta(error);
+    return failReport(
+      "BITRIX_FIELD_NAMING_CONTRACT_CONFLICT",
+      fullSelectFail({
+        ...(meta?.method ? { method: meta.method } : {}),
+        ...(meta?.httpStatus !== undefined ? { httpStatus: meta.httpStatus } : {}),
+        ...(meta?.bitrixCode !== undefined ? { bitrixCode: meta.bitrixCode } : {}),
+      })
+    );
+  }
+}
+
 
 /**
  * Runs the sequential read-only probe routine. Exported for focused
@@ -825,6 +1082,7 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
     aggregation: { status: "SKIPPED", reason: "NOT_RUN" },
     clientContract: { status: "SKIPPED", reason: "NOT_RUN" },
     commercialFunnelInput: { status: "SKIPPED", reason: "NOT_RUN" },
+    nModeFieldContract: { status: "SKIPPED", reason: "NOT_RUN" },
   };
 
   // ─── PROBE A: field metadata (same path as Samples) ───
@@ -865,6 +1123,18 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
 
   // ─── PROBE D: SP items via the EXACT Samples helper ───
   // (Includes the real fail-closed contract gate the route consumes.)
+  //
+  // N-mode field-contract section (deployment-gate evidence): runs BEFORE
+  // the helper probe so the verdict exists even when the Y-mode production
+  // helper fails. Fixed read-only probes; failures are reported inside the
+  // section and never abort the pipeline probes.
+  try {
+    probes.nModeFieldContract = await runNModeFieldContractDiagnostics();
+  } catch {
+    // Defensive: the runner reports its own failures; an unexpected setup
+    // error must not abort the pipeline routine.
+    probes.nModeFieldContract = { status: "SKIPPED", reason: "N_MODE_SECTION_ERROR" };
+  }
   //
   // Direct first-page comparison pre-step (task §3): issue the EXACT raw
   // production request once via the same transport, recording ONLY safe

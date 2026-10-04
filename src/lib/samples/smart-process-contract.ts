@@ -145,6 +145,123 @@ const REQUIRED_SMART_PROCESS_FIELD_ROLE_NAMES = [
   "Кол-во (ЗОЛЬ) л",
 ] as const;
 
+// ─── N-mode (useOriginalUfNames = "N") custom field-name contract ─────
+// Official Bitrix24 REST contract (apidocs.bitrix24.com — Universal CRM
+// Methods → Field Naming Conventions, crm.item.list, crm.item.fields):
+// under `useOriginalUfNames = "N"` (the documented DEFAULT) custom field
+// names are camelCase conversions of the original UF names, while standard
+// fields stay standard camelCase and `id` remains the documented item
+// identifier. The conversion is deterministic BUT has documented edge
+// cases (mixed-letter names keep the original suffix after `ufCrm_`; on a
+// converted-name collision the field is returned in original UPPER_CASE),
+// so the N-mode transport name is NEVER hand-derived in production code:
+// it is correlated from live `crm.item.fields` metadata via the documented
+// `upperName` attribute, fail-closed.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * The six required CUSTOM (UF) semantic roles whose N-mode transport names
+ * must be resolved before any N-mode production read. The Deal relation
+ (`parentId2`) and all other system fields are documented standard
+ * Universal CRM fields — identical under Y and N — and never participate
+ * in UF-name correlation.
+ */
+export const SMART_PROCESS_N_MODE_CUSTOM_ROLES: readonly string[] = [
+  "SENT_DATE",
+  "GRADE_GEL",
+  "GRADE_SOL",
+  "QTY_GEL",
+  "QTY_SOL",
+  "TEST_RESULT",
+];
+
+/** Minimal shape of one `crm.item.fields` field description (N-mode). */
+export interface SmartProcessNModeFieldDescription {
+  /** Documented metadata attribute: the original UPPER_CASE field name. */
+  upperName?: unknown;
+}
+
+/** N-mode `crm.item.fields` `result.fields` map: N-mode name → description. */
+export type SmartProcessNModeFieldMetadata = Record<
+  string,
+  SmartProcessNModeFieldDescription | undefined
+>;
+
+export interface SmartProcessNModeCorrelation {
+  /** role → resolved N-mode transport name (ONLY uniquely-resolved roles). */
+  resolved: Record<string, string>;
+  /** role → candidate count (0 = missing, 1 = unique, >1 = ambiguous). */
+  candidates: Record<string, number>;
+  /** True when every required custom role resolved to EXACTLY ONE name. */
+  complete: boolean;
+}
+
+/**
+ * Correlates each required custom role's original UF field name to its
+ * N-mode transport name using the documented `upperName` metadata
+ * attribute ONLY. Pure and deterministic: a role matches an N-mode field
+ * if and only if the field's `upperName` EQUALS the role's original field
+ * name. Never positional, never display-title similarity, never
+ * business-value based.
+ *
+ * Zero or multiple candidates for any role make the role unresolved —
+ * callers MUST fail closed (N_MODE_FIELD_MAPPING_AMBIGUOUS).
+ */
+export function correlateSmartProcessNModeFieldNames(
+  roleOriginalNames: Record<string, string>,
+  nModeFields: SmartProcessNModeFieldMetadata | undefined | null
+): SmartProcessNModeCorrelation {
+  const resolved: Record<string, string> = {};
+  const candidates: Record<string, number> = {};
+  let complete = true;
+
+  for (const role of SMART_PROCESS_N_MODE_CUSTOM_ROLES) {
+    const originalName = roleOriginalNames[role];
+    let count = 0;
+    let matchedName: string | undefined;
+    if (originalName && nModeFields && typeof nModeFields === "object") {
+      for (const [fieldName, meta] of Object.entries(nModeFields)) {
+        if (
+          meta &&
+          typeof meta === "object" &&
+          typeof meta.upperName === "string" &&
+          meta.upperName === originalName
+        ) {
+          count++;
+          matchedName = fieldName;
+        }
+      }
+    }
+    candidates[role] = count;
+    if (count === 1 && matchedName) {
+      resolved[role] = matchedName;
+    } else {
+      complete = false;
+    }
+  }
+
+  return { resolved, candidates, complete };
+}
+
+/**
+ * Fail-closed gate for production N-mode reads: throws unless EVERY
+ * required custom role resolved to exactly one N-mode name. Error text
+ * carries semantic role names only — never raw field names or metadata.
+ */
+export function assertSmartProcessNModeContractComplete(
+  correlation: SmartProcessNModeCorrelation
+): void {
+  if (correlation.complete) return;
+  const broken = SMART_PROCESS_N_MODE_CUSTOM_ROLES.filter(
+    (role) => correlation.candidates[role] !== 1
+  ).map((role) =>
+    correlation.candidates[role] === 0
+      ? `${role}: MISSING`
+      : `${role}: AMBIGUOUS(${correlation.candidates[role]})`
+  );
+  throw new Error(`N_MODE_FIELD_MAPPING_AMBIGUOUS: ${broken.join(", ")}`);
+}
+
 /** Stable semantic class for an arbitrary stage ID (unknown → undefined). */
 export function smartProcessStageSemantic(stageId: string | undefined): SmartProcessStageSemantic | undefined {
   if (!stageId) return undefined;
