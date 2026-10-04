@@ -2,9 +2,12 @@ name: CI & Release Gate
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "fix/**"
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

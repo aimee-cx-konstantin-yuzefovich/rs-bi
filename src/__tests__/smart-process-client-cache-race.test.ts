@@ -23,21 +23,22 @@ import {
 } from "@/lib/samples/smart-process-client-cache";
 import type { SmartProcessItemView } from "@/lib/samples/smart-process-view";
 
-const mockItem = (id: string, title: string): SmartProcessItemView => ({
-  processItemId: id,
-  title,
-  companyId: "10",
-  linkedDealId: "505",
-  stageId: "DT1032_15:CLIENT",
-  stageLabel: "Образцы на испытании",
-  isActive: true,
-  isTerminal: false,
-  sentDates: ["2026-03-10"],
-  grades: [],
-  quantities: [],
-  normalizedResult: "pending",
-  dataIssues: [],
-} as SmartProcessItemView);
+const mockItem = (id: string, title: string): SmartProcessItemView =>
+  ({
+    processItemId: id,
+    title,
+    companyId: "10",
+    linkedDealId: "505",
+    stageId: "DT1032_15:CLIENT",
+    stageLabel: "Образцы на испытании",
+    isActive: true,
+    isTerminal: false,
+    sentDates: ["2026-03-10"],
+    grades: [],
+    quantities: [],
+    normalizedResult: "pending",
+    dataIssues: [],
+  }) as unknown as SmartProcessItemView;
 
 const successBody = (item: SmartProcessItemView) => ({
   success: true,

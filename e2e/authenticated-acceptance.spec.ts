@@ -39,4 +39,47 @@ test.describe("authenticated acceptance", () => {
     // Zero unexpected JS exceptions across the journey.
     expect(pageErrors).toEqual([]);
   });
+
+  // Data-state smoke for the Smart Process surfaces (semantic, never
+  // screenshot-based). Each page must reach a truthful end state: either
+  // the registry/tabs render, or an explicit truthful error state with a
+  // retry is shown — never an infinite spinner, and raw technical IDs
+  // must not leak into the DOM.
+  test("/samples reaches a truthful end state (no infinite loading, no raw ID leak)", async ({ page }) => {
+    await login(page);
+    await page.goto("/samples", { waitUntil: "domcontentloaded" });
+    // Truthful end states: the registry table, the explicit unavailable
+    // state («Данные недоступны…Повторить загрузку»), or the filters bar.
+    await expect(
+      page
+        .locator(
+          '[data-testid="samples-table-scroll"], [data-testid="samples-filters"], :text("Данные недоступны из-за ошибки загрузки")'
+        )
+        .first()
+    ).toBeVisible({ timeout: 60_000 });
+    // Raw Bitrix UF/token identifiers never leak into user-facing content.
+    const body = await page.locator("body").innerText();
+    expect(body).not.toMatch(/UF_CRM_\d+/);
+    expect(body).not.toMatch(/DT1032_15:/);
+    expect(body).not.toMatch(/parentId2/);
+  });
+
+  test("/commercial-funnel reaches a truthful end state (no infinite loading, no raw ID leak)", async ({ page }) => {
+    await login(page);
+    await page.goto("/commercial-funnel", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.locator('[data-testid="funnel-tabs"], :text("Повторить"), :text("повторить")').first()
+    ).toBeVisible({ timeout: 60_000 });
+    const body = await page.locator("body").innerText();
+    expect(body).not.toMatch(/UF_CRM_\d+/);
+    expect(body).not.toMatch(/DT1032_15:/);
+  });
 });
+
+async function login(page: import("@playwright/test").Page) {
+  await page.goto("/login");
+  await page.fill('input[name="username"], input[type="text"]', process.env.E2E_TEST_USERNAME!);
+  await page.fill('input[name="password"], input[type="password"]', process.env.E2E_TEST_PASSWORD!);
+  await page.click('button[type="submit"]');
+  await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 30_000 });
+}
