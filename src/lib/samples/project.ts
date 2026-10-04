@@ -129,6 +129,13 @@ export function projectCanonicalCompanyToSummary(
     ? userNames?.[currentResponsibleId]
     : undefined;
 
+  // Explicit COMPANY-grain responsibility (company owner), independent of
+  // the current process responsible above. Resolved from the SAME canonical
+  // model + user names — no second parser, no raw Company re-read.
+  const companyResponsibleName = canonical.companyResponsibleId
+    ? userNames?.[canonical.companyResponsibleId]
+    : undefined;
+
   // Current status values: SP current item's stage label(s) when SP
   // resolved; otherwise legacy status evidence. Multiple-active SP
   // surfaces the joined distinct active labels (truthful ambiguity).
@@ -142,6 +149,8 @@ export function projectCanonicalCompanyToSummary(
     companyTitle: canonical.companyTitle,
     responsibleId: currentResponsibleId,
     responsibleName,
+    companyResponsibleId: canonical.companyResponsibleId,
+    ...(companyResponsibleName ? { companyResponsibleName } : {}),
     productFamilies: companyUnit?.productFamilies ?? [],
     grades: spCurrentUnit?.grades.length ? spCurrentUnit.grades : (companyUnit?.grades ?? []),
     quantities: companyUnit?.quantities ?? [],

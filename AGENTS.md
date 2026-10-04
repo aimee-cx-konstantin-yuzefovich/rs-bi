@@ -301,6 +301,14 @@ The system distinguishes five conceptual analytical lifecycle states across Samp
 - **Combined `{ companyId, responsibleId }` truthfulness**: when the requested Company fails the responsible filter, the API returns a truthful successful empty scope (`samples: []`) and performs NO Deal or Smart Process population load — linked Deals, direct SP `companyId`, or fallback-by-Deal evidence can never resurrect it. When the Company matches, the accepted company-scoped Smart Process mechanism (direct ∪ fallback-by-Deal candidates, complete relation map, conflict detection) remains unchanged.
 - Omitting `allowedCompanyIds` keeps full unscoped Samples semantics unchanged.
 
+### Samples responsible display grain (explicit Company responsible)
+
+- `SampleSummary` carries TWO distinct responsibility facts (canonical projector `projectCanonicalCompanyToSummary` in `src/lib/samples/project.ts`; no second parser, no raw Company re-read):
+  - `responsibleId` / `responsibleName` — canonical **current sample/process responsibility** (SMART_PROCESS item's own `ASSIGNED_BY_ID` → legacy/current fallback → Company responsible). Meaning unchanged; Commercial Funnel and other consumers may rely on it.
+  - `companyResponsibleId` / `companyResponsibleName` — explicit **Company owner grain** (Company `ASSIGNED_BY_ID`, identical to the Companies browser).
+- **Grain contract**: the Samples UI responsible filter, the registry responsible column, and the Samples Excel responsible column operate at COMPANY grain and consume `companyResponsibleId` (filter/predicate helpers `buildCompanyResponsibleOptions` / `matchesCompanyResponsibleFilter` in `src/components/dashboard/samples/samples-filters.tsx`; Excel via `buildSamplesWorkbook` in `src/lib/export-utils.ts`). Filtering by a Company owner includes the company even when its current SP cycle belongs to a different manager; filtering by an SP assignee never includes the company merely because of that process assignment.
+- Physical Smart Process cycles keep their own process responsible in `SmartProcessItemView` / `SmartProcessItemCard` / Sample Preview cycle details — never erased or replaced by the company owner.
+
 ## Commands and QA matrix
 
 Run commands from the repository root:

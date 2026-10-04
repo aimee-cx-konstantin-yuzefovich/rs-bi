@@ -12,6 +12,21 @@
 //  A.6 DEMO_FIELDS can never become authoritative for a real Company card
 //      (failed production fetch after demo → no demo label resolution,
 //      truthful warning), including the store-level transition cleanup.
+//  A.7 failed explicit FIELDS retry = exactly +1 request, never +2 (real
+//      loading transitions true→false are simulated; one click can never
+//      produce two requests);
+//  A.8 failed explicit USERS retry = exactly +1 request, never +2;
+//  A.9 an already-running shared lookup that FAILS never triggers an
+//      automatic second CompanyPreview request (it IS the bootstrap
+//      opportunity);
+//  A.10 session loading / unauthenticated → ZERO lookup requests
+//      (auth-gated bootstrap);
+//  A.11 authenticated principal transition re-arms exactly one attempt
+//      per source;
+//  A.12 DEMO_FIELDS present + real CompanyPreview → the production FIELDS
+//      fetch still occurs (demo dictionary never suppresses bootstrap);
+//  A.13 demo user names present → they do not suppress the production
+//      USERS fetch; demo users fetch never fires while isDemoMode.
 // ─────────────────────────────────────────────────────────────────────
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,8 +36,18 @@ import {
   COMPANY_INDUSTRY_CURRENT_FIELD_ID,
 } from "@/lib/crm-constants";
 
+// Mutable session mock: tests flip `sessionMock.status` / `sessionMock.userId`
+// and re-render to exercise auth-gating and principal transitions.
+const sessionMock = vi.hoisted(() => ({
+  status: "authenticated" as "loading" | "unauthenticated" | "authenticated",
+  userId: "principal-bootstrap" as string | undefined,
+}));
+
 vi.mock("next-auth/react", () => ({
-  useSession: () => ({ data: { user: { id: "principal-bootstrap" } }, status: "authenticated" }),
+  useSession: () => ({
+    data: { user: { id: sessionMock.userId } },
+    status: sessionMock.status,
+  }),
 }));
 
 const storeState = vi.hoisted(() => ({
@@ -101,11 +126,51 @@ function installBaseTransport() {
   });
 }
 
+/**
+ * Installs REAL loading-transition store actions: calling the mocked
+ * fetchFields/fetchUserNames flips `*Loading` true → (async work) → false
+ * and applies the configured outcome. A mock that leaves `*Loading`
+ * unchanged can never expose the failed-empty bootstrap race.
+ */
+function installLoadingTransitionalActions(outcomes: {
+  fields?: "fail" | "succeed" | "none";
+  users?: "fail" | "succeed" | "none";
+}) {
+  storeState.fetchFields = vi.fn(async () => {
+    storeState.fieldsLoading = true;
+    await Promise.resolve();
+    storeState.fieldsLoading = false;
+    if (outcomes.fields === "fail") {
+      storeState.fieldsError = "Failed to load fields";
+    } else if (outcomes.fields === "succeed") {
+      storeState.fieldsError = null;
+      storeState.fields = [
+        { id: INDUSTRY_FIELD, title: "Отрасль", type: "enumeration", listValues: [{ ID: "1739", VALUE: "Химия" }] },
+      ];
+      storeState.fieldsCoverage = { status: "COMPLETE", fetched: 1, total: 1 };
+    }
+  });
+  storeState.fetchUserNames = vi.fn(async () => {
+    storeState.userNamesLoading = true;
+    await Promise.resolve();
+    storeState.userNamesLoading = false;
+    if (outcomes.users === "fail") {
+      storeState.userNames = {};
+      storeState.usersCoverage = { status: "PARTIAL", fetched: 0, warning: "Не удалось загрузить справочник сотрудников." };
+    } else if (outcomes.users === "succeed") {
+      storeState.userNames = { "7": "Анна Иванова" };
+      storeState.usersCoverage = { status: "COMPLETE", fetched: 1, total: 1 };
+    }
+  });
+}
+
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   installBaseTransport();
+  sessionMock.status = "authenticated";
+  sessionMock.userId = "principal-bootstrap";
   storeState.userNames = {};
   storeState.usersCoverage = null;
   storeState.fields = [];
@@ -127,6 +192,7 @@ afterEach(() => {
 
 describe("A. one-shot lookup bootstrap", () => {
   it("A.1: fields fetch fails → exactly one automatic attempt, no request loop", async () => {
+    installLoadingTransitionalActions({ fields: "fail", users: "fail" });
     const { rerender } = render(<CompanyPreview id="42" onClose={() => {}} />);
 
     await screen.findByText("Компания справочников");
@@ -159,6 +225,7 @@ describe("A. one-shot lookup bootstrap", () => {
   });
 
   it("A.2: users fetch fails → exactly one automatic attempt, no request loop", async () => {
+    installLoadingTransitionalActions({ fields: "fail", users: "fail" });
     const { rerender } = render(<CompanyPreview id="42" onClose={() => {}} />);
     await screen.findByText("Компания справочников");
     await waitFor(() => expect(storeState.fetchUserNames).toHaveBeenCalledTimes(1));
@@ -303,5 +370,235 @@ describe("A. one-shot lookup bootstrap", () => {
       { fields: [], metadataState: "partial" }
     );
     expect(partialModel.fields.find((f) => f.id === INDUSTRY_FIELD)?.value).toBe("Не классифицировано");
+  });
+});
+
+describe("B. lookup retry exactness + auth gating (consume-first contract)", () => {
+  it("A.7: failed explicit FIELDS retry = exactly +1 request, never +2 (real loading transitions)", async () => {
+    installLoadingTransitionalActions({ fields: "fail", users: "none" });
+    const { rerender } = render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByText("Компания справочников");
+
+    // Automatic bootstrap: 1 request, real true→false loading transition ran.
+    await waitFor(() => expect(storeState.fetchFields).toHaveBeenCalledTimes(1));
+    expect(storeState.fieldsError).toBe("Failed to load fields");
+    expect(storeState.fieldsLoading).toBe(false);
+
+    // Failed-empty state visible → retry button present. ONE click.
+    const retry = document.querySelector('[data-metadata-retry="fields"]')!;
+    expect(retry).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(retry);
+    });
+
+    // The retry action itself performed the real loading transition
+    // (true → false) synchronously awaited inside act above.
+    expect(storeState.fieldsLoading).toBe(false);
+    await waitFor(() => expect(storeState.fetchFields).toHaveBeenCalledTimes(2));
+
+    // THE RACE: re-render repeatedly against the failed empty outcome. The
+    // pre-fix pattern (ref = null then fetch) let the bootstrap effect
+    // observe the failed state and fire a THIRD request. Consume-first
+    // must not.
+    for (let i = 0; i < 4; i++) {
+      await act(async () => {
+        rerender(<CompanyPreview id="42" onClose={() => {}} />);
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    }
+    expect(storeState.fetchFields).toHaveBeenCalledTimes(2);
+  });
+
+  it("A.8: failed explicit USERS retry = exactly +1 request, never +2 (real loading transitions)", async () => {
+    installLoadingTransitionalActions({ fields: "none", users: "fail" });
+    const { rerender } = render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByText("Компания справочников");
+
+    await waitFor(() => expect(storeState.fetchUserNames).toHaveBeenCalledTimes(1));
+    expect(storeState.usersCoverage?.status).toBe("PARTIAL");
+    expect(storeState.userNamesLoading).toBe(false);
+
+    // ONE explicit retry click.
+    const retry = document.querySelector('[data-metadata-retry="users"]')!;
+    expect(retry).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(retry);
+    });
+    await waitFor(() => expect(storeState.fetchUserNames).toHaveBeenCalledTimes(2));
+
+    // No automatic third request across repeated re-renders.
+    for (let i = 0; i < 4; i++) {
+      await act(async () => {
+        rerender(<CompanyPreview id="42" onClose={() => {}} />);
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    }
+    expect(storeState.fetchUserNames).toHaveBeenCalledTimes(2);
+    expect(storeState.fetchFields).toHaveBeenCalledTimes(1);
+  });
+
+  it("A.9: an already-running shared lookup that fails → no automatic second CompanyPreview request", async () => {
+    installLoadingTransitionalActions({ fields: "none", users: "none" });
+    // Simulate a shared lookup another consumer started: loading=true,
+    // empty data — the drawer must treat this as ITS bootstrap opportunity.
+    storeState.fieldsLoading = true;
+    storeState.userNamesLoading = true;
+
+    const { rerender } = render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByText("Компания справочников");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      rerender(<CompanyPreview id="42" onClose={() => {}} />);
+    });
+    // No stacked requests while the shared request is in flight.
+    expect(storeState.fetchFields).not.toHaveBeenCalled();
+    expect(storeState.fetchUserNames).not.toHaveBeenCalled();
+
+    // The shared request FAILS: loading false, failed empty outcome.
+    await act(async () => {
+      storeState.fieldsLoading = false;
+      storeState.userNamesLoading = false;
+      storeState.fieldsError = "Failed to load fields";
+      storeState.usersCoverage = { status: "PARTIAL", fetched: 0, warning: "Не удалось загрузить справочник сотрудников." };
+      rerender(<CompanyPreview id="42" onClose={() => {}} />);
+    });
+    for (let i = 0; i < 4; i++) {
+      await act(async () => {
+        rerender(<CompanyPreview id="42" onClose={() => {}} />);
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    }
+    // The failing shared request consumed the drawer's bootstrap: zero
+    // automatic follow-up requests. Only an explicit retry may fetch.
+    expect(storeState.fetchFields).not.toHaveBeenCalled();
+    expect(storeState.fetchUserNames).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-metadata-source="fields"]')).toBeTruthy();
+    expect(document.querySelector('[data-metadata-source="users"]')).toBeTruthy();
+  });
+
+  it("A.10: session loading / unauthenticated → ZERO lookup requests", async () => {
+    sessionMock.status = "loading";
+    const first = render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByText("Компания справочников");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(storeState.fetchFields).not.toHaveBeenCalled();
+    expect(storeState.fetchUserNames).not.toHaveBeenCalled();
+    first.unmount();
+    cleanup();
+
+    sessionMock.status = "unauthenticated";
+    render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByText("Компания справочников");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(storeState.fetchFields).not.toHaveBeenCalled();
+    expect(storeState.fetchUserNames).not.toHaveBeenCalled();
+  });
+
+  it("A.11: authenticated principal transition re-arms exactly one attempt per source", async () => {
+    installLoadingTransitionalActions({ fields: "fail", users: "fail" });
+    const { rerender } = render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByText("Компания справочников");
+    await waitFor(() => expect(storeState.fetchFields).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(storeState.fetchUserNames).toHaveBeenCalledTimes(1));
+
+    // Principal change while authenticated → exactly one new attempt per
+    // source (re-armed one-shot contract), no storm.
+    await act(async () => {
+      sessionMock.userId = "principal-2";
+      rerender(<CompanyPreview id="42" onClose={() => {}} />);
+    });
+    await waitFor(() => expect(storeState.fetchFields).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(storeState.fetchUserNames).toHaveBeenCalledTimes(2));
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        rerender(<CompanyPreview id="42" onClose={() => {}} />);
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    }
+    expect(storeState.fetchFields).toHaveBeenCalledTimes(2);
+    expect(storeState.fetchUserNames).toHaveBeenCalledTimes(2);
+  });
+
+  it("A.12: DEMO_FIELDS present + real CompanyPreview → production FIELDS fetch occurs (demo never suppresses)", async () => {
+    // Store warmed with the DEMO dictionary + demo provenance.
+    storeState.isDemoMode = true;
+    storeState.fields = [
+      {
+        id: INDUSTRY_FIELD,
+        title: "Демо Отрасль",
+        type: "enumeration",
+        listValues: [{ ID: "1739", VALUE: "ДЕМО-ОТРАСЛЬ" }],
+      },
+    ];
+    const { rerender } = render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByText("Компания справочников");
+
+    // Demo warm state does NOT satisfy the production fields bootstrap.
+    await waitFor(() => expect(storeState.fetchFields).toHaveBeenCalledTimes(1));
+
+    // Transition to production (store cleared demo registry/provenance on the
+    // real fetchFields path; here we simulate the post-transition state).
+    await act(async () => {
+      storeState.isDemoMode = false;
+      storeState.fields = [
+        {
+          id: INDUSTRY_FIELD,
+          title: "Отрасль (согл. список)",
+          type: "enumeration",
+          listValues: [{ ID: "1739", VALUE: "Химия" }],
+        },
+      ];
+      storeState.fieldsCoverage = { status: "COMPLETE", fetched: 1, total: 1 };
+      rerender(<CompanyPreview id="42" onClose={() => {}} />);
+    });
+    // No second fields fetch: the production dictionary is now warm.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      rerender(<CompanyPreview id="42" onClose={() => {}} />);
+    });
+    expect(storeState.fetchFields).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Химия")).toBeInTheDocument();
+  });
+
+  it("A.13: demo user names never suppress production USERS bootstrap; no users fetch while demo", async () => {
+    installLoadingTransitionalActions({ fields: "fail", users: "succeed" });
+    // Demo mode with a demo user dictionary standing.
+    storeState.isDemoMode = true;
+    storeState.userNames = { "7": "Демо Сотрудник" };
+    storeState.usersCoverage = { status: "COMPLETE", fetched: 1, total: 1 };
+
+    const { rerender } = render(<CompanyPreview id="42" onClose={() => {}} />);
+    await screen.findByText("Компания справочников");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      rerender(<CompanyPreview id="42" onClose={() => {}} />);
+    });
+
+    // NEVER fetch users in demo mode (store would return demo persons);
+    // fields bootstrap proceeds (production lookup not suppressed).
+    expect(storeState.fetchUserNames).not.toHaveBeenCalled();
+    await waitFor(() => expect(storeState.fetchFields).toHaveBeenCalledTimes(1));
+
+    // Production transition: demo provenance cleared (as the real store
+    // fetchFields does), production users bootstrap fires exactly once.
+    await act(async () => {
+      storeState.isDemoMode = false;
+      storeState.userNames = {};
+      storeState.usersCoverage = null;
+      rerender(<CompanyPreview id="42" onClose={() => {}} />);
+    });
+    await waitFor(() => expect(storeState.fetchUserNames).toHaveBeenCalledTimes(1));
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        rerender(<CompanyPreview id="42" onClose={() => {}} />);
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    }
+    expect(storeState.fetchUserNames).toHaveBeenCalledTimes(1);
+    expect(storeState.fetchFields).toHaveBeenCalledTimes(1);
   });
 });

@@ -182,6 +182,14 @@ interface DashboardState {
    */
   activitiesRequestState: Record<string, "idle" | "loading" | "success" | "error">;
   userNamesLoading: boolean;
+  /**
+   * TRUE while the `userNames` dictionary carries DEMO provenance (demo
+   * responsible persons from the demo-mode fetchUserNames branch). A
+   * successful PRODUCTION /api/bitrix/users response must then REPLACE the
+   * dictionary instead of merging into it — demo names never survive into
+   * the production directory. Ephemeral, never persisted.
+   */
+  userNamesFromDemo: boolean;
 
   // ─── Company Browser ───
   // Independent of the deals dataset: queries crm.company.list directly,
@@ -221,6 +229,15 @@ interface DashboardState {
   // ─── Actions ───
   checkConfig: () => Promise<void>;
   fetchFields: () => Promise<void>;
+  /**
+   * Demo → production lookup transition: clears the user directory AND its
+   * coverage provenance when the store leaves demo mode. DEMO responsible
+   * names are never authoritative production data — a production directory
+   * must REPLACE them, never merge into them (and a failed production fetch
+   * after demo must leave no authoritative demo names standing).
+   * Ephemeral state only — nothing here is persisted.
+   */
+  clearDemoLookupProvenance: () => void;
   fetchDeals: (options?: { skipRelated?: boolean }) => Promise<void>;
   loadDemoData: () => void;
   setSelectedColumns: (columns: string[]) => void;
@@ -412,6 +429,7 @@ export const useDashboardStore = create<DashboardState>()(
       appLoaded: false,
       savedViews: [],
       userNames: {},
+      userNamesFromDemo: false,
       companiesData: {},
       companiesDataFetchedAt: {},
       companiesDataLoading: false,
@@ -452,6 +470,11 @@ export const useDashboardStore = create<DashboardState>()(
         set({ dismissedBannerIds: [] });
       },
 
+      // Demo → production lookup provenance transition (see interface doc).
+      clearDemoLookupProvenance: () => {
+        set({ userNames: {}, usersCoverage: null, userNamesFromDemo: false });
+      },
+
       // ─── Actions ───
       checkConfig: async () => {
         try {
@@ -482,7 +505,10 @@ export const useDashboardStore = create<DashboardState>()(
         const wasDemo = get().isDemoMode;
         if (wasDemo) {
           // Transitioning from demo mode: clear demo registry so demo labels never leak into production
+          // AND clear demo user-directory provenance: production user names must replace (never merge
+          // into) the demo dictionary, and a failed production fetch must leave no demo names standing.
           set({ dealTypeRegistry: {}, isDemoMode: false });
+          get().clearDemoLookupProvenance();
         }
         set({ fieldsLoading: true, fieldsError: null });
         try {
@@ -574,6 +600,10 @@ export const useDashboardStore = create<DashboardState>()(
       fetchDeals: async (options?: { skipRelated?: boolean }) => {
         const requestSeq = ++dealsRequestSeq;
         const isCurrentRequest = () => requestSeq === dealsRequestSeq;
+        // Demo→production transition marker: a successful deals fetch leaves
+        // demo provenance; demo user names must then not survive as a
+        // production-looking dictionary.
+        const wasDemoAtEntry = get().isDemoMode;
         set({ dealsLoading: true, dealsError: null });
         try {
           const { dateFilter, selectedColumns, responsibleFilter } = get();
@@ -650,6 +680,12 @@ export const useDashboardStore = create<DashboardState>()(
             isConfigured: true,
             lastSyncAt: Date.now(),
           });
+          // Demo→production transition: clear demo user provenance BEFORE the
+          // non-blocking production user-directory fetch — production names
+          // must replace (never merge into) a demo dictionary.
+          if (wasDemoAtEntry) {
+            get().clearDemoLookupProvenance();
+          }
           get().applyClientFilters();
 
           if (!options?.skipRelated) {
@@ -1017,6 +1053,9 @@ export const useDashboardStore = create<DashboardState>()(
           }
           set({
             userNames: demoNames,
+            // Demo provenance marker: a subsequent PRODUCTION users success
+            // must REPLACE (never merge into) this demo dictionary.
+            userNamesFromDemo: true,
             userNamesLoading: false,
             usersCoverage: { status: "COMPLETE", fetched: RESPONSIBLE_PERSONS.length, total: RESPONSIBLE_PERSONS.length },
           });
@@ -1030,43 +1069,57 @@ export const useDashboardStore = create<DashboardState>()(
               console.warn("[Dashboard] Failed to fetch user names: API returned", response.status);
               // A failed refresh must never leave a previous COMPLETE state
               // standing — the current directory provenance is unknown/partial.
-              set({
+              set((state) => ({
+                // Demo→production truthfulness: a failed PRODUCTION fetch
+                // after demo leaves NO authoritative demo names standing.
+                ...(state.userNamesFromDemo ? { userNames: {} } : {}),
+                userNamesFromDemo: false,
                 userNamesLoading: false,
                 usersCoverage: {
                   status: "PARTIAL",
                   fetched: 0,
                   warning: USERS_DIRECTORY_FAILED_WARNING,
                 },
-              });
+              }));
               return;
             }
             const data = await response.json();
             if (data.success && data.users) {
               set((state) => ({
-                userNames: { ...state.userNames, ...data.users },
+                // Demo provenance → production directory REPLACES the demo
+                // dictionary (demo names never merge into production data).
+                // Production provenance → normal non-blocking refresh merge.
+                userNames: state.userNamesFromDemo
+                  ? { ...data.users }
+                  : { ...state.userNames, ...data.users },
+                userNamesFromDemo: false,
                 userNamesLoading: false,
                 usersCoverage: resolveUsersCoverage(data, USERS_DIRECTORY_CAP),
               }));
             } else {
-              set({
+              set((state) => ({
+                ...(state.userNamesFromDemo ? { userNames: {} } : {}),
+                userNamesFromDemo: false,
                 userNamesLoading: false,
                 usersCoverage: {
                   status: "PARTIAL",
                   fetched: 0,
                   warning: USERS_DIRECTORY_FAILED_WARNING,
                 },
-              });
+              }));
             }
           } catch {
             console.warn("[Dashboard] Failed to fetch user names");
-            set({
+            set((state) => ({
+              ...(state.userNamesFromDemo ? { userNames: {} } : {}),
+              userNamesFromDemo: false,
               userNamesLoading: false,
               usersCoverage: {
                 status: "PARTIAL",
                 fetched: 0,
                 warning: USERS_DIRECTORY_FAILED_WARNING,
               },
-            });
+            }));
           } finally {
             inFlightUsersPromise = null;
           }

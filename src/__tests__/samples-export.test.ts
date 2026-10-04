@@ -13,6 +13,7 @@ const MOCK_EXPORT_SAMPLES: SampleSummary[] = [
     companyId: "101",
     companyTitle: "ООО ХимПром",
     responsibleId: "1",
+    companyResponsibleId: "1",
     productFamilies: ["Гель"],
     grades: [{ productFamily: "Гель", value: "КСМГ-5" }],
     quantities: [{ productFamily: "Гель", value: 10, unit: "кг" }],
@@ -31,6 +32,7 @@ const MOCK_EXPORT_SAMPLES: SampleSummary[] = [
     companyId: "102",
     companyTitle: "=MALICIOUS_CMD()", // Formula injection test candidate
     responsibleId: "2",
+    companyResponsibleId: "2",
     productFamilies: ["Золь", "Гель"],
     grades: [
       { productFamily: "Золь", value: "СКСГ-2" },
@@ -58,6 +60,7 @@ const MOCK_EXPORT_SAMPLES: SampleSummary[] = [
     companyId: "103",
     companyTitle: "АО Кварц",
     responsibleId: "999", // Unmapped ID
+    companyResponsibleId: "999", // Unmapped company responsible (never raw in export)
     productFamilies: [],
     grades: [],
     quantities: [],
@@ -170,7 +173,7 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
     const EXPECTED_HEADERS = [
       "№",
       "Компания",
-      "Ответственный",
+      "Ответственный компании",
       "Отрасль / применение",
       "Продукт",
       "Марка",
@@ -214,6 +217,8 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
     const row7 = ws!.getRow(7);
     expect(row7.getCell(1).value).toBe(1);
     expect(row7.getCell(2).value).toBe("ООО ХимПром");
+    // COMPANY grain after binary round-trip: company owner (user 1), never
+    // the current process responsible.
     expect(row7.getCell(3).value).toBe("Иван Иванов");
     expect(row7.getCell(4).value).toBe("Химия / Катализаторы");
     expect(row7.getCell(5).value).toBe("Гель");
@@ -235,6 +240,7 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
     // Verify Row 8 formula escaping
     const row8 = ws!.getRow(8);
     expect(row8.getCell(2).value).toBe("'=MALICIOUS_CMD()");
+    expect(row8.getCell(3).value).toBe("Петр Петров");
     expect(row8.getCell(12).value).toBe("На доработке");
 
     // Verify Row 9 unmapped responsible displays properly (never raw ID 999)
@@ -368,6 +374,8 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
       companyTitle: "ООО СП-Компани",
       responsibleId: "7",
       responsibleName: "Сергей Процессный",
+      companyResponsibleId: "7",
+      companyResponsibleName: "Сергей Процессный",
       productFamilies: [],
       grades: [
         { productFamily: "Гель", value: "КСМГ-9" },

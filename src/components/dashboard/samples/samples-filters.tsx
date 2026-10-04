@@ -18,6 +18,8 @@ import { ChevronDown, ChevronUp, Download, X } from "lucide-react";
 import type { NormalizedResult, SampleSummary } from "@/lib/samples/types";
 import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import { parseStrictDate, BUSINESS_TIMEZONE } from "@/lib/scalar-safety";
+import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
+import type { DatasetCoverage } from "@/lib/dataset-coverage";
 
 export type SamplesPeriodPreset =
   | "7days"
@@ -208,6 +210,49 @@ export function isSamplesPeriodValid(
   return formatSamplesPeriodLabel(filters, now) !== null;
 }
 
+/**
+ * COMPANY-grain responsible filter option population (the ONE shared seam).
+ *
+ * Options come exclusively from `SampleSummary.companyResponsibleId` — the
+ * Company `ASSIGNED_BY_ID` (owner grain, identical to the Companies
+ * browser). The current SP/legacy process responsible
+ * (`SampleSummary.responsibleId`) NEVER contributes options: the registry
+ * grain is ONE COMPANY = ONE row, so its responsible filter must speak
+ * company ownership. The physical SP cycle keeps its own responsible.
+ */
+export function buildCompanyResponsibleOptions(
+  summaries: SampleSummary[],
+  userNames: Record<string, string>,
+  usersCoverage?: DatasetCoverage | null
+): Array<{ value: string; label: string }> {
+  const entries = new Map<string, string>();
+  for (const s of summaries) {
+    if (s.companyResponsibleId) {
+      entries.set(
+        s.companyResponsibleId,
+        resolveResponsibleDisplay(s.companyResponsibleId, userNames, usersCoverage)
+      );
+    }
+  }
+  return Array.from(entries.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "ru"));
+}
+
+/**
+ * COMPANY-grain responsible filter predicate. A summary matches the
+ * selected Company responsible ONLY via `companyResponsibleId` — filtering
+ * by the Company owner must include the company even when its current SP
+ * cycle belongs to a different manager, and filtering by an SP assignee
+ * must NOT include the company merely because of that process assignment.
+ */
+export function matchesCompanyResponsibleFilter(
+  summary: SampleSummary,
+  selected: string
+): boolean {
+  return selected === "all" || summary.companyResponsibleId === selected;
+}
+
 function SelectFilter({
   value,
   onChange,
@@ -314,7 +359,7 @@ export function SamplesFilterBar({
       <SelectFilter
         value={filters.responsibleId}
         onChange={(v) => set({ responsibleId: v })}
-        placeholder="Ответственный"
+        placeholder="Ответственный компании"
         options={[
           { value: "all", label: "Все ответственные" },
           ...responsibleOptions,

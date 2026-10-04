@@ -1513,7 +1513,7 @@ export async function buildSamplesWorkbook(
   const columns = [
     "№",
     "Компания",
-    "Ответственный",
+    "Ответственный компании",
     "Отрасль / применение",
     "Продукт",
     "Марка",
@@ -1544,9 +1544,13 @@ export async function buildSamplesWorkbook(
   const data: (string | number | null)[][] = summaries.map((s, idx) => {
     const rowNum = idx + 1;
     const company = s.companyTitle || (s.companyId ? `Компания #${s.companyId}` : "");
-    const responsible = s.responsibleId
-      ? resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
-      : s.responsibleName || null;
+    // COMPANY grain: the row is one company, so the responsible column is
+    // the Company owner (companyResponsibleId / ASSIGNED_BY_ID) — never the
+    // current SP/legacy process responsible (responsibleId). The process
+    // responsible remains available inside physical-cycle exports.
+    const responsible = s.companyResponsibleId
+      ? resolveResponsibleDisplay(s.companyResponsibleId, userNames, usersCoverage)
+      : s.companyResponsibleName || null;
     const industryApp = [s.industry, s.application].filter(Boolean).join(" / ") || null;
     const products = s.productFamilies.length > 0 ? s.productFamilies.join(", ") : null;
     const grades = s.grades.map((g) => g.value).filter(Boolean).join(", ") || null;

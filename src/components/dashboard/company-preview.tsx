@@ -140,9 +140,15 @@ export function CompanyPreview({
   // Auth principal: lookup bootstrap is one-shot per mounted drawer /
   // principal. A principal change re-arms exactly one automatic attempt for
   // the new principal; no timers, no automatic infinite retry.
-  const { data: session } = useSession();
+  // Bootstrap is AUTH-GATED: nothing is attempted while the session is
+  // loading or unauthenticated — only `status === "authenticated"` may
+  // bootstrap (the `__anonymous__` key stays a last-resort fallback for an
+  // authenticated session that exposes no identifier).
+  const { data: session, status: sessionStatus } = useSession();
   const principalKey =
-    session?.user?.id ?? session?.user?.email ?? session?.user?.name ?? "__anonymous__";
+    sessionStatus === "authenticated"
+      ? session?.user?.id ?? session?.user?.email ?? session?.user?.name ?? "__anonymous__"
+      : null;
 
   const {
     userNames, fields, usersCoverage, fieldsCoverage, fieldsError, isDemoMode, allDeals, dealsCoverage,
@@ -170,53 +176,88 @@ export function CompanyPreview({
   // metadata paths (fetchFields / fetchUserNames) the main page uses — no
   // duplicate metadata parser, no DEMO fallback.
   //
-  // Invariants:
+  // Consume-first attempt contract (exactness invariants):
   // - missing fields → fetchFields() attempted ONCE per principal; missing
   //   users → fetchUserNames() attempted ONCE per principal;
-  // - a failed attempt STOPS automatic retry (no request storm against
-  //   /api/bitrix/fields or /api/bitrix/users) — explicit user retry
-  //   (metadata retry button) re-arms a single further attempt;
-  // - an already in-flight shared request coalesces through existing store
-  //   logic (never a duplicate request);
+  // - the attempt is marked CONSUMED (attemptedForPrincipal = principalKey)
+  //   BEFORE the fetch is invoked — never cleared afterwards. A failed
+  //   attempt therefore STOPS automatic retry: one user click can never
+  //   produce two requests;
+  // - an in-flight shared request encountered by the drawer COUNTS AS its
+  //   bootstrap opportunity (consumed): when that shared request fails, no
+  //   automatic second request may follow from this drawer;
   // - a valid shared lookup already present (e.g. warmed by the main page)
   //   means NO bootstrap at all — switching Company ID never re-bootstraps;
+  // - DEMO dictionaries are never a warm production lookup: isDemoMode does
+  //   not suppress the production fields bootstrap and never triggers a
+  //   user-directory fetch (the store returns demo persons in demo mode);
+  //   production bootstrap follows the demo→production transition;
+  // - AUTH GATE: no attempt at all while the session is loading or
+  //   unauthenticated (principalKey is null);
   // - principal change → fresh one-shot attempt for the new principal.
   const fieldsBootstrapAttemptedRef = useRef<string | null>(null);
   const usersBootstrapAttemptedRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // Auth gate: never bootstrap while loading/unauthenticated.
+    if (!principalKey) return;
     // Already attempted for this principal → never automatically again.
     if (fieldsBootstrapAttemptedRef.current === principalKey) return;
-    // Valid shared lookup already present → nothing to bootstrap.
-    if (fields && fields.length > 0) {
+    // Valid shared production lookup already present → nothing to bootstrap.
+    // (DEMO_FIELDS never count: demo mode proceeds to the real fetch below.)
+    if (!isDemoMode && fields && fields.length > 0) {
       fieldsBootstrapAttemptedRef.current = principalKey;
       return;
     }
-    // In-flight shared request → coalesces; do not stack attempts.
-    if (fieldsLoading) return;
+    // In-flight shared request → it IS this drawer's bootstrap opportunity.
+    // Consume the attempt: when that request fails, no automatic second
+    // request may follow from here.
+    if (fieldsLoading) {
+      fieldsBootstrapAttemptedRef.current = principalKey;
+      return;
+    }
     fieldsBootstrapAttemptedRef.current = principalKey;
     void fetchFields();
-  }, [principalKey, fields, fieldsLoading, fetchFields]);
+  }, [principalKey, isDemoMode, fields, fieldsLoading, fetchFields]);
 
   useEffect(() => {
+    // Auth gate: never bootstrap while loading/unauthenticated.
+    if (!principalKey) return;
+    // Demo mode: NEVER call fetchUserNames — the store intentionally returns
+    // demo responsible persons in demo mode. Wait for the production
+    // transition (fetchFields/fetchDeals clears demo provenance); the
+    // attempt stays unconsumed, so production bootstrap fires once after it.
+    if (isDemoMode) return;
+    // Already attempted for this principal → never automatically again.
     if (usersBootstrapAttemptedRef.current === principalKey) return;
+    // Valid shared production directory already present → nothing to bootstrap.
     if (userNames && Object.keys(userNames).length > 0) {
       usersBootstrapAttemptedRef.current = principalKey;
       return;
     }
-    if (userNamesLoading) return;
+    // In-flight shared request → it IS this drawer's bootstrap opportunity
+    // (consumed; its failure cannot trigger an automatic second request).
+    if (userNamesLoading) {
+      usersBootstrapAttemptedRef.current = principalKey;
+      return;
+    }
     usersBootstrapAttemptedRef.current = principalKey;
     void fetchUserNames();
-  }, [principalKey, userNames, userNamesLoading, fetchUserNames]);
+  }, [principalKey, isDemoMode, userNames, userNamesLoading, fetchUserNames]);
 
-  // Explicit user retry: re-arm ONE attempt and perform a real request.
-  // Automatic loops never call these.
+  // Explicit user retry: mark the new attempt CONSUMED FIRST (never null),
+  // then invoke the fetch. ONE click = EXACTLY ONE real request; a failed
+  // retry must not trigger an automatic third request (the consumed mark
+  // stops the bootstrap effect). Repeated clicks each intentionally create
+  // one request. An already-running shared lookup is not stacked.
   const retryFieldsLookup = () => {
-    fieldsBootstrapAttemptedRef.current = null;
+    if (!principalKey || fieldsLoading) return;
+    fieldsBootstrapAttemptedRef.current = principalKey;
     void fetchFields();
   };
   const retryUsersLookup = () => {
-    usersBootstrapAttemptedRef.current = null;
+    if (!principalKey || userNamesLoading) return;
+    usersBootstrapAttemptedRef.current = principalKey;
     void fetchUserNames();
   };
 

@@ -72,6 +72,8 @@ const MOCK_SUMMARIES: SampleSummary[] = [
     companyId: "101",
     companyTitle: "ООО ХимПром",
     responsibleId: "1",
+    companyResponsibleId: "1",
+    companyResponsibleName: "Иван Иванов",
     productFamilies: ["Гель"],
     grades: [{ productFamily: "Гель", value: "КСМГ-5" }],
     quantities: [{ productFamily: "Гель", value: 10, unit: "кг" }],
@@ -90,6 +92,7 @@ const MOCK_SUMMARIES: SampleSummary[] = [
     companyId: "102",
     companyTitle: "ЗАО ТехноСинтез",
     responsibleId: "45", // Unmapped ID
+    companyResponsibleId: "45", // Unmapped company responsible (never raw in UI)
     productFamilies: ["Золь"],
     grades: [{ productFamily: "Золь", value: "СКСГ-2" }],
     quantities: [{ productFamily: "Золь", value: "25", unit: "л" }],

@@ -80,6 +80,22 @@ export interface SampleSummary {
   responsibleId?: string;
   responsibleName?: string;
 
+  /**
+   * Explicit COMPANY-grain responsibility: the Company `ASSIGNED_BY_ID`
+   * (company owner), identical to the Companies browser grain.
+   *
+   * Deliberately DISTINCT from `responsibleId` above, which keeps its
+   * existing meaning of canonical CURRENT sample/process responsibility
+   * (SMART_PROCESS responsible → legacy/current fallback → Company
+   * responsible). A company's owner (e.g. user 7) and its current SP
+   * cycle's responsible (e.g. user 55) may legitimately differ; both facts
+   * must stay independently visible. Samples UI filters, the registry
+   * responsible column and the Samples Excel responsible column consume
+   * THIS company grain — never the process grain.
+   */
+  companyResponsibleId?: string;
+  companyResponsibleName?: string;
+
   productFamilies: string[];
   grades: SampleGrade[];
 

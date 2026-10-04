@@ -119,7 +119,7 @@ export function SamplesRegistry({
                   №
                 </th>
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[200px]">Компания</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Ответственный</th>
+                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Ответственный компании</th>
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[160px]">Отрасль / применение</th>
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Продукт</th>
                 <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[140px]">Марка</th>
@@ -157,9 +157,12 @@ export function SamplesRegistry({
                     )}
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2 text-xs text-muted-foreground">
-                    {s.responsibleId
-                      ? resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
-                      : s.responsibleName ?? "–"}
+                    {/* COMPANY grain: company owner (ASSIGNED_BY_ID), never
+                        the current SP/legacy process responsible — the
+                        physical SP cycle keeps its own responsible. */}
+                    {s.companyResponsibleId
+                      ? resolveResponsibleDisplay(s.companyResponsibleId, userNames, usersCoverage)
+                      : s.companyResponsibleName ?? "–"}
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2 text-xs text-muted-foreground">
                     <span className="block max-w-[180px] truncate">

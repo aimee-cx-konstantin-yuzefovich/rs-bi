@@ -24,6 +24,8 @@ import {
   matchesPeriod,
   formatSamplesPeriodLabel,
   isSamplesPeriodValid,
+  buildCompanyResponsibleOptions,
+  matchesCompanyResponsibleFilter,
   DEFAULT_SAMPLES_FILTERS,
   type SamplesFilters,
 } from "@/components/dashboard/samples/samples-filters";
@@ -32,7 +34,6 @@ import { SamplePreview } from "@/components/dashboard/samples/sample-preview";
 import { computeSampleKpis } from "@/lib/samples/aggregate";
 import { exportSamplesToExcel } from "@/lib/export-utils";
 import { isSentinelValue } from "@/lib/samples/normalize";
-import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
 import { isCompanyId } from "@/lib/company-preview";
 import { isDealId } from "@/lib/deal-preview";
 import {
@@ -94,20 +95,12 @@ function SamplesContent() {
     setAppliedUrlCompany(true);
   }, [rawSearchParams, appliedUrlCompany]);
 
-  const responsibleOptions = useMemo(() => {
-    const entries = new Map<string, string>();
-    for (const s of samples) {
-      if (s.responsibleId) {
-        entries.set(
-          s.responsibleId,
-          resolveResponsibleDisplay(s.responsibleId, userNames, usersCoverage)
-        );
-      }
-    }
-    return Array.from(entries.entries())
-      .map(([value, label]) => ({ value, label }))
-      .sort((a, b) => a.label.localeCompare(b.label, "ru"));
-  }, [samples, userNames, usersCoverage]);
+  // COMPANY-grain responsible options: from companyResponsibleId (Company
+  // ASSIGNED_BY_ID) only — never the current SP/legacy process responsible.
+  const responsibleOptions = useMemo(
+    () => buildCompanyResponsibleOptions(samples, userNames, usersCoverage),
+    [samples, userNames, usersCoverage]
+  );
 
   const productFamilyOptions = useMemo(
     () =>
@@ -165,11 +158,7 @@ function SamplesContent() {
         return false;
       }
       if (!matchesPeriod(s, filters)) return false;
-      if (
-        filters.responsibleId !== "all" &&
-        s.responsibleId !== filters.responsibleId
-      )
-        return false;
+      if (!matchesCompanyResponsibleFilter(s, filters.responsibleId)) return false;
       if (
         filters.productFamily !== "all" &&
         !s.productFamilies.includes(filters.productFamily)
