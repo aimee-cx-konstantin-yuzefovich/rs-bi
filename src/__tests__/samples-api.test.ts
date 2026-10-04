@@ -543,6 +543,8 @@ describe("POST /api/bitrix/samples — security invariants", () => {
         if (spCalls === 1) {
           return Promise.resolve(new Response(JSON.stringify({ error: "unavailable" }), { status: 503 }));
         }
+        // Partitioned production contract: each partition read gets fresh
+        // healthy pages (call 2 = partition A retry, call 3 = partition B).
         return Promise.resolve(listPage([{ id: "7001", stageId: "DT1032_15:CLIENT", companyId: "42" }], { total: 1 }));
       }
       if (url.endsWith("crm.company.fields") || url.endsWith("crm.deal.fields")) {
@@ -563,7 +565,8 @@ describe("POST /api/bitrix/samples — security invariants", () => {
     expect(body.success).toBe(true);
     expect(body.total).toBe(1);
     expect(body.samples[0].companyId).toBe("42");
-    expect(spCalls).toBe(2);
+    // 1 failed attempt + partition A retry + partition B read = 3 SP calls.
+    expect(spCalls).toBe(3);
   });
 
   it("transport-level allowlist still rejects write methods", async () => {
@@ -624,7 +627,9 @@ describe("POST /api/bitrix/samples — security invariants", () => {
       if (url.endsWith("crm.item.list")) {
         startedEndpoints.push("crm.item.list");
         spStarted.resolve();
-        return spGate.promise;
+        // Partitioned production contract: EACH partition read receives a
+        // FRESH response (a resolved Response body can be consumed once).
+        return Promise.resolve(listPage([], { total: 0 }));
       }
       return Promise.resolve(listPage([], { total: 0 }));
     });

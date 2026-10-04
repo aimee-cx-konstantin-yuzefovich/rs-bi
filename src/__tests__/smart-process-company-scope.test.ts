@@ -260,7 +260,9 @@ describe("ONE shared company-scope mechanism — candidate collection", () => {
     // 1 scoped read + 1 bulk chunk (2 referenced deals in one 50-sized chunk).
     expect(dealListCalls.length).toBe(2);
     const itemCalls = fetchMock.mock.calls.filter(([u]) => String(u).endsWith("crm.item.list"));
-    expect(itemCalls.length).toBe(1); // one complete population read, no per-item requests
+    // Partitioned production contract: one complete population read per
+    // committed partition (2), still no per-item requests anywhere.
+    expect(itemCalls.length).toBe(2);
   });
 
   it("rejects an invalid companyId before any Bitrix work", async () => {

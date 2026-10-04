@@ -750,17 +750,129 @@ export function buildSmartProcessListParamsWithSelect(
  * Fetches the COMPLETE relevant Smart Process 1032 (categoryId 15)
  * population via fail-closed pagination. Fail-closed contract gate first:
  * an unverified contract never reaches the transport.
+ *
+ * Production reads use the ID-bearing PARTITIONED transport contract
+ * (measured live: the full production select makes this portal drop the
+ * documented `id` field): the committed partitions are each read with the
+ * full existing fail-closed pagination and merged strictly by exact string
+ * item ID. On any partition/merge/ID-set inconsistency the WHOLE read is
+ * retried exactly once from scratch; a second mismatch fails closed with
+ * SMART_PROCESS_PARTITION_SET_MISMATCH. No positional merge, no silent row
+ * drops, no fabricated fields, no per-item requests.
  */
 export async function fetchSmartProcessSampleItems(
   scope: FetchSamplesScope = {}
 ): Promise<BitrixRow[]> {
   assertSmartProcessContractReady();
+  return fetchAndMergeSmartProcessPartitions(scope);
+}
 
-  return fetchAllPages(
-    "crm.item.list",
-    buildSmartProcessListParams(scope),
-    "id"
-  );
+/** Stable fail-closed category for strict partition ID-set reconciliation. */
+const PARTITION_SET_MISMATCH_MESSAGE =
+  "SMART_PROCESS_PARTITION_SET_MISMATCH: partitioned Smart Process reads resolved to different item ID sets";
+
+/** Local deterministic error: partitions resolved to different ID sets. */
+class SmartProcessPartitionSetMismatchError extends Error {
+  constructor() {
+    super(PARTITION_SET_MISMATCH_MESSAGE);
+    this.name = "SmartProcessPartitionSetMismatchError";
+  }
+}
+
+/**
+ * Extracts the exact string item ID from one partition row (documented `id`,
+ * uppercase `ID` accepted as the same documented identifier casing — never
+ * an alternate invented key).
+ */
+function partitionRowId(row: BitrixRow): string {
+  return String(row.id ?? row.ID ?? "").trim();
+}
+
+/**
+ * ONE complete partitioned read: every committed partition is fetched via
+ * the existing fail-closed `fetchAllPages` pagination (unchanged transport
+ * retry semantics), per-partition ID sets are collected, and rows are
+ * merged strictly by exact string item ID.
+ *
+ * Throws `SmartProcessPartitionSetMismatchError` when the partitions did
+ * not resolve to the identical ID set (mutable-data divergence, §10) — the
+ * ONLY condition that triggers the caller's single whole-read retry. Any
+ * other failure (transport, pagination invariant, missing id) propagates
+ * immediately and is never retried at this layer (§9: fail closed).
+ */
+async function runPartitionedReadOnce(
+  scope: FetchSamplesScope
+): Promise<Map<string, BitrixRow>> {
+  const merged = new Map<string, BitrixRow>();
+  let referenceIdSet: Set<string> | null = null;
+
+  for (const partition of SMART_PROCESS_CANDIDATE_PARTITION_ROLES) {
+    const rows = await fetchAllPages(
+      "crm.item.list",
+      // Scope (companyId) applies to EVERY partition — a scoped read must
+      // never see out-of-scope items in any partition.
+      buildSmartProcessListParamsWithSelect(scope, buildSmartProcessPartitionSelect(partition)),
+      "id"
+    );
+    const partitionIds = new Set<string>();
+    for (const row of rows) {
+      const id = partitionRowId(row);
+      if (id === "") {
+        // Defensive: fetchAllPages already rejects id-less rows; this
+        // keeps the merge invariant locally airtight.
+        throw new Error(PARTITION_SET_MISMATCH_MESSAGE);
+      }
+      partitionIds.add(id);
+      const existing = merged.get(id);
+      if (existing) {
+        // Same item seen in a second partition: merge field-wise by exact
+        // ID. Partition role sets are disjoint by contract (each field
+        // fact lives in exactly one partition), so this never arbitrates
+        // conflicting values.
+        merged.set(id, { ...existing, ...row });
+      } else {
+        merged.set(id, row);
+      }
+    }
+    if (referenceIdSet === null) {
+      referenceIdSet = partitionIds;
+    } else {
+      const reference = referenceIdSet;
+      if (reference.size !== partitionIds.size) {
+        throw new SmartProcessPartitionSetMismatchError();
+      }
+      for (const id of reference) {
+        if (!partitionIds.has(id)) throw new SmartProcessPartitionSetMismatchError();
+      }
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * ONE small partitioned-read helper: reads every committed ID-bearing
+ * partition through the existing fail-closed pagination and merges strictly
+ * by exact string item ID. On ID-set divergence (mutable data between
+ * sequential reads) the WHOLE partitioned read is retried exactly once from
+ * scratch; a second divergence fails closed with
+ * SMART_PROCESS_PARTITION_SET_MISMATCH. No positional merge, no silent row
+ * drops, no fabricated fields, no per-item requests, no loops.
+ */
+export async function fetchAndMergeSmartProcessPartitions(
+  scope: FetchSamplesScope = {}
+): Promise<BitrixRow[]> {
+  assertPartitionsCoverContract();
+
+  let merged: Map<string, BitrixRow>;
+  try {
+    merged = await runPartitionedReadOnce(scope);
+  } catch (error) {
+    if (!(error instanceof SmartProcessPartitionSetMismatchError)) throw error;
+    // §10: retry the WHOLE partitioned read exactly once from scratch.
+    merged = await runPartitionedReadOnce(scope);
+  }
+  return [...merged.values()];
 }
 
 export interface FieldLabelMaps {

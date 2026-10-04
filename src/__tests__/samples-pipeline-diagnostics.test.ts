@@ -86,6 +86,7 @@ vi.mock("@/lib/bitrix-activities", async (importOriginal) => {
 });
 
 import { GET } from "@/app/api/bitrix/diagnostics/samples-pipeline/route";
+import { SMART_PROCESS_ITEM_SELECT } from "@/lib/samples/bitrix-fetch";
 import {
   runSamplesPipelineDiagnostics,
   diagnoseSamplesPipeline,
@@ -920,19 +921,42 @@ describe("Probe D extension: first-page comparison + localInvariant", () => {
     expect(serialized).not.toContain('"id":2');
   });
 
-  it("raw probe and helper run with IDENTICAL params (structural parity, start=0 first)", async () => {
+  it("raw probe runs the EXACT production select; helper partitions share every non-select parameter", async () => {
     mockFullHappyPath({ companies: 1, deals: 1, spItems: 1 });
     await runSamplesPipelineDiagnostics();
     const itemCalls = bitrixPostMock.mock.calls.filter(([m]) => m === "crm.item.list");
-    // First call = raw first-page comparison; second = wrapped helper page 1.
+    // First call = raw first-page comparison (production select);
+    // remaining = wrapped helper partition reads.
     expect(itemCalls.length).toBeGreaterThanOrEqual(2);
-    const [rawCall, helperCall] = itemCalls;
-    const rawParams = rawCall[1] as Record<string, unknown>;
-    const helperParams = helperCall[1] as Record<string, unknown>;
-    expect(rawParams).toEqual(helperParams);
+    const rawParams = itemCalls[0][1] as Record<string, unknown>;
     expect(rawParams.entityTypeId).toBe(1032);
     expect(rawParams.filter).toEqual({ categoryId: 15 });
     expect(rawParams.useOriginalUfNames).toBe("Y");
+    // The raw probe documents the exact production request (full select).
+    expect(rawParams.select).toEqual(SMART_PROCESS_ITEM_SELECT);
+
+    // Helper partitions: every non-select parameter is byte-identical to
+    // the raw probe; every partition select carries the documented id.
+    const helperCalls = itemCalls.slice(1).filter(([, p]) => {
+      const params = p as Record<string, unknown>;
+      return (params.select as string[]).length > 1; // partition reads, not stage probes
+    });
+    expect(helperCalls.length).toBeGreaterThanOrEqual(1);
+    for (const [, p] of helperCalls) {
+      const params = p as Record<string, unknown>;
+      expect(params.entityTypeId).toBe(rawParams.entityTypeId);
+      expect(params.filter).toEqual(rawParams.filter);
+      expect(params.order).toEqual(rawParams.order);
+      expect(params.useOriginalUfNames).toBe(rawParams.useOriginalUfNames);
+      expect(params.select).toContain("id");
+    }
+    // Union of helper partitions covers the full production contract.
+    const unionSelect = new Set(
+      helperCalls.flatMap(([, p]) => (p as Record<string, unknown>).select as string[])
+    );
+    for (const field of SMART_PROCESS_ITEM_SELECT) {
+      expect(unionSelect.has(field)).toBe(true);
+    }
   });
 
   it("helper failure by local pagination invariant reports category + counts with zero identity", async () => {
