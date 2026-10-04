@@ -12,6 +12,7 @@ import {
   fetchCommercialFunnelWithDeduplication,
   getCachedCommercialFunnel,
   syncCommercialFunnelPrincipal,
+  type CommercialFunnelSnapshot,
 } from "@/lib/commercial-funnel/commercial-funnel-cache";
 
 export type AnalyticalDataState =
@@ -113,10 +114,22 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
     }
     previousPrincipalRef.current = principal;
 
-    const cached = getCachedCommercialFunnel(principal);
-    const hasCachedData = cached !== null;
+    // Data-trust contract (stale-snapshot disclosure):
+    // 1. Fresh snapshot within TTL → render it, no backend wait.
+    // 2. EXPIRED-but-successful snapshot → render it IMMEDIATELY and run a
+    //    background refresh. If that refresh fails, the previous successful
+    //    snapshot is preserved as `refresh_failed` / `isStale` with the
+    //    ORIGINAL loadedAt — never downgraded to a hard cold `failed`.
+    // 3. No successful snapshot at all (cold) → failure is a real `failed`.
+    const freshCached = getCachedCommercialFunnel(principal);
+    const staleSnapshot: CommercialFunnelSnapshot | null =
+      freshCached ?? getCachedCommercialFunnel(principal, { allowStale: true });
 
-    if (hasCachedData && cached) {
+    // Any existing snapshot (fresh or expired) is renderable data.
+    const hasCachedData = staleSnapshot !== null;
+
+    if (hasCachedData && staleSnapshot) {
+      const cached = staleSnapshot;
       setCompanies(cached.companies);
       setDeals(cached.deals);
       setUserNames(cached.userNames);
@@ -126,11 +139,14 @@ export function useCommercialFunnelData(): CommercialFunnelDataState {
       setMetadataPartial(Boolean(cached.metadataPartial));
       setActivityPartial(cached.activityPartial);
       setActivityWarning(cached.activityWarning);
+      // Preserve the ORIGINAL successful loadedAt — repeated failed
+      // refreshes must never alter or discard it.
       setLoadedAt(cached.timestamp ?? null);
       setIsStale(false);
       setDataState(cached.partial || cached.metadataPartial ? "partial" : "ready");
       setLoading(false);
-      setRefreshing(attempt > 0);
+      // Background-refresh disclosure while a revalidation is in flight.
+      setRefreshing(attempt > 0 || freshCached === null);
       setError(null);
       setRefreshError(null);
     } else {
