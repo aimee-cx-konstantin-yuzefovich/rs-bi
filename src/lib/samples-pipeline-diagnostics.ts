@@ -599,7 +599,14 @@ async function probePartitions(): Promise<SelectPartitionSetProbe> {
   for (const partition of SMART_PROCESS_CANDIDATE_PARTITION_ROLES) {
     const select = buildSmartProcessPartitionSelect(partition);
     try {
-      const rows = await fetchAllPages("crm.item.list", buildSmartProcessListParamsWithSelect({}, select), "id");
+      // Y-mode diagnostic: the select matrix measures the Y-mode portal
+      // defect — the explicit mode keeps parity with the Y-mode page
+      // probes regardless of the production transport default.
+      const rows = await fetchAllPages(
+        "crm.item.list",
+        buildSmartProcessListParamsWithSelect({}, select, { useOriginalUfNames: "Y" }),
+        "id"
+      );
       const uniqueIds = new Set(
         rows.map((row) => String(row.id ?? row.ID ?? "").trim()).filter((id) => id !== "")
       );

@@ -29,6 +29,7 @@ import {
   fetchSmartProcessSampleItems,
   fetchAndMergeSmartProcessPartitions,
   SMART_PROCESS_ITEM_SELECT,
+  SMART_PROCESS_ITEM_SELECT_N,
   SMART_PROCESS_SYSTEM_SELECT,
   SMART_PROCESS_ROLE_FIELD_IDS,
 } from "@/lib/samples/bitrix-fetch";
@@ -315,9 +316,15 @@ describe("partition merge source invariants", () => {
       string,
       Record<string, unknown>,
     ];
-    // The single read carries the EXACT full production select.
-    expect(params.select).toEqual(SMART_PROCESS_ITEM_SELECT);
+    // The single read carries the EXACT full production select (N-mode
+    // production transport — the rows arrive under N-mode aliases and are
+    // normalized to the canonical contract at the ONE transport seam).
+    expect(params.select).toEqual(SMART_PROCESS_ITEM_SELECT_N);
+    expect(params.useOriginalUfNames).toBe("N");
     expect(params.filter).toEqual({ categoryId: 15, companyId: "42" });
+    // The row returned to the caller carries the CANONICAL original keys
+    // (normalization happened inside the helper).
+    expect(rows[0][SMART_PROCESS_ROLE_FIELD_IDS.SENT_DATE]).toBeDefined();
   });
 
   it("partition helper is exported and gated (not dead code, not silently active)", () => {

@@ -80,7 +80,27 @@ const spContract = vi.hoisted(() => ({
     Boolean(id && ["DT1032_15:NEW", "DT1032_15:UC_ZARRMX", "DT1032_15:CLIENT"].includes(id)),
   isSmartProcessTerminalStage: (id?: string) =>
     Boolean(id && ["DT1032_15:SUCCESS", "DT1032_15:FAIL"].includes(id)),
+  // N-mode transport contract (verified static mapping mirrors the mock's
+  // canonical original names under the documented camelCase conversion).
+  SMART_PROCESS_N_MODE_CUSTOM_ROLES: [
+    "SENT_DATE",
+    "GRADE_GEL",
+    "GRADE_SOL",
+    "QTY_GEL",
+    "QTY_SOL",
+    "TEST_RESULT",
+  ],
+  SMART_PROCESS_N_MODE_FIELD_NAMES: {
+    SENT_DATE: "ufCrmSpSentDateTest",
+    GRADE_GEL: "ufCrmSpGelTest",
+    GRADE_SOL: "ufCrmSpSolTest",
+    QTY_GEL: "ufCrmSpQtyGelTest",
+    QTY_SOL: "ufCrmSpQtySolTest",
+    TEST_RESULT: "ufCrmSpResultTest",
+  },
+  assertSmartProcessNModeMappingComplete: () => {},
 }));
+
 
 vi.mock("@/lib/samples/smart-process-contract", () => spContract);
 // The samples route re-exports the contract gate through crm-constants too.

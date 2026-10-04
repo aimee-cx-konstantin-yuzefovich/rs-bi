@@ -86,7 +86,7 @@ vi.mock("@/lib/bitrix-activities", async (importOriginal) => {
 });
 
 import { GET } from "@/app/api/bitrix/diagnostics/samples-pipeline/route";
-import { SMART_PROCESS_ITEM_SELECT } from "@/lib/samples/bitrix-fetch";
+import { SMART_PROCESS_ITEM_SELECT_N } from "@/lib/samples/bitrix-fetch";
 import {
   runSamplesPipelineDiagnostics,
   diagnoseSamplesPipeline,
@@ -101,7 +101,21 @@ import {
 import {
   SMART_PROCESS_SENT_DATE_FIELD_ID,
   SMART_PROCESS_TEST_RESULT_FIELD_ID,
+  SMART_PROCESS_N_MODE_FIELD_NAMES,
 } from "@/lib/samples/smart-process-contract";
+
+/** N-mode transport key for a canonical original UF field name. */
+const N_MODE_BY_ORIGINAL: Record<string, string> = Object.fromEntries(
+  Object.entries(SMART_PROCESS_N_MODE_FIELD_NAMES).map(([role, nName]) => [
+    {
+      SENT_DATE: SMART_PROCESS_SENT_DATE_FIELD_ID,
+      TEST_RESULT: SMART_PROCESS_TEST_RESULT_FIELD_ID,
+    }[role] ?? role,
+    nName,
+  ])
+);
+const SENT_DATE_N_KEY = N_MODE_BY_ORIGINAL[SMART_PROCESS_SENT_DATE_FIELD_ID];
+const TEST_RESULT_N_KEY = N_MODE_BY_ORIGINAL[SMART_PROCESS_TEST_RESULT_FIELD_ID];
 
 // ─── Realistic Bitrix envelopes (transport shape, minimal fields) ───
 
@@ -139,8 +153,10 @@ const spItem = (id: number, companyId: string, dealId: string) => ({
   createdTime: "2026-09-09T10:00:00+03:00",
   companyId,
   parentId2: dealId,
-  [SMART_PROCESS_SENT_DATE_FIELD_ID]: "2026-09-11",
-  [SMART_PROCESS_TEST_RESULT_FIELD_ID]: "подошло",
+  // Production transport is N-mode: custom fields arrive under the verified
+  // N-mode names (canonical original keys are restored by the normalizer).
+  [SENT_DATE_N_KEY]: "2026-09-11",
+  [TEST_RESULT_N_KEY]: "подошло",
 });
 
 /**
@@ -878,7 +894,7 @@ describe("diagnosis mapping (pure function)", () => {
 
 // ─── Production helper identity (case 15: no fake equivalents) ───
 describe("production helper identity", () => {
-  it("probe D consumes the real fetchSmartProcessSampleItems (crm.item.list with production contract)", async () => {
+  it("production helper identity: probe D consumes the real fetchSmartProcessSampleItems (N-mode crm.item.list)", async () => {
     mockFullHappyPath({ companies: 1, deals: 1, spItems: 1 });
     await runSamplesPipelineDiagnostics();
 
@@ -887,7 +903,7 @@ describe("production helper identity", () => {
     const probeDCall = itemCalls[0];
     const params = probeDCall[1] as Record<string, unknown>;
     expect(params.entityTypeId).toBe(1032);
-    expect(params.useOriginalUfNames).toBe("Y");
+    expect(params.useOriginalUfNames).toBe("N");
     expect(params.filter).toEqual({ categoryId: 15 });
   });
 });
@@ -932,9 +948,9 @@ describe("Probe D extension: first-page comparison + localInvariant", () => {
     const rawParams = itemCalls[0][1] as Record<string, unknown>;
     expect(rawParams.entityTypeId).toBe(1032);
     expect(rawParams.filter).toEqual({ categoryId: 15 });
-    expect(rawParams.useOriginalUfNames).toBe("Y");
-    // The raw probe documents the exact production request (full select).
-    expect(rawParams.select).toEqual(SMART_PROCESS_ITEM_SELECT);
+    expect(rawParams.useOriginalUfNames).toBe("N");
+    // The raw probe documents the exact production request (full N-mode select).
+    expect(rawParams.select).toEqual(SMART_PROCESS_ITEM_SELECT_N);
 
     // Helper partitions: every non-select parameter is byte-identical to
     // the raw probe; every partition select carries the documented id.
@@ -955,7 +971,7 @@ describe("Probe D extension: first-page comparison + localInvariant", () => {
     const unionSelect = new Set(
       helperCalls.flatMap(([, p]) => (p as Record<string, unknown>).select as string[])
     );
-    for (const field of SMART_PROCESS_ITEM_SELECT) {
+    for (const field of SMART_PROCESS_ITEM_SELECT_N) {
       expect(unionSelect.has(field)).toBe(true);
     }
   });

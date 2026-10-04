@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchAllPages, fetchSmartProcessSampleItems, SMART_PROCESS_ITEM_SELECT } from "@/lib/samples/bitrix-fetch";
+import { fetchAllPages, fetchSmartProcessSampleItems, SMART_PROCESS_ITEM_SELECT_N, normalizeSmartProcessNModeRow } from "@/lib/samples/bitrix-fetch";
 import { bitrixPost } from "@/lib/bitrix";
 
 vi.mock("@/lib/bitrix", () => ({
@@ -145,13 +145,13 @@ describe("Smart Process crm.item.list request contract", () => {
     for (const key of ["SELECT", "FILTER", "ORDER"]) {
       expect(Object.keys(params)).not.toContain(key);
     }
-    // Verified contract values preserved.
+    // Verified contract values preserved (N-mode production transport).
     expect(params.entityTypeId).toBe(1032);
-    expect(params.useOriginalUfNames).toBe("Y");
+    expect(params.useOriginalUfNames).toBe("N");
     expect(params.start).toBe(0);
     expect(params.filter).toEqual({ categoryId: 15, companyId: "42" });
     expect(params.order).toEqual({ id: "ASC" });
-    expect(params.select).toEqual(SMART_PROCESS_ITEM_SELECT);
+    expect(params.select).toEqual(SMART_PROCESS_ITEM_SELECT_N);
     expect(params.select).toContain("id");
   });
 
@@ -181,7 +181,8 @@ describe("Smart Process crm.item.list request contract", () => {
     expect(method).toBe("crm.item.list");
     // Top-level official parameters only.
     expect(params).toHaveProperty("entityTypeId", 1032);
-    expect(params).toHaveProperty("useOriginalUfNames", "Y");
+    // Live-proven N-mode production transport (N_MODE_FIELD_CONTRACT_OK).
+    expect(params).toHaveProperty("useOriginalUfNames", "N");
     // categoryId strictly INSIDE filter — never a top-level parameter.
     const filter = params.filter as Record<string, unknown>;
     expect(filter).toHaveProperty("categoryId", 15);

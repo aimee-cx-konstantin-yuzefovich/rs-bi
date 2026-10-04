@@ -55,7 +55,10 @@ import {
   SMART_PROCESS_STAGE_STATUS_ENTITY_ID,
   SMART_PROCESS_STAGE_LABELS,
   SMART_PROCESS_HAS_DISCOVERED_CONTRACT,
+  SMART_PROCESS_N_MODE_FIELD_NAMES,
+  SMART_PROCESS_N_MODE_CUSTOM_ROLES,
   assertSmartProcessContractReady,
+  assertSmartProcessNModeMappingComplete,
 } from "./smart-process-contract";
 
 const PAGE_SIZE = 50;
@@ -622,16 +625,89 @@ export function assertPartitionsCoverContract(): void {
 }
 
 /**
- * Fixed Smart Process SELECT — only fields the canonical sample contract
- * consumes. Uses the live-discovered original UF names; system fields
- * (id, stageId, assignedById, createdTime, companyId) are always included.
- * Derived from the semantic role registry in the exact production order —
- * never retyped at call sites.
+ * Fixed Smart Process SELECT in canonical ORIGINAL UF names — only fields
+ * the canonical sample contract consumes. System fields (id, stageId,
+ * assignedById, createdTime, companyId) are always included. Derived from
+ * the semantic role registry in the exact production order — never retyped
+ * at call sites.
+ *
+ * ROLE: canonical key-contract reference (label maps keyed by original UF
+ * names, Y-mode diagnostic probes) — NOT the N-mode production select
+ * (that is SMART_PROCESS_ITEM_SELECT_N).
  */
 export const SMART_PROCESS_ITEM_SELECT: string[] = [
   ...SMART_PROCESS_SYSTEM_SELECT,
   ...SMART_PROCESS_REQUIRED_ROLES.map((role) => SMART_PROCESS_ROLE_FIELD_IDS[role]),
 ];
+
+/**
+ * Production transport mode for the Smart Process `crm.item.list` reads:
+ * `useOriginalUfNames = "N"` (the officially documented DEFAULT mode).
+ *
+ * PROVENANCE (live, read-only): the Y-mode portal defect
+ * (USE_ORIGINAL_UF_NAMES_Y_BREAKS_ID) drops `id` from EVERY Y-mode select,
+ * while the live N-mode field-contract verification
+ * (scripts/verify-n-mode-field-contract.mjs + the nModeFieldContract
+ * diagnostic section) proved:
+ *   - all six required custom roles correlate to exactly ONE N-mode name
+ *     each (documented `upperName` metadata attribute);
+ *   - every single-role N-mode probe delivers 8/8 rows with usable `id`;
+ *   - the full N-mode production select delivers all rows with usable
+ *     unique `id` and all role keys structurally present
+ *     (verdict N_MODE_FIELD_CONTRACT_OK).
+ * Y-mode remains ONLY in diagnostics and in the metadata label-map read.
+ */
+export const SMART_PROCESS_USE_ORIGINAL_UF_NAMES: "Y" | "N" = "N";
+
+/**
+ * Fixed production Smart Process SELECT for the N-mode transport: system
+ * fields (identical under Y and N — documented standard camelCase), the
+ * canonical Deal relation (`parentId2`), and the verified N-mode names of
+ * the six required custom roles. Fail-closed: the static mapping must be
+ * complete before this select is ever built.
+ */
+export const SMART_PROCESS_ITEM_SELECT_N: string[] = (() => {
+  assertSmartProcessNModeMappingComplete();
+  return [
+    ...SMART_PROCESS_SYSTEM_SELECT,
+    SMART_PROCESS_DEAL_FIELD_ID,
+    ...SMART_PROCESS_N_MODE_CUSTOM_ROLES.map(
+      (role) => SMART_PROCESS_N_MODE_FIELD_NAMES[role]
+    ),
+  ];
+})();
+
+/**
+ * Inverts the verified N-mode mapping: N-mode transport name → canonical
+ * original UF field name. ONE naming-translation seam — downstream domain
+ * code (aggregate, projection, previews, Excel) never sees N-mode aliases.
+ */
+const SMART_PROCESS_N_MODE_TO_CANONICAL: Readonly<Record<string, string>> =
+  Object.fromEntries(
+    SMART_PROCESS_N_MODE_CUSTOM_ROLES.map((role) => [
+      SMART_PROCESS_N_MODE_FIELD_NAMES[role],
+      SMART_PROCESS_ROLE_FIELD_IDS[role],
+    ])
+  );
+
+/**
+ * ONE Smart Process transport normalizer: rewrites N-mode custom field
+ * keys back to the canonical original UF keys the existing adapter and
+ * aggregation already consume. System keys (`id`, `title`, `stageId`,
+ * `assignedById`, `createdTime`, `companyId`, `parentId2`) are documented
+ * standard fields and pass through untouched. Only VERIFIED N-mode custom
+ * names are translated — an unknown N-mode custom key is preserved as-is
+ * (never dropped, never guessed). Pure, key-based, deterministic: no
+ * positional mapping, no business-value mapping.
+ */
+export function normalizeSmartProcessNModeRow(row: BitrixRow): BitrixRow {
+  const normalized: BitrixRow = {};
+  for (const [key, value] of Object.entries(row)) {
+    const canonical = SMART_PROCESS_N_MODE_TO_CANONICAL[key];
+    normalized[canonical ?? key] = value;
+  }
+  return normalized;
+}
 
 /**
  * Read-only live Smart Process stage directory loader (`crm.status.list`,
@@ -703,7 +779,7 @@ export async function fetchSmartProcessStageDirectory(): Promise<SmartProcessSta
 export function buildSmartProcessListParams(
   scope: FetchSamplesScope = {}
 ): Record<string, unknown> {
-  return buildSmartProcessListParamsWithSelect(scope, SMART_PROCESS_ITEM_SELECT);
+  return buildSmartProcessListParamsWithSelect(scope, SMART_PROCESS_ITEM_SELECT_N);
 }
 
 /**
@@ -739,7 +815,7 @@ export function buildSmartProcessListParamsWithSelect(
   // aliases (SELECT/FILTER/ORDER) must never be sent to `crm.item.list`.
   return {
     entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
-    useOriginalUfNames: options.useOriginalUfNames ?? "Y",
+    useOriginalUfNames: options.useOriginalUfNames ?? SMART_PROCESS_USE_ORIGINAL_UF_NAMES,
     select,
     filter,
     order: { id: "ASC" },
@@ -769,12 +845,14 @@ const SMART_PROCESS_PARTITIONED_READ_ENABLED = false;
  * population via fail-closed pagination. Fail-closed contract gate first:
  * an unverified contract never reaches the transport.
  *
- * Transport contract: the full production select in ONE fail-closed
- * pagination while partitioning is disabled (see
- * SMART_PROCESS_PARTITIONED_READ_ENABLED). When enabled, production reads
- * use the ID-bearing PARTITIONED contract: the committed partitions are
- * each read with the full existing fail-closed pagination and merged
- * strictly by exact string item ID
+ * Transport contract: production reads use `useOriginalUfNames = "N"`
+ * (live-proven N_MODE_FIELD_CONTRACT_OK; Y-mode drops `id` on this
+ * portal) with the verified static N-mode field mapping and the ONE
+ * transport normalizer (`normalizeSmartProcessNModeRow`) at this seam.
+ * The full N-mode select runs in ONE fail-closed pagination while
+ * partitioning stays disabled (see SMART_PROCESS_PARTITIONED_READ_ENABLED).
+ * When the partition gate is ever enabled, production reads use the
+ * ID-bearing PARTITIONED contract merged strictly by exact string item ID
  * (fetchAndMergeSmartProcessPartitions). On any partition/merge/ID-set
  * inconsistency the WHOLE read is retried exactly once from scratch; a
  * second mismatch fails closed with SMART_PROCESS_PARTITION_SET_MISMATCH.
@@ -788,7 +866,15 @@ export async function fetchSmartProcessSampleItems(
   if (SMART_PROCESS_PARTITIONED_READ_ENABLED) {
     return fetchAndMergeSmartProcessPartitions(scope);
   }
-  return fetchAllPages("crm.item.list", buildSmartProcessListParams(scope), "id");
+  const rows = await fetchAllPages(
+    "crm.item.list",
+    buildSmartProcessListParams(scope),
+    "id"
+  );
+  // ONE transport normalizer at the seam: N-mode custom keys → canonical
+  // original UF keys. Downstream code (aggregate, projection, previews,
+  // Excel) consumes the exact same canonical row shape as before.
+  return rows.map(normalizeSmartProcessNModeRow);
 }
 
 /** Stable fail-closed category for strict partition ID-set reconciliation. */
@@ -834,8 +920,12 @@ async function runPartitionedReadOnce(
     const rows = await fetchAllPages(
       "crm.item.list",
       // Scope (companyId) applies to EVERY partition — a scoped read must
-      // never see out-of-scope items in any partition.
-      buildSmartProcessListParamsWithSelect(scope, buildSmartProcessPartitionSelect(partition)),
+      // never see out-of-scope items in any partition. The disabled
+      // workaround keeps its pre-existing Y-mode contract; the live N-mode
+      // production transport applies to the ENABLED single-pagination seam.
+      buildSmartProcessListParamsWithSelect(scope, buildSmartProcessPartitionSelect(partition), {
+        useOriginalUfNames: "Y",
+      }),
       "id"
     );
     const partitionIds = new Set<string>();

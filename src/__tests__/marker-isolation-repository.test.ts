@@ -26,6 +26,14 @@ vi.mock("@/lib/samples/smart-process-contract", async (importOriginal) => {
     SMART_PROCESS_GRADE_GEL_FIELD_ID: "UF_CRM_SP_GEL",
     SMART_PROCESS_GRADE_SOL_FIELD_ID: "UF_CRM_SP_SOL",
     SMART_PROCESS_TEST_RESULT_FIELD_ID: "UF_CRM_SP_RESULT",
+    // N-mode transport mapping mirrors the overridden canonical names.
+    SMART_PROCESS_N_MODE_FIELD_NAMES: {
+      ...real.SMART_PROCESS_N_MODE_FIELD_NAMES,
+      SENT_DATE: "ufCrmSpSent",
+      GRADE_GEL: "ufCrmSpGel",
+      GRADE_SOL: "ufCrmSpSol",
+      TEST_RESULT: "ufCrmSpResult",
+    },
   };
 });
 

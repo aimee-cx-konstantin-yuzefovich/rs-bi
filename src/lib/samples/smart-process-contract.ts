@@ -262,6 +262,49 @@ export function assertSmartProcessNModeContractComplete(
   throw new Error(`N_MODE_FIELD_MAPPING_AMBIGUOUS: ${broken.join(", ")}`);
 }
 
+/**
+ * Verified static N-mode (useOriginalUfNames = "N") transport names for the
+ * six required custom roles. PROVENANCE: live-measured on the real portal
+ * by scripts/verify-n-mode-field-contract.mjs — each name was correlated
+ * deterministically from live `crm.item.fields` metadata via the
+ * documented `upperName` attribute (exactly ONE candidate per role) and
+ * every name was proven selectable in `crm.item.list` N-mode with the
+ * documented `id` present (live verdict N_MODE_FIELD_CONTRACT_OK). The
+ * names follow the officially documented regular conversion rule
+ * (`UF_CRM_7_<digits>` → `ufCrm7_<digits>`); they are committed as data —
+ * NEVER hand-derived at call sites — and are re-verified by the diagnostic
+ * whenever portal behavior is in question.
+ */
+export const SMART_PROCESS_N_MODE_FIELD_NAMES: Readonly<Record<string, string>> = {
+  SENT_DATE: "ufCrm7_1766059943",
+  GRADE_GEL: "ufCrm7_1766135695",
+  GRADE_SOL: "ufCrm7_1766136511",
+  QTY_GEL: "ufCrm7_1766136470",
+  QTY_SOL: "ufCrm7_1766136546",
+  TEST_RESULT: "ufCrm7_1763036405",
+};
+
+/**
+ * Fail-closed gate: the static N-mode mapping must cover EVERY required
+ * custom role exactly once. A missing entry never reaches the transport.
+ */
+export function assertSmartProcessNModeMappingComplete(): void {
+  const missing = SMART_PROCESS_N_MODE_CUSTOM_ROLES.filter(
+    (role) => !SMART_PROCESS_N_MODE_FIELD_NAMES[role]
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `N_MODE_FIELD_MAPPING_AMBIGUOUS: missing N-mode names for ${missing.join(", ")}`
+    );
+  }
+  const values = SMART_PROCESS_N_MODE_CUSTOM_ROLES.map(
+    (role) => SMART_PROCESS_N_MODE_FIELD_NAMES[role]
+  );
+  if (new Set(values).size !== values.length) {
+    throw new Error("N_MODE_FIELD_MAPPING_AMBIGUOUS: duplicate N-mode names across roles");
+  }
+}
+
 /** Stable semantic class for an arbitrary stage ID (unknown → undefined). */
 export function smartProcessStageSemantic(stageId: string | undefined): SmartProcessStageSemantic | undefined {
   if (!stageId) return undefined;

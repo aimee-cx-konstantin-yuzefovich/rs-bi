@@ -26,6 +26,25 @@ const spContract = vi.hoisted(() => ({
   smartProcessStageSemantic: () => undefined as any,
   isSmartProcessActiveStage: () => false,
   isSmartProcessTerminalStage: () => false,
+  // N-mode transport contract (verified static mapping mirrors the mock's
+  // canonical original names under the documented camelCase conversion).
+  SMART_PROCESS_N_MODE_CUSTOM_ROLES: [
+    "SENT_DATE",
+    "GRADE_GEL",
+    "GRADE_SOL",
+    "QTY_GEL",
+    "QTY_SOL",
+    "TEST_RESULT",
+  ],
+  SMART_PROCESS_N_MODE_FIELD_NAMES: {
+    SENT_DATE: "ufCrmSpSentDateTest",
+    GRADE_GEL: "ufCrmSpGelTest",
+    GRADE_SOL: "ufCrmSpSolTest",
+    QTY_GEL: "ufCrmSpQtyGelTest",
+    QTY_SOL: "ufCrmSpQtySolTest",
+    TEST_RESULT: "ufCrmSpResultTest",
+  },
+  assertSmartProcessNModeMappingComplete: () => {},
 }));
 vi.mock("@/lib/samples/smart-process-contract", () => spContract);
 import { POST } from "@/app/api/bitrix/samples/route";
