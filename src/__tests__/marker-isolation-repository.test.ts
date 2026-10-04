@@ -136,6 +136,7 @@ describe("Phase C — Marker isolation (§45)", () => {
         "src/__tests__/global-adversarial-reconciliation.test.ts",
         "src/__tests__/bitrix-contract.test.ts",
         "src/__tests__/live-contract-consistency.test.ts",
+        "src/__tests__/samples-n-mode-integration.test.ts", // test fixture: proves marker-only through the integrated path
         "scripts/verify-bitrix-contract.mjs",
         "scripts/verify-samples-field-map.mjs",
       ]
