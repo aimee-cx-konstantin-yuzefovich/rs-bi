@@ -241,4 +241,103 @@ describe("Commercial Funnel Session Cache (CF-CACHE-1 .. CF-CACHE-8)", () => {
     clearCommercialFunnelCache();
     expect(getCachedCommercialFunnel("user-1")).toBeNull();
   });
+
+  // ─── Out-of-order commit protection (request-generation guard) ───
+
+  it("CF-RACE-1: late-resolving older request A can never overwrite newer request B in cache", async () => {
+    let resolveA: ((res: Response) => void) | null = null;
+    let resolveB: ((res: Response) => void) | null = null;
+    const promiseA = new Promise<Response>((resolve) => { resolveA = resolve; });
+    const promiseB = new Promise<Response>((resolve) => { resolveB = resolve; });
+
+    fetchMock.mockReturnValueOnce(promiseA).mockReturnValueOnce(promiseB);
+
+    const pA = fetchCommercialFunnelWithDeduplication("user-1", { force: true }); // generation 1
+    const pB = fetchCommercialFunnelWithDeduplication("user-1", { force: true }); // generation 2
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // B (newer) succeeds first
+    resolveB!(
+      new Response(JSON.stringify({ success: true, ...createMockData("Snapshot B (latest)") }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const resB = await pB;
+    expect(resB.success).toBe(true);
+
+    const cachedAfterB = getCachedCommercialFunnel("user-1");
+    expect(cachedAfterB?.companies[0].title).toBe("Snapshot B (latest)");
+    const timestampB = cachedAfterB?.timestamp;
+
+    // A (older) succeeds last — must NOT overwrite B in the shared cache
+    resolveA!(
+      new Response(JSON.stringify({ success: true, ...createMockData("Snapshot A (stale)") }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const resA = await pA;
+    expect(resA.success).toBe(true); // A still resolves to its own caller
+
+    const cached = getCachedCommercialFunnel("user-1");
+    expect(cached?.companies[0].title).toBe("Snapshot B (latest)"); // B survives
+    expect(cached?.timestamp).toBe(timestampB); // timestamp still belongs to B
+  });
+
+  it("CF-RACE-2: principal switch prevents an old-principal completion from committing", async () => {
+    let resolveA: ((res: Response) => void) | null = null;
+    const promiseA = new Promise<Response>((resolve) => { resolveA = resolve; });
+    fetchMock.mockReturnValueOnce(promiseA);
+
+    const pA = fetchCommercialFunnelWithDeduplication("user-A", { force: true });
+
+    // Principal switches mid-flight → cache cleared, generations invalidated
+    syncCommercialFunnelPrincipal("user-B");
+    expect(getCachedCommercialFunnel("user-A")).toBeNull();
+
+    resolveA!(
+      new Response(JSON.stringify({ success: true, ...createMockData("Data of user A") }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    const resA = await pA;
+    expect(resA.success).toBe(true); // A resolves to its caller...
+
+    // ...but commits nothing: no cross-user leakage into user-B's cache.
+    expect(getCachedCommercialFunnel("user-A")).toBeNull();
+    expect(getCachedCommercialFunnel("user-B")).toBeNull();
+  });
+
+  it("CF-RACE-3: failure of a newer request never clears the last successful snapshot", async () => {
+    const dataA = createMockData("Snapshot A");
+    setCachedCommercialFunnel("user-1", dataA);
+
+    // Two forced refreshes both fail
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: false, error: "down 1" }), {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: false, error: "down 2" }), {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        })
+      );
+
+    const r1 = await fetchCommercialFunnelWithDeduplication("user-1", { force: true });
+    const r2 = await fetchCommercialFunnelWithDeduplication("user-1", { force: true });
+    expect(r1.success).toBe(false);
+    expect(r2.success).toBe(false);
+
+    // Repeated failures NEVER discard the last successful snapshot.
+    const cached = getCachedCommercialFunnel("user-1", { allowStale: true });
+    expect(cached).not.toBeNull();
+    expect(cached?.companies[0].title).toBe("Snapshot A");
+  });
 });

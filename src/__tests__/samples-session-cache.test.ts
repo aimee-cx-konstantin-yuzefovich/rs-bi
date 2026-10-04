@@ -252,4 +252,127 @@ describe("Samples Session Cache (C1 .. C8)", () => {
     expect(cached).not.toBeNull();
     expect(cached?.samples).toEqual([]);
   });
+
+  // ─── Out-of-order commit protection (request-generation guard) ───
+
+  it("RACE-S1: late-resolving older request A can never overwrite newer request B in cache", async () => {
+    // Deferred responses: A starts first and resolves LAST.
+    let resolveA: ((res: Response) => void) | null = null;
+    let resolveB: ((res: Response) => void) | null = null;
+    const promiseA = new Promise<Response>((resolve) => { resolveA = resolve; });
+    const promiseB = new Promise<Response>((resolve) => { resolveB = resolve; });
+
+    fetchMock.mockReturnValueOnce(promiseA).mockReturnValueOnce(promiseB);
+
+    const pA = fetchSamplesWithDeduplication("user-1", { force: true }); // generation 1
+    const pB = fetchSamplesWithDeduplication("user-1", { force: true }); // generation 2
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const dataA = [mockSummary("1", "Snapshot A (stale)")];
+    const dataB = [mockSummary("2", "Snapshot B (latest)")];
+
+    // B (newer) succeeds first
+    resolveB!(
+      new Response(JSON.stringify({ success: true, samples: dataB, orphanDealCount: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const resB = await pB;
+    expect(resB.success).toBe(true);
+
+    const cachedAfterB = getCachedSamples("user-1");
+    expect(cachedAfterB?.samples).toEqual(dataB);
+    const timestampB = cachedAfterB?.timestamp;
+
+    // A (older) succeeds last — must NOT overwrite B in the shared cache
+    resolveA!(
+      new Response(JSON.stringify({ success: true, samples: dataA, orphanDealCount: 9 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const resA = await pA;
+    expect(resA.success).toBe(true); // A still resolves to its own caller
+
+    const cached = getCachedSamples("user-1");
+    expect(cached?.samples).toEqual(dataB); // B's payload survives
+    expect(cached?.orphanDealCount).toBe(0); // B's metadata survives
+    expect(cached?.timestamp).toBe(timestampB); // timestamp still belongs to B
+  });
+
+  it("RACE-S2: principal switch prevents an old-principal completion from committing", async () => {
+    let resolveA: ((res: Response) => void) | null = null;
+    const promiseA = new Promise<Response>((resolve) => { resolveA = resolve; });
+    fetchMock.mockReturnValueOnce(promiseA);
+
+    const pA = fetchSamplesWithDeduplication("user-A", { force: true });
+
+    // Principal switches mid-flight → cache cleared, generations invalidated
+    syncAuthPrincipal("user-B");
+    expect(getCachedSamples("user-A")).toBeNull();
+
+    const dataA = [mockSummary("1", "Data of user A")];
+    resolveA!(
+      new Response(JSON.stringify({ success: true, samples: dataA, orphanDealCount: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    const resA = await pA;
+    expect(resA.success).toBe(true); // A resolves to its caller...
+
+    // ...but commits nothing: neither user-A's cache (invalidated) nor
+    // user-B's fresh cache may receive the old-principal snapshot.
+    expect(getCachedSamples("user-A")).toBeNull();
+    expect(getCachedSamples("user-B")).toBeNull();
+  });
+
+  it("RACE-S3: in-flight deduplication is preserved (joined request shares one generation)", async () => {
+    let resolveFetch: ((res: Response) => void) | null = null;
+    const pendingPromise = new Promise<Response>((resolve) => { resolveFetch = resolve; });
+    fetchMock.mockReturnValue(pendingPromise);
+
+    const p1 = fetchSamplesWithDeduplication("user-1"); // dedup join of p2
+    const p2 = fetchSamplesWithDeduplication("user-1");
+    expect(fetchMock).toHaveBeenCalledTimes(1); // ONE real request
+
+    const data = [mockSummary("1", "Единый снимок")];
+    resolveFetch!(
+      new Response(JSON.stringify({ success: true, samples: data, orphanDealCount: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1).toBe(r2); // dedup share preserved
+    expect(r1.success).toBe(true);
+    expect(getCachedSamples("user-1")?.samples).toEqual(data);
+  });
+
+  it("RACE-S4: force still performs a real network request after a successful load", async () => {
+    const dataA = [mockSummary("1", "Snapshot A")];
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, samples: dataA, orphanDealCount: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    await fetchSamplesWithDeduplication("user-1");
+    expect(getCachedSamples("user-1")?.samples).toEqual(dataA);
+
+    const dataB = [mockSummary("2", "Snapshot B")];
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, samples: dataB, orphanDealCount: 0 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const res = await fetchSamplesWithDeduplication("user-1", { force: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2); // force bypasses dedup + cache
+    expect(res.success).toBe(true);
+    expect(getCachedSamples("user-1")?.samples).toEqual(dataB);
+  });
 });

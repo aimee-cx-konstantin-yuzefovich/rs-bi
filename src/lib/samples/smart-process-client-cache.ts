@@ -17,9 +17,16 @@
 //    refresh PRESERVES the previous complete snapshot (stale disclosure is
 //    the caller's responsibility via the returned state).
 // 6. Initial failure is explicit (no cached snapshot → failed state).
+// 7. Out-of-order commit protection: each real FULL-SCOPE request allocates
+//    a generation at start; only the LATEST generation may commit the
+//    shared cache. An older request resolves to its own caller but can
+//    never overwrite a newer snapshot. Company-scoped requests never commit
+//    to the full-scope cache and never allocate generations. Principal
+//    change invalidates all old generations (no cross-user leakage).
 // ─────────────────────────────────────────────────────────────────────
 
 import type { SmartProcessItemView } from "./smart-process-view";
+import { createRequestGenerationGuard } from "@/lib/request-generation";
 
 export type SmartProcessDataState =
   | "loading"
@@ -60,6 +67,9 @@ let currentCache: SmartProcessCacheSnapshot | null = null;
 let activeInFlightPromise: Promise<SmartProcessFetchResult> | null = null;
 let activeInFlightPrincipal: string | null = null;
 let activeInFlightRequestId: symbol | null = null;
+// Out-of-order commit protection (full-scope requests only): only the latest
+// request generation may commit the shared cache (stale-A-never-overwrites-B).
+const commitGuard = createRequestGenerationGuard();
 
 const CLIENT_FETCH_TIMEOUT_MS = 180_000;
 
@@ -125,6 +135,9 @@ export function clearSmartProcessCache(): void {
   activeInFlightPromise = null;
   activeInFlightPrincipal = null;
   activeInFlightRequestId = null;
+  // Retire every outstanding generation: an in-flight completion from before
+  // this clear must never commit into a fresh session's cache.
+  commitGuard.invalidate();
 }
 
 /** Handles auth principal change; resets cache when the principal differs. */
@@ -161,9 +174,13 @@ export async function fetchSmartProcessItemsWithDeduplication(
   }
 
   const requestId = Symbol("smart-process-request");
+  // Generation allocated ONLY for real full-scope requests (not for dedup
+  // joins; never for company scopes — those never commit the shared cache).
+  let generation: number | undefined;
   if (isFullScope) {
     activeInFlightPrincipal = principal;
     activeInFlightRequestId = requestId;
+    generation = commitGuard.begin();
   }
 
   const promise = (async (): Promise<SmartProcessFetchResult> => {
@@ -205,8 +222,18 @@ export async function fetchSmartProcessItemsWithDeduplication(
         timestamp: nowTs,
       };
 
-      // Atomically store into the full-scope cache only for matching principal.
-      if (isFullScope && currentPrincipal === principal) {
+      // Atomically store into the full-scope cache only for the matching
+      // principal AND only for the latest full-scope request generation:
+      // an older request that resolves after a newer one must never
+      // overwrite the shared snapshot; company-scoped requests never
+      // commit here. Failures below never touch the cache (last
+      // successful snapshot is always preserved).
+      if (
+        isFullScope &&
+        currentPrincipal === principal &&
+        generation !== undefined &&
+        commitGuard.canCommit(generation)
+      ) {
         setCachedSmartProcessItems(principal, result);
       }
 
