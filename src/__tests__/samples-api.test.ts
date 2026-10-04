@@ -565,8 +565,9 @@ describe("POST /api/bitrix/samples — security invariants", () => {
     expect(body.success).toBe(true);
     expect(body.total).toBe(1);
     expect(body.samples[0].companyId).toBe("42");
-    // 1 failed attempt + partition A retry + partition B read = 3 SP calls.
-    expect(spCalls).toBe(3);
+    // 1 failed attempt + 1 successful retry (single full-select pagination
+    // while partitioning is gated OFF) = 2 SP calls.
+    expect(spCalls).toBe(2);
   });
 
   it("transport-level allowlist still rejects write methods", async () => {

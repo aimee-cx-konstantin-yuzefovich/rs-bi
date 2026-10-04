@@ -115,9 +115,9 @@ describe("Smart Process crm.item.list request contract", () => {
   });
 
   it("sends ONLY official Universal CRM parameters — no uppercase SELECT/FILTER/ORDER aliases", async () => {
-    // Partitioned production contract: BOTH partition reads receive the
-    // same parameter-shape guarantees (mockImplementation, not
-    // mockResolvedValueOnce — every partition page must be served).
+    // Partitioning gate is live-measurement owned: while the matrix verdict
+    // is USE_ORIGINAL_UF_NAMES_Y_BREAKS_ID, the production read runs the
+    // full production select in ONE fail-closed pagination.
     vi.mocked(bitrixPost).mockResolvedValue({
       result: [{ id: "1", stageId: "DT1032_15:NEW" }],
     });
@@ -125,46 +125,34 @@ describe("Smart Process crm.item.list request contract", () => {
     const rows = await fetchSmartProcessSampleItems({ companyId: "42" });
 
     expect(rows).toHaveLength(1);
-    expect(bitrixPost).toHaveBeenCalledTimes(2); // one per committed partition
-    for (const call of vi.mocked(bitrixPost).mock.calls as unknown as Array<
-      [string, Record<string, unknown>]
-    >) {
-      const [method, params] = call;
+    expect(bitrixPost).toHaveBeenCalledTimes(1);
+    const [method, params] = vi.mocked(bitrixPost).mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
 
-      expect(method).toBe("crm.item.list");
-      // Exact key set: only official lowercase parameters (+ pagination `start`).
-      expect(Object.keys(params).sort()).toEqual([
-        "entityTypeId",
-        "filter",
-        "order",
-        "select",
-        "start",
-        "useOriginalUfNames",
-      ]);
-      // No duplicate uppercase aliases anywhere in the request.
-      for (const key of ["SELECT", "FILTER", "ORDER"]) {
-        expect(Object.keys(params)).not.toContain(key);
-      }
-      // Verified contract values preserved.
-      expect(params.entityTypeId).toBe(1032);
-      expect(params.useOriginalUfNames).toBe("Y");
-      expect(params.start).toBe(0);
-      expect(params.filter).toEqual({ categoryId: 15, companyId: "42" });
-      expect(params.order).toEqual({ id: "ASC" });
-      // Every partition select carries the documented id (required-ID
-      // invariant); system fields beyond `id` live only in the first
-      // partition by contract.
-      expect(params.select).toContain("id");
+    expect(method).toBe("crm.item.list");
+    // Exact key set: only official lowercase parameters (+ pagination `start`).
+    expect(Object.keys(params).sort()).toEqual([
+      "entityTypeId",
+      "filter",
+      "order",
+      "select",
+      "start",
+      "useOriginalUfNames",
+    ]);
+    // No duplicate uppercase aliases anywhere in the request.
+    for (const key of ["SELECT", "FILTER", "ORDER"]) {
+      expect(Object.keys(params)).not.toContain(key);
     }
-    // Together the two partitions cover the full production select.
-    const unionSelect = new Set(
-      (vi.mocked(bitrixPost).mock.calls as unknown as Array<[string, Record<string, unknown>]>).flatMap(
-        ([, p]) => p.select as string[]
-      )
-    );
-    for (const field of SMART_PROCESS_ITEM_SELECT) {
-      expect(unionSelect.has(field)).toBe(true);
-    }
+    // Verified contract values preserved.
+    expect(params.entityTypeId).toBe(1032);
+    expect(params.useOriginalUfNames).toBe("Y");
+    expect(params.start).toBe(0);
+    expect(params.filter).toEqual({ categoryId: 15, companyId: "42" });
+    expect(params.order).toEqual({ id: "ASC" });
+    expect(params.select).toEqual(SMART_PROCESS_ITEM_SELECT);
+    expect(params.select).toContain("id");
   });
 
   it("SMART_PROCESS_ITEM_SELECT includes BOTH quantity fields (Gel kg + Sol l)", async () => {
@@ -185,29 +173,26 @@ describe("Smart Process crm.item.list request contract", () => {
 
     await fetchSmartProcessSampleItems();
 
-    // Every partition read carries the exact production request shape.
-    expect(bitrixPost).toHaveBeenCalledTimes(2); // one per committed partition
-    for (const call of vi.mocked(bitrixPost).mock.calls as unknown as Array<
-      [string, Record<string, unknown>]
-    >) {
-      const [method, params] = call;
+    const [method, params] = vi.mocked(bitrixPost).mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
 
-      expect(method).toBe("crm.item.list");
-      // Top-level official parameters only.
-      expect(params).toHaveProperty("entityTypeId", 1032);
-      expect(params).toHaveProperty("useOriginalUfNames", "Y");
-      // categoryId strictly INSIDE filter — never a top-level parameter.
-      const filter = params.filter as Record<string, unknown>;
-      expect(filter).toHaveProperty("categoryId", 15);
-      expect(params).not.toHaveProperty("categoryId");
-      // Lowercase select/filter/order keys.
-      expect(params).toHaveProperty("select");
-      expect(params).toHaveProperty("filter");
-      expect(params).toHaveProperty("order");
-      expect(params).not.toHaveProperty("SELECT");
-      expect(params).not.toHaveProperty("FILTER");
-      expect(params).not.toHaveProperty("ORDER");
-    }
+    expect(method).toBe("crm.item.list");
+    // Top-level official parameters only.
+    expect(params).toHaveProperty("entityTypeId", 1032);
+    expect(params).toHaveProperty("useOriginalUfNames", "Y");
+    // categoryId strictly INSIDE filter — never a top-level parameter.
+    const filter = params.filter as Record<string, unknown>;
+    expect(filter).toHaveProperty("categoryId", 15);
+    expect(params).not.toHaveProperty("categoryId");
+    // Lowercase select/filter/order keys.
+    expect(params).toHaveProperty("select");
+    expect(params).toHaveProperty("filter");
+    expect(params).toHaveProperty("order");
+    expect(params).not.toHaveProperty("SELECT");
+    expect(params).not.toHaveProperty("FILTER");
+    expect(params).not.toHaveProperty("ORDER");
   });
 
   it("fetchSmartProcessStageDirectory prefers live NAMEs for known committed stage IDs and keeps static fallback on failure", async () => {

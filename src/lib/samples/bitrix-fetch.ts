@@ -747,24 +747,48 @@ export function buildSmartProcessListParamsWithSelect(
 }
 
 /**
+ * Partitioned transport activation gate (live-measurement owned).
+ *
+ * The partitioned read contract is enabled ONLY while the live select
+ * matrix proves every committed partition select independently delivers
+ * the documented `id`. The production measurement (admin select matrix,
+ * verdict USE_ORIGINAL_UF_NAMES_Y_BREAKS_ID) proved the opposite:
+ * useOriginalUfNames="Y" drops `id` from EVERY select on this portal —
+ * including ["id"] alone — so partitioned Y-mode reads cannot succeed and
+ * enabling them would double the request load for a guaranteed failure.
+ * The gate flips to enabled only after a live matrix verdict
+ * SELECT_MATRIX_OK for the committed composition (e.g. after a portal
+ * behavior fix or a verified useOriginalUfNames="N" production contract —
+ * the latter requires the official naming contract to be re-verified
+ * live first; never hand-converted).
+ */
+const SMART_PROCESS_PARTITIONED_READ_ENABLED = false;
+
+/**
  * Fetches the COMPLETE relevant Smart Process 1032 (categoryId 15)
  * population via fail-closed pagination. Fail-closed contract gate first:
  * an unverified contract never reaches the transport.
  *
- * Production reads use the ID-bearing PARTITIONED transport contract
- * (measured live: the full production select makes this portal drop the
- * documented `id` field): the committed partitions are each read with the
- * full existing fail-closed pagination and merged strictly by exact string
- * item ID. On any partition/merge/ID-set inconsistency the WHOLE read is
- * retried exactly once from scratch; a second mismatch fails closed with
- * SMART_PROCESS_PARTITION_SET_MISMATCH. No positional merge, no silent row
- * drops, no fabricated fields, no per-item requests.
+ * Transport contract: the full production select in ONE fail-closed
+ * pagination while partitioning is disabled (see
+ * SMART_PROCESS_PARTITIONED_READ_ENABLED). When enabled, production reads
+ * use the ID-bearing PARTITIONED contract: the committed partitions are
+ * each read with the full existing fail-closed pagination and merged
+ * strictly by exact string item ID
+ * (fetchAndMergeSmartProcessPartitions). On any partition/merge/ID-set
+ * inconsistency the WHOLE read is retried exactly once from scratch; a
+ * second mismatch fails closed with SMART_PROCESS_PARTITION_SET_MISMATCH.
+ * No positional merge, no silent row drops, no fabricated fields, no
+ * per-item requests.
  */
 export async function fetchSmartProcessSampleItems(
   scope: FetchSamplesScope = {}
 ): Promise<BitrixRow[]> {
   assertSmartProcessContractReady();
-  return fetchAndMergeSmartProcessPartitions(scope);
+  if (SMART_PROCESS_PARTITIONED_READ_ENABLED) {
+    return fetchAndMergeSmartProcessPartitions(scope);
+  }
+  return fetchAllPages("crm.item.list", buildSmartProcessListParams(scope), "id");
 }
 
 /** Stable fail-closed category for strict partition ID-set reconciliation. */

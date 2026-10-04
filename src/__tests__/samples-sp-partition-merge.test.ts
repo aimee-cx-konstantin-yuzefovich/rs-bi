@@ -1,8 +1,14 @@
 // @vitest-environment node
 // src/__tests__/samples-sp-partition-merge.test.ts
 // ─────────────────────────────────────────────────────────────────────
-// Focused regressions for the partitioned Smart Process production read
-// (fetchAndMergeSmartProcessPartitions in src/lib/samples/bitrix-fetch.ts):
+// Focused regressions for the partitioned Smart Process read helper
+// (fetchAndMergeSmartProcessPartitions in src/lib/samples/bitrix-fetch.ts).
+// The helper is GATED by a live-measurement switch
+// (SMART_PROCESS_PARTITIONED_READ_ENABLED): the production measurement
+// (verdict USE_ORIGINAL_UF_NAMES_Y_BREAKS_ID) proved the portal drops `id`
+// for every useOriginalUfNames="Y" select, so the gate is OFF and
+// production runs the single full-select pagination. These tests pin the
+// helper's own contract so it is correct the moment the gate is enabled:
 //
 //  6. two healthy partitions merge correctly by exact ID;
 //  7. the merged row contract is identical to the current production
@@ -13,14 +19,19 @@
 // 11. differing ID sets again after the retry fail with
 //     SMART_PROCESS_PARTITION_SET_MISMATCH;
 // 12. no positional merge exists (source scan);
-// 13. no per-item crm.item.get exists (source scan + method capture);
+// 13. no per-item crm.item.get exists (source scan);
 // 14. no select:["*"] production path exists (source scan);
-// 15/16. full-scope and company-scoped semantics preserved (scope filter
-//     applied to EVERY partition; attribution suites stay green).
+// gate: production read runs ONE full-select pagination while disabled.
 // ─────────────────────────────────────────────────────────────────────
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
-import { fetchSmartProcessSampleItems, SMART_PROCESS_ITEM_SELECT, SMART_PROCESS_SYSTEM_SELECT, SMART_PROCESS_ROLE_FIELD_IDS } from "@/lib/samples/bitrix-fetch";
+import {
+  fetchSmartProcessSampleItems,
+  fetchAndMergeSmartProcessPartitions,
+  SMART_PROCESS_ITEM_SELECT,
+  SMART_PROCESS_SYSTEM_SELECT,
+  SMART_PROCESS_ROLE_FIELD_IDS,
+} from "@/lib/samples/bitrix-fetch";
 import { bitrixPost, BitrixTransientError } from "@/lib/bitrix";
 
 vi.mock("@/lib/bitrix", async (importOriginal) => {
@@ -111,7 +122,7 @@ describe("healthy partition merge", () => {
       throw new Error(`unexpected select ${select.join(",")}`);
     });
 
-    const rows = await fetchSmartProcessSampleItems({});
+    const rows = await fetchAndMergeSmartProcessPartitions({});
     expect(rows).toHaveLength(2);
     const byId = new Map(rows.map((r) => [String(r.id), r]));
     expect([...byId.keys()].sort()).toEqual(["1", "2"]);
@@ -139,7 +150,7 @@ describe("healthy partition merge", () => {
       );
     });
 
-    const rows = await fetchSmartProcessSampleItems({});
+    const rows = await fetchAndMergeSmartProcessPartitions({});
     for (const row of rows) {
       expect(Object.keys(row).sort()).toEqual([...SMART_PROCESS_ITEM_SELECT].sort());
     }
@@ -165,7 +176,7 @@ describe("healthy partition merge", () => {
       );
     });
 
-    const rows = await fetchSmartProcessSampleItems({});
+    const rows = await fetchAndMergeSmartProcessPartitions({});
     expect(rows.map((r) => String(r.id)).sort()).toEqual(["1", "2", "3"]);
     const byId = new Map(rows.map((r) => [String(r.id), r]));
     expect(byId.get("2")![R.SENT_DATE]).toBe("2026-09-11");
@@ -189,7 +200,7 @@ describe("healthy partition merge", () => {
       );
     });
 
-    await fetchSmartProcessSampleItems({ companyId: "10" });
+    await fetchAndMergeSmartProcessPartitions({ companyId: "10" });
     for (const [, params] of vi.mocked(bitrixPost).mock.calls as unknown as Array<
       [string, Record<string, unknown>]
     >) {
@@ -211,7 +222,7 @@ describe("partition reconciliation fail-closed contract", () => {
       return [fullRow(1)];
     });
 
-    await expect(fetchSmartProcessSampleItems({})).rejects.toThrow(/missing required 'id'/);
+    await expect(fetchAndMergeSmartProcessPartitions({})).rejects.toThrow(/missing required 'id'/);
   });
 
   it("differing ID sets trigger exactly ONE complete retry (contract 10)", async () => {
@@ -234,7 +245,7 @@ describe("partition reconciliation fail-closed contract", () => {
       throw new Error(`unexpected select ${select.join(",")}`);
     });
 
-    const rows = await fetchSmartProcessSampleItems({});
+    const rows = await fetchAndMergeSmartProcessPartitions({});
     expect(rows).toHaveLength(2);
     expect(partitionBAttempt).toBe(2); // initial + exactly ONE complete retry
   });
@@ -257,7 +268,7 @@ describe("partition reconciliation fail-closed contract", () => {
       throw new Error(`unexpected select ${select.join(",")}`);
     });
 
-    await expect(fetchSmartProcessSampleItems({})).rejects.toThrow(
+    await expect(fetchAndMergeSmartProcessPartitions({})).rejects.toThrow(
       /SMART_PROCESS_PARTITION_SET_MISMATCH/
     );
     expect(partitionBAttempt).toBe(2); // initial + one retry, then fail closed
@@ -272,7 +283,7 @@ describe("partition reconciliation fail-closed contract", () => {
       throw new BitrixTransientError("API returned status 500", 500, undefined, "crm.item.list");
     });
 
-    await expect(fetchSmartProcessSampleItems({})).rejects.toThrow(/500/);
+    await expect(fetchAndMergeSmartProcessPartitions({})).rejects.toThrow(/500/);
   });
 });
 
@@ -294,6 +305,26 @@ describe("partition merge source invariants", () => {
     new URL("../lib/samples/bitrix-fetch.ts", import.meta.url),
     "utf8"
   );
+
+  it("gate OFF: production read runs ONE full-select pagination (no wasted partition reads)", async () => {
+    vi.mocked(bitrixPost).mockResolvedValue(page([fullRow(1)]));
+    const rows = await fetchSmartProcessSampleItems({ companyId: "42" });
+    expect(rows).toHaveLength(1);
+    expect(bitrixPost).toHaveBeenCalledTimes(1);
+    const [, params] = vi.mocked(bitrixPost).mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+    ];
+    // The single read carries the EXACT full production select.
+    expect(params.select).toEqual(SMART_PROCESS_ITEM_SELECT);
+    expect(params.filter).toEqual({ categoryId: 15, companyId: "42" });
+  });
+
+  it("partition helper is exported and gated (not dead code, not silently active)", () => {
+    expect(fetchSource).toContain("SMART_PROCESS_PARTITIONED_READ_ENABLED = false");
+    expect(fetchSource).toContain("export async function fetchAndMergeSmartProcessPartitions");
+    expect(fetchSource).toMatch(/if \(SMART_PROCESS_PARTITIONED_READ_ENABLED\)/);
+  });
 
   it("no positional merge exists (contract 12)", () => {
     // The merge is a Map keyed by exact string ID; there is no index-based
