@@ -37,7 +37,8 @@
 //   dataset), never a failure.
 // ─────────────────────────────────────────────────────────────────────
 
-import { readBitrixFailureMeta, type BitrixSafeErrorMeta } from "@/lib/bitrix";
+import { readBitrixFailureMeta, bitrixPost, type BitrixSafeErrorMeta } from "@/lib/bitrix";
+import { isBitrixListInvariantError } from "@/lib/bitrix-list-invariant";
 import {
   fetchAllPages,
   fetchFieldLabelMaps,
@@ -46,8 +47,10 @@ import {
   fetchSmartProcessSampleItems,
   fetchSmartProcessStageDirectory,
   makeLabelResolver,
+  buildSmartProcessListParams,
 } from "@/lib/samples/bitrix-fetch";
 import { fetchDealCompanyMap } from "@/lib/samples/smart-process-service";
+import { assertSmartProcessContractReady } from "@/lib/samples/smart-process-contract";
 import {
   buildCanonicalSampleDomain,
   buildSampleSummaries,
@@ -86,6 +89,54 @@ export type StageDirectoryProbe =
   | { status: "PASS" | "DEGRADED"; available: boolean; knownStageLabelCount: number }
   | { status: "SKIPPED"; reason: string };
 
+/**
+ * DIRECT FIRST-PAGE COMPARISON (Probe D pre-step): the EXACT raw production
+ * `crm.item.list` request, issued immediately before the wrapped helper —
+ * same method, same params (structurally shared via
+ * `buildSmartProcessListParams`), same transport. Records ONLY anonymous
+ * structure facts; never item identity. Purpose: prove
+ * raw response structure → exact local invariant that rejects it.
+ */
+export interface SmartProcessFirstPageComparison {
+  status: "PASS" | "FAIL";
+  /** `result.items` is an array (official `crm.item.list` envelope). */
+  itemsIsArray?: boolean;
+  /** Number of rows on the first page (when envelope parsed). */
+  itemCount?: number;
+  /** Rows carrying a usable (non-empty) `id`. */
+  rowsWithUsableId?: number;
+  /** Duplicate first-page ID rows (anonymous count only). */
+  duplicateIdCount?: number;
+  /** Total Bitrix reported on the first page (when reported). */
+  reportedTotal?: number | null;
+  /** Whether the first page carried a `next` continuation token. */
+  nextPresent?: boolean;
+  method?: string;
+  httpStatus?: number;
+  bitrixCode?: string;
+}
+
+/** Safe structured view of a local pagination invariant failure. */
+export interface SmartProcessLocalInvariant {
+  /** Safe invariant category (no identity data). */
+  localInvariant: string;
+  reportedTotal?: number;
+  pageItemCount?: number;
+  accumulatedUniqueCount?: number;
+  duplicateCount?: number;
+  missingIdCount?: number;
+  start?: number;
+  nextPresent?: boolean;
+}
+
+export type SmartProcessProbe =
+  | { status: "PASS"; count: number }
+  | ({ status: "FAIL" } & ProbeFailure & {
+      firstPage?: SmartProcessFirstPageComparison;
+      localInvariant?: SmartProcessLocalInvariant;
+    })
+  | { status: "SKIPPED"; reason: string };
+
 export type DealCompanyMapProbe =
   | { status: "PASS"; referencedDealCount: number; resolvedRelationCount: number }
   | ProbeFailure
@@ -117,7 +168,7 @@ export interface SamplesPipelineDiagnosticsReport {
     fieldMetadata: FieldMetadataProbe;
     companies: CountProbe;
     deals: CountProbe;
-    smartProcess: CountProbe;
+    smartProcess: SmartProcessProbe;
     stageDirectory: StageDirectoryProbe;
     dealCompanyMap: DealCompanyMapProbe;
     aggregation: AggregationProbe;
@@ -221,11 +272,115 @@ export async function runSamplesPipelineDiagnostics(): Promise<SamplesPipelineDi
 
   // ─── PROBE D: SP items via the EXACT Samples helper ───
   // (Includes the real fail-closed contract gate the route consumes.)
+  //
+  // Direct first-page comparison pre-step (task §3): issue the EXACT raw
+  // production request once via the same transport, recording ONLY safe
+  // anonymous structure facts, immediately before the wrapped helper runs.
+  // Purpose: prove raw response structure → exact local invariant that
+  // rejects it, in one report. Parameters are structurally shared with the
+  // production helper via buildSmartProcessListParams — no parameter delta
+  // is possible. When the helper fails because of a LOCAL pagination
+  // invariant (BitrixListInvariantError), the safe category and anonymous
+  // counts are attached (localInvariant); all other errors keep the
+  // existing failProbe shape. Never item IDs/titles/UF values/URLs.
   let smartProcessItems: BitrixRow[];
   try {
-    smartProcessItems = await fetchSmartProcessSampleItems({});
-    probes.smartProcess = { status: "PASS", count: smartProcessItems.length };
+    assertSmartProcessContractReady();
+    let firstPage: SmartProcessFirstPageComparison | undefined;
+    try {
+      const rawPage = await bitrixPost<{
+        result?: unknown;
+        total?: unknown;
+        next?: unknown;
+      }>("crm.item.list", { ...buildSmartProcessListParams({}), start: 0 });
+      const rawResult = rawPage?.result;
+      const items = Array.isArray(rawResult)
+        ? rawResult
+        : rawResult !== null &&
+          rawResult !== undefined &&
+          typeof rawResult === "object" &&
+          Array.isArray((rawResult as { items?: unknown }).items)
+        ? ((rawResult as { items: unknown[] }).items)
+        : undefined;
+      let rowsWithUsableId = 0;
+      const seenIds = new Set<string>();
+      let duplicateIdCount = 0;
+      if (items) {
+        for (const row of items) {
+          const rawId =
+            row !== null && typeof row === "object"
+              ? (row as { id?: unknown; ID?: unknown }).id ??
+                (row as { id?: unknown; ID?: unknown }).ID
+              : undefined;
+          const id = rawId === undefined || rawId === null ? "" : String(rawId).trim();
+          if (id === "") continue;
+          rowsWithUsableId++;
+          if (seenIds.has(id)) {
+            duplicateIdCount++;
+            continue;
+          }
+          seenIds.add(id);
+        }
+      }
+      const parsedTotal =
+        rawPage?.total === undefined || rawPage?.total === null
+          ? null
+          : Number(rawPage.total);
+      firstPage = {
+        status: "PASS",
+        itemsIsArray: Array.isArray(items),
+        itemCount: items ? items.length : undefined,
+        rowsWithUsableId,
+        duplicateIdCount,
+        reportedTotal:
+          parsedTotal !== null && Number.isFinite(parsedTotal) && parsedTotal >= 0
+            ? parsedTotal
+            : null,
+        nextPresent: rawPage?.next !== undefined && rawPage?.next !== null,
+      };
+    } catch (error) {
+      const meta = readBitrixFailureMeta(error);
+      firstPage = {
+        status: "FAIL",
+        method: meta?.method ?? "crm.item.list",
+        ...(meta?.httpStatus !== undefined ? { httpStatus: meta.httpStatus } : {}),
+        ...(meta?.bitrixCode !== undefined ? { bitrixCode: meta.bitrixCode } : {}),
+      };
+    }
+
+    try {
+      smartProcessItems = await fetchSmartProcessSampleItems({});
+      probes.smartProcess = {
+        status: "PASS",
+        count: smartProcessItems.length,
+        ...(firstPage ? { firstPage } : {}),
+      };
+    } catch (error) {
+      const base = failProbe("crm.item.list", error);
+      if (isBitrixListInvariantError(error)) {
+        probes.smartProcess = {
+          ...base,
+          firstPage,
+          localInvariant: {
+            localInvariant: error.category,
+            ...(error.reportedTotal !== undefined ? { reportedTotal: error.reportedTotal } : {}),
+            ...(error.pageItemCount !== undefined ? { pageItemCount: error.pageItemCount } : {}),
+            ...(error.accumulatedUniqueCount !== undefined
+              ? { accumulatedUniqueCount: error.accumulatedUniqueCount }
+              : {}),
+            ...(error.duplicateCount !== undefined ? { duplicateCount: error.duplicateCount } : {}),
+            ...(error.missingIdCount !== undefined ? { missingIdCount: error.missingIdCount } : {}),
+            ...(error.start !== undefined ? { start: error.start } : {}),
+            ...(error.nextPresent !== undefined ? { nextPresent: error.nextPresent } : {}),
+          },
+        };
+      } else {
+        probes.smartProcess = { ...base, ...(firstPage ? { firstPage } : {}) };
+      }
+      return finishWithUpstreamSkip(probes);
+    }
   } catch (error) {
+    // Contract-gate failure (fail-closed) — keep the existing shape.
     probes.smartProcess = failProbe("crm.item.list", error);
     return finishWithUpstreamSkip(probes);
   }

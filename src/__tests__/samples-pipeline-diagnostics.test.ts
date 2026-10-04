@@ -262,7 +262,9 @@ describe("case 8/10/19: full pipeline PASS", () => {
     });
     expect(body.probes.companies).toEqual({ status: "PASS", count: 3 });
     expect(body.probes.deals).toEqual({ status: "PASS", count: 3 });
-    expect(body.probes.smartProcess).toEqual({ status: "PASS", count: 2 });
+    expect(body.probes.smartProcess.status).toBe("PASS");
+    expect(body.probes.smartProcess.count).toBe(2);
+    expect(body.probes.smartProcess.firstPage).toMatchObject({ status: "PASS", itemCount: 2 });
     expect(body.probes.stageDirectory).toEqual({
       status: "PASS",
       available: true,
@@ -424,7 +426,12 @@ describe("case 4: SP production helper failure", () => {
       throw new Error(`Unexpected method ${method}`);
     });
     const body = await (await GET_REQUEST()).json();
-    expect(body.probes.smartProcess).toEqual({
+    expect(body.probes.smartProcess.status).toBe("FAIL");
+    expect(body.probes.smartProcess.method).toBe("crm.item.list");
+    expect(body.probes.smartProcess.httpStatus).toBe(500);
+    expect(body.probes.smartProcess.localInvariant).toBeUndefined();
+    // Both the raw comparison AND the helper failed with the same status.
+    expect(body.probes.smartProcess.firstPage).toMatchObject({
       status: "FAIL",
       method: "crm.item.list",
       httpStatus: 500,
@@ -880,5 +887,153 @@ describe("production helper identity", () => {
     expect(params.entityTypeId).toBe(1032);
     expect(params.useOriginalUfNames).toBe("Y");
     expect(params.filter).toEqual({ categoryId: 15 });
+  });
+});
+
+// ─── Stage 1 extension: Probe D direct first-page comparison + local
+// invariant reporting (safe anonymous counts only, never identity). ───
+describe("Probe D extension: first-page comparison + localInvariant", () => {
+  it("happy path: firstPage comparison rides along on PASS with structure facts only", async () => {
+    mockFullHappyPath({ companies: 1, deals: 1, spItems: 2 });
+    const body = await (await GET_REQUEST()).json();
+    expect(body.probes.smartProcess.status).toBe("PASS");
+    expect(body.probes.smartProcess.count).toBe(2);
+    expect(body.probes.smartProcess.firstPage).toEqual({
+      status: "PASS",
+      itemsIsArray: true,
+      itemCount: 2,
+      rowsWithUsableId: 2,
+      duplicateIdCount: 0,
+      reportedTotal: 2,
+      nextPresent: false,
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain("Элемент образца");
+    expect(serialized).not.toContain('"id"');
+  });
+
+  it("raw probe and helper run with IDENTICAL params (structural parity, start=0 first)", async () => {
+    mockFullHappyPath({ companies: 1, deals: 1, spItems: 1 });
+    await runSamplesPipelineDiagnostics();
+    const itemCalls = bitrixPostMock.mock.calls.filter(([m]) => m === "crm.item.list");
+    // First call = raw first-page comparison; second = wrapped helper page 1.
+    expect(itemCalls.length).toBeGreaterThanOrEqual(2);
+    const [rawCall, helperCall] = itemCalls;
+    const rawParams = rawCall[1] as Record<string, unknown>;
+    const helperParams = helperCall[1] as Record<string, unknown>;
+    expect(rawParams).toEqual(helperParams);
+    expect(rawParams.entityTypeId).toBe(1032);
+    expect(rawParams.filter).toEqual({ categoryId: 15 });
+    expect(rawParams.useOriginalUfNames).toBe("Y");
+  });
+
+  it("helper failure by local pagination invariant reports category + counts with zero identity", async () => {
+    // Raw first page: valid envelope (items array, total=8, no next, 7
+    // readable rows with usable ids, 0 duplicates) — mirroring the measured
+    // live production facts. The helper must then fail with the exact
+    // local invariant (TOTAL_COUNT_MISMATCH) and expose ONLY safe counts.
+    const readableRows = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, title: `Элемент ${i + 1}` }));
+    bitrixPostMock.mockImplementation(async (method: string) => {
+      if (method === "crm.company.fields" || method === "crm.deal.fields" || method === "crm.item.fields") {
+        return emptyFields;
+      }
+      if (method === "crm.status.list") return { result: [] };
+      if (method === "crm.company.list") return { result: [], total: 0 };
+      if (method === "crm.deal.list") return { result: [], total: 0 };
+      if (method === "crm.item.list") {
+        return { result: readableRows, total: 8 };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    });
+    const body = await (await GET_REQUEST()).json();
+    expect(body.probes.smartProcess.status).toBe("FAIL");
+    expect(body.probes.smartProcess.method).toBe("crm.item.list");
+    expect(body.probes.smartProcess.localInvariant).toEqual({
+      localInvariant: "TOTAL_COUNT_MISMATCH",
+      reportedTotal: 8,
+      pageItemCount: 7,
+      accumulatedUniqueCount: 7,
+      duplicateCount: 0,
+      missingIdCount: 0,
+      start: 0,
+      nextPresent: false,
+    });
+    expect(body.probes.smartProcess.firstPage).toEqual({
+      status: "PASS",
+      itemsIsArray: true,
+      itemCount: 7,
+      rowsWithUsableId: 7,
+      duplicateIdCount: 0,
+      reportedTotal: 8,
+      nextPresent: false,
+    });
+    expect(body.diagnosis).toBe("SMART_PROCESS_HELPER_FAILED");
+    // Zero identity leakage: the mocked titles/IDs never appear.
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain("Элемент");
+    for (const rowId of readableRows.map((r) => String(r.id))) {
+      expect(serialized).not.toContain(`"id":${rowId},`);
+    }
+  });
+
+  it("transport failure still reports existing shape (httpStatus) alongside firstPage", async () => {
+    const { BitrixTransientError } = await import("@/lib/bitrix");
+    let seen = 0;
+    bitrixPostMock.mockImplementation(async (method: string) => {
+      if (method === "crm.company.fields" || method === "crm.deal.fields" || method === "crm.item.fields") {
+        return emptyFields;
+      }
+      if (method === "crm.status.list") return { result: [] };
+      if (method === "crm.company.list") return { result: [], total: 0 };
+      if (method === "crm.deal.list") return { result: [], total: 0 };
+      if (method === "crm.item.list") {
+        seen++;
+        if (seen === 1) {
+          // Raw first-page comparison succeeds.
+          return { result: [{ id: 1 }], total: 1 };
+        }
+        throw new BitrixTransientError("API returned status 500", 500, undefined, "crm.item.list");
+      }
+      throw new Error(`Unexpected method ${method}`);
+    });
+    const body = await (await GET_REQUEST()).json();
+    expect(body.probes.smartProcess.status).toBe("FAIL");
+    expect(body.probes.smartProcess.httpStatus).toBe(500);
+    expect(body.probes.smartProcess.localInvariant).toBeUndefined();
+    expect(body.probes.smartProcess.firstPage).toEqual({
+      status: "PASS",
+      itemsIsArray: true,
+      itemCount: 1,
+      rowsWithUsableId: 1,
+      duplicateIdCount: 0,
+      reportedTotal: 1,
+      nextPresent: false,
+    });
+  });
+
+  it("raw first-page comparison failure does not mask the helper outcome", async () => {
+    const { BitrixApiError } = await import("@/lib/bitrix");
+    let seen = 0;
+    bitrixPostMock.mockImplementation(async (method: string) => {
+      if (method === "crm.company.fields" || method === "crm.deal.fields" || method === "crm.item.fields") {
+        return emptyFields;
+      }
+      if (method === "crm.status.list") return { result: [] };
+      if (method === "crm.company.list") return { result: [], total: 0 };
+      if (method === "crm.deal.list") return { result: [], total: 0 };
+      if (method === "crm.item.list") {
+        seen++;
+        if (seen === 1) throw new BitrixApiError("API request failed", "crm.item.list", "ACCESS_DENIED");
+        return { result: [{ id: 1 }], total: 1 };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    });
+    const body = await (await GET_REQUEST()).json();
+    expect(body.probes.smartProcess.status).toBe("PASS");
+    expect(body.probes.smartProcess.firstPage).toEqual({
+      status: "FAIL",
+      method: "crm.item.list",
+      bitrixCode: "ACCESS_DENIED",
+    });
   });
 });

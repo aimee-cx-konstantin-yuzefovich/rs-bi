@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import { bitrixPost } from "@/lib/bitrix";
+import { BitrixListInvariantError } from "@/lib/bitrix-list-invariant";
 import type { BitrixRow } from "./types";
 import {
   COMPANY_SAMPLES_DATE_MULTI_FIELD_ID,
@@ -106,6 +107,11 @@ export async function fetchAllPages(
     let authoritativeTotal: number | null = null;
     let completed = false;
     let iteration = 0;
+    // Safe anonymous counters for invariant diagnostics (no identity data).
+    let duplicateCount = 0;
+    let missingIdCount = 0;
+    let lastPageItemCount: number | undefined = undefined;
+    let lastNextPresent: boolean | undefined = undefined;
 
     try {
       while (iteration++ < MAX_ITERATIONS) {
@@ -127,7 +133,12 @@ export async function fetchAllPages(
           : undefined;
 
         if (!items) {
-          throw new Error(`Invalid ${method} result envelope from Bitrix`);
+          throw new BitrixListInvariantError(
+            method,
+            "INVALID_RESULT_ENVELOPE",
+            `Invalid ${method} result envelope from Bitrix`,
+            { start }
+          );
         }
 
         if (data.total !== undefined && data.total !== null && String(data.total).trim() !== "") {
@@ -136,8 +147,19 @@ export async function fetchAllPages(
             if (authoritativeTotal === null) {
               authoritativeTotal = parsedTotal;
             } else if (authoritativeTotal !== parsedTotal) {
-              throw new Error(
-                `Inconsistent total reported during pagination: initial ${authoritativeTotal} vs new ${parsedTotal} (${method})`
+              throw new BitrixListInvariantError(
+                method,
+                "INCONSISTENT_TOTAL",
+                `Inconsistent total reported during pagination: initial ${authoritativeTotal} vs new ${parsedTotal} (${method})`,
+                {
+                  reportedTotal: parsedTotal,
+                  pageItemCount: items.length,
+                  accumulatedUniqueCount: rows.length,
+                  duplicateCount,
+                  missingIdCount,
+                  start,
+                  nextPresent: data.next !== undefined && data.next !== null,
+                }
               );
             }
           }
@@ -145,19 +167,48 @@ export async function fetchAllPages(
 
         for (const row of items) {
           if (!row || typeof row !== "object") {
-            throw new Error(`Invalid row format in ${method} response from Bitrix`);
+            throw new BitrixListInvariantError(
+              method,
+              "INVALID_ROW",
+              `Invalid row format in ${method} response from Bitrix`,
+              {
+                pageItemCount: items.length,
+                accumulatedUniqueCount: rows.length,
+                duplicateCount,
+                missingIdCount,
+                start,
+                nextPresent: data.next !== undefined && data.next !== null,
+              }
+            );
           }
           const rawId = row[idField] ?? row[idField.toUpperCase()];
           if (rawId === undefined || rawId === null || String(rawId).trim() === "") {
-            throw new Error(`Authoritative entity row missing required '${idField}' from Bitrix (${method})`);
+            missingIdCount++;
+            throw new BitrixListInvariantError(
+              method,
+              "MISSING_REQUIRED_ID",
+              `Authoritative entity row missing required '${idField}' from Bitrix (${method})`,
+              {
+                pageItemCount: items.length,
+                accumulatedUniqueCount: rows.length,
+                duplicateCount,
+                missingIdCount,
+                start,
+                nextPresent: data.next !== undefined && data.next !== null,
+              }
+            );
           }
           const id = String(rawId).trim();
           if (seenIds.has(id)) {
+            duplicateCount++;
             continue;
           }
           seenIds.add(id);
           rows.push(row);
         }
+
+        lastPageItemCount = items.length;
+        lastNextPresent = data.next !== undefined && data.next !== null;
 
         // Adversarial Case 2: total > 0 but items empty and next absent
         if (
@@ -166,8 +217,19 @@ export async function fetchAllPages(
           rows.length === 0 &&
           (data.next === undefined || data.next === null)
         ) {
-          throw new Error(
-            `Total reconciliation failed: Bitrix reported total ${authoritativeTotal} but returned 0 rows without continuation (${method})`
+          throw new BitrixListInvariantError(
+            method,
+            "TOTAL_WITH_EMPTY_LAST_PAGE",
+            `Total reconciliation failed: Bitrix reported total ${authoritativeTotal} but returned 0 rows without continuation (${method})`,
+            {
+              reportedTotal: authoritativeTotal,
+              pageItemCount: items.length,
+              accumulatedUniqueCount: rows.length,
+              duplicateCount,
+              missingIdCount,
+              start,
+              nextPresent: false,
+            }
           );
         }
 
@@ -189,7 +251,28 @@ export async function fetchAllPages(
           !seenStarts.has(nextNum);
 
         if (!isValidNext) {
-          throw new Error(`Invalid pagination next token from Bitrix (${method})`);
+          // Distinguish malformed tokens from repeated/decreasing (non-advancing)
+          // tokens — both fail-closed, but the category differs.
+          const nextIsFiniteNonNegativeInteger =
+            typeof data.next !== "boolean" &&
+            typeof data.next !== "object" &&
+            data.next !== "" &&
+            Number.isFinite(nextNum) &&
+            Number.isInteger(nextNum) &&
+            nextNum >= 0;
+          throw new BitrixListInvariantError(
+            method,
+            nextIsFiniteNonNegativeInteger ? "NON_ADVANCING_NEXT" : "INVALID_NEXT_TOKEN",
+            `Invalid pagination next token from Bitrix (${method})`,
+            {
+              pageItemCount: items.length,
+              accumulatedUniqueCount: rows.length,
+              duplicateCount,
+              missingIdCount,
+              start,
+              nextPresent: true,
+            }
+          );
         }
 
         seenStarts.add(nextNum);
@@ -197,14 +280,38 @@ export async function fetchAllPages(
       }
 
       if (!completed) {
-        throw new Error("Pagination did not converge for Bitrix list request");
+        throw new BitrixListInvariantError(
+          method,
+          "PAGINATION_DID_NOT_CONVERGE",
+          "Pagination did not converge for Bitrix list request",
+          {
+            pageItemCount: lastPageItemCount,
+            accumulatedUniqueCount: rows.length,
+            duplicateCount,
+            missingIdCount,
+            start,
+            nextPresent: lastNextPresent,
+            ...(authoritativeTotal !== null ? { reportedTotal: authoritativeTotal } : {}),
+          }
+        );
       }
 
       // Total reconciliation when total was reported
       if (authoritativeTotal !== null) {
         if (rows.length !== authoritativeTotal) {
-          throw new Error(
-            `Pagination count mismatch: expected ${authoritativeTotal} total rows, received ${rows.length} (${method})`
+          throw new BitrixListInvariantError(
+            method,
+            "TOTAL_COUNT_MISMATCH",
+            `Pagination count mismatch: expected ${authoritativeTotal} total rows, received ${rows.length} (${method})`,
+            {
+              reportedTotal: authoritativeTotal,
+              pageItemCount: lastPageItemCount,
+              accumulatedUniqueCount: rows.length,
+              duplicateCount,
+              missingIdCount,
+              start,
+              nextPresent: lastNextPresent,
+            }
           );
         }
       }
@@ -420,35 +527,49 @@ export async function fetchSmartProcessStageDirectory(): Promise<SmartProcessSta
 }
 
 /**
- * Fetches the COMPLETE relevant Smart Process 1032 (categoryId 15)
- * population via fail-closed pagination. Fail-closed contract gate first:
- * an unverified contract never reaches the transport.
+ * Builds the EXACT production `crm.item.list` request parameters for the
+ * Smart Process 1032 (categoryId 15) population — the ONE shared source of
+ * truth consumed BOTH by `fetchSmartProcessSampleItems` (production helper)
+ * AND by the Samples pipeline diagnostic's direct first-page comparison
+ * probe. Parameter parity between the raw probe and the wrapped helper is
+ * guaranteed structurally, never by copying literals.
  *
  * Scope semantics: `companyId` narrows to one company's items (Company
  * Preview). `responsibleId` is deliberately NOT applied to the Smart
  * Process — the SP item's own ASSIGNED_BY_ID may differ from the company
  * owner, and filtering by it would fabricate attribution.
  */
-export async function fetchSmartProcessSampleItems(
+export function buildSmartProcessListParams(
   scope: FetchSamplesScope = {}
-): Promise<BitrixRow[]> {
-  assertSmartProcessContractReady();
-
-  const   filter: Record<string, unknown> = { categoryId: SMART_PROCESS_CATEGORY_ID };
+): Record<string, unknown> {
+  const filter: Record<string, unknown> = { categoryId: SMART_PROCESS_CATEGORY_ID };
   if (scope.companyId) filter.companyId = scope.companyId;
 
   // Smart Process request contract: ONLY official Universal CRM parameters
   // (`select`, `filter`, `order`, `useOriginalUfNames`) — duplicate uppercase
   // aliases (SELECT/FILTER/ORDER) must never be sent to `crm.item.list`.
+  return {
+    entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
+    useOriginalUfNames: "Y",
+    select: SMART_PROCESS_ITEM_SELECT,
+    filter,
+    order: { id: "ASC" },
+  };
+}
+
+/**
+ * Fetches the COMPLETE relevant Smart Process 1032 (categoryId 15)
+ * population via fail-closed pagination. Fail-closed contract gate first:
+ * an unverified contract never reaches the transport.
+ */
+export async function fetchSmartProcessSampleItems(
+  scope: FetchSamplesScope = {}
+): Promise<BitrixRow[]> {
+  assertSmartProcessContractReady();
+
   return fetchAllPages(
     "crm.item.list",
-    {
-      entityTypeId: SMART_PROCESS_ENTITY_TYPE_ID,
-      useOriginalUfNames: "Y",
-      select: SMART_PROCESS_ITEM_SELECT,
-      filter,
-      order: { id: "ASC" },
-    },
+    buildSmartProcessListParams(scope),
     "id"
   );
 }
