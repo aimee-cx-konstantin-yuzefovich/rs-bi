@@ -513,6 +513,25 @@ describe("deriveSelectMatrixVerdict (pure)", () => {
       })
     ).toBe("NO_SAFE_LIST_PARTITION");
   });
+
+  it("Y-mode breaking standard selects while N passes → USE_ORIGINAL_UF_NAMES_Y_BREAKS_ID (measured live)", () => {
+    const report = healthy();
+    report.baseline.A1 = {
+      status: "FAIL",
+      itemCount: 8,
+      reportedTotal: 8,
+      rowsWithId: 0,
+      nextPresent: false,
+    };
+    report.baseline.A2 = { ...report.baseline.A1 };
+    report.baseline.A3 = { ...report.baseline.A1 };
+    // Identical standard selects pass under "N" — the Y mode itself kills id.
+    report.ufNames.N1 = { result: okResult() };
+    report.ufNames.N2 = { result: okResult() };
+    report.ufNames.Y1 = { result: { ...report.baseline.A1 } };
+    report.ufNames.Y2 = { result: { ...report.baseline.A1 } };
+    expect(deriveSelectMatrixVerdict(report)).toBe("USE_ORIGINAL_UF_NAMES_Y_BREAKS_ID");
+  });
 });
 
 // ─── §7 partition probes ───

@@ -280,6 +280,7 @@ export type SelectMatrixVerdict =
   | "SELECT_MATRIX_OK"
   | "SELECT_MATRIX_INCONCLUSIVE"
   | "NO_SAFE_LIST_PARTITION"
+  | "USE_ORIGINAL_UF_NAMES_Y_BREAKS_ID"
   | "SMART_PROCESS_CONTRACT_DRIFT"
   | `OFFENDING_ROLE:${string}`;
 
@@ -614,12 +615,15 @@ async function probePartitions(): Promise<SelectPartitionSetProbe> {
  *
  * Precedence:
  *  1. live contract drift (committed field missing from metadata);
- *  2. system-select id drop (partitions cannot exist without it);
- *  3. one-field offender (relation, then any role) — per §11 a field that
+ *  2. useOriginalUfNames="Y" mode breaking STANDARD-field selects while
+ *     "N" passes on the identical selects — the id drop is caused by the
+ *     UF-name mode itself, not by any semantic role (measured live);
+ *  3. system-select id drop (partitions cannot exist without it);
+ *  4. one-field offender (relation, then any role) — per §11 a field that
  *     kills `id` alone makes the list-partition workaround impossible;
- *  4. transport/infrastructure failure (rows never arrived) — evidence
+ *  5. transport/infrastructure failure (rows never arrived) — evidence
  *     quality, never an offender verdict;
- *  5. partition measurement — the workaround is viable ONLY when the
+ *  6. partition measurement — the workaround is viable ONLY when the
  *     measured partitions PASS (equal ID sets, coverage). A cumulative
  *     boundary in a combined select does NOT block remediation when the
  *     partitioned reads themselves preserve ids; the boundary detail
@@ -634,6 +638,13 @@ export function deriveSelectMatrixVerdict(
     r.status === "FAIL" && r.itemCount === 0;
 
   if (report.metadataRoles.contractDrift) return "SMART_PROCESS_CONTRACT_DRIFT";
+
+  // Y-mode itself breaks standard-field id delivery while the identical
+  // standard selects pass with "N" — no semantic role is involved, and no
+  // select partitioning can bypass a mode-level id drop.
+  const yModeBreaksStandardSelects =
+    idDrop(report.ufNames.Y1.result) && report.ufNames.N1.result.status === "PASS";
+  if (yModeBreaksStandardSelects) return "USE_ORIGINAL_UF_NAMES_Y_BREAKS_ID";
 
   if (idDrop(report.baseline.A2)) return "NO_SAFE_LIST_PARTITION";
   if (idDrop(report.baseline.A3)) return "OFFENDING_ROLE:DEAL_RELATION";
