@@ -195,6 +195,8 @@ it("renders the export button and triggers export with the canonical model, SP c
               sentDates: ["2026-06-20"],
               sampleIndicators: ["В работе"],
               processStatuses: [],
+              currentStatusSource: "NONE",
+              currentStatusValues: [],
               normalizedResult: "positive",
               relatedDeals: [],
               dataIssues: [],
@@ -359,7 +361,7 @@ it("Company Preview fields are independent of selected table columns", async () 
   mockStore.selectedColumns = previous;
 });
 
-it("shows cached related deals immediately and discloses stale cache when refresh fails", async () => {
+it("shows cached related deals immediately and keeps them usable when refresh fails (no technical cache warning)", async () => {
   const previousDeals = store.allDeals;
   const previousCoverage = store.dealsCoverage;
   // Cache seeding requires COMPLETE store coverage (COMPLETE-only trust).
@@ -385,9 +387,12 @@ it("shows cached related deals immediately and discloses stale cache when refres
     // No duplicate/foreign rows from cache
     expect(screen.queryByText("Чужая сделка")).not.toBeInTheDocument();
 
-    // After refresh fails, cached rows stay with a non-blocking stale warning.
-    expect(await screen.findByText("Показаны кэшированные сделки; обновление с сервера не удалось.")).toBeInTheDocument();
+    // After refresh fails, the valid usable cached snapshot stays rendered.
+    // WP7: NO orange technical warning and no "кэшированные" wording for
+    // users; cache provenance remains internal.
     expect(screen.getByText("Кэш сделка 501")).toBeInTheDocument();
+    expect(screen.queryByText(/кэшированные/i)).not.toBeInTheDocument();
+    expect(document.querySelector("[data-stale-warning]")).toBeNull();
   } finally {
     store.allDeals = previousDeals;
     store.dealsCoverage = previousCoverage;

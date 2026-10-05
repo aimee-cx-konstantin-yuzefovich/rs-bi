@@ -16,7 +16,7 @@ import {
 describe("Product Identity Source of Truth", () => {
   it("exports exact approved identity constants", () => {
     expect(ProductIdentity.PRODUCT_NAME).toBe("RusSilica BI Terminal");
-    expect(ProductIdentity.PRODUCT_VERSION).toBe("3.1");
+    expect(ProductIdentity.PRODUCT_VERSION).toBe("3.9");
     expect(ProductIdentity.PRODUCT_COPYRIGHT_YEAR).toBe("2027");
     expect(ProductIdentity.PRODUCT_INSTITUTIONAL_DESCRIPTION).toBe(
       "Корпоративная система коммерческой аналитики и управления CRM-данными"
@@ -25,7 +25,7 @@ describe("Product Identity Source of Truth", () => {
       "Корпоративная аналитическая система, объединяющая клиентов, сделки, образцы и коммерческие процессы в единую управленческую картину."
     );
     expect(ProductIdentity.PRODUCT_FOOTER_TEXT).toBe(
-      "RusSilica BI Terminal v3.1 · Корпоративная система коммерческой аналитики и управления CRM-данными · © 2027 RusSilica"
+      "RusSilica BI Terminal v3.9 · Корпоративная система коммерческой аналитики и управления CRM-данными · © 2027 RusSilica"
     );
   });
 });
@@ -36,7 +36,7 @@ describe("ProductFooter Component", () => {
     const footer = screen.getByTestId("product-footer");
     expect(footer).toBeInTheDocument();
     expect(footer.textContent?.trim()).toBe(
-      "RusSilica BI Terminal v3.1 · Корпоративная система коммерческой аналитики и управления CRM-данными · © 2027 RusSilica"
+      "RusSilica BI Terminal v3.9 · Корпоративная система коммерческой аналитики и управления CRM-данными · © 2027 RusSilica"
     );
   });
 
@@ -44,7 +44,7 @@ describe("ProductFooter Component", () => {
     render(<Footer />);
     expect(
       screen.getByText(
-        "RusSilica BI Terminal v3.1 · Корпоративная система коммерческой аналитики и управления CRM-данными · © 2027 RusSilica"
+        "RusSilica BI Terminal v3.9 · Корпоративная система коммерческой аналитики и управления CRM-данными · © 2027 RusSilica"
       )
     ).toBeInTheDocument();
   });

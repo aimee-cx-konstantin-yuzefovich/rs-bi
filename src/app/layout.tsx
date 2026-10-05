@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Roboto, Nunito, Roboto_Mono } from "next/font/google";
+import { Roboto } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/dashboard/theme-provider";
@@ -12,18 +12,6 @@ const roboto = Roboto({
   weight: ["400", "500", "700"],
   subsets: ["latin", "cyrillic"],
   variable: "--font-roboto",
-});
-
-const nunito = Nunito({
-  weight: ["400", "500", "600", "700"],
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-nunito",
-});
-
-const robotoMono = Roboto_Mono({
-  weight: ["400", "500"],
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-roboto-mono",
 });
 
 export const metadata: Metadata = {
@@ -54,7 +42,7 @@ export default async function RootLayout({
   return (
     <html lang="ru" suppressHydrationWarning>
       <body
-        className={`${roboto.variable} ${nunito.variable} ${robotoMono.variable} font-sans antialiased bg-background text-foreground`}
+        className={`${roboto.variable} font-sans antialiased bg-background text-foreground`}
       >
         <Providers>
           <AuthProvider bypass={authBypass}>

@@ -427,6 +427,8 @@ describe("Company Preview — Циклы тестирования (§8.16)", () 
                 sentDates: [],
                 sampleIndicators: [],
                 processStatuses: [],
+                currentStatusSource: "NONE",
+                currentStatusValues: [],
                 normalizedResult: "pending",
                 relatedDeals: [],
                 dataIssues: [],

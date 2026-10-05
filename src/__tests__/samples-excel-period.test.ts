@@ -18,6 +18,8 @@ describe("Samples Excel Period Disclosure Contract (Defect C: C1 to C6)", () => 
     sentDates: ["2026-09-15"],
     sampleIndicators: ["Образец передан"],
     processStatuses: ["На испытаниях"],
+    currentStatusSource: "COMPANY_LEGACY",
+    currentStatusValues: ["На испытаниях"],
     normalizedResult: "pending",
     relatedDeals: [{ id: "d-1", title: "Сделка 1", sampleTestingStatus: [] }],
     sourceQuality: "structured",

@@ -11,7 +11,7 @@ export const PRODUCT_UI_DESCRIPTOR = "Аналитический термина�
 
 export const PRODUCT_UI_TITLE = "RusSilica · Аналитический терминал";
 
-export const PRODUCT_VERSION = "3.1";
+export const PRODUCT_VERSION = "3.9";
 
 export const PRODUCT_COPYRIGHT_YEAR = "2027";
 

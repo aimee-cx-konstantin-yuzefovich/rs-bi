@@ -37,6 +37,7 @@ export function DealsToolbar() {
     usersCoverage,
     activitiesCoverage,
     companiesDataCoverage,
+    companiesEnrichmentDiagnostics,
     fieldsCoverage,
     setColumnSelectorOpen,
   } = useDashboardStore();
@@ -164,6 +165,7 @@ export function DealsToolbar() {
           usersCoverage,
           activitiesCoverage,
           companiesDataCoverage,
+          companiesEnrichmentDiagnostics,
           fieldsCoverage,
         }),
       });
@@ -186,6 +188,7 @@ export function DealsToolbar() {
     usersCoverage,
     activitiesCoverage,
     companiesDataCoverage,
+    companiesEnrichmentDiagnostics,
     fieldsCoverage,
   ]);
 

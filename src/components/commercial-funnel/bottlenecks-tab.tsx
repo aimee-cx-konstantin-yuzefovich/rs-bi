@@ -23,6 +23,10 @@ import { NEXT_ACTION_MISSING_LABEL } from "@/lib/commercial-funnel/analytics";
 import { ACTIVITY_PARTIAL_DISCLOSURE } from "@/lib/commercial-funnel/disclosure";
 import { CommercialTablePagination } from "@/components/commercial-funnel/table-pagination";
 import type { ActionPlanRow } from "@/lib/commercial-funnel/types";
+// Shared sorting primitive (WP8): re-exported type keeps the local binding
+// but the canonical implementation lives in one module now.
+import { type SortDirection, nextSortDirection } from "@/lib/table-sorting";
+export type { SortDirection } from "@/lib/table-sorting";
 
 interface BottlenecksTabProps {
   actionPlan: ActionPlanRow[];
@@ -43,8 +47,6 @@ export type SortField =
   | "nextAction"
   | "nextActionDate"
   | "dealTitle";
-
-export type SortDirection = "asc" | "desc" | null;
 
 function formatDate(value?: string): string {
   if (!value) return "—";
@@ -161,6 +163,33 @@ export function CommercialBottlenecksTab({
     return sortedPlan.slice(start, start + pageSize);
   }, [sortedPlan, safePage, pageSize]);
 
+
+  /** aria-sort attribute value for a header column. */
+  const ariaSort = (field: SortField): "ascending" | "descending" | undefined =>
+    sortField === field && sortDirection
+      ? sortDirection === "asc"
+        ? "ascending"
+        : "descending"
+      : undefined;
+
+  /** Clickable accessible sort header (button semantics preserved on th). */
+  const SortTh = ({ field, label, className, title }: { field: SortField; label: string; className: string; title?: string }) => (
+    <th
+      className={className}
+      aria-sort={ariaSort(field)}
+    >
+      <button
+        type="button"
+        onClick={() => handleSort(field)}
+        title={title}
+        className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+      >
+        <span>{label}</span>
+        {renderSortIcon(field)}
+      </button>
+    </th>
+  );
+
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field || !sortDirection) {
       return <ArrowUpDown className="h-3 w-3 opacity-40 ml-1 inline shrink-0" />;
@@ -198,95 +227,135 @@ export function CommercialBottlenecksTab({
                 <tr className="border-b bg-muted/90 backdrop-blur-xs text-left">
                   {/* Sticky top-left corner */}
                   <th
-                    className="font-semibold px-2.5 py-2 w-12 sticky top-0 left-0 z-30 bg-muted/95 shadow-[1px_0_0_0_hsl(var(--border))] cursor-pointer select-none"
-                    onClick={() => handleSort("index")}
-                    title="Сортировка по номеру"
+                    className="font-semibold px-2.5 py-2 w-12 sticky top-0 left-0 z-30 bg-muted/95 shadow-[1px_0_0_0_hsl(var(--border))]"
+                    aria-sort={ariaSort("index")}
                   >
-                    <div className="flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("index")}
+                      title="Сортировка по номеру"
+                      className="w-full flex items-center justify-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>№</span>
                       {renderSortIcon("index")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 min-w-[180px] sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("companyTitle")}
+                    className="font-semibold px-3 py-2 min-w-[180px] sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("companyTitle")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("companyTitle")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Компания</span>
                       {renderSortIcon("companyTitle")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 whitespace-nowrap sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("responsibleName")}
+                    className="font-semibold px-3 py-2 whitespace-nowrap sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("responsibleName")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("responsibleName")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Менеджер</span>
                       {renderSortIcon("responsibleName")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("stuckAt")}
+                    className="font-semibold px-3 py-2 sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("stuckAt")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("stuckAt")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Где зависло</span>
                       {renderSortIcon("stuckAt")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("currentState")}
+                    className="font-semibold px-3 py-2 sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("currentState")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("currentState")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Текущее состояние</span>
                       {renderSortIcon("currentState")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 whitespace-nowrap sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("daysWaiting")}
+                    className="font-semibold px-3 py-2 whitespace-nowrap sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("daysWaiting")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("daysWaiting")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Дней ожидания</span>
                       {renderSortIcon("daysWaiting")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 whitespace-nowrap sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("lastActivity")}
+                    className="font-semibold px-3 py-2 whitespace-nowrap sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("lastActivity")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("lastActivity")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Последняя активность</span>
                       {renderSortIcon("lastActivity")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 min-w-[200px] sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("nextAction")}
+                    className="font-semibold px-3 py-2 min-w-[200px] sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("nextAction")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("nextAction")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Следующий шаг</span>
                       {renderSortIcon("nextAction")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 whitespace-nowrap sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("nextActionDate")}
+                    className="font-semibold px-3 py-2 whitespace-nowrap sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("nextActionDate")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("nextActionDate")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Срок следующего шага</span>
                       {renderSortIcon("nextActionDate")}
-                    </div>
+                    </button>
                   </th>
                   <th
-                    className="font-semibold px-3 py-2 sticky top-0 z-20 bg-muted/95 cursor-pointer select-none"
-                    onClick={() => handleSort("dealTitle")}
+                    className="font-semibold px-3 py-2 sticky top-0 z-20 bg-muted/95"
+                    aria-sort={ariaSort("dealTitle")}
                   >
-                    <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("dealTitle")}
+                      className="w-full flex items-center focus-visible:outline-2 focus-visible:outline-ring rounded-sm cursor-pointer"
+                    >
                       <span>Сделка</span>
                       {renderSortIcon("dealTitle")}
-                    </div>
+                    </button>
                   </th>
                 </tr>
               </thead>
@@ -302,7 +371,7 @@ export function CommercialBottlenecksTab({
                       className={`border-b border-border/40 align-top transition-colors cursor-pointer ${
                         isSelected
                           ? "bg-primary/10 border-primary/20 text-foreground"
-                          : "hover:bg-accent/40"
+                          : "hover:bg-primary/5"
                       }`}
                     >
                       {/* Sticky left № column */}

@@ -8,9 +8,6 @@ import { useDashboardStore } from '@/store/dashboard-store';
 let currentSessionStatus: 'loading' | 'authenticated' | 'unauthenticated' = 'loading';
 let currentSessionData: any = null;
 
-vi.mock("next-auth/react", () => ({
-  useSession: () => ({ data: null, status: "unauthenticated" }),
-}));
 vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: currentSessionData, status: currentSessionStatus }),
   SessionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,

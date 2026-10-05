@@ -30,17 +30,19 @@ import {
   type SamplesFilters,
 } from "@/components/dashboard/samples/samples-filters";
 import { SamplesRegistry } from "@/components/dashboard/samples/samples-registry";
-import { SamplePreview } from "@/components/dashboard/samples/sample-preview";
 import { computeSampleKpis } from "@/lib/samples/aggregate";
 import { exportSamplesToExcel } from "@/lib/export-utils";
 import { isSentinelValue } from "@/lib/samples/normalize";
+import {
+  canonicalizeSampleStatusLabel,
+  buildCanonicalStatusOptions,
+} from "@/lib/samples/status-canonical";
 import { isCompanyId } from "@/lib/company-preview";
 import { isDealId } from "@/lib/deal-preview";
 import {
   buildExcelExtraWarnings,
   METADATA_PARTIAL_DISCLOSURE,
 } from "@/lib/commercial-funnel/disclosure";
-import { UNCLASSIFIED_LABEL } from "@/lib/samples/constants";
 import type { SampleSummary } from "@/lib/samples/types";
 
 function SamplesContent() {
@@ -70,7 +72,6 @@ function SamplesContent() {
   const [errorDismissed, setErrorDismissed] = useState(false);
   const [refreshErrorDismissed, setRefreshErrorDismissed] = useState(false);
   const [orphanDismissed, setOrphanDismissed] = useState(false);
-  const [selected, setSelected] = useState<SampleSummary | null>(null);
   const [companyPreviewId, setCompanyPreviewId] = useState<string | null>(null);
   const [dealPreviewId, setDealPreviewId] = useState<string | null>(null);
   // Company preselect is a hidden extra filter beyond the visible bar
@@ -126,24 +127,21 @@ function SamplesContent() {
     [samples]
   );
 
-  const sanitizeStatus = (v: string): string => {
-    const trimmed = v.trim();
-    if (/^\d+$/.test(trimmed) || /^DT1032_/i.test(trimmed)) {
-      return UNCLASSIFIED_LABEL;
-    }
-    return trimmed;
-  };
-
+  // Canonical status seam (WP3): dropdown options and the filter predicate
+  // consume ONLY canonicalized status labels. Raw historical source strings
+  // (casing/wording duplicates, enum IDs, transport tokens) collapse through
+  // the ONE explicit alias mapping in status-canonical.ts — never unioned
+  // raw, never fuzzy-merged.
   const statusOptions = useMemo(() => {
     const observed = new Set<string>();
     for (const s of samples) {
-      for (const v of [...s.sampleIndicators, ...s.processStatuses]) {
+      for (const v of s.currentStatusValues) {
         if (v && !isSentinelValue(v)) {
-          observed.add(sanitizeStatus(v));
+          observed.add(canonicalizeSampleStatusLabel(v));
         }
       }
     }
-    return Array.from(observed).sort((a, b) => a.localeCompare(b, "ru"));
+    return buildCanonicalStatusOptions(observed);
   }, [samples]);
 
   const filtered = useMemo(() => {
@@ -173,8 +171,7 @@ function SamplesContent() {
         return false;
       if (
         filters.status !== "all" &&
-        !s.sampleIndicators.map(sanitizeStatus).includes(filters.status) &&
-        !s.processStatuses.map(sanitizeStatus).includes(filters.status)
+        !s.currentStatusValues.map(canonicalizeSampleStatusLabel).includes(filters.status)
       )
         return false;
       if (filters.result !== "all" && s.normalizedResult !== filters.result)
@@ -382,32 +379,10 @@ function SamplesContent() {
             </Button>
           </div>
         ) : (
-          <SamplesRegistry summaries={filtered} onSelect={setSelected} />
+          <SamplesRegistry summaries={filtered} onSelect={(summary) => setCompanyPreviewId(summary.companyId)} />
         )}
-
-        <p className="shrink-0 text-[10px] text-muted-foreground pt-1 pb-1">
-          Зернистость реестра – компания: одна компания с активностью по образцам = одна
-          строка. Несколько марок, дат и сделок сохраняются и видны в карточке.
-          KPI считается по компаниям в текущем отборе и не является количеством физических
-          образцов.
-        </p>
       </main>
       <ProductFooter className="shrink-0" />
-
-      {selected && (
-        <SamplePreview
-          summary={selected}
-          onClose={() => setSelected(null)}
-          onOpenCompanyPreview={(id) => {
-            setSelected(null);
-            setCompanyPreviewId(id);
-          }}
-          onOpenDealPreview={(id) => {
-            setSelected(null);
-            setDealPreviewId(id);
-          }}
-        />
-      )}
 
       {companyPreviewId && (
         <CompanyPreview

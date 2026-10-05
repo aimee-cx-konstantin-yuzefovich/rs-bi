@@ -116,13 +116,15 @@ describe("Company Coverage Matrix (COMP-COV-1 .. COMP-COV-5)", () => {
       expect(state.companiesDataCoverage.warning).toContain("1 из 3 компаний");
     }
 
-    // UI banner formatting
+    // UI banner formatting — restrained wording for the optional
+    // enrichment source (no raw counts to ordinary users; detailed
+    // provenance stays in the coverage state and Excel disclosure).
     const uiWarnings = buildEnrichmentUiWarnings({
       selectedColumns: state.selectedColumns,
       companiesDataCoverage: state.companiesDataCoverage,
     });
     expect(uiWarnings.length).toBe(1);
-    expect(uiWarnings[0]).toBe("Не удалось получить данные 1 из 3 компаний из CRM.");
+    expect(uiWarnings[0]).toBe("Часть дополнительных данных компаний недоступна");
 
     // Excel extraWarnings formatting
     const excelWarnings = buildEnrichmentExtraWarnings({

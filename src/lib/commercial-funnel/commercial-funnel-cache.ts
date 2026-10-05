@@ -12,9 +12,15 @@
 // 5. Atomic snapshot: only complete successful datasets are cached.
 //    Failed refresh preserves the previous complete snapshot.
 // 6. Manual refresh (force: true) bypasses cache and hits the CRM backend.
+// 7. Out-of-order commit protection: each real request allocates a
+//    generation at start; only the LATEST generation may commit the
+//    shared cache. An older request resolves to its own caller but can
+//    never overwrite a newer snapshot. Principal change invalidates all
+//    old generations (no cross-user leakage).
 // ─────────────────────────────────────────────────────────────────────
 
 import type { CommercialCompany, CommercialDeal } from "./types";
+import { createRequestGenerationGuard } from "@/lib/request-generation";
 
 export interface CommercialFunnelSnapshotData {
   companies: CommercialCompany[];
@@ -63,6 +69,9 @@ let currentCache: CommercialFunnelSnapshot | null = null;
 let activeInFlightPromise: Promise<CommercialFunnelFetchResult> | null = null;
 let activeInFlightPrincipal: string | null = null;
 let activeInFlightRequestId: symbol | null = null;
+// Out-of-order commit protection: only the latest request generation may
+// commit the shared cache (Task: stale-A-never-overwrites-B invariant).
+const commitGuard = createRequestGenerationGuard();
 
 /**
  * Retrieves the current cached complete snapshot for the principal.
@@ -100,6 +109,9 @@ export function clearCommercialFunnelCache(): void {
   activeInFlightPromise = null;
   activeInFlightPrincipal = null;
   activeInFlightRequestId = null;
+  // Retire every outstanding generation: an in-flight completion from before
+  // this clear must never commit into a fresh session's cache.
+  commitGuard.invalidate();
 }
 
 /** Handles auth principal change. If principal changed, resets the cache. */
@@ -143,6 +155,9 @@ export async function fetchCommercialFunnelWithDeduplication(
   const requestId = Symbol("commercial-funnel-request");
   activeInFlightPrincipal = principal;
   activeInFlightRequestId = requestId;
+  // Generation allocated at REAL request start (not for dedup joins):
+  // only this generation may commit the shared cache when it completes.
+  const generation = commitGuard.begin();
 
   const promise = (async (): Promise<CommercialFunnelFetchResult> => {
     const controller = new AbortController();
@@ -198,8 +213,11 @@ export async function fetchCommercialFunnelWithDeduplication(
         timestamp: nowTs,
       };
 
-      // Store in cache only if principal is still active
-      if (currentPrincipal === principal) {
+      // Store in cache only for the matching principal AND only for the
+      // latest request generation: an older request that resolves after a
+      // newer one must never overwrite the shared snapshot. Failures below
+      // never touch the cache (last successful snapshot is always preserved).
+      if (currentPrincipal === principal && commitGuard.canCommit(generation)) {
         setCachedCommercialFunnel(principal, snapshotData);
       }
 

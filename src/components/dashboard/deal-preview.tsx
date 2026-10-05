@@ -19,6 +19,16 @@ import { buildDealPreviewModel, buildDealActivitiesModel } from "@/lib/deal-prev
 import { exportDealToExcel } from "@/lib/export-utils";
 import { useSmartProcessData } from "@/components/dashboard/samples/use-smart-process-data";
 import { SmartProcessItemCard } from "@/components/dashboard/samples/smart-process-item-card";
+import {
+  PreviewSectionHeading,
+  PreviewFieldLabel,
+  PreviewFieldValue,
+  PREVIEW_EMPTY_VALUE,
+} from "@/components/dashboard/preview-primitives";
+import {
+  DEAL_SAMPLE_SENT_DATE_FIELD_ID,
+  DEAL_SAMPLE_TRANSFER_FIELD_ID,
+} from "@/lib/crm-constants";
 
 type PreviewState =
   | { status: "loading" }
@@ -119,6 +129,46 @@ export function DealPreview({
         })
       : null;
 
+  // ── Data-aware Samples navigation (WP6) ──
+  // VISIBLE ACTION = REAL DESTINATION EXISTS. The «Образцы компании» link
+  // renders ONLY when canonical Samples data provably exists for the
+  // deal's company — from the already-loaded shared Smart Process session
+  // cache (exact deal/company attribution) or the deal's OWN real legacy
+  // sample evidence (sent date / transfer status). The marker-only testing
+  // field (see crm-constants) never qualifies. No per-render/per-click
+  // Bitrix calls, no N+1: everything reads in-memory canonical state.
+  // While existence is unknown (SP cache still loading AND no deal-level
+  // evidence) no clickable link is exposed.
+  const sp = useSmartProcessData();
+  const dealRaw: Record<string, unknown> | null =
+    state.status === "success" ? state.deal : null;
+  const hasDealLegacySampleEvidence = (() => {
+    if (!dealRaw) return false;
+    const rawSent = dealRaw[DEAL_SAMPLE_SENT_DATE_FIELD_ID];
+    const sentDates = Array.isArray(rawSent) ? rawSent : [rawSent];
+    const hasSentDate = sentDates.some(
+      (v) => v !== null && v !== undefined && String(v).trim() !== ""
+    );
+    if (hasSentDate) return true;
+    const rawTransfer = dealRaw[DEAL_SAMPLE_TRANSFER_FIELD_ID];
+    const transferValues = Array.isArray(rawTransfer) ? rawTransfer : [rawTransfer];
+    return transferValues.some(
+      (v) => v !== null && v !== undefined && String(v).trim() !== ""
+    );
+  })();
+
+  const canOpenCompanySamples = (() => {
+    if (!model?.companyId) return false;
+    // Canonical Smart Process evidence: exact linkedDealId or company relation.
+    const spForDeal = sp.byDealId[String(id)] ?? [];
+    const spForCompany = sp.byCompanyId[model.companyId] ?? [];
+    if (spForDeal.length > 0 || spForCompany.length > 0) return true;
+    // Legacy evidence from the deal itself.
+    if (hasDealLegacySampleEvidence) return true;
+    // Existence still unknown → no link yet (never a dead link).
+    return false;
+  })();
+
   // Scoped lazy activities fetch: DealPreview is the SINGLE owner of the
   // fetch lifecycle — when the drawer opens (or an explicit retry is
   // requested) it fetches just this deal, independent of selected columns.
@@ -164,7 +214,7 @@ export function DealPreview({
         }}
       >
         <SheetHeader>
-          <SheetTitle className="pr-6 break-words text-lg">
+          <SheetTitle className="pr-6 break-words text-base leading-snug">
             {dealTitle}
           </SheetTitle>
           <SheetDescription>Просмотр сделки · ID {id}</SheetDescription>
@@ -202,7 +252,7 @@ export function DealPreview({
               <div className="pt-2 space-y-3">
                 {/* 1. Стадия */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Стадия</dt>
+                  <PreviewFieldLabel>Стадия</PreviewFieldLabel>
                   <dd className="mt-1">
                     <Badge variant="outline" className="text-xs font-normal">
                       {model.mainFields[0].value}
@@ -212,32 +262,36 @@ export function DealPreview({
 
                 {/* 2. Сумма */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Сумма</dt>
-                  <dd className="mt-1 font-mono text-sm font-semibold tabular-nums">
+                  <PreviewFieldLabel>Сумма</PreviewFieldLabel>
+                  <dd className="mt-1 text-sm font-semibold tabular-nums">
                     {model.mainFields[1].formattedAmount !== undefined && model.mainFields[1].formattedAmount !== "–" ? (
                       <>
-                        {model.mainFields[1].formattedAmount}{" "}
+                        <PreviewFieldValue className="tabular-nums">{model.mainFields[1].formattedAmount}</PreviewFieldValue>{" "}
                         <span className="text-muted-foreground text-xs font-normal">
                           {model.mainFields[1].currencyLabel}
                         </span>
                       </>
                     ) : (
-                      model.mainFields[1].value
+                      <PreviewFieldValue isEmpty={!model.mainFields[1].value || model.mainFields[1].value === "–"}>
+                        {model.mainFields[1].value}
+                      </PreviewFieldValue>
                     )}
                   </dd>
                 </div>
 
                 {/* 3. Ответственный */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Ответственный</dt>
-                  <dd className="mt-1 font-medium">
-                    {model.mainFields[2].value}
+                  <PreviewFieldLabel>Ответственный</PreviewFieldLabel>
+                  <dd className="mt-1">
+                    <PreviewFieldValue isEmpty={!model.mainFields[2].value || model.mainFields[2].value === "–"}>
+                      {model.mainFields[2].value}
+                    </PreviewFieldValue>
                   </dd>
                 </div>
 
                 {/* 4. Компания */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Компания</dt>
+                  <PreviewFieldLabel>Компания</PreviewFieldLabel>
                   <dd className="mt-1">
                     {model.companyId ? (
                       <div className="flex flex-col gap-1">
@@ -274,17 +328,19 @@ export function DealPreview({
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         )}
-                        <Link
-                          href={`/samples?company=${encodeURIComponent(model.companyId)}`}
-                          className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-                          data-samples-link
-                        >
-                          <FlaskConical className="h-3 w-3" />
-                          Образцы компании в разделе «Образцы»
-                        </Link>
+                        {canOpenCompanySamples && (
+                          <Link
+                            href={`/samples?company=${encodeURIComponent(model.companyId)}`}
+                            className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                            data-samples-link
+                          >
+                            <FlaskConical className="h-3 w-3" />
+                            Образцы компании в разделе «Образцы»
+                          </Link>
+                        )}
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">–</span>
+                      <PreviewFieldValue isEmpty>{PREVIEW_EMPTY_VALUE}</PreviewFieldValue>
                     )}
                   </dd>
                 </div>
@@ -294,9 +350,11 @@ export function DealPreview({
               <div className="pt-3 space-y-2">
                 {model.timelineFields.map((field) => (
                   <div key={field.id}>
-                    <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                    <PreviewFieldLabel>{field.label}</PreviewFieldLabel>
                     <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                      {field.value}
+                      <PreviewFieldValue isEmpty={!field.value || field.value === "–" || field.value === "—"} className="font-normal text-muted-foreground">
+                        {field.value}
+                      </PreviewFieldValue>
                     </dd>
                   </div>
                 ))}
@@ -307,9 +365,11 @@ export function DealPreview({
               {model.activityField && (
                 <div className="pt-3 space-y-2">
                   <div>
-                    <dt className="text-xs text-muted-foreground">Последняя активность</dt>
+                    <PreviewFieldLabel>Последняя активность</PreviewFieldLabel>
                     <dd className="mt-0.5 text-xs">
-                      {model.activityField.value}
+                      <PreviewFieldValue isEmpty={!model.activityField.value || model.activityField.value === "–" || model.activityField.value === "—"}>
+                        {model.activityField.value}
+                      </PreviewFieldValue>
                     </dd>
                   </div>
                 </div>
@@ -326,9 +386,15 @@ export function DealPreview({
               <div className="pt-3 space-y-3">
                 {model.cardFields.map((field) => (
                   <div key={field.id}>
-                    <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                    <dd className="mt-1 whitespace-pre-wrap break-words text-xs">
-                      {field.value}
+                    <PreviewFieldLabel>{field.label}</PreviewFieldLabel>
+                    <dd className="mt-1">
+                      <PreviewFieldValue
+                        preserveWhitespace
+                        isEmpty={!field.value || field.value === "–" || field.value === "—"}
+                        className="text-xs"
+                      >
+                        {field.value}
+                      </PreviewFieldValue>
                     </dd>
                   </div>
                 ))}
@@ -412,9 +478,9 @@ function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: (
   if (requestState === "loading" || (requestState === "idle" && (activitiesDataLoading || !entry))) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <PreviewSectionHeading>
           Дела и активности
-        </h4>
+        </PreviewSectionHeading>
         <div role="status" className="space-y-2">
           <span className="sr-only">Загрузка дел и активностей</span>
           <Skeleton className="h-6 w-full" />
@@ -429,9 +495,9 @@ function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: (
   if (requestState === "error" && !entry) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <PreviewSectionHeading>
           Дела и активности
-        </h4>
+        </PreviewSectionHeading>
         <div role="alert" className="space-y-2 text-xs">
           <p className="text-muted-foreground">Дела и активности временно недоступны.</p>
           <Button
@@ -454,9 +520,9 @@ function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: (
   if (!entry) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <PreviewSectionHeading>
           Дела и активности
-        </h4>
+        </PreviewSectionHeading>
         <div role="alert" className="space-y-2 text-xs">
           <p className="text-muted-foreground">Дела и активности временно недоступны.</p>
           <Button
@@ -484,9 +550,9 @@ function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: (
   if (items.length === 0) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <PreviewSectionHeading>
           Дела и активности
-        </h4>
+        </PreviewSectionHeading>
         {staleRefresh && (
           <div
             role="note"
@@ -517,9 +583,9 @@ function DealActivitiesSection({ dealId, onRetry }: { dealId: string; onRetry: (
 
   return (
     <div className="pt-3 space-y-2 border-t border-border/60" data-activities-section>
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+      <PreviewSectionHeading>
         Дела и активности
-      </h4>
+      </PreviewSectionHeading>
       {staleRefresh && (
         <div
           role="note"
@@ -617,9 +683,9 @@ function DealSmartProcessSection({
   if (sp.dataState === "failed" && !hasLoadedData) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-sp-section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <PreviewSectionHeading>
           Тестирование образцов
-        </h4>
+        </PreviewSectionHeading>
         <div role="alert" className="space-y-2 text-xs">
           <p className="text-muted-foreground">
             Процессы тестирования временно недоступны.
@@ -642,9 +708,9 @@ function DealSmartProcessSection({
   if (sp.dataState === "loading" && !hasLoadedData) {
     return (
       <div className="pt-3 space-y-2 border-t border-border/60" data-sp-section>
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <PreviewSectionHeading>
           Тестирование образцов
-        </h4>
+        </PreviewSectionHeading>
         <div role="status" className="space-y-2">
           <span className="sr-only">Загрузка процессов тестирования</span>
           <Skeleton className="h-6 w-full" />
@@ -658,9 +724,9 @@ function DealSmartProcessSection({
 
   return (
     <div className="pt-3 space-y-2 border-t border-border/60" data-sp-section>
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+      <PreviewSectionHeading>
         Тестирование образцов
-      </h4>
+      </PreviewSectionHeading>
       {staleRefresh && (
         <div
           role="note"

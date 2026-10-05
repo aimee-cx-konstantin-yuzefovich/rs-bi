@@ -489,7 +489,7 @@ export function DataTable() {
                       >
                         {/* Fixed Row Number Cell */}
                         <td className="sticky left-0 z-10 bg-card group-hover:bg-muted transition-colors border-r border-border text-center px-2">
-                          <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
+                          <span className="text-[11px] tabular-nums font-normal text-muted-foreground">
                             {rowIndex}
                           </span>
                         </td>
@@ -752,7 +752,7 @@ function CellValue({
     const currency = parts[1] || "";
     if (amount !== undefined) {
       return (
-        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
+        <span className="text-[11px] tabular-nums font-normal text-muted-foreground">
           {amount.toLocaleString("ru-RU", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -768,7 +768,7 @@ function CellValue({
     const num = parseStrictNumber(resolved);
     if (num !== undefined && field?.type === "double") {
       return (
-        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
+        <span className="text-[11px] tabular-nums font-normal text-muted-foreground">
           {num.toLocaleString("ru-RU", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
@@ -778,7 +778,7 @@ function CellValue({
     }
     if (num !== undefined && field?.type === "integer") {
       return (
-        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
+        <span className="text-[11px] tabular-nums font-normal text-muted-foreground">
           {Math.round(num).toLocaleString("ru-RU")}
         </span>
       );
@@ -799,7 +799,7 @@ function CellValue({
 
       return (
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground min-w-[80px]">
+          <span className="text-[11px] tabular-nums font-normal text-muted-foreground min-w-[80px]">
             {num.toLocaleString("ru-RU", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
@@ -835,7 +835,7 @@ function CellValue({
           ? ` ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
           : "";
       return (
-        <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
+        <span className="text-[11px] tabular-nums font-normal text-muted-foreground">
           {dateStr}
           {timeStr}
         </span>

@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 import type { DatasetCoverage } from "./dataset-coverage";
+import type { CompanyEnrichmentDiagnostics } from "./enrichment-coverage";
 import type { FieldInfo } from "@/store/dashboard-store";
 
 /** Russian Excel/UI warnings — one wording per source (§18). */
@@ -25,11 +26,31 @@ export const WARNING_COMPANIES_PARTIAL =
   `ВНИМАНИЕ: данные компаний загружены частично. ${WARNING_COMPANIES_PARTIAL_FALLBACK}`;
 export const WARNING_FIELDS_PARTIAL =
   "ВНИМАНИЕ: метаданные CRM загружены частично. Типы/подписи части пользовательских полей могут быть недоступны.";
+/**
+ * Restrained user-facing wording for the company ENRICHMENT source
+ * (company enrichment by deal-referenced IDs; the base Company population
+ * comes from the dedicated companies/list route and is unaffected).
+ * The detailed failed/total counts remain in the Excel disclosure block;
+ * ordinary UI users see this calm line instead of alarming raw numbers.
+ */
+export const WARNING_COMPANIES_PARTIAL_UI =
+  "Часть дополнительных данных компаний недоступна";
+
+/**
+ * Muted data-quality line for related Company IDs that CRM did not return
+ * from successful reads. NOT a transport failure and never implies the
+ * Company registry lost entities.
+ */
+export const WARNING_COMPANY_REFERENCES_UI =
+  "Часть дополнительных данных связанных компаний недоступна.";
+const WARNING_COMPANY_REFERENCES_EXCEL_PREFIX =
+  "ПРИМЕЧАНИЕ: данные связанных компаний недоступны для";
 
 export interface EnrichmentCoverageSnapshot {
   usersCoverage?: DatasetCoverage | null;
   activitiesCoverage?: DatasetCoverage | null;
   companiesDataCoverage?: DatasetCoverage | null;
+  companiesEnrichmentDiagnostics?: CompanyEnrichmentDiagnostics | null;
   fieldsCoverage?: DatasetCoverage | null;
 }
 
@@ -119,6 +140,18 @@ export function buildEnrichmentExtraWarnings(
       warnings.push(WARNING_COMPANIES_PARTIAL);
     }
   }
+  // Unresolved related-company references (successful reads, ID not
+  // returned): separate data-quality note, only when a COMPANY_* column is
+  // visible. Distinct from the transport-failure line above.
+  const refCount =
+    input.companiesEnrichmentDiagnostics?.activeUnresolvedReferenceCount ??
+    input.companiesEnrichmentDiagnostics?.unresolvedReferenceCount ??
+    0;
+  if (selectedColumnsNeedCompanies(selectedColumns) && refCount > 0) {
+    warnings.push(
+      `${WARNING_COMPANY_REFERENCES_EXCEL_PREFIX} ${refCount} связанных компаний (CRM не вернула запись по ссылке из сделки). Сделки загружены полностью.`
+    );
+  }
   if (
     selectedColumnsNeedFieldMetadata(selectedColumns, fields) &&
     isIncomplete(input.fieldsCoverage)
@@ -132,14 +165,26 @@ export function buildEnrichmentExtraWarnings(
 /**
  * Compact UI warning lines for enrichment sources a currently visible
  * column depends on (shorter phrasing than the Excel block).
+ *
+ * Company enrichment is OPTIONAL detail on top of the complete base Company
+ * population (fetched by the dedicated companies/list route): a partial
+ * enrichment refresh never means entity loss, so the UI shows the restrained
+ * wording without raw batch/failure counts. The detailed counts stay in the
+ * Excel disclosure (buildEnrichmentExtraWarnings) for detached artifacts.
  */
 export function buildEnrichmentUiWarnings(
   input: EnrichmentWarningsInput
 ): string[] {
   return buildEnrichmentExtraWarnings(input).map((w) => {
+    if (w.startsWith(WARNING_COMPANY_REFERENCES_EXCEL_PREFIX)) {
+      return WARNING_COMPANY_REFERENCES_UI;
+    }
     const companyMatch = w.match(/Не удалось получить данные (.*)$/);
     if (companyMatch) {
-      return `Не удалось получить данные ${companyMatch[1]}`;
+      return WARNING_COMPANIES_PARTIAL_UI;
+    }
+    if (w.includes("данные компаний загружены частично")) {
+      return WARNING_COMPANIES_PARTIAL_UI;
     }
     const stripped = w.replace(/^ВНИМАНИЕ:\s*/, "");
     return stripped.charAt(0).toUpperCase() + stripped.slice(1);

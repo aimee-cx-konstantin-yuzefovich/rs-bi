@@ -3,6 +3,9 @@
 // src/components/commercial-funnel/managers-tab.tsx
 // Managers scorecard view.
 // Operational visibility without artificial ranking (Section 19).
+// Sorting (WP8): all data columns sortable — full dataset sorted before
+// pagination; numeric columns sort numerically, text by displayed label;
+// empties («—»/null) always last; keyboard-accessible headers with aria-sort.
 
 import { useState, useMemo, useEffect } from "react";
 import {
@@ -14,14 +17,76 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Users } from "lucide-react";
+import { Users, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type { AggregateAmountQuality, ManagerScorecardRow } from "@/lib/commercial-funnel/types";
 import { formatCurrencyAmount, getCurrencyUniverse } from "@/lib/commercial-funnel/currency";
 import { CommercialTablePagination } from "./table-pagination";
+import {
+  sortRows,
+  nextSortDirection,
+  ariaSortValue,
+  type SortDirection,
+} from "@/lib/table-sorting";
 
 interface ManagersTabProps {
   scorecard: ManagerScorecardRow[];
   onOpenDrillDown: (title: string, subtitle: string, companyIds: string[]) => void;
+}
+
+type ManagersSortField =
+  | "name"
+  | "newCompanies"
+  | "samplesSent"
+  | "inTesting"
+  | "sampleSuccess"
+  | "sampleFail"
+  | "sampleRework"
+  | "payments"
+  | "activeCompanies"
+  | "awaitingPayment"
+  | "noNextStep"
+  | "bottlenecks";
+
+/** Sortable header: button + aria-sort + direction indicator. */
+function SortableHead({
+  label,
+  field,
+  sortField,
+  sortDirection,
+  onSort,
+  className = "",
+  title,
+  rowSpan,
+}: {
+  label: string;
+  field: ManagersSortField;
+  sortField: ManagersSortField | null;
+  sortDirection: SortDirection;
+  onSort: (field: ManagersSortField) => void;
+  className?: string;
+  title?: string;
+  rowSpan?: number;
+}) {
+  const isSorted = sortField === field && sortDirection !== null;
+  return (
+    <TableHead
+      className={className}
+      rowSpan={rowSpan}
+      aria-sort={ariaSortValue(sortDirection, sortField === field)}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        title={title ?? (isSorted ? (sortDirection === "asc" ? "По возрастанию (нажмите для убывания)" : "По убыванию (нажмите для сброса)") : "Сортировка")}
+        className="inline-flex items-center gap-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:text-foreground transition-colors cursor-pointer"
+      >
+        <span>{label}</span>
+        {isSorted && sortDirection === "asc" && <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0" aria-hidden="true" />}
+        {isSorted && sortDirection === "desc" && <ArrowDown className="h-3 w-3 text-brand-blue flex-shrink-0" aria-hidden="true" />}
+        {!isSorted && <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity flex-shrink-0" aria-hidden="true" />}
+      </button>
+    </TableHead>
+  );
 }
 
 export function CommercialManagersTab({
@@ -30,15 +95,71 @@ export function CommercialManagersTab({
 }: ManagersTabProps) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [sortField, setSortField] = useState<ManagersSortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
   useEffect(() => {
     setPage(1);
   }, [scorecard.length]);
 
+  const handleSort = (field: ManagersSortField) => {
+    if (sortField !== field) {
+      setSortField(field);
+      setSortDirection("asc");
+    } else {
+      const next = nextSortDirection(sortDirection);
+      setSortDirection(next);
+      if (next === null) setSortField(null);
+    }
+    setPage(1);
+  };
+
+  // 1. Sort the ENTIRE scorecard before pagination (numeric columns numeric,
+  //    name by displayed label; null/undefined always last both directions).
+  const sortedScorecard = useMemo(() => {
+    if (!sortField || !sortDirection) return scorecard;
+    return sortRows(
+      scorecard,
+      (row): number | string | null => {
+        switch (sortField) {
+          case "name":
+            return row.name;
+          case "newCompanies":
+            return row.newCompanies ?? null;
+          case "samplesSent":
+            return row.samplesSent ?? null;
+          case "inTesting":
+            return row.inTesting ?? null;
+          case "sampleSuccess":
+            return row.sampleSuccess ?? null;
+          case "sampleFail":
+            return row.sampleFail ?? null;
+          case "sampleRework":
+            return row.sampleRework ?? null;
+          case "payments":
+            // Primary: the largest valid per-currency amount (multi-currency
+            // isolation preserved — never cross-summed).
+            return row.paymentAmount ?? null;
+          case "activeCompanies":
+            return row.activeCompanies ?? null;
+          case "awaitingPayment":
+            return row.awaitingPayment ?? null;
+          case "noNextStep":
+            return row.noNextStep ?? null;
+          case "bottlenecks":
+            return row.bottlenecksCount ?? null;
+          default:
+            return null;
+        }
+      },
+      sortDirection
+    );
+  }, [scorecard, sortField, sortDirection]);
+
   const pagedScorecard = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return scorecard.slice(start, start + pageSize);
-  }, [scorecard, page, pageSize]);
+    return sortedScorecard.slice(start, start + pageSize);
+  }, [sortedScorecard, page, pageSize]);
   // Aggregate non-monetary totals row
   const totals = scorecard.reduce(
     (acc, row) => ({
@@ -151,24 +272,49 @@ export function CommercialManagersTab({
           <Table containerClassName="max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto">
             <TableHeader>
               {/* Group header row: Поток | Результат | Портфель (current) */}
-              <TableRow className="bg-muted/70">
-                <TableHead className="text-xs font-semibold" rowSpan={2}>Менеджер</TableHead>
+              <TableRow className="bg-muted/70 group">
+                <TableHead
+                  className="text-xs font-semibold"
+                  rowSpan={2}
+                  aria-sort={ariaSortValue(sortDirection, sortField === "name")}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleSort("name")}
+                    title={sortField === "name" ? (sortDirection === "asc" ? "По возрастанию (нажмите для убывания)" : "По убыванию (нажмите для сброса)") : "Сортировка"}
+                    className="inline-flex items-center gap-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:text-foreground transition-colors cursor-pointer"
+                  >
+                    <span>Менеджер</span>
+                    {sortField === "name" && sortDirection === "asc" && <ArrowUp className="h-3 w-3 text-brand-blue" aria-hidden="true" />}
+                    {sortField === "name" && sortDirection === "desc" && <ArrowDown className="h-3 w-3 text-brand-blue" aria-hidden="true" />}
+                    {!(sortField === "name" && sortDirection) && <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity" aria-hidden="true" />}
+                  </button>
+                </TableHead>
                 <TableHead colSpan={2} className="text-xs font-semibold text-center border-l border-border/60">Поток (за период)</TableHead>
                 <TableHead colSpan={5} className="text-xs font-semibold text-center border-l border-border/60">Результат</TableHead>
                 <TableHead colSpan={3} className="text-xs font-semibold text-center border-l border-border/60">Портфель (сейчас)</TableHead>
-                <TableHead className="text-xs font-semibold text-center border-l border-border/60" rowSpan={2} title="Записи, требующие внимания">Внимание</TableHead>
+                <SortableHead
+                  label="Внимание"
+                  field="bottlenecks"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  rowSpan={2}
+                  className="text-xs font-semibold text-center border-l border-border/60"
+                  title="Записи, требующие внимания"
+                />
               </TableRow>
-              <TableRow className="bg-muted">
-                  <TableHead className="text-xs font-semibold text-right border-l border-border/40">Новые компании</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Образцы отправлены</TableHead>
-                  <TableHead className="text-xs font-semibold text-right border-l border-border/40">На испытании</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Подошли</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Не подошли</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Доработка</TableHead>
-                  <TableHead className="text-xs font-semibold text-right" title="Сумма сделок с полученной оплатой (по валютам)">Сумма сделок с получ. оплатой</TableHead>
-                  <TableHead className="text-xs font-semibold text-right border-l border-border/40">Компании в текущем контуре</TableHead>
-                  <TableHead className="text-xs font-semibold text-right">Ожидают оплаты</TableHead>
-                  <TableHead className="text-xs font-semibold text-right" title="Активные сделки без указанного следующего шага (известные данные активностей)">Без след. шага</TableHead>
+              <TableRow className="bg-muted group">
+                  <SortableHead label="Новые компании" field="newCompanies" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right border-l border-border/40" />
+                  <SortableHead label="Образцы отправлены" field="samplesSent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right" />
+                  <SortableHead label="На испытании" field="inTesting" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right border-l border-border/40" />
+                  <SortableHead label="Подошли" field="sampleSuccess" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right" />
+                  <SortableHead label="Не подошли" field="sampleFail" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right" />
+                  <SortableHead label="Доработка" field="sampleRework" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right" />
+                  <SortableHead label="Сумма сделок с получ. оплатой" field="payments" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right" title="Сумма сделок с полученной оплатой (по валютам)" />
+                  <SortableHead label="Компании в текущем контуре" field="activeCompanies" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right border-l border-border/40" />
+                  <SortableHead label="Ожидают оплаты" field="awaitingPayment" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right" />
+                  <SortableHead label="Без след. шага" field="noNextStep" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right" title="Активные сделки без указанного следующего шага (известные данные активностей)" />
                 </TableRow>
               </TableHeader>
               <TableBody>

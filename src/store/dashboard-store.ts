@@ -6,6 +6,7 @@ import {
   RESPONSIBLE_FIELD_ID,
   COMPANY_RESPONSIBLE_FIELD_ID,
 } from "@/lib/crm-constants";
+import { chunkDealIdsForActivities } from "@/lib/activities-request-chunks";
 import { parseStrictDate } from "@/lib/date-safety";
 import { splitDealTableColumns } from "@/lib/deal-table-columns";
 import {
@@ -22,6 +23,9 @@ import {
   FIELDS_METADATA_FAILED_WARNING,
   ACTIVITIES_FAILED_WARNING,
   COMPANIES_FAILED_WARNING,
+  type CompanyEnrichmentDiagnostics,
+  isUnresolvedRefActive,
+  COMPANY_ENRICHMENT_TTL_MS,
 } from "@/lib/enrichment-coverage";
 import { USERS_DIRECTORY_CAP } from "@/lib/crm-constants";
 import { type DealTypeRegistry, buildDealTypeRegistry } from "@/lib/deal-type";
@@ -45,6 +49,8 @@ function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs: number 
 export const LARGE_DATASET_CLIENT_TIMEOUT_MS = 180_000;
 export const COMPANY_LIST_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
 export const COMPANY_ENRICHMENT_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
+/** Per-chunk timeout for activity enrichment (multi-chunk, large Deal sets). */
+export const ACTIVITIES_ENRICHMENT_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
 
 export interface FieldInfo {
   id: string;
@@ -220,6 +226,10 @@ interface DashboardState {
   fieldsCoverage: DatasetCoverage | null;
   activitiesCoverage: DatasetCoverage | null;
   companiesDataCoverage: DatasetCoverage | null;
+  /** Aggregate-only enrichment diagnostics (ephemeral; no business data). */
+  companiesEnrichmentDiagnostics: CompanyEnrichmentDiagnostics | null;
+  /** Related Company IDs CRM did not return from successful reads (ephemeral, TTL-guarded). */
+  companiesUnresolvedRefs: Record<string, number>;
 
   // ─── Ephemeral Session State (excluded from partialize) ───
   dismissedBannerIds: string[];
@@ -456,6 +466,8 @@ export const useDashboardStore = create<DashboardState>()(
       fieldsCoverage: null,
       activitiesCoverage: null,
       companiesDataCoverage: null,
+      companiesEnrichmentDiagnostics: null,
+      companiesUnresolvedRefs: {},
 
       // Session banner dismissal (ephemeral, not persisted)
       dismissedBannerIds: [],
@@ -1166,8 +1178,13 @@ export const useDashboardStore = create<DashboardState>()(
           const cached = companiesData[id];
           const fetchedAt = get().companiesDataFetchedAt[id];
           
+          // CRM already confirmed this reference as unreturned within the TTL:
+          // do not re-issue identical recovery reads on every refresh, regardless of whether stale cached data exists.
+          const refCheckedAt = get().companiesUnresolvedRefs[id];
+          if (isUnresolvedRefActive(refCheckedAt, now)) return false;
+
           if (!cached) return true;
-          if (!fetchedAt || now - fetchedAt > 5 * 60 * 1000) return true;
+          if (!fetchedAt || now - fetchedAt > COMPANY_ENRICHMENT_TTL_MS) return true;
           
           // Check if all required fields are present in the cached object
           const hasAllFields = companyFieldsToSelect.every(field => field in cached);
@@ -1179,9 +1196,10 @@ export const useDashboardStore = create<DashboardState>()(
 
         set({ companiesDataLoading: true });
 
-        inFlightCompaniesPromise = (async () => {
-          // Snapshot the requested scope for truthful coverage: coverage is
-          // relative to the IDs actually requested in THIS request.
+        const runCompanies = (async () => {
+          // Snapshot the requested scope: coverage describes the CURRENT
+          // refresh. Cached enrichment is kept (never erased) but never
+          // counted as a successful current refresh.
           const requestedIds = missingIds;
           try {
             const API_MAX_COMPANY_BATCH = 500;
@@ -1192,8 +1210,12 @@ export const useDashboardStore = create<DashboardState>()(
 
             const mergedNormalizedCompanies: Record<string, any> = {};
             const allSuccessfulIds: string[] = [];
-            let anyBatchFailed = false;
-            let successfulBatchCount = 0;
+            // Transport-level failures (retryable) vs references that CRM did
+            // not return from SUCCESSFUL reads (kept separate, never summed).
+            const failedIds = new Set<string>();
+            const referenceIds = new Set<string>();
+            let failedPrimaryBatchCount = 0;
+            let failedRecoveryBatchCount = 0;
 
             for (const batch of batches) {
               try {
@@ -1212,13 +1234,13 @@ export const useDashboardStore = create<DashboardState>()(
 
                 if (!response.ok) {
                   console.warn("[Dashboard] Failed to fetch company batch: API returned", response.status);
-                  anyBatchFailed = true;
+                  failedPrimaryBatchCount++;
+                  batch.forEach((id) => failedIds.add(id));
                   continue;
                 }
 
                 const data = await response.json();
                 if (data.success && data.companies) {
-                  successfulBatchCount++;
                   const normalized: Record<string, any> = {};
                   if (Array.isArray(data.companies)) {
                     data.companies.forEach((c: any) => {
@@ -1235,38 +1257,31 @@ export const useDashboardStore = create<DashboardState>()(
                     ? data.fetchedCompanyIds
                     : Object.keys(normalized);
                   allSuccessfulIds.push(...successfulIds);
+                  const successSet = new Set(successfulIds.map(String));
 
-                  if (data.partial) {
-                    anyBatchFailed = true;
+                  const diag = data.diagnostics;
+                  failedPrimaryBatchCount += Number(diag?.failedPrimaryBatchCount) || 0;
+                  failedRecoveryBatchCount += Number(diag?.failedRecoveryBatchCount) || 0;
+
+                  if (Array.isArray(data.failedFetchIds) || Array.isArray(data.unresolvedReferenceIds)) {
+                    (data.failedFetchIds ?? []).forEach((id: unknown) => failedIds.add(String(id)));
+                    (data.unresolvedReferenceIds ?? []).forEach((id: unknown) => referenceIds.add(String(id)));
+                  } else if (Array.isArray(data.unresolvedCompanyIds)) {
+                    // Legacy envelope without provenance: cannot prove the
+                    // read succeeded → treat as transport-unresolved (truthful).
+                    data.unresolvedCompanyIds.forEach((id: unknown) => failedIds.add(String(id)));
+                  } else if (data.partial) {
+                    batch.filter((id) => !successSet.has(id)).forEach((id) => failedIds.add(id));
                   }
                 } else {
-                  anyBatchFailed = true;
+                  failedPrimaryBatchCount++;
+                  batch.forEach((id) => failedIds.add(id));
                 }
               } catch (batchErr) {
                 console.warn("[Dashboard] Error fetching batch:", batchErr);
-                anyBatchFailed = true;
+                failedPrimaryBatchCount++;
+                batch.forEach((id) => failedIds.add(id));
               }
-            }
-
-            if (successfulBatchCount === 0) {
-              console.warn("[Dashboard] All company batches failed");
-              const total = uniqueIds.length;
-              const currentFetchedAt = get().companiesDataFetchedAt;
-              const currentCompanies = get().companiesData;
-              const fetched = uniqueIds.filter(id => Boolean(currentFetchedAt[id] || (currentCompanies[id]?.TITLE && currentCompanies[id]?.TITLE !== "Без названия"))).length;
-              const unresolved = Math.max(0, total - fetched);
-              set({
-                companiesDataLoading: false,
-                companiesDataCoverage: {
-                  status: "PARTIAL",
-                  fetched,
-                  total,
-                  warning: unresolved > 0
-                    ? `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`
-                    : `Не удалось обновить данные компаний из CRM.`,
-                },
-              });
-              return;
             }
 
             set((state) => {
@@ -1285,13 +1300,28 @@ export const useDashboardStore = create<DashboardState>()(
                 }
               }
               const newCompaniesDataFetchedAt = { ...state.companiesDataFetchedAt };
+              const newUnresolvedRefs = { ...state.companiesUnresolvedRefs };
               const fetchTimestamp = Date.now();
 
               // Only mark successfully fetched company IDs as fetched (unresolved IDs remain eligible for retry)
               for (const id of allSuccessfulIds) {
                 newCompaniesDataFetchedAt[id] = fetchTimestamp;
+                delete newUnresolvedRefs[id];
               }
-              // Prune cache to only keep companies present in allDeals
+              // Confirmed-unreturned references: remembered (TTL) so refresh
+              // does not re-issue the same recovery reads. No Company rows
+              // are fabricated and the IDs are never marked as fetched.
+              for (const id of referenceIds) {
+                if (!successfulIdsSet.has(id)) newUnresolvedRefs[id] = fetchTimestamp;
+              }
+              // Transport failures: do NOT create or refresh an unresolved-reference marker.
+              // If an expired marker existed for a failed ID, remove it so it does not cause false MIXED.
+              for (const id of failedIds) {
+                if (!successfulIdsSet.has(id) && !referenceIds.has(id)) {
+                  delete newUnresolvedRefs[id];
+                }
+              }
+              // Prune caches to only keep companies present in allDeals, and remove expired reference markers
               const validCompanyIds = new Set(state.allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
               for (const id in newCompaniesData) {
                 if (!validCompanyIds.has(id)) {
@@ -1299,52 +1329,115 @@ export const useDashboardStore = create<DashboardState>()(
                   delete newCompaniesDataFetchedAt[id];
                 }
               }
+              for (const id in newUnresolvedRefs) {
+                if (!validCompanyIds.has(id) || !isUnresolvedRefActive(newUnresolvedRefs[id], fetchTimestamp)) {
+                  delete newUnresolvedRefs[id];
+                }
+              }
 
               const total = uniqueIds.length;
-              const fetched = uniqueIds.filter(id => Boolean(newCompaniesDataFetchedAt[id] || (newCompaniesData[id]?.TITLE && newCompaniesData[id]?.TITLE !== "Без названия"))).length;
-              const unresolved = Math.max(0, total - fetched);
-              const isPartial = unresolved > 0;
+              const unresolvedFailed = [...failedIds].filter((id) => !successfulIdsSet.has(id)).length;
+              const referenceCount = uniqueIds.filter((id) => isUnresolvedRefActive(newUnresolvedRefs[id], fetchTimestamp)).length;
+              const classification: CompanyEnrichmentDiagnostics["classification"] =
+                unresolvedFailed > 0 && referenceCount > 0
+                  ? "MIXED"
+                  : unresolvedFailed > 0
+                    ? "TRANSIENT_FETCH_FAILURE"
+                    : referenceCount > 0
+                      ? "UNRESOLVED_REFERENCES"
+                      : "COMPLETE";
 
               return {
                 companiesData: newCompaniesData,
                 companiesDataFetchedAt: newCompaniesDataFetchedAt,
+                companiesUnresolvedRefs: newUnresolvedRefs,
                 companiesDataLoading: false,
-                companiesDataCoverage: isPartial
-                  ? {
-                      status: "PARTIAL",
-                      fetched,
-                      total,
-                      warning: `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`,
-                    }
-                  : {
-                      status: "COMPLETE",
-                      fetched: total,
-                      total,
-                    },
+                companiesEnrichmentDiagnostics: {
+                  scopeCount: total,
+                  refreshRequestedCount: requestedIds.length,
+                  refreshResolvedCount: successfulIdsSet.size,
+                  refreshFailedFetchCount: unresolvedFailed,
+                  activeUnresolvedReferenceCount: referenceCount,
+                  failedPrimaryBatchCount,
+                  failedRecoveryBatchCount,
+                  classification,
+                  requestedCount: requestedIds.length,
+                  resolvedCount: successfulIdsSet.size,
+                  failedFetchCount: unresolvedFailed,
+                  unresolvedReferenceCount: referenceCount,
+                },
+                // Coverage reflects TRANSPORT only: unresolved references
+                // after successful reads never make the dataset PARTIAL.
+                companiesDataCoverage:
+                  unresolvedFailed > 0
+                    ? {
+                        status: "PARTIAL",
+                        fetched: Math.max(0, total - unresolvedFailed),
+                        total,
+                        warning: `Не удалось получить данные ${unresolvedFailed} из ${total} компаний из CRM.`,
+                      }
+                    : {
+                        status: "COMPLETE",
+                        fetched: total,
+                        total,
+                      },
               };
             });
-          } catch {
-            console.warn("[Dashboard] Failed to fetch companies data");
+          } catch (err) {
+            console.warn("[Dashboard] Failed to fetch companies data", err);
             const total = uniqueIds.length;
-            const currentFetchedAt = get().companiesDataFetchedAt;
-            const currentCompanies = get().companiesData;
-            const fetched = uniqueIds.filter(id => Boolean(currentFetchedAt[id] || (currentCompanies[id]?.TITLE && currentCompanies[id]?.TITLE !== "Без названия"))).length;
-            const unresolved = Math.max(0, total - fetched);
+            const failed = requestedIds.length;
+            const now = Date.now();
+            const currentRefs = get().companiesUnresolvedRefs;
+            const activeUnresolvedRefs: Record<string, number> = {};
+            for (const id in currentRefs) {
+              if (
+                uniqueIds.includes(id) &&
+                isUnresolvedRefActive(currentRefs[id], now) &&
+                !requestedIds.includes(id)
+              ) {
+                activeUnresolvedRefs[id] = currentRefs[id];
+              }
+            }
+            const activeRefCount = Object.keys(activeUnresolvedRefs).length;
+            const classification: CompanyEnrichmentDiagnostics["classification"] =
+              failed > 0 && activeRefCount > 0
+                ? "MIXED"
+                : "TRANSIENT_FETCH_FAILURE";
+
             set({
               companiesDataLoading: false,
+              companiesUnresolvedRefs: activeUnresolvedRefs,
+              companiesEnrichmentDiagnostics: {
+                scopeCount: total,
+                refreshRequestedCount: requestedIds.length,
+                refreshResolvedCount: 0,
+                refreshFailedFetchCount: failed,
+                activeUnresolvedReferenceCount: activeRefCount,
+                failedPrimaryBatchCount: Math.ceil(requestedIds.length / 500) || 1,
+                failedRecoveryBatchCount: 0,
+                classification,
+                requestedCount: requestedIds.length,
+                resolvedCount: 0,
+                failedFetchCount: failed,
+                unresolvedReferenceCount: activeRefCount,
+              },
               companiesDataCoverage: {
                 status: "PARTIAL",
-                fetched,
+                fetched: Math.max(0, total - failed),
                 total,
-                warning: unresolved > 0
-                  ? `Не удалось получить данные ${unresolved} из ${total} компаний из CRM.`
+                warning: failed > 0
+                  ? `Не удалось получить данные ${failed} из ${total} компаний из CRM.`
                   : `Не удалось обновить данные компаний из CRM.`,
               },
             });
-          } finally {
-            inFlightCompaniesPromise = null;
           }
         })();
+
+        inFlightCompaniesPromise = runCompanies.finally(() => {
+          set({ companiesDataLoading: false });
+          inFlightCompaniesPromise = null;
+        });
 
         return inFlightCompaniesPromise;
       },
@@ -1382,98 +1475,133 @@ export const useDashboardStore = create<DashboardState>()(
 
         set({ activitiesDataLoading: true });
 
-        inFlightActivitiesPromise = (async () => {
-          // Snapshot the requested scope for truthful coverage: coverage is
-          // relative to the deal IDs actually requested in THIS request.
+        const runActivities = (async () => {
           const requestedIds = missingIds;
           try {
-            const response = await fetchWithTimeout("/api/bitrix/activities", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                dealIds: missingIds,
-              }),
-            });
+            // Bounded, size-aware chunks keep every request inside the
+            // /api/bitrix/activities contract (<=1000 IDs, body <10 KB).
+            const chunks = chunkDealIdsForActivities(requestedIds);
+            const confirmedIds = new Set<string>();
+            let anyChunkIncomplete = false;
+            let lastWarning: string | undefined;
 
-            if (!response.ok) {
-              console.warn("[Dashboard] Failed to fetch activities data: API returned", response.status);
-              set({
-                activitiesDataLoading: false,
-                // Failed refresh must not leave a stale COMPLETE provenance.
-                // "Request finished" never implies "activities complete".
-                activitiesCoverage: {
-                  status: "PARTIAL",
-                  fetched: 0,
-                  total: requestedIds.length,
-                  warning: ACTIVITIES_FAILED_WARNING,
-                },
-              });
-              return;
-            }
-            const data = await response.json();
-            if (data.success && data.activities) {
+            const markChunkFailed = (chunk: string[]) => {
+              anyChunkIncomplete = true;
               set((state) => {
-                const newActivitiesData = { ...state.activitiesData, ...data.activities };
-                const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
-                const newRequestState = { ...state.activitiesRequestState };
-                const fetchTimestamp = Date.now();
-
-                // Only mark successfully fetched IDs as fetched (failed IDs remain UNKNOWN for retry)
-                const successfulIds: string[] = Array.isArray(data.fetchedDealIds)
-                  ? data.fetchedDealIds
-                  : Object.keys(data.activities);
-
-                for (const id of successfulIds) {
-                  newActivitiesDataFetchedAt[id] = fetchTimestamp;
-                  // Mirrors the scoped per-deal contract: a globally fetched
-                  // deal is also request-successful (truthful empty allowed).
-                  newRequestState[id] = "success";
+                const rs = { ...state.activitiesRequestState };
+                // Only unconfirmed IDs become retryable errors; never touch
+                // data/timestamps of IDs that previously succeeded.
+                for (const id of chunk) {
+                  if (!confirmedIds.has(id)) rs[id] = "error";
                 }
-                // Requested but not successfully fetched → error (retryable).
-                for (const id of requestedIds) {
-                  if (!successfulIds.includes(id)) newRequestState[id] = "error";
-                }
-                // Prune cache to only keep deals present in allDeals
-                const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
-                for (const id in newActivitiesData) {
-                  if (!validDealIds.has(id)) {
-                    delete newActivitiesData[id];
-                    delete newActivitiesDataFetchedAt[id];
-                  }
-                }
-                return {
-                  activitiesData: newActivitiesData,
-                  activitiesDataFetchedAt: newActivitiesDataFetchedAt,
-                  activitiesRequestState: newRequestState,
-                  activitiesDataLoading: false,
-                  // Any failed/incomplete deal ID makes the enrichment PARTIAL
-                  // relative to the requested set — never COMPLETE.
-                  activitiesCoverage: resolveIdSetCoverage(
-                    requestedIds,
-                    successfulIds,
-                    { warning: data.warning }
-                  ),
-                };
+                return { activitiesRequestState: rs };
               });
-            } else {
-              set((state) => ({
-                activitiesDataLoading: false,
-                activitiesRequestState: Object.fromEntries(
-                  requestedIds.map((id) => [id, "error" as const])
-                ),
-                activitiesCoverage: {
-                  status: "PARTIAL",
-                  fetched: 0,
-                  total: requestedIds.length,
-                  warning: ACTIVITIES_FAILED_WARNING,
-                } as DatasetCoverage,
-              }));
+            };
+
+            for (const chunk of chunks) {
+              try {
+                const response = await fetchWithTimeout(
+                  "/api/bitrix/activities",
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ dealIds: chunk }),
+                  },
+                  ACTIVITIES_ENRICHMENT_FETCH_TIMEOUT_MS
+                );
+
+                if (!response.ok) {
+                  console.warn("[Dashboard] Failed to fetch activities chunk: API returned", response.status);
+                  markChunkFailed(chunk);
+                  continue;
+                }
+                const data = await response.json();
+                if (!(data.success && data.activities)) {
+                  markChunkFailed(chunk);
+                  continue;
+                }
+
+                const chunkSet = new Set(chunk);
+                // Only IDs inside this chunk and confirmed by the response.
+                const successfulIds: string[] = (Array.isArray(data.fetchedDealIds)
+                  ? data.fetchedDealIds
+                  : Object.keys(data.activities)
+                ).map(String).filter((id: string) => chunkSet.has(id));
+                for (const id of successfulIds) confirmedIds.add(id);
+                if (data.partial || successfulIds.length < chunk.length) {
+                  anyChunkIncomplete = true;
+                  if (data.warning) lastWarning = data.warning;
+                }
+
+                set((state) => {
+                  const newActivitiesData = { ...state.activitiesData };
+                  for (const id of successfulIds) {
+                    if (data.activities[id]) newActivitiesData[id] = data.activities[id];
+                  }
+                  const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+                  const newRequestState = { ...state.activitiesRequestState };
+                  const fetchTimestamp = Date.now();
+                  for (const id of successfulIds) {
+                    newActivitiesDataFetchedAt[id] = fetchTimestamp;
+                    // Truthful empty is allowed: a confirmed deal is request-successful.
+                    newRequestState[id] = "success";
+                  }
+                  const successSet = new Set(successfulIds);
+                  for (const id of chunk) {
+                    if (!successSet.has(id)) newRequestState[id] = "error";
+                  }
+                  return {
+                    activitiesData: newActivitiesData,
+                    activitiesDataFetchedAt: newActivitiesDataFetchedAt,
+                    activitiesRequestState: newRequestState,
+                  };
+                });
+              } catch {
+                console.warn("[Dashboard] Failed to fetch activities chunk");
+                markChunkFailed(chunk);
+              }
             }
-          } catch {
-            console.warn("[Dashboard] Failed to fetch activities data");
+
+            set((state) => {
+              // Prune cache to only keep deals present in allDeals
+              const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
+              const newActivitiesData = { ...state.activitiesData };
+              const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+              for (const id in newActivitiesData) {
+                if (!validDealIds.has(id)) {
+                  delete newActivitiesData[id];
+                  delete newActivitiesDataFetchedAt[id];
+                }
+              }
+              const resolved = resolveIdSetCoverage(
+                requestedIds,
+                [...confirmedIds],
+                { warning: lastWarning ?? ACTIVITIES_FAILED_WARNING }
+              );
+              // A chunk that reported partial can never yield COMPLETE.
+              const coverage: DatasetCoverage =
+                resolved.status === "COMPLETE" && anyChunkIncomplete
+                  ? {
+                      status: "PARTIAL",
+                      fetched: confirmedIds.size,
+                      total: requestedIds.length,
+                      warning: lastWarning ?? ACTIVITIES_FAILED_WARNING,
+                    }
+                  : resolved;
+              return {
+                activitiesData: newActivitiesData,
+                activitiesDataFetchedAt: newActivitiesDataFetchedAt,
+                activitiesDataLoading: false,
+                activitiesCoverage: coverage,
+              };
+            });
+          } catch (err) {
+            console.warn("[Dashboard] Failed to plan or execute activities enrichment:", err);
             set((state) => ({
-              activitiesDataLoading: false,
-              activitiesRequestState: { ...state.activitiesRequestState, ...Object.fromEntries(requestedIds.map((id) => [id, "error" as const])) },
+              activitiesRequestState: {
+                ...state.activitiesRequestState,
+                ...Object.fromEntries(requestedIds.map((id) => [id, "error" as const])),
+              },
               activitiesCoverage: {
                 status: "PARTIAL",
                 fetched: 0,
@@ -1481,10 +1609,13 @@ export const useDashboardStore = create<DashboardState>()(
                 warning: ACTIVITIES_FAILED_WARNING,
               },
             }));
-          } finally {
-            inFlightActivitiesPromise = null;
           }
         })();
+
+        inFlightActivitiesPromise = runActivities.finally(() => {
+          set({ activitiesDataLoading: false });
+          inFlightActivitiesPromise = null;
+        });
 
         return inFlightActivitiesPromise;
       },

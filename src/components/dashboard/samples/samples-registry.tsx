@@ -3,15 +3,31 @@
 // src/components/dashboard/samples/samples-registry.tsx
 // Main registry: ONE row per company (primary SampleSummary grain).
 // Arrays render as compact badges; multiplicity is never exploded into rows.
+//
+// Sorting (WP8): all data columns are sortable — full filtered dataset is
+// sorted BEFORE pagination; empties always last; keyboard-accessible sort
+// buttons with aria-sort and active direction indicators. Displayed values
+// only (canonical status labels, human names) — never raw IDs/codes.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { NORMALIZED_RESULT_LABELS, UNCLASSIFIED_LABEL } from "@/lib/samples/constants";
+import { ChevronLeft, ChevronRight, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { NormalizedResult, SampleSummary } from "@/lib/samples/types";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
+import {
+  nextSortDirection,
+  sortRows,
+  compareStatus,
+  compareByDirection,
+  ariaSortValue,
+  type SortDirection,
+  type SortValue,
+} from "@/lib/table-sorting";
+import { canonicalSampleStatusOrder, CANONICAL_SAMPLE_UI_STATUSES } from "@/lib/samples/status-canonical";
+import { UNCLASSIFIED_LABEL } from "@/lib/samples/constants";
 
 const RESULT_BADGE_CLASS: Record<NormalizedResult, string> = {
   positive: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
@@ -68,7 +84,80 @@ function formatQuantity(q: { value: number | string; unit?: string }): string {
   return q.unit ? `${value} ${q.unit}` : value;
 }
 
+/** Sortable header cell: keyboard-accessible button + aria-sort + indicator. */
+function SortableTh({
+  label,
+  field,
+  sortField,
+  sortDirection,
+  onSort,
+  className = "",
+  numeric = false,
+}: {
+  label: string;
+  field: SamplesSortField;
+  sortField: SamplesSortField | null;
+  sortDirection: SortDirection;
+  onSort: (field: SamplesSortField) => void;
+  className?: string;
+  numeric?: boolean;
+}) {
+  const isSorted = sortField === field && sortDirection !== null;
+  return (
+    <th
+      className={`text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground ${className}`}
+      aria-sort={ariaSortValue(sortDirection, sortField === field)}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        title={
+          isSorted
+            ? sortDirection === "asc"
+              ? "По возрастанию (нажмите для убывания)"
+              : "По убыванию (нажмите для сброса)"
+            : "Сортировка"
+        }
+        className={`flex items-center gap-1 text-left hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:text-foreground transition-colors cursor-pointer ${numeric ? "justify-start" : ""}`}
+      >
+        <span className="whitespace-normal break-words leading-tight">{label}</span>
+        {isSorted && sortDirection === "asc" && (
+          <ArrowUp className="h-3 w-3 text-brand-blue flex-shrink-0" aria-hidden="true" />
+        )}
+        {isSorted && sortDirection === "desc" && (
+          <ArrowDown className="h-3 w-3 text-brand-blue flex-shrink-0" aria-hidden="true" />
+        )}
+        {!isSorted && (
+          <ArrowUpDown
+            className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity flex-shrink-0"
+            aria-hidden="true"
+          />
+        )}
+      </button>
+    </th>
+  );
+}
+
 const PAGE_SIZES = [25, 50, 100, 250];
+
+/** Sortable data columns (display-only; № is positional and not sortable). */
+type SamplesSortField =
+  | "companyTitle"
+  | "companyResponsible"
+  | "industry"
+  | "productFamilies"
+  | "grades"
+  | "quantities"
+  | "sentDates"
+  | "status"
+  | "currentStage"
+  | "activeCount"
+  | "result"
+  | "dealsCount";
+
+function quantitySortValue(q: { value: number | string; unit?: string }): number | string {
+  return typeof q.value === "number" ? q.value : q.value;
+}
 
 export function SamplesRegistry({
   summaries,
@@ -82,10 +171,85 @@ export function SamplesRegistry({
 
   const [pageSize, setPageSize] = useState<number>(50);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [sortField, setSortField] = useState<SamplesSortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [summaries]);
+
+  const handleSort = (field: SamplesSortField) => {
+    if (sortField !== field) {
+      setSortField(field);
+      setSortDirection("asc");
+    } else {
+      setSortDirection(nextSortDirection(sortDirection));
+      if (nextSortDirection(sortDirection) === null) setSortField(null);
+    }
+    setCurrentPage(1);
+  };
+
+  const resolveResponsible = (id?: string, fallback?: string): string =>
+    id ? resolveResponsibleDisplay(id, userNames, usersCoverage) : fallback ?? "–";
+
+  // 1. Sort the ENTIRE filtered dataset before pagination.
+  // Status column sorts by canonical business order (compareStatus);
+  // all other columns by their displayed value with empties last.
+  const finalSorted = useMemo(() => {
+    if (!sortField || !sortDirection) return summaries;
+    const statusOrder = (label: string) =>
+      (CANONICAL_SAMPLE_UI_STATUSES as readonly string[]).includes(label)
+        ? canonicalSampleStatusOrder(label)
+        : canonicalSampleStatusOrder(UNCLASSIFIED_LABEL);
+
+    const getSortValue = (s: SampleSummary): string | number | null => {
+      switch (sortField) {
+        case "companyTitle":
+          return s.companyTitle;
+        case "companyResponsible":
+          return resolveResponsible(s.companyResponsibleId, s.companyResponsibleName);
+        case "industry":
+          return [s.industry, s.application].filter(Boolean).join(" · ") || null;
+        case "productFamilies":
+          return s.productFamilies.length > 0 ? s.productFamilies.join(", ") : null;
+        case "grades":
+          return s.grades.length > 0 ? s.grades.map((g) => g.value).join(", ") : null;
+        case "quantities":
+          return s.quantities.length > 0 ? quantitySortValue(s.quantities[0]) : null;
+        case "sentDates":
+          return s.sentDates.length > 0 ? s.sentDates[0] : null;
+        case "status": {
+          const statuses = [...s.sampleIndicators, ...s.processStatuses];
+          return statuses.length > 0 ? statuses[0] : null;
+        }
+        case "currentStage":
+          return s.currentActiveStageLabels && s.currentActiveStageLabels.length > 0
+            ? s.currentActiveStageLabels[0]
+            : null;
+        case "activeCount":
+          // Absent count renders as «—» → sorts as empty (always last).
+          return s.activeSmartProcessCount ?? null;
+        case "result":
+          return NORMALIZED_RESULT_LABELS[s.normalizedResult] ?? s.normalizedResult;
+        case "dealsCount":
+          return s.relatedDeals.length;
+        default:
+          return null;
+      }
+    };
+
+    if (sortField === "status") {
+      return [...summaries].sort((a, b) => {
+        const va = getSortValue(a);
+        const vb = getSortValue(b);
+        if (typeof va === "string" && typeof vb === "string") {
+          return compareStatus(va, vb, statusOrder, sortDirection) || va.localeCompare(vb, "ru");
+        }
+        return compareByDirection(va as SortValue, vb as SortValue, sortDirection);
+      });
+    }
+    return sortRows(summaries, getSortValue, sortDirection);
+  }, [summaries, sortField, sortDirection, userNames, usersCoverage]);
 
   if (summaries.length === 0) {
     return (
@@ -100,10 +264,10 @@ export function SamplesRegistry({
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(summaries.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(finalSorted.length / pageSize));
   const activePage = Math.min(currentPage, totalPages);
   const startIndex = (activePage - 1) * pageSize;
-  const pageItems = summaries.slice(startIndex, startIndex + pageSize);
+  const pageItems = finalSorted.slice(startIndex, startIndex + pageSize);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 rounded-md border border-border bg-card shadow-sm overflow-hidden">
@@ -118,18 +282,18 @@ export function SamplesRegistry({
                 >
                   №
                 </th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[200px]">Компания</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Ответственный компании</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[160px]">Отрасль / применение</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Продукт</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[140px]">Марка</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Количество</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Дата передачи</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[140px]">Статус</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground min-w-[120px]">Текущий этап тестирования</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Активных процессов</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Результат</th>
-                <th className="text-left sticky top-0 z-20 group bg-card border-b border-border py-2 px-2 text-xs font-medium text-muted-foreground">Сделки</th>
+                <SortableTh label="Компания" field="companyTitle" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="min-w-[200px]" />
+                <SortableTh label="Ответственный компании" field="companyResponsible" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                <SortableTh label="Отрасль / применение" field="industry" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="min-w-[160px]" />
+                <SortableTh label="Продукт" field="productFamilies" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                <SortableTh label="Марка" field="grades" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="min-w-[140px]" />
+                <SortableTh label="Количество" field="quantities" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} numeric />
+                <SortableTh label="Дата передачи" field="sentDates" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                <SortableTh label="Статус" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="min-w-[140px]" />
+                <SortableTh label="Текущий этап тестирования" field="currentStage" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="min-w-[120px]" />
+                <SortableTh label="Активных процессов" field="activeCount" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} numeric />
+                <SortableTh label="Результат" field="result" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                <SortableTh label="Сделки" field="dealsCount" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
               </tr>
             </thead>
             <tbody>
@@ -137,14 +301,19 @@ export function SamplesRegistry({
                 <tr
                   key={s.companyId}
                   data-company-id={s.companyId}
+                  data-testid="samples-row-company-id"
                   className="cursor-pointer hover:bg-muted/50 transition-colors"
                   onClick={() => onSelect(s)}
                 >
-                  <td className="text-xs font-mono tabular-nums text-muted-foreground text-center sticky left-0 z-10 bg-card border-r border-b border-border/60 py-1.5 px-2">
+                  <td className="text-xs tabular-nums text-muted-foreground text-center sticky left-0 z-10 bg-card border-r border-b border-border/60 py-1.5 px-2">
                     {startIndex + idx + 1}
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2 text-xs font-medium">
-                    <span className="block max-w-[260px] truncate" title={s.companyTitle}>
+                    <span
+                      className="block max-w-[260px] truncate"
+                      title={s.companyTitle}
+                      data-testid="samples-row-title"
+                    >
                       {s.companyTitle}
                     </span>
                     {s.dataIssues.length > 0 && (
@@ -190,11 +359,7 @@ export function SamplesRegistry({
                     )}
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2">
-                    <Badges
-                      items={[...s.sampleIndicators, ...s.processStatuses].map((st) =>
-                        /^\d+$/.test(st) || /^DT1032_/i.test(st) ? UNCLASSIFIED_LABEL : st
-                      )}
-                    />
+                    <Badges items={[...s.sampleIndicators, ...s.processStatuses]} />
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2 text-xs text-muted-foreground">
                     {s.currentActiveStageLabels && s.currentActiveStageLabels.length > 0 ? (

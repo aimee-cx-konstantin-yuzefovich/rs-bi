@@ -5,6 +5,7 @@
 // Reconciles with card number and allows opening CompanyPreview / DealPreview,
 // plus deep link into the top-level Samples section (/samples?company=<id>).
 
+import { useMemo, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -22,12 +23,61 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Building2, ExternalLink, FileText, FlaskConical } from "lucide-react";
+import { Building2, ExternalLink, FileText, FlaskConical, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type {
   CommercialCompany,
   CommercialDrillDownPayload,
 } from "@/lib/commercial-funnel/types";
 import { formatCurrencyAmount } from "@/lib/commercial-funnel/currency";
+import {
+  sortRows,
+  nextSortDirection,
+  ariaSortValue,
+  type SortDirection,
+} from "@/lib/table-sorting";
+
+type DrillSortField =
+  | "title"
+  | "responsible"
+  | "product"
+  | "sampleStatus"
+  | "dealStage"
+  | "nextStep"
+  | "amount";
+
+/** Sortable header for the drill-down table. */
+function DrillSortableHead({
+  label,
+  field,
+  sortField,
+  sortDirection,
+  onSort,
+  className = "",
+}: {
+  label: string;
+  field: DrillSortField;
+  sortField: DrillSortField | null;
+  sortDirection: SortDirection;
+  onSort: (field: DrillSortField) => void;
+  className?: string;
+}) {
+  const isSorted = sortField === field && sortDirection !== null;
+  return (
+    <TableHead className={className} aria-sort={ariaSortValue(sortDirection, sortField === field)}>
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        title={isSorted ? (sortDirection === "asc" ? "По возрастанию (нажмите для убывания)" : "По убыванию (нажмите для сброса)") : "Сортировка"}
+        className="inline-flex items-center gap-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:text-foreground transition-colors cursor-pointer"
+      >
+        <span>{label}</span>
+        {isSorted && sortDirection === "asc" && <ArrowUp className="h-3 w-3 text-brand-blue" aria-hidden="true" />}
+        {isSorted && sortDirection === "desc" && <ArrowDown className="h-3 w-3 text-brand-blue" aria-hidden="true" />}
+        {!isSorted && <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity" aria-hidden="true" />}
+      </button>
+    </TableHead>
+  );
+}
 
 interface DrillDownSheetProps {
   open: boolean;
@@ -52,8 +102,52 @@ export function CommercialDrillDownSheet({
   onSelectCompany,
   onSelectDeal,
 }: DrillDownSheetProps) {
-  // Reconcile: filter exactly those companies whose ID is in companyIds
-  const matchingCompanies = allCompanies.filter((c) => companyIds.includes(c.id));
+  const [sortField, setSortField] = useState<DrillSortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+
+  const handleSort = (field: DrillSortField) => {
+    if (sortField !== field) {
+      setSortField(field);
+      setSortDirection("asc");
+    } else {
+      const next = nextSortDirection(sortDirection);
+      setSortDirection(next);
+      if (next === null) setSortField(null);
+    }
+  };
+
+  // Reconcile: filter exactly those companies whose ID is in companyIds,
+  // then sort (WP8) by displayed values; empties always last.
+  const matchingCompanies = useMemo(() => {
+    const filtered = allCompanies.filter((c) => companyIds.includes(c.id));
+    if (!sortField || !sortDirection) return filtered;
+    return sortRows(filtered, (c) => {
+      switch (sortField) {
+        case "title":
+          return c.title;
+        case "responsible":
+          return c.responsibleName || c.responsibleId || null;
+        case "product":
+          return c.productType.length > 0 ? c.productType.join(", ") : null;
+        case "sampleStatus":
+          return c.sampleStatus && c.sampleStatus !== "—" ? c.sampleStatus : null;
+        case "dealStage": {
+          const deal = c.deals.find((d) => d.id === c.primaryDealId) ?? c.deals[0];
+          return deal ? deal.stageName || deal.stageId || null : null;
+        }
+        case "nextStep": {
+          const deal = c.deals.find((d) => d.id === c.primaryDealId) ?? c.deals[0];
+          return deal?.activityNext || null;
+        }
+        case "amount": {
+          const deal = c.deals.find((d) => d.id === c.primaryDealId) ?? c.deals[0];
+          return deal && typeof deal.opportunity === "number" ? deal.opportunity : null;
+        }
+        default:
+          return null;
+      }
+    }, sortDirection);
+  }, [allCompanies, companyIds, sortField, sortDirection]);
 
   const displayTitle = payload?.title || title;
   const displaySubtitle =
@@ -84,13 +178,13 @@ export function CommercialDrillDownSheet({
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted">
-                    <TableHead className="text-xs">Компания</TableHead>
-                    <TableHead className="text-xs">Ответственный</TableHead>
-                    <TableHead className="text-xs">Продукт</TableHead>
-                    <TableHead className="text-xs">Статус образцов</TableHead>
-                    <TableHead className="text-xs">Сделка / Этап</TableHead>
-                    <TableHead className="text-xs">Следующий шаг</TableHead>
-                    <TableHead className="text-xs text-right">Сумма</TableHead>
+                    <DrillSortableHead label="Компания" field="title" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs" />
+                    <DrillSortableHead label="Ответственный" field="responsible" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs" />
+                    <DrillSortableHead label="Продукт" field="product" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs" />
+                    <DrillSortableHead label="Статус образцов" field="sampleStatus" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs" />
+                    <DrillSortableHead label="Сделка / Этап" field="dealStage" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs" />
+                    <DrillSortableHead label="Следующий шаг" field="nextStep" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs" />
+                    <DrillSortableHead label="Сумма" field="amount" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs text-right" />
                     <TableHead className="text-xs w-14"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -113,6 +207,19 @@ export function CommercialDrillDownSheet({
                         e.kind === "SAMPLE_SENT_EVIDENCE" ||
                         e.kind === "SAMPLE_DEAL"
                     );
+
+                    // Data-aware Samples navigation (WP6): the deep link
+                    // renders ONLY when canonical Samples data provably
+                    // exists for this company (already computed on the
+                    // CommercialCompany projection — no new requests).
+                    // Marker-only/unknown provenance never qualifies; no
+                    // dead link is rendered.
+                    const hasCanonicalSamplesData =
+                      (c.sampleStatusSource !== "NONE" &&
+                        c.sampleStatus !== "—" &&
+                        Boolean(c.sampleStatus)) ||
+                      (c.sampleAllDates?.length ?? 0) > 0 ||
+                      (c.sampleSentEvents?.length ?? 0) > 0;
 
                     return (
                       <TableRow
@@ -236,7 +343,7 @@ export function CommercialDrillDownSheet({
                           {qualifyingDeals.length === 1 ? (
                             qualifyingDeals[0].opportunityQuality === "INVALID" ? (
                               <span
-                                className="text-destructive font-mono text-[11px]"
+                                className="text-destructive text-[11px] tabular-nums"
                                 title="Некорректная сумма в Bitrix24"
                               >
                                 Неверная сумма
@@ -295,20 +402,22 @@ export function CommercialDrillDownSheet({
                                 <FileText className="h-3.5 w-3.5" />
                               </Button>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              asChild
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <a
-                                href={`/samples?company=${encodeURIComponent(c.id)}`}
-                                title="Открыть в разделе Образцы"
+                            {hasCanonicalSamplesData && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                asChild
+                                onClick={(e) => e.stopPropagation()}
                               >
-                                <FlaskConical className="h-3.5 w-3.5" />
-                              </a>
-                            </Button>
+                                <a
+                                  href={`/samples?company=${encodeURIComponent(c.id)}`}
+                                  title="Открыть в разделе Образцы"
+                                >
+                                  <FlaskConical className="h-3.5 w-3.5" />
+                                </a>
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
