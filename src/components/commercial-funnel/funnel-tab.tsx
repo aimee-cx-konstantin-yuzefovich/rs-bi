@@ -75,7 +75,7 @@ function StageButton({
           ? "border-border/50 bg-muted/30 opacity-60"
           : isSelected
           ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
-          : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+          : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
       }`}
     >
       <div className="min-w-0">
@@ -164,7 +164,7 @@ export function CommercialFunnelTab({
                     ? "border-border/50 bg-muted/30 opacity-60"
                     : selectedCardId === "active_deals"
                     ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
-                    : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
                 }`}
               >
                 <div className="flex items-baseline gap-2">
@@ -198,7 +198,7 @@ export function CommercialFunnelTab({
                     ? "border-border/50 bg-muted/30 opacity-60"
                     : selectedCardId === "awaiting_payment"
                     ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
-                    : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
                 }`}
               >
                 <div className="flex items-baseline gap-2">
@@ -240,7 +240,7 @@ export function CommercialFunnelTab({
                     ? "border-border/50 bg-muted/30 opacity-60"
                     : selectedCardId === "deals_created"
                     ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
-                    : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
                 }`}
               >
                 <div className="flex items-baseline gap-2">
@@ -272,7 +272,7 @@ export function CommercialFunnelTab({
                     ? "border-border/50 bg-muted/30 opacity-60"
                     : selectedCardId === "payments_received"
                     ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
-                    : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
                 }`}
               >
                 <div className="flex items-baseline gap-2">
@@ -324,7 +324,7 @@ export function CommercialFunnelTab({
                     ? "border-border/50 bg-muted/30 opacity-60"
                     : selectedCardId === "shipments"
                     ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
-                    : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
                 }`}
               >
                 <div className="flex items-baseline gap-2">
@@ -368,7 +368,7 @@ export function CommercialFunnelTab({
             className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
               continuation.positiveResult.count === 0
                 ? "border-border/50 bg-muted/30 opacity-60"
-                : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+                : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
             }`}
           >
             <div className="flex items-baseline gap-2">
@@ -398,7 +398,7 @@ export function CommercialFunnelTab({
             className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
               continuation.withCommercialContinuation.count === 0
                 ? "border-border/50 bg-muted/30 opacity-60"
-                : "border-border bg-card hover:border-primary/40 hover:bg-accent/40 cursor-pointer"
+                : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
             }`}
           >
             <div className="flex items-baseline gap-2">

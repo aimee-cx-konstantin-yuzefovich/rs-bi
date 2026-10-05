@@ -241,7 +241,7 @@ export function CommercialSegmentsTab({
           </thead>
           <tbody>
             {sortedRows.map((row) => (
-              <tr key={row.label} className="border-b border-border/40 hover:bg-accent/30">
+              <tr key={row.label} className="border-b border-border/40 hover:bg-primary/5">
                 <td
                   className={`sticky left-0 bg-card px-3 py-2 font-medium ${
                     row.isMissingValue ? "italic text-muted-foreground" : ""

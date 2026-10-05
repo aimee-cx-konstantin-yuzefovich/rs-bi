@@ -371,7 +371,7 @@ export function CommercialBottlenecksTab({
                       className={`border-b border-border/40 align-top transition-colors cursor-pointer ${
                         isSelected
                           ? "bg-primary/10 border-primary/20 text-foreground"
-                          : "hover:bg-accent/40"
+                          : "hover:bg-primary/5"
                       }`}
                     >
                       {/* Sticky left № column */}
