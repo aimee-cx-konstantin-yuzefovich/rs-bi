@@ -129,10 +129,11 @@ export function DealPreview({
   // renders ONLY when canonical Samples data provably exists for the
   // deal's company — from the already-loaded shared Smart Process session
   // cache (exact deal/company attribution) or the deal's OWN real legacy
-  // sample evidence. The marker-only field (UF_CRM_1779394379) never
-  // qualifies. No per-render/per-click Bitrix calls, no N+1: everything
-  // reads in-memory canonical state. While existence is unknown (SP cache
-  // still loading AND no deal-level evidence) no clickable link is exposed.
+  // sample evidence (sent date / transfer status). The marker-only testing
+  // field (see crm-constants) never qualifies. No per-render/per-click
+  // Bitrix calls, no N+1: everything reads in-memory canonical state.
+  // While existence is unknown (SP cache still loading AND no deal-level
+  // evidence) no clickable link is exposed.
   const sp = useSmartProcessData();
   const dealRaw: Record<string, unknown> | null =
     state.status === "success" ? state.deal : null;
