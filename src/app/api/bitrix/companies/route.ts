@@ -52,7 +52,9 @@ function normalizeCompany(company: CompanyRecord, fallbackId: string): CompanyRe
   };
 }
 
-async function fetchCompanyById(id: string, select: string[]): Promise<CompanyRecord | null> {
+// Returns the record, `null` when CRM answered but has no such company
+// (confirmed absent), or `undefined` when the read itself failed.
+async function fetchCompanyById(id: string, select: string[]): Promise<CompanyRecord | null | undefined> {
   const t0 = Date.now();
   try {
     const data = await bitrixPost<{ result?: CompanyRecord | null } | CompanyRecord>(
@@ -73,7 +75,7 @@ async function fetchCompanyById(id: string, select: string[]): Promise<CompanyRe
       durationMs: duration,
       error: error instanceof Error ? error.message : String(error),
     });
-    return null;
+    return undefined;
   }
 }
 
@@ -118,6 +120,13 @@ export async function POST(request: NextRequest) {
     }
 
     let failedBatches = 0;
+    let failedRecoveryBatches = 0;
+    let recoveryChunkCount = 0;
+    let perIdFallbackRan = false;
+    // IDs whose MOST RECENT read attempt failed at transport level. IDs that
+    // were covered by a successful read but not returned are unresolved
+    // REFERENCES, never transport failures.
+    const lastAttemptFailed = new Set<string>();
     const totalBatches = Math.ceil(ids.length / BATCH_SIZE);
 
     // 1) Batch list lookup — ONE transport layer: bitrixPost owns bounded
@@ -174,6 +183,7 @@ export async function POST(request: NextRequest) {
 
       if (!batchSucceeded) {
         failedBatches++;
+        for (const id of batchIds) lastAttemptFailed.add(id);
       }
     }
 
@@ -184,10 +194,12 @@ export async function POST(request: NextRequest) {
     const unresolvedAfterBatches = () => ids.filter((id) => !resolvedIds.has(id));
     let unresolvedIds = unresolvedAfterBatches();
     const unresolvedAfterPrimary = unresolvedIds.length;
+    const resolvedPrimaryCount = resolvedIds.size;
 
     if (unresolvedIds.length > 0) {
       for (let i = 0; i < unresolvedIds.length; i += RETRY_BATCH_SIZE) {
         const chunk = unresolvedIds.slice(i, i + RETRY_BATCH_SIZE);
+        recoveryChunkCount++;
         try {
           const data = await bitrixPost<{ result?: CompanyRecord[] }>(
             "crm.company.list",
@@ -205,7 +217,10 @@ export async function POST(request: NextRequest) {
               resolvedIds.add(rawId);
             }
           }
+          for (const id of chunk) lastAttemptFailed.delete(id);
         } catch (error) {
+          failedRecoveryBatches++;
+          for (const id of chunk) lastAttemptFailed.add(id);
           console.warn(`[Companies API] Recovery chunk failed (transport retries exhausted by shared layer)`, {
             idCount: chunk.length,
             error: error instanceof Error ? error.message : String(error),
@@ -214,11 +229,13 @@ export async function POST(request: NextRequest) {
       }
       unresolvedIds = unresolvedAfterBatches();
     }
+    const resolvedRecoveryCount = resolvedIds.size - resolvedPrimaryCount;
 
     // 3) Per-ID fallback only sparingly: capped, concurrency-conservative.
     //    Above the cap, unresolved IDs stay unresolved (retryable) instead of
     //    issuing hundreds of crm.company.get calls.
     if (unresolvedIds.length > 0 && unresolvedIds.length <= PER_ID_FALLBACK_LIMIT) {
+      perIdFallbackRan = true;
       for (let i = 0; i < unresolvedIds.length; i += FALLBACK_GET_CONCURRENCY) {
         const chunk = unresolvedIds.slice(i, i + FALLBACK_GET_CONCURRENCY);
 
@@ -236,6 +253,11 @@ export async function POST(request: NextRequest) {
               ...res.value,
             };
             resolvedIds.add(id);
+            lastAttemptFailed.delete(id);
+          } else if (res.status === "fulfilled" && res.value === null) {
+            lastAttemptFailed.delete(id); // CRM answered: confirmed absent
+          } else {
+            lastAttemptFailed.add(id);
           }
         }
       }
@@ -256,9 +278,34 @@ export async function POST(request: NextRequest) {
     const stillUnresolved = ids.filter((id) => !resolvedIds.has(id));
     const fetchedCompanyIds = ids.filter((id) => resolvedIds.has(id));
     const isPartial = stillUnresolved.length > 0;
+    const failedFetchIds = stillUnresolved.filter((id) => lastAttemptFailed.has(id));
+    const unresolvedReferenceIds = stillUnresolved.filter((id) => !lastAttemptFailed.has(id));
+    const classification =
+      stillUnresolved.length === 0
+        ? "COMPLETE"
+        : failedFetchIds.length > 0 && unresolvedReferenceIds.length > 0
+          ? "MIXED"
+          : failedFetchIds.length > 0
+            ? "TRANSIENT_FETCH_FAILURE"
+            : "UNRESOLVED_REFERENCES";
+    // Aggregate-only diagnostics: counts and classification, never IDs/titles.
+    const diagnostics = {
+      requestedCount: ids.length,
+      resolvedPrimaryCount,
+      unresolvedAfterPrimaryCount: unresolvedAfterPrimary,
+      resolvedRecoveryCount,
+      unresolvedFinalCount: stillUnresolved.length,
+      unresolvedReferenceCount: unresolvedReferenceIds.length,
+      failedFetchCount: failedFetchIds.length,
+      failedPrimaryBatchCount: failedBatches,
+      failedRecoveryBatchCount: failedRecoveryBatches,
+      recoveryChunkCount,
+      perIdFallbackRan,
+      classification,
+    };
     const isTotalFailure = failedBatches > 0 && failedBatches === totalBatches && fetchedCompanyIds.length === 0;
     console.info(
-      `[Companies API] Enrichment summary: requested=${ids.length} resolved=${fetchedCompanyIds.length} unresolved=${stillUnresolved.length} (after-primary=${unresolvedAfterPrimary}, recovery=${failedBatches === 0 && unresolvedAfterPrimary > 0 ? "ran" : failedBatches > 0 ? "partial" : "none"})`
+      `[Companies API] Enrichment summary: requested=${ids.length} resolved=${fetchedCompanyIds.length} unresolved=${stillUnresolved.length} (after-primary=${unresolvedAfterPrimary}, failedPrimaryBatches=${failedBatches}, failedRecoveryBatches=${failedRecoveryBatches}, class=${classification})`
     );
 
     if (isTotalFailure) {
@@ -270,6 +317,9 @@ export async function POST(request: NextRequest) {
           companies: {},
           fetchedCompanyIds: [],
           unresolvedCompanyIds: ids,
+          failedFetchIds: ids,
+          unresolvedReferenceIds: [],
+          diagnostics,
         },
         { status: 500 }
       );
@@ -282,6 +332,9 @@ export async function POST(request: NextRequest) {
       companies: companiesMap,
       fetchedCompanyIds,
       unresolvedCompanyIds: stillUnresolved,
+      failedFetchIds,
+      unresolvedReferenceIds,
+      diagnostics,
     });
   } catch (error) {
     console.error("[Companies API Error]", error);

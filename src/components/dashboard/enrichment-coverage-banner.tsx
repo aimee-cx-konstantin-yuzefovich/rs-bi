@@ -23,6 +23,7 @@ export function EnrichmentCoverageBanner() {
   const usersCoverage = useDashboardStore((s) => s.usersCoverage);
   const activitiesCoverage = useDashboardStore((s) => s.activitiesCoverage);
   const companiesDataCoverage = useDashboardStore((s) => s.companiesDataCoverage);
+  const companiesEnrichmentDiagnostics = useDashboardStore((s) => s.companiesEnrichmentDiagnostics);
   const fieldsCoverage = useDashboardStore((s) => s.fieldsCoverage);
   const fields = useDashboardStore((s) => s.fields);
   const { columns } = useTableState();
@@ -35,6 +36,7 @@ export function EnrichmentCoverageBanner() {
     usersCoverage,
     activitiesCoverage,
     companiesDataCoverage,
+    companiesEnrichmentDiagnostics,
     fieldsCoverage,
   });
 

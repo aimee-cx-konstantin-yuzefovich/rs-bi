@@ -32,6 +32,28 @@ export const COMPANIES_FAILED_WARNING =
   "Не удалось загрузить данные компаний.";
 
 /**
+ * Aggregate-only company-enrichment diagnostics for the CURRENT scope.
+ * Never contains Company IDs, titles or other business data.
+ * - failedFetchCount: requested IDs whose read failed at transport level
+ *   (retryable; a real warning condition).
+ * - unresolvedReferenceCount: related Company IDs CRM did not return from
+ *   successful reads (deleted/inaccessible/stale reference — reason unproven).
+ */
+export interface CompanyEnrichmentDiagnostics {
+  requestedCount: number;
+  resolvedCount: number;
+  failedFetchCount: number;
+  unresolvedReferenceCount: number;
+  failedPrimaryBatchCount: number;
+  failedRecoveryBatchCount: number;
+  classification:
+    | "COMPLETE"
+    | "TRANSIENT_FETCH_FAILURE"
+    | "UNRESOLVED_REFERENCES"
+    | "MIXED";
+}
+
+/**
  * Coverage for an ID-set-based enrichment request (activities, companies):
  * `requested` IDs were asked for, `fetchedIds` were successfully resolved.
  * Any missing ID means PARTIAL — an unresolved ID must never count as
