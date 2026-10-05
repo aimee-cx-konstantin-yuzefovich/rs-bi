@@ -283,3 +283,195 @@ describe("warning semantics", () => {
     expect(buildEnrichmentExtraWarnings(input)).toEqual([]);
   });
 });
+
+describe("Regression Matrix: Stale Cache, TTL consistency, and Top-Level Failure", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("A. STALE CACHE + CURRENT UNRESOLVED REFERENCE: stale cache preserved, unresolvedReferenceCount includes it, classification = UNRESOLVED_REFERENCES", async () => {
+    const id = "1001";
+    const oldFetchedAt = Date.now() - 10 * 60 * 1000; // 10 minutes ago
+    setupDeals(1);
+    useDashboardStore.setState({
+      allDeals: [{ ID: "1", COMPANY_ID: id }] as any,
+      companiesData: { [id]: { ID: id, TITLE: "Old Stale Company" } },
+      companiesDataFetchedAt: { [id]: oldFetchedAt },
+      companiesUnresolvedRefs: {},
+    });
+
+    global.fetch = vi.fn(async (_u: any, init: any) => {
+      const body = JSON.parse(init.body);
+      // API call succeeds, but CRM confirms company is not returned
+      return companyResponse(body, { unresolvedRefs: new Set([id]) });
+    }) as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    const s = useDashboardStore.getState();
+    // Stale cache preserved
+    expect(s.companiesData[id]?.TITLE).toBe("Old Stale Company");
+    // Old fetchedAt not updated to fresh timestamp
+    expect(s.companiesDataFetchedAt[id]).toBe(oldFetchedAt);
+    // Unresolved reference marker set
+    expect(s.companiesUnresolvedRefs[id]).toBeDefined();
+    // Diagnostics truthful
+    expect(s.companiesEnrichmentDiagnostics?.unresolvedReferenceCount).toBe(1);
+    expect(s.companiesEnrichmentDiagnostics?.failedFetchCount).toBe(0);
+    expect(s.companiesEnrichmentDiagnostics?.classification).toBe("UNRESOLVED_REFERENCES");
+    // Old fetchedAt does NOT make it COMPLETE
+    expect(s.companiesEnrichmentDiagnostics?.classification).not.toBe("COMPLETE");
+    expect(s.companiesDataCoverage?.status).toBe("COMPLETE");
+  });
+
+  it("B. TTL SUPPRESSION WITH STALE CACHE PRESENT: confirmed unresolved ID is NOT requested again inside TTL", async () => {
+    const id = "1001";
+    const oldFetchedAt = Date.now() - 10 * 60 * 1000;
+    const now = Date.now();
+    setupDeals(1);
+    useDashboardStore.setState({
+      allDeals: [{ ID: "1", COMPANY_ID: id }] as any,
+      companiesData: { [id]: { ID: id, TITLE: "Old Stale Company" } },
+      companiesDataFetchedAt: { [id]: oldFetchedAt },
+      companiesUnresolvedRefs: { [id]: now }, // confirmed recently
+      companiesEnrichmentDiagnostics: {
+        requestedCount: 1,
+        resolvedCount: 0,
+        failedFetchCount: 0,
+        unresolvedReferenceCount: 1,
+        failedPrimaryBatchCount: 0,
+        failedRecoveryBatchCount: 0,
+        classification: "UNRESOLVED_REFERENCES",
+      },
+    });
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    // ID is suppressed from re-requesting because unresolved ref marker is active
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const s = useDashboardStore.getState();
+    expect(s.companiesData[id]?.TITLE).toBe("Old Stale Company");
+    expect(s.companiesEnrichmentDiagnostics?.unresolvedReferenceCount).toBe(1);
+    expect(s.companiesEnrichmentDiagnostics?.classification).toBe("UNRESOLVED_REFERENCES");
+  });
+
+  describe("C. TTL EXPIRY", () => {
+    it("C1. TTL expiry: retry resolves company -> marker removed, fetchedAt refreshed, classification recovers to COMPLETE", async () => {
+      const id = "1001";
+      const expiredMarker = Date.now() - 6 * 60 * 1000; // 6 mins ago (expired)
+      setupDeals(1);
+      useDashboardStore.setState({
+        allDeals: [{ ID: "1", COMPANY_ID: id }] as any,
+        companiesData: {},
+        companiesDataFetchedAt: {},
+        companiesUnresolvedRefs: { [id]: expiredMarker },
+      });
+
+      // Retry succeeds and resolves company
+      global.fetch = vi.fn(async (_u: any, init: any) => {
+        const body = JSON.parse(init.body);
+        return companyResponse(body);
+      }) as any;
+
+      await useDashboardStore.getState().fetchCompaniesData();
+
+      const s = useDashboardStore.getState();
+      expect(s.companiesData[id]?.TITLE).toBe(`C${id}`);
+      expect(s.companiesUnresolvedRefs[id]).toBeUndefined(); // marker removed
+      expect(s.companiesDataFetchedAt[id]).toBeDefined();
+      expect(s.companiesEnrichmentDiagnostics?.resolvedCount).toBe(1);
+      expect(s.companiesEnrichmentDiagnostics?.unresolvedReferenceCount).toBe(0);
+      expect(s.companiesEnrichmentDiagnostics?.classification).toBe("COMPLETE");
+    });
+
+    it("C2. TTL expiry: retry transport-fails -> expired reference marker does NOT cause false MIXED; classified as TRANSIENT_FETCH_FAILURE", async () => {
+      const id = "1001";
+      const expiredMarker = Date.now() - 6 * 60 * 1000;
+      setupDeals(1);
+      useDashboardStore.setState({
+        allDeals: [{ ID: "1", COMPANY_ID: id }] as any,
+        companiesData: {},
+        companiesDataFetchedAt: {},
+        companiesUnresolvedRefs: { [id]: expiredMarker },
+      });
+
+      // Retry encounters transport failure (HTTP 500)
+      global.fetch = vi.fn(async () => new Response("{}", { status: 500 })) as any;
+
+      await useDashboardStore.getState().fetchCompaniesData();
+
+      const s = useDashboardStore.getState();
+      expect(s.companiesDataCoverage?.status).toBe("PARTIAL");
+      expect(s.companiesEnrichmentDiagnostics?.failedFetchCount).toBe(1);
+      expect(s.companiesEnrichmentDiagnostics?.unresolvedReferenceCount).toBe(0);
+      expect(s.companiesEnrichmentDiagnostics?.classification).toBe("TRANSIENT_FETCH_FAILURE");
+      expect(s.companiesEnrichmentDiagnostics?.classification).not.toBe("MIXED");
+    });
+
+    it("C3. TTL expiry: retry again confirms absence -> marker timestamp refreshed, classification = UNRESOLVED_REFERENCES", async () => {
+      const id = "1001";
+      const expiredMarker = Date.now() - 6 * 60 * 1000;
+      setupDeals(1);
+      useDashboardStore.setState({
+        allDeals: [{ ID: "1", COMPANY_ID: id }] as any,
+        companiesData: {},
+        companiesDataFetchedAt: {},
+        companiesUnresolvedRefs: { [id]: expiredMarker },
+      });
+
+      // Retry again confirms absence
+      global.fetch = vi.fn(async (_u: any, init: any) => {
+        const body = JSON.parse(init.body);
+        return companyResponse(body, { unresolvedRefs: new Set([id]) });
+      }) as any;
+
+      await useDashboardStore.getState().fetchCompaniesData();
+
+      const s = useDashboardStore.getState();
+      expect(s.companiesUnresolvedRefs[id]).toBeGreaterThan(expiredMarker); // refreshed
+      expect(s.companiesEnrichmentDiagnostics?.unresolvedReferenceCount).toBe(1);
+      expect(s.companiesEnrichmentDiagnostics?.classification).toBe("UNRESOLVED_REFERENCES");
+    });
+  });
+
+  it("D. TOP-LEVEL FAILURE DIAGNOSTICS: previous COMPLETE/UNRESOLVED_REFERENCES replaced by current transport failure; cached data preserved", async () => {
+    const id = "1001";
+    setupDeals(1);
+    useDashboardStore.setState({
+      allDeals: [{ ID: "1", COMPANY_ID: id }] as any,
+      companiesData: { [id]: { ID: id, TITLE: "Useful Cached Company" } },
+      companiesDataFetchedAt: { [id]: Date.now() - 10 * 60 * 1000 },
+      companiesEnrichmentDiagnostics: {
+        requestedCount: 1,
+        resolvedCount: 1,
+        failedFetchCount: 0,
+        unresolvedReferenceCount: 0,
+        failedPrimaryBatchCount: 0,
+        failedRecoveryBatchCount: 0,
+        classification: "COMPLETE", // previous state
+      },
+      companiesDataCoverage: { status: "COMPLETE", fetched: 1, total: 1 },
+    });
+
+    // Outer fetch throws / rejects
+    global.fetch = vi.fn(async () => {
+      throw new Error("Network offline");
+    }) as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    const s = useDashboardStore.getState();
+    // 1. Cached enrichment is preserved
+    expect(s.companiesData[id]?.TITLE).toBe("Useful Cached Company");
+    // 2. Coverage is PARTIAL
+    expect(s.companiesDataCoverage?.status).toBe("PARTIAL");
+    // 3. Diagnostics now describe CURRENT transport failure, NOT previous COMPLETE
+    expect(s.companiesEnrichmentDiagnostics?.classification).toBe("TRANSIENT_FETCH_FAILURE");
+    expect(s.companiesEnrichmentDiagnostics?.failedFetchCount).toBe(1);
+    expect(s.companiesEnrichmentDiagnostics?.resolvedCount).toBe(0);
+    expect(s.companiesDataLoading).toBe(false);
+  });
+});

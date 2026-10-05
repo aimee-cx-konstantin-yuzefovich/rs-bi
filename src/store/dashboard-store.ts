@@ -24,6 +24,8 @@ import {
   ACTIVITIES_FAILED_WARNING,
   COMPANIES_FAILED_WARNING,
   type CompanyEnrichmentDiagnostics,
+  isUnresolvedRefActive,
+  COMPANY_ENRICHMENT_TTL_MS,
 } from "@/lib/enrichment-coverage";
 import { USERS_DIRECTORY_CAP } from "@/lib/crm-constants";
 import { type DealTypeRegistry, buildDealTypeRegistry } from "@/lib/deal-type";
@@ -1177,12 +1179,12 @@ export const useDashboardStore = create<DashboardState>()(
           const fetchedAt = get().companiesDataFetchedAt[id];
           
           // CRM already confirmed this reference as unreturned within the TTL:
-          // do not re-issue identical recovery reads on every refresh.
+          // do not re-issue identical recovery reads on every refresh, regardless of whether stale cached data exists.
           const refCheckedAt = get().companiesUnresolvedRefs[id];
-          if (!cached && refCheckedAt && now - refCheckedAt <= 5 * 60 * 1000) return false;
+          if (isUnresolvedRefActive(refCheckedAt, now)) return false;
 
           if (!cached) return true;
-          if (!fetchedAt || now - fetchedAt > 5 * 60 * 1000) return true;
+          if (!fetchedAt || now - fetchedAt > COMPANY_ENRICHMENT_TTL_MS) return true;
           
           // Check if all required fields are present in the cached object
           const hasAllFields = companyFieldsToSelect.every(field => field in cached);
@@ -1194,7 +1196,7 @@ export const useDashboardStore = create<DashboardState>()(
 
         set({ companiesDataLoading: true });
 
-        inFlightCompaniesPromise = (async () => {
+        const runCompanies = (async () => {
           // Snapshot the requested scope: coverage describes the CURRENT
           // refresh. Cached enrichment is kept (never erased) but never
           // counted as a successful current refresh.
@@ -1312,7 +1314,14 @@ export const useDashboardStore = create<DashboardState>()(
               for (const id of referenceIds) {
                 if (!successfulIdsSet.has(id)) newUnresolvedRefs[id] = fetchTimestamp;
               }
-              // Prune caches to only keep companies present in allDeals
+              // Transport failures: do NOT create or refresh an unresolved-reference marker.
+              // If an expired marker existed for a failed ID, remove it so it does not cause false MIXED.
+              for (const id of failedIds) {
+                if (!successfulIdsSet.has(id) && !referenceIds.has(id)) {
+                  delete newUnresolvedRefs[id];
+                }
+              }
+              // Prune caches to only keep companies present in allDeals, and remove expired reference markers
               const validCompanyIds = new Set(state.allDeals.map(d => String(d.COMPANY_ID || "")).filter(Boolean));
               for (const id in newCompaniesData) {
                 if (!validCompanyIds.has(id)) {
@@ -1321,12 +1330,14 @@ export const useDashboardStore = create<DashboardState>()(
                 }
               }
               for (const id in newUnresolvedRefs) {
-                if (!validCompanyIds.has(id)) delete newUnresolvedRefs[id];
+                if (!validCompanyIds.has(id) || !isUnresolvedRefActive(newUnresolvedRefs[id], fetchTimestamp)) {
+                  delete newUnresolvedRefs[id];
+                }
               }
 
               const total = uniqueIds.length;
               const unresolvedFailed = [...failedIds].filter((id) => !successfulIdsSet.has(id)).length;
-              const referenceCount = uniqueIds.filter((id) => newUnresolvedRefs[id] && !newCompaniesDataFetchedAt[id]).length;
+              const referenceCount = uniqueIds.filter((id) => isUnresolvedRefActive(newUnresolvedRefs[id], fetchTimestamp)).length;
               const classification: CompanyEnrichmentDiagnostics["classification"] =
                 unresolvedFailed > 0 && referenceCount > 0
                   ? "MIXED"
@@ -1356,7 +1367,7 @@ export const useDashboardStore = create<DashboardState>()(
                   unresolvedFailed > 0
                     ? {
                         status: "PARTIAL",
-                        fetched: total - unresolvedFailed,
+                        fetched: Math.max(0, total - unresolvedFailed),
                         total,
                         warning: `Не удалось получить данные ${unresolvedFailed} из ${total} компаний из CRM.`,
                       }
@@ -1367,25 +1378,56 @@ export const useDashboardStore = create<DashboardState>()(
                       },
               };
             });
-          } catch {
-            console.warn("[Dashboard] Failed to fetch companies data");
+          } catch (err) {
+            console.warn("[Dashboard] Failed to fetch companies data", err);
             const total = uniqueIds.length;
-            const failed = Math.min(total, requestedIds.length);
+            const failed = requestedIds.length;
+            const now = Date.now();
+            const currentRefs = get().companiesUnresolvedRefs;
+            const activeUnresolvedRefs: Record<string, number> = {};
+            for (const id in currentRefs) {
+              if (
+                uniqueIds.includes(id) &&
+                isUnresolvedRefActive(currentRefs[id], now) &&
+                !requestedIds.includes(id)
+              ) {
+                activeUnresolvedRefs[id] = currentRefs[id];
+              }
+            }
+            const activeRefCount = Object.keys(activeUnresolvedRefs).length;
+            const classification: CompanyEnrichmentDiagnostics["classification"] =
+              failed > 0 && activeRefCount > 0
+                ? "MIXED"
+                : "TRANSIENT_FETCH_FAILURE";
+
             set({
               companiesDataLoading: false,
+              companiesUnresolvedRefs: activeUnresolvedRefs,
+              companiesEnrichmentDiagnostics: {
+                requestedCount: requestedIds.length,
+                resolvedCount: 0,
+                failedFetchCount: failed,
+                unresolvedReferenceCount: activeRefCount,
+                failedPrimaryBatchCount: Math.ceil(requestedIds.length / 500) || 1,
+                failedRecoveryBatchCount: 0,
+                classification,
+              },
               companiesDataCoverage: {
                 status: "PARTIAL",
-                fetched: total - failed,
+                fetched: Math.max(0, total - failed),
                 total,
                 warning: failed > 0
                   ? `Не удалось получить данные ${failed} из ${total} компаний из CRM.`
                   : `Не удалось обновить данные компаний из CRM.`,
               },
             });
-          } finally {
-            inFlightCompaniesPromise = null;
           }
         })();
+
+        inFlightCompaniesPromise = runCompanies.finally(() => {
+          set({ companiesDataLoading: false });
+          inFlightCompaniesPromise = null;
+        });
 
         return inFlightCompaniesPromise;
       },
@@ -1423,31 +1465,29 @@ export const useDashboardStore = create<DashboardState>()(
 
         set({ activitiesDataLoading: true });
 
-        inFlightActivitiesPromise = (async () => {
-          // Snapshot the requested scope for truthful coverage: coverage is
-          // relative to the deal IDs actually requested in THIS run.
+        const runActivities = (async () => {
           const requestedIds = missingIds;
-          // Bounded, size-aware chunks keep every request inside the
-          // /api/bitrix/activities contract (<=1000 IDs, body <10 KB).
-          const chunks = chunkDealIdsForActivities(requestedIds);
-          const confirmedIds = new Set<string>();
-          let anyChunkIncomplete = false;
-          let lastWarning: string | undefined;
-
-          const markChunkFailed = (chunk: string[]) => {
-            anyChunkIncomplete = true;
-            set((state) => {
-              const rs = { ...state.activitiesRequestState };
-              // Only unconfirmed IDs become retryable errors; never touch
-              // data/timestamps of IDs that previously succeeded.
-              for (const id of chunk) {
-                if (!confirmedIds.has(id)) rs[id] = "error";
-              }
-              return { activitiesRequestState: rs };
-            });
-          };
-
           try {
+            // Bounded, size-aware chunks keep every request inside the
+            // /api/bitrix/activities contract (<=1000 IDs, body <10 KB).
+            const chunks = chunkDealIdsForActivities(requestedIds);
+            const confirmedIds = new Set<string>();
+            let anyChunkIncomplete = false;
+            let lastWarning: string | undefined;
+
+            const markChunkFailed = (chunk: string[]) => {
+              anyChunkIncomplete = true;
+              set((state) => {
+                const rs = { ...state.activitiesRequestState };
+                // Only unconfirmed IDs become retryable errors; never touch
+                // data/timestamps of IDs that previously succeeded.
+                for (const id of chunk) {
+                  if (!confirmedIds.has(id)) rs[id] = "error";
+                }
+                return { activitiesRequestState: rs };
+              });
+            };
+
             for (const chunk of chunks) {
               try {
                 const response = await fetchWithTimeout(
@@ -1545,11 +1585,27 @@ export const useDashboardStore = create<DashboardState>()(
                 activitiesCoverage: coverage,
               };
             });
-          } finally {
-            set({ activitiesDataLoading: false });
-            inFlightActivitiesPromise = null;
+          } catch (err) {
+            console.warn("[Dashboard] Failed to plan or execute activities enrichment:", err);
+            set((state) => ({
+              activitiesRequestState: {
+                ...state.activitiesRequestState,
+                ...Object.fromEntries(requestedIds.map((id) => [id, "error" as const])),
+              },
+              activitiesCoverage: {
+                status: "PARTIAL",
+                fetched: 0,
+                total: requestedIds.length,
+                warning: ACTIVITIES_FAILED_WARNING,
+              },
+            }));
           }
         })();
+
+        inFlightActivitiesPromise = runActivities.finally(() => {
+          set({ activitiesDataLoading: false });
+          inFlightActivitiesPromise = null;
+        });
 
         return inFlightActivitiesPromise;
       },

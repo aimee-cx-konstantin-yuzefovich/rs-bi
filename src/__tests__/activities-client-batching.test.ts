@@ -83,6 +83,11 @@ describe("chunkDealIdsForActivities", () => {
     expect(chunkDealIdsForActivities(["1", "1", "x", " 2 "]).flat()).toEqual(["1", "2"]);
     expect(chunkDealIdsForActivities([])).toEqual([]);
   });
+
+  it("oversized single numeric ID throws explicit contract error and produces no oversized chunks", () => {
+    const hugeId = "9".repeat(10_000);
+    expect(() => chunkDealIdsForActivities([hugeId])).toThrow(/alone produces \d+ bytes/);
+  });
 });
 
 describe("fetchActivitiesData client batching", () => {
@@ -171,5 +176,35 @@ describe("fetchActivitiesData client batching", () => {
     const b = useDashboardStore.getState().fetchActivitiesData();
     await Promise.all([a, b]);
     expect(calls.flat().length).toBe(1647);
+  });
+
+  it("oversized single numeric ID produces ZERO HTTP requests, fails closed without getting stuck, and subsequent call recovers", async () => {
+    const hugeId = "9".repeat(10_000);
+    setupDeals([hugeId]);
+    const { fn, calls } = contractFetch();
+    const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(fn as any);
+
+    await useDashboardStore.getState().fetchActivitiesData();
+
+    // 1. Zero HTTP requests made
+    expect(calls.length).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // 2. Loading and in-flight states are completely reset (not stuck)
+    const s1 = useDashboardStore.getState();
+    expect(s1.activitiesDataLoading).toBe(false);
+    expect(s1.activitiesCoverage?.status).toBe("PARTIAL");
+    expect(s1.activitiesRequestState[hugeId]).toBe("error");
+
+    // 3. Subsequent normal call can execute successfully and recover
+    setupDeals(["101", "102"]);
+    await useDashboardStore.getState().fetchActivitiesData();
+
+    const s2 = useDashboardStore.getState();
+    expect(calls.length).toBe(1);
+    expect(s2.activitiesDataLoading).toBe(false);
+    expect(s2.activitiesCoverage?.status).toBe("COMPLETE");
+    expect(s2.activitiesRequestState["101"]).toBe("success");
+    expect(s2.activitiesRequestState["102"]).toBe("success");
   });
 });

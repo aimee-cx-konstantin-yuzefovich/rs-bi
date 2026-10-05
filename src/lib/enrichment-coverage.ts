@@ -53,6 +53,26 @@ export interface CompanyEnrichmentDiagnostics {
     | "MIXED";
 }
 
+/** Standard TTL for company enrichment cache and confirmed unresolved reference suppression (5 minutes). */
+export const COMPANY_ENRICHMENT_TTL_MS = 5 * 60 * 1000;
+export const COMPANY_UNRESOLVED_REF_TTL_MS = COMPANY_ENRICHMENT_TTL_MS;
+
+/**
+ * Checks whether an unresolved-reference marker timestamp is currently active within TTL.
+ * Returns false if timestamp is undefined, null, non-numeric, or expired.
+ */
+export function isUnresolvedRefActive(
+  timestamp?: number | null,
+  now = Date.now(),
+  ttlMs = COMPANY_UNRESOLVED_REF_TTL_MS
+): boolean {
+  if (typeof timestamp !== "number" || Number.isNaN(timestamp) || timestamp <= 0) {
+    return false;
+  }
+  return now - timestamp <= ttlMs;
+}
+
+
 /**
  * Coverage for an ID-set-based enrichment request (activities, companies):
  * `requested` IDs were asked for, `fetchedIds` were successfully resolved.
