@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { NORMALIZED_RESULT_LABELS, UNCLASSIFIED_LABEL } from "@/lib/samples/constants";
+import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { NormalizedResult, SampleSummary } from "@/lib/samples/types";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
@@ -190,11 +190,7 @@ export function SamplesRegistry({
                     )}
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2">
-                    <Badges
-                      items={[...s.sampleIndicators, ...s.processStatuses].map((st) =>
-                        /^\d+$/.test(st) || /^DT1032_/i.test(st) ? UNCLASSIFIED_LABEL : st
-                      )}
-                    />
+                    <Badges items={[...s.sampleIndicators, ...s.processStatuses]} />
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2 text-xs text-muted-foreground">
                     {s.currentActiveStageLabels && s.currentActiveStageLabels.length > 0 ? (

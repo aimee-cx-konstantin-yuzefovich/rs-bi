@@ -21,6 +21,7 @@ import {
   DEFAULT_SAMPLES_FILTERS,
 } from "@/components/dashboard/samples/samples-filters";
 import { resolveResponsibleDisplay } from "@/lib/enrichment-coverage";
+import { UNCLASSIFIED_LABEL } from "@/lib/samples/constants";
 import type { BitrixRow, SampleSummary } from "@/lib/samples/types";
 import {
   COMPANY_APPLICATION_NEW_FIELD_ID,
@@ -52,23 +53,28 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
     const s = summaries[0];
     const observedStatuses = [...s.sampleIndicators, ...s.processStatuses];
 
-    // Statuses contain only sample status indicators
-    expect(observedStatuses).toContain("Переданы");
-    expect(observedStatuses).toContain("В работе");
+    // Canonical status seam (WP3): unknown historical raw values
+    // («Переданы», «В работе») normalize truthfully to «Не классифицировано»
+    // instead of leaking arbitrary legacy wordings into the UI.
+    expect(observedStatuses).toContain(UNCLASSIFIED_LABEL);
 
     // Products, industries, applications must NOT be present in status indicators
     expect(observedStatuses).not.toContain("Гель");
     expect(observedStatuses).not.toContain("Золь");
     expect(observedStatuses).not.toContain("Химическая промышленность");
     expect(observedStatuses).not.toContain("Катализаторы");
+    expect(observedStatuses).not.toContain("Переданы");
+    expect(observedStatuses).not.toContain("В работе");
 
-    // Furthermore, status dropdown options built from summaries only include sample statuses
+    // Status dropdown options built from summaries only include canonical
+    // sample statuses — no raw historical variants, no unrelated enums.
     const statusOptions = Array.from(
       new Set(summaries.flatMap((row) => [...row.sampleIndicators, ...row.processStatuses]))
     ).filter((v) => !isSentinelValue(v));
 
-    expect(statusOptions).toContain("Переданы");
-    expect(statusOptions).toContain("В работе");
+    expect(statusOptions).toContain(UNCLASSIFIED_LABEL);
+    expect(statusOptions).not.toContain("Переданы");
+    expect(statusOptions).not.toContain("В работе");
     expect(statusOptions).not.toContain("Гель");
     expect(statusOptions).not.toContain("Химическая промышленность");
   });

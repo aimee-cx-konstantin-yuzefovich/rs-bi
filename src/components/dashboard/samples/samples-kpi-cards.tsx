@@ -22,8 +22,8 @@ const CARDS: Array<{
   },
   {
     key: "withSentDates",
-    title: "С переданными образцами",
-    hint: "есть ≥1 дата передачи",
+    title: "Компании с подтверждённой передачей",
+    hint: "есть ≥1 подтверждённая дата передачи",
     accent: "text-sky-600 dark:text-sky-400",
   },
   {
