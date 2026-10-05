@@ -114,6 +114,19 @@ export function CommercialDrillDownSheet({
                         e.kind === "SAMPLE_DEAL"
                     );
 
+                    // Data-aware Samples navigation (WP6): the deep link
+                    // renders ONLY when canonical Samples data provably
+                    // exists for this company (already computed on the
+                    // CommercialCompany projection — no new requests).
+                    // Marker-only/unknown provenance never qualifies; no
+                    // dead link is rendered.
+                    const hasCanonicalSamplesData =
+                      (c.sampleStatusSource !== "NONE" &&
+                        c.sampleStatus !== "—" &&
+                        Boolean(c.sampleStatus)) ||
+                      (c.sampleAllDates?.length ?? 0) > 0 ||
+                      (c.sampleSentEvents?.length ?? 0) > 0;
+
                     return (
                       <TableRow
                         key={c.id}
@@ -295,20 +308,22 @@ export function CommercialDrillDownSheet({
                                 <FileText className="h-3.5 w-3.5" />
                               </Button>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              asChild
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <a
-                                href={`/samples?company=${encodeURIComponent(c.id)}`}
-                                title="Открыть в разделе Образцы"
+                            {hasCanonicalSamplesData && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                asChild
+                                onClick={(e) => e.stopPropagation()}
                               >
-                                <FlaskConical className="h-3.5 w-3.5" />
-                              </a>
-                            </Button>
+                                <a
+                                  href={`/samples?company=${encodeURIComponent(c.id)}`}
+                                  title="Открыть в разделе Образцы"
+                                >
+                                  <FlaskConical className="h-3.5 w-3.5" />
+                                </a>
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

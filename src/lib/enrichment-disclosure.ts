@@ -25,6 +25,15 @@ export const WARNING_COMPANIES_PARTIAL =
   `ВНИМАНИЕ: данные компаний загружены частично. ${WARNING_COMPANIES_PARTIAL_FALLBACK}`;
 export const WARNING_FIELDS_PARTIAL =
   "ВНИМАНИЕ: метаданные CRM загружены частично. Типы/подписи части пользовательских полей могут быть недоступны.";
+/**
+ * Restrained user-facing wording for the company ENRICHMENT source
+ * (company enrichment by deal-referenced IDs; the base Company population
+ * comes from the dedicated companies/list route and is unaffected).
+ * The detailed failed/total counts remain in the Excel disclosure block;
+ * ordinary UI users see this calm line instead of alarming raw numbers.
+ */
+export const WARNING_COMPANIES_PARTIAL_UI =
+  "Часть дополнительных данных компаний недоступна";
 
 export interface EnrichmentCoverageSnapshot {
   usersCoverage?: DatasetCoverage | null;
@@ -132,6 +141,12 @@ export function buildEnrichmentExtraWarnings(
 /**
  * Compact UI warning lines for enrichment sources a currently visible
  * column depends on (shorter phrasing than the Excel block).
+ *
+ * Company enrichment is OPTIONAL detail on top of the complete base Company
+ * population (fetched by the dedicated companies/list route): a partial
+ * enrichment refresh never means entity loss, so the UI shows the restrained
+ * wording without raw batch/failure counts. The detailed counts stay in the
+ * Excel disclosure (buildEnrichmentExtraWarnings) for detached artifacts.
  */
 export function buildEnrichmentUiWarnings(
   input: EnrichmentWarningsInput
@@ -139,7 +154,10 @@ export function buildEnrichmentUiWarnings(
   return buildEnrichmentExtraWarnings(input).map((w) => {
     const companyMatch = w.match(/Не удалось получить данные (.*)$/);
     if (companyMatch) {
-      return `Не удалось получить данные ${companyMatch[1]}`;
+      return WARNING_COMPANIES_PARTIAL_UI;
+    }
+    if (w.includes("данные компаний загружены частично")) {
+      return WARNING_COMPANIES_PARTIAL_UI;
     }
     const stripped = w.replace(/^ВНИМАНИЕ:\s*/, "");
     return stripped.charAt(0).toUpperCase() + stripped.slice(1);

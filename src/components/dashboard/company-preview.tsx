@@ -49,6 +49,7 @@ import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { SampleSummary, SmartProcessItemViewLite } from "@/lib/samples/types";
 import { getDealStageDisplayLabel } from "@/lib/crm-constants";
 import { SmartProcessItemCard } from "@/components/dashboard/samples/smart-process-item-card";
+import { PreviewSectionHeading } from "@/components/dashboard/preview-primitives";
 
 function formatPreviewValue(val: unknown, isBoolean?: boolean): string {
   if (val === null || val === undefined || val === "") return EMPTY_FIELD_PLACEHOLDER;
@@ -871,23 +872,16 @@ export function CompanyPreview({
                   )}
 
                   {dealsState.status === "success" && dealsState.companyId === id && (
-                    <>
-                      {dealsState.deals.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">Нет связанных сделок</p>
-                      ) : (
-                        <DealRows
-                          deals={dealsState.deals}
-                          resolveStage={resolveStage}
-                          dealBitrixUrlBase={state.companyId === id ? state.bitrixUrl : null}
-                          onOpenDealPreview={onOpenDealPreview}
-                        />
-                      )}
-                      {dealsState.source === "cached" && (
-                        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400" data-stale-warning>
-                          Показаны кэшированные сделки; обновление с сервера не удалось.
-                        </p>
-                      )}
-                    </>
+                    dealsState.deals.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Нет связанных сделок</p>
+                    ) : (
+                      <DealRows
+                        deals={dealsState.deals}
+                        resolveStage={resolveStage}
+                        dealBitrixUrlBase={state.companyId === id ? state.bitrixUrl : null}
+                        onOpenDealPreview={onOpenDealPreview}
+                      />
+                    )
                   )}
                 </div>
               </section>
@@ -974,12 +968,12 @@ const LONG_FIELD_IDS = new Set<string>([
   "UF_CRM_1782743261289", // Фактические цены
 ]);
 
-/** Section heading: calm uppercase muted hierarchy, no heavy borders. */
+/** Section heading: shared preview design system (one H2 treatment). */
 function SectionHeading({ title }: { title: string }) {
   return (
-    <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b pb-1.5">
+    <PreviewSectionHeading className="border-b pb-1.5">
       {title}
-    </h3>
+    </PreviewSectionHeading>
   );
 }
 

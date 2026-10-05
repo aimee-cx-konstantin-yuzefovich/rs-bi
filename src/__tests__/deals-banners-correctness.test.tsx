@@ -88,7 +88,9 @@ describe("Deals Status Banners Correctness Suite", () => {
         companiesDataCoverage: cov,
       });
       expect(uiWarnings).toHaveLength(1);
-      expect(uiWarnings[0]).toBe("Не удалось получить данные 6 из 526 компаний из CRM.");
+      // Restrained enrichment wording: no raw counts to ordinary users.
+      expect(uiWarnings[0]).toBe("Часть дополнительных данных компаний недоступна");
+      expect(uiWarnings[0]).not.toContain("6 из 526");
       expect(uiWarnings[0]).not.toContain("0 из");
 
       const excelWarnings = buildEnrichmentExtraWarnings({
@@ -119,7 +121,8 @@ describe("Deals Status Banners Correctness Suite", () => {
         companiesDataCoverage: cov,
       });
       expect(uiWarnings).toHaveLength(1);
-      expect(uiWarnings[0]).toContain("Не удалось получить данные части компаний из CRM.");
+      // Restrained enrichment wording also covers the generic fallback.
+      expect(uiWarnings[0]).toBe("Часть дополнительных данных компаний недоступна");
     });
 
     it("TEST G: CAPPED data with real truncation -> appropriate incomplete-data disclosure remains", () => {
