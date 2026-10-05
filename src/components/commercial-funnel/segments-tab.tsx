@@ -32,6 +32,15 @@ interface SegmentsTabProps {
   onOpenDrillDown: (title: string, subtitle: string, companyIds: string[]) => void;
 }
 
+/**
+ * Explicit, scope-qualified sort identity: CURRENT and PERIOD blocks both
+ * expose `samplesSent` with different values, so the key is discriminated.
+ */
+type SegmentSortField =
+  | "label"
+  | `current:${keyof SegmentRow["current"] & string}`
+  | `period:${keyof SegmentRow["period"] & string}`;
+
 type ColumnKey =
   | "activeCompanies"
   | "requireSamples"
@@ -113,8 +122,6 @@ export function CommercialSegmentsTab({
   const [sortField, setSortField] = useState<SegmentSortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
-  type SegmentSortField = "label" | keyof SegmentRow["current"] | keyof SegmentRow["period"];
-
   const handleSort = (field: SegmentSortField) => {
     if (sortField !== field) {
       setSortField(field);
@@ -141,11 +148,9 @@ export function CommercialSegmentsTab({
       breakdown.rows,
       (row): number | string | null => {
         if (sortField === "label") return row.label;
-        const cur = (row.current as unknown as Record<string, CountedPopulation>)[sortField as string];
-        const per = (row.period as unknown as Record<string, CountedPopulation>)[sortField as string];
-        if (cur) return cur.count;
-        if (per) return per.count;
-        return null;
+        const [scope, key] = sortField.split(":") as ["current" | "period", string];
+        const pop = (row[scope] as unknown as Record<string, CountedPopulation | undefined>)[key];
+        return pop ? pop.count : null;
       },
       sortDirection
     );
@@ -158,24 +163,29 @@ export function CommercialSegmentsTab({
     product: "Продукты",
   };
 
-  const renderSortableTh = (col: { key: string; label: string }, first: boolean) => {
-    const isSorted = sortField === col.key && sortDirection !== null;
+  const renderSortableTh = (
+    scope: "current" | "period",
+    col: { key: string; label: string },
+    first: boolean
+  ) => {
+    const sortKey = `${scope}:${col.key}` as SegmentSortField;
+    const isSorted = sortField === sortKey && sortDirection !== null;
     return (
       <th
-        key={col.key}
+        key={sortKey}
         className={`font-medium text-muted-foreground px-2 py-1.5 whitespace-nowrap ${
           first ? "border-l border-border/60" : ""
         }`}
-        aria-sort={ariaSortValue(sortDirection, sortField === col.key)}
+        aria-sort={ariaSortValue(sortDirection, sortField === sortKey)}
         title={
-          col.key === "activeCompanies"
+          scope === "current" && col.key === "activeCompanies"
             ? "Компании в текущем контуре: у компании есть текущее состояние по образцам и/или активная коммерческая сделка."
             : undefined
         }
       >
         <button
           type="button"
-          onClick={() => handleSort(col.key as SegmentSortField)}
+          onClick={() => handleSort(sortKey)}
           className="inline-flex items-center gap-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:text-foreground transition-colors cursor-pointer"
         >
           <span>{col.label}</span>
@@ -218,8 +228,27 @@ export function CommercialSegmentsTab({
         <table className="w-full text-xs" data-testid="segments-matrix">
           <thead>
             <tr className="border-b bg-muted/40">
-              <th rowSpan={2} className="sticky left-0 bg-muted/40 text-left font-semibold px-3 py-2 min-w-[180px]">
-                Сегмент
+              <th
+                rowSpan={2}
+                className="sticky left-0 bg-muted/40 text-left font-semibold px-3 py-2 min-w-[180px]"
+                aria-sort={ariaSortValue(sortDirection, sortField === "label")}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleSort("label")}
+                  className="inline-flex items-center gap-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:text-foreground transition-colors cursor-pointer"
+                >
+                  <span>Сегмент</span>
+                  {sortField === "label" && sortDirection === "asc" && (
+                    <ArrowUp className="h-3 w-3 text-brand-blue" aria-hidden="true" />
+                  )}
+                  {sortField === "label" && sortDirection === "desc" && (
+                    <ArrowDown className="h-3 w-3 text-brand-blue" aria-hidden="true" />
+                  )}
+                  {!(sortField === "label" && sortDirection) && (
+                    <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity" aria-hidden="true" />
+                  )}
+                </button>
               </th>
               <th
                 colSpan={CURRENT_COLUMNS.length}
@@ -235,8 +264,8 @@ export function CommercialSegmentsTab({
               </th>
             </tr>
             <tr className="border-b bg-muted/20">
-              {CURRENT_COLUMNS.map((col, i) => renderSortableTh(col, i === 0))}
-              {PERIOD_COLUMNS.map((col, i) => renderSortableTh(col, i === 0))}
+              {CURRENT_COLUMNS.map((col, i) => renderSortableTh("current", col, i === 0))}
+              {PERIOD_COLUMNS.map((col, i) => renderSortableTh("period", col, i === 0))}
             </tr>
           </thead>
           <tbody>

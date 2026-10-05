@@ -35,13 +35,17 @@ describe("CF Interaction Colors (UI-COL-1 .. UI-COL-4)", () => {
   it("UI-COL-2: selected/active rows and cards use the corporate blue family", () => {
     for (const file of CF_FILES) {
       const src = read(file);
-      // Selected state token exists wherever selection state exists.
+      // Selected state token exists wherever selection state exists (cards use bg-primary/15, rows use bg-primary/10).
       if (src.includes("isSelected")) {
-        expect(src.match(/bg-primary\/10/g)?.length ?? 0, file).toBeGreaterThan(0);
+        const hasSelectedBlue =
+          (src.match(/bg-primary\/(10|15)/g)?.length ?? 0) > 0;
+        expect(hasSelectedBlue, file).toBe(true);
       }
-      // Hover treatment uses the shared blue tint.
+      // Hover treatment uses the shared blue tint (cards use hover:bg-primary/10, rows use hover:bg-primary/5).
       if (src.includes("hover:bg-")) {
-        expect(src.match(/hover:bg-primary\/5/g)?.length ?? 0, file).toBeGreaterThan(0);
+        const hasHoverBlue =
+          (src.match(/hover:bg-primary\/(5|10)/g)?.length ?? 0) > 0;
+        expect(hasHoverBlue, file).toBe(true);
       }
     }
   });

@@ -343,7 +343,7 @@ export function CommercialDrillDownSheet({
                           {qualifyingDeals.length === 1 ? (
                             qualifyingDeals[0].opportunityQuality === "INVALID" ? (
                               <span
-                                className="text-destructive font-mono text-[11px]"
+                                className="text-destructive text-[11px] tabular-nums"
                                 title="Некорректная сумма в Bitrix24"
                               >
                                 Неверная сумма

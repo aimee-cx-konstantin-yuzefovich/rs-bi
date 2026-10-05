@@ -103,6 +103,8 @@ const samplesPayload = {
       sentDates: [],
       sampleIndicators: [],
       processStatuses: [],
+      currentStatusSource: "NONE",
+      currentStatusValues: [],
       relatedDeals: [],
       smartProcessItems: [],
     },

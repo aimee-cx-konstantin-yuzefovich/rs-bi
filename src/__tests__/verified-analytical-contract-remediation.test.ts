@@ -63,6 +63,8 @@ describe("Verified Analytical Contract Remediation Test Suite (C1–C16, S1–S2
     sentDates: ["2026-09-15"],
     sampleIndicators: ["Предоставлены образцы"],
     processStatuses: ["На испытании"],
+    currentStatusSource: "COMPANY_LEGACY",
+    currentStatusValues: ["На испытании"],
     normalizedResult: "pending",
     relatedDeals: [],
     sourceQuality: "structured",
@@ -449,6 +451,8 @@ describe("Verified Analytical Contract Remediation Test Suite (C1–C16, S1–S2
         ...mockSampleSummary,
         sampleIndicators: [],
         processStatuses: ["2695"],
+        currentStatusSource: "COMPANY_LEGACY",
+        currentStatusValues: ["2695"],
       };
       const workbook = await buildSamplesWorkbook({
         summaries: [summaryWithRawId],
@@ -483,6 +487,8 @@ describe("Verified Analytical Contract Remediation Test Suite (C1–C16, S1–S2
         ...mockSampleSummary,
         sampleIndicators: [],
         processStatuses: ["DT1032_15:UNKNOWN_CUSTOM_STAGE"],
+        currentStatusSource: "COMPANY_LEGACY",
+        currentStatusValues: ["DT1032_15:UNKNOWN_CUSTOM_STAGE"],
       };
       const workbook = await buildSamplesWorkbook({
         summaries: [summaryWithRawStage],

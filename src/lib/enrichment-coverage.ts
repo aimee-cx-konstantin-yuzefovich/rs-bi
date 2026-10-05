@@ -40,10 +40,11 @@ export const COMPANIES_FAILED_WARNING =
  *   successful reads (deleted/inaccessible/stale reference — reason unproven).
  */
 export interface CompanyEnrichmentDiagnostics {
-  requestedCount: number;
-  resolvedCount: number;
-  failedFetchCount: number;
-  unresolvedReferenceCount: number;
+  scopeCount: number;
+  refreshRequestedCount: number;
+  refreshResolvedCount: number;
+  refreshFailedFetchCount: number;
+  activeUnresolvedReferenceCount: number;
   failedPrimaryBatchCount: number;
   failedRecoveryBatchCount: number;
   classification:
@@ -51,6 +52,14 @@ export interface CompanyEnrichmentDiagnostics {
     | "TRANSIENT_FETCH_FAILURE"
     | "UNRESOLVED_REFERENCES"
     | "MIXED";
+  /** @deprecated Use refreshRequestedCount */
+  requestedCount?: number;
+  /** @deprecated Use refreshResolvedCount */
+  resolvedCount?: number;
+  /** @deprecated Use refreshFailedFetchCount */
+  failedFetchCount?: number;
+  /** @deprecated Use activeUnresolvedReferenceCount */
+  unresolvedReferenceCount?: number;
 }
 
 /** Standard TTL for company enrichment cache and confirmed unresolved reference suppression (5 minutes). */

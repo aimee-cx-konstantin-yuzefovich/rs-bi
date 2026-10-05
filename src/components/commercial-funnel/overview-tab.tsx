@@ -93,7 +93,7 @@ function MiniStat({
           ? "border-border/50 bg-muted/30 opacity-60"
           : accent
           ? "border-rose-200 dark:border-rose-900 bg-rose-50/60 dark:bg-rose-950/20 hover:border-rose-400 cursor-pointer"
-          : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
+          : "border-border bg-card hover:border-primary/40 hover:bg-primary/10 cursor-pointer"
       }`}
     >
       <div className="min-w-0">
@@ -223,8 +223,8 @@ export function CommercialOverviewTab({
                   unavailable || kpi.companyIds.length === 0
                     ? "border-border/50 bg-muted/30 opacity-60"
                     : isSelected
-                    ? "border-primary/40 bg-primary/10 shadow-2xs cursor-pointer text-foreground"
-                    : "border-border bg-card hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
+                    ? "border-primary/50 bg-primary/15 shadow-2xs cursor-pointer text-foreground"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-primary/10 cursor-pointer"
                 }`}
               >
                 <div className="text-[10px] text-muted-foreground font-medium truncate">{kpi.label}</div>

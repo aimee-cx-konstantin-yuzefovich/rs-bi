@@ -36,6 +36,8 @@ const mkSummary = (companyId: string): SampleSummary => ({
   sentDates: ["2026-10-01"],
   sampleIndicators: [],
   processStatuses: [],
+  currentStatusSource: "NONE",
+  currentStatusValues: [],
   normalizedResult: "pending",
   relatedDeals: [],
   sourceQuality: "structured",

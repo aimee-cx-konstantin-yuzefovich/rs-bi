@@ -305,7 +305,7 @@ export function SamplesRegistry({
                   className="cursor-pointer hover:bg-muted/50 transition-colors"
                   onClick={() => onSelect(s)}
                 >
-                  <td className="text-xs font-mono tabular-nums text-muted-foreground text-center sticky left-0 z-10 bg-card border-r border-b border-border/60 py-1.5 px-2">
+                  <td className="text-xs tabular-nums text-muted-foreground text-center sticky left-0 z-10 bg-card border-r border-b border-border/60 py-1.5 px-2">
                     {startIndex + idx + 1}
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2 text-xs font-medium">

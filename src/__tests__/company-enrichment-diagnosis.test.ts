@@ -230,8 +230,19 @@ describe("fetchCompaniesData coverage semantics", () => {
 
 describe("warning semantics", () => {
   const diag = (over: Partial<CompanyEnrichmentDiagnostics>): CompanyEnrichmentDiagnostics => ({
-    requestedCount: 527, resolvedCount: 325, failedFetchCount: 0, unresolvedReferenceCount: 0,
-    failedPrimaryBatchCount: 0, failedRecoveryBatchCount: 0, classification: "COMPLETE", ...over,
+    scopeCount: 527,
+    refreshRequestedCount: 527,
+    refreshResolvedCount: 325,
+    refreshFailedFetchCount: 0,
+    activeUnresolvedReferenceCount: 0,
+    requestedCount: 527,
+    resolvedCount: 325,
+    failedFetchCount: 0,
+    unresolvedReferenceCount: 0,
+    failedPrimaryBatchCount: 0,
+    failedRecoveryBatchCount: 0,
+    classification: "COMPLETE",
+    ...over,
   });
   const complete = { status: "COMPLETE", fetched: 1647, total: 1647 } as const;
 
@@ -335,6 +346,11 @@ describe("Regression Matrix: Stale Cache, TTL consistency, and Top-Level Failure
       companiesDataFetchedAt: { [id]: oldFetchedAt },
       companiesUnresolvedRefs: { [id]: now }, // confirmed recently
       companiesEnrichmentDiagnostics: {
+        scopeCount: 1,
+        refreshRequestedCount: 1,
+        refreshResolvedCount: 0,
+        refreshFailedFetchCount: 0,
+        activeUnresolvedReferenceCount: 1,
         requestedCount: 1,
         resolvedCount: 0,
         failedFetchCount: 0,
@@ -445,6 +461,11 @@ describe("Regression Matrix: Stale Cache, TTL consistency, and Top-Level Failure
       companiesData: { [id]: { ID: id, TITLE: "Useful Cached Company" } },
       companiesDataFetchedAt: { [id]: Date.now() - 10 * 60 * 1000 },
       companiesEnrichmentDiagnostics: {
+        scopeCount: 1,
+        refreshRequestedCount: 1,
+        refreshResolvedCount: 1,
+        refreshFailedFetchCount: 0,
+        activeUnresolvedReferenceCount: 0,
         requestedCount: 1,
         resolvedCount: 1,
         failedFetchCount: 0,
@@ -473,5 +494,195 @@ describe("Regression Matrix: Stale Cache, TTL consistency, and Top-Level Failure
     expect(s.companiesEnrichmentDiagnostics?.failedFetchCount).toBe(1);
     expect(s.companiesEnrichmentDiagnostics?.resolvedCount).toBe(0);
     expect(s.companiesDataLoading).toBe(false);
+  });
+});
+
+describe("Diagnostic Denominators & Scope Contract (Section 8)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("1. 202 active refs + 1 refreshed/resolved -> scope=203, refreshRequested=1, refreshResolved=1, refreshFailed=0, activeUnresolved=202, UNRESOLVED_REFERENCES", async () => {
+    const now = Date.now();
+    const activeRefs: Record<string, number> = {};
+    for (let i = 1; i <= 202; i++) {
+      activeRefs[String(1000 + i)] = now;
+    }
+    const deals = [
+      ...Array.from({ length: 202 }, (_, i) => ({ ID: String(i + 1), COMPANY_ID: String(1000 + i + 1) })),
+      { ID: "203", COMPANY_ID: "2000" },
+    ];
+    useDashboardStore.setState({
+      allDeals: deals as any,
+      companiesData: {},
+      companiesDataFetchedAt: {},
+      companiesUnresolvedRefs: activeRefs,
+      companiesDataCoverage: null,
+      companiesEnrichmentDiagnostics: null,
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    const requestedBodies: any[] = [];
+    global.fetch = vi.fn(async (_u: any, init: any) => {
+      const body = JSON.parse(init.body);
+      requestedBodies.push(body);
+      return companyResponse(body);
+    }) as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    expect(requestedBodies.length).toBe(1);
+    expect(requestedBodies[0].ids).toEqual(["2000"]);
+
+    const s = useDashboardStore.getState();
+    const diag = s.companiesEnrichmentDiagnostics!;
+    expect(diag.scopeCount).toBe(203);
+    expect(diag.refreshRequestedCount).toBe(1);
+    expect(diag.refreshResolvedCount).toBe(1);
+    expect(diag.refreshFailedFetchCount).toBe(0);
+    expect(diag.activeUnresolvedReferenceCount).toBe(202);
+    expect(diag.classification).toBe("UNRESOLVED_REFERENCES");
+  });
+
+  it("2. 202 active refs + transport failure in current refresh -> MIXED", async () => {
+    const now = Date.now();
+    const activeRefs: Record<string, number> = {};
+    for (let i = 1; i <= 202; i++) {
+      activeRefs[String(1000 + i)] = now;
+    }
+    const deals = [
+      ...Array.from({ length: 202 }, (_, i) => ({ ID: String(i + 1), COMPANY_ID: String(1000 + i + 1) })),
+      { ID: "203", COMPANY_ID: "2000" },
+    ];
+    useDashboardStore.setState({
+      allDeals: deals as any,
+      companiesData: {},
+      companiesDataFetchedAt: {},
+      companiesUnresolvedRefs: activeRefs,
+      companiesDataCoverage: null,
+      companiesEnrichmentDiagnostics: null,
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    global.fetch = vi.fn(async () => new Response("{}", { status: 500 })) as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    const s = useDashboardStore.getState();
+    const diag = s.companiesEnrichmentDiagnostics!;
+    expect(diag.scopeCount).toBe(203);
+    expect(diag.refreshRequestedCount).toBe(1);
+    expect(diag.refreshResolvedCount).toBe(0);
+    expect(diag.refreshFailedFetchCount).toBe(1);
+    expect(diag.activeUnresolvedReferenceCount).toBe(202);
+    expect(diag.classification).toBe("MIXED");
+  });
+
+  it("3. expired unresolved refs are NOT counted in activeUnresolvedReferenceCount", async () => {
+    const expired = Date.now() - 10 * 60 * 1000;
+    const deals = [
+      { ID: "1", COMPANY_ID: "1001" },
+      { ID: "2", COMPANY_ID: "1002" },
+    ];
+    useDashboardStore.setState({
+      allDeals: deals as any,
+      companiesData: {},
+      companiesDataFetchedAt: {},
+      companiesUnresolvedRefs: { "1001": expired },
+      companiesDataCoverage: null,
+      companiesEnrichmentDiagnostics: null,
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    global.fetch = vi.fn(async (_u: any, init: any) => {
+      const body = JSON.parse(init.body);
+      return companyResponse(body);
+    }) as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    const s = useDashboardStore.getState();
+    const diag = s.companiesEnrichmentDiagnostics!;
+    expect(diag.scopeCount).toBe(2);
+    expect(diag.activeUnresolvedReferenceCount).toBe(0);
+    expect(diag.classification).toBe("COMPLETE");
+  });
+
+  it("4. later successful resolution of an ID removes its unresolved marker", async () => {
+    useDashboardStore.setState({
+      allDeals: [{ ID: "1", COMPANY_ID: "1001" }] as any,
+      companiesData: {},
+      companiesDataFetchedAt: {},
+      companiesUnresolvedRefs: { "1001": Date.now() - 6 * 60 * 1000 }, // expired so eligible
+      companiesDataCoverage: null,
+      companiesEnrichmentDiagnostics: null,
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    global.fetch = vi.fn(async (_u: any, init: any) => {
+      const body = JSON.parse(init.body);
+      return companyResponse(body);
+    }) as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    const s = useDashboardStore.getState();
+    expect(s.companiesUnresolvedRefs["1001"]).toBeUndefined();
+    expect(s.companiesEnrichmentDiagnostics?.activeUnresolvedReferenceCount).toBe(0);
+    expect(s.companiesEnrichmentDiagnostics?.classification).toBe("COMPLETE");
+  });
+
+  it("5. active TTL prevents redundant re-request of known unresolved reference", async () => {
+    const now = Date.now();
+    useDashboardStore.setState({
+      allDeals: [{ ID: "1", COMPANY_ID: "1001" }] as any,
+      companiesData: {},
+      companiesDataFetchedAt: {},
+      companiesUnresolvedRefs: { "1001": now },
+      companiesDataCoverage: null,
+      companiesEnrichmentDiagnostics: null,
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("6. UI / Excel warning shows the active scope unresolved count (202), not current-refresh requested count", () => {
+    const diag: CompanyEnrichmentDiagnostics = {
+      scopeCount: 203,
+      refreshRequestedCount: 1,
+      refreshResolvedCount: 1,
+      refreshFailedFetchCount: 0,
+      activeUnresolvedReferenceCount: 202,
+      failedPrimaryBatchCount: 0,
+      failedRecoveryBatchCount: 0,
+      classification: "UNRESOLVED_REFERENCES",
+    };
+    const input = {
+      selectedColumns: ["COMPANY_TITLE"],
+      companiesDataCoverage: { status: "COMPLETE" as const, fetched: 203, total: 203 },
+      companiesEnrichmentDiagnostics: diag,
+    };
+    const uiWarnings = buildEnrichmentUiWarnings(input);
+    const xlWarnings = buildEnrichmentExtraWarnings(input);
+
+    expect(uiWarnings).toEqual([WARNING_COMPANY_REFERENCES_UI]);
+    expect(xlWarnings.some((w) => w.includes("202 связанных компаний"))).toBe(true);
+    expect(xlWarnings.some((w) => w.includes(" 1 связанных компаний"))).toBe(false);
   });
 });

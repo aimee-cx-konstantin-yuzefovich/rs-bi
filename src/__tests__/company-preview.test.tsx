@@ -195,6 +195,8 @@ it("renders the export button and triggers export with the canonical model, SP c
               sentDates: ["2026-06-20"],
               sampleIndicators: ["В работе"],
               processStatuses: [],
+              currentStatusSource: "NONE",
+              currentStatusValues: [],
               normalizedResult: "positive",
               relatedDeals: [],
               dataIssues: [],

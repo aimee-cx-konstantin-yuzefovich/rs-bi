@@ -23,6 +23,7 @@
 
 import type { CanonicalCompanySample, SampleEvidenceUnit } from "./model";
 import type { RelatedDealSampleInfo, SampleSummary, SmartProcessItemViewLite } from "./types";
+import { UNCLASSIFIED_LABEL } from "./constants";
 import { dedupe, isSentIndicator, isTestingStatus } from "./normalize";
 import {
   canonicalizeSampleStatusLabel,
@@ -155,10 +156,27 @@ export function projectCanonicalCompanyToSummary(
   // SP authoritative labels pass through unchanged (canonical SP stage
   // labels are identity-mapped); only legacy fallback evidence is
   // canonicalized through the explicit alias table.
-  const currentStatusValues =
+  const legacyProcessStatusesField =
     canonical.currentState.source === "SMART_PROCESS" && canonical.currentState.statusValues.length > 0
       ? canonical.currentState.statusValues
       : processStatuses;
+
+  // ONE current-status projection derived ONLY from canonical.currentState
+  // (SMART_PROCESS → DEAL_LEGACY → COMPANY_LEGACY → NONE). Historical
+  // legacy evidence (sampleIndicators / company+deal process statuses) never
+  // participates in CURRENT status filtering.
+  const currentStatusSource = canonical.currentState.source;
+  const resolvedStatusValues = canonical.currentState.statusValues;
+  let currentStatusValues: string[];
+  if (currentStatusSource === "SMART_PROCESS") {
+    // SP authoritative labels pass through; empty → neutral unclassified.
+    currentStatusValues =
+      resolvedStatusValues.length > 0 ? dedupe(resolvedStatusValues) : [UNCLASSIFIED_LABEL];
+  } else if (currentStatusSource === "NONE") {
+    currentStatusValues = [];
+  } else {
+    currentStatusValues = canonicalizeSampleStatusList(resolvedStatusValues);
+  }
 
   return {
     companyId: canonical.companyId,
@@ -172,7 +190,10 @@ export function projectCanonicalCompanyToSummary(
     quantities: companyUnit?.quantities ?? [],
     sentDates,
     sampleIndicators: dedupe(sampleIndicators),
-    processStatuses: currentStatusValues,
+    // Unchanged legacy field (KPI/display/history): NOT the current-status filter source.
+    processStatuses: legacyProcessStatusesField,
+    currentStatusSource,
+    currentStatusValues,
     rawTestResult: spCurrentUnit?.rawTestResult ?? companyUnit?.rawTestResult,
     normalizedResult: canonical.currentState.normalizedResult,
     industry: companyUnit?.industry,

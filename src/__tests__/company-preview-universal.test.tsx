@@ -158,6 +158,8 @@ const SAMPLES_BODY = {
       sentDates: ["2026-03-10"],
       sampleIndicators: ["В работе"],
       processStatuses: [],
+      currentStatusSource: "NONE",
+      currentStatusValues: [],
       normalizedResult: "pending",
       relatedDeals: [{ id: "501", title: "Сделка 501" }],
       dataIssues: [],

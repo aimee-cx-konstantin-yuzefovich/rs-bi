@@ -143,7 +143,10 @@ export function buildEnrichmentExtraWarnings(
   // Unresolved related-company references (successful reads, ID not
   // returned): separate data-quality note, only when a COMPANY_* column is
   // visible. Distinct from the transport-failure line above.
-  const refCount = input.companiesEnrichmentDiagnostics?.unresolvedReferenceCount ?? 0;
+  const refCount =
+    input.companiesEnrichmentDiagnostics?.activeUnresolvedReferenceCount ??
+    input.companiesEnrichmentDiagnostics?.unresolvedReferenceCount ??
+    0;
   if (selectedColumnsNeedCompanies(selectedColumns) && refCount > 0) {
     warnings.push(
       `${WARNING_COMPANY_REFERENCES_EXCEL_PREFIX} ${refCount} связанных компаний (CRM не вернула запись по ссылке из сделки). Сделки загружены полностью.`

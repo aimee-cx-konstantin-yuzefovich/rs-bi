@@ -19,7 +19,12 @@ import { buildDealPreviewModel, buildDealActivitiesModel } from "@/lib/deal-prev
 import { exportDealToExcel } from "@/lib/export-utils";
 import { useSmartProcessData } from "@/components/dashboard/samples/use-smart-process-data";
 import { SmartProcessItemCard } from "@/components/dashboard/samples/smart-process-item-card";
-import { PreviewSectionHeading } from "@/components/dashboard/preview-primitives";
+import {
+  PreviewSectionHeading,
+  PreviewFieldLabel,
+  PreviewFieldValue,
+  PREVIEW_EMPTY_VALUE,
+} from "@/components/dashboard/preview-primitives";
 import {
   DEAL_SAMPLE_SENT_DATE_FIELD_ID,
   DEAL_SAMPLE_TRANSFER_FIELD_ID,
@@ -247,7 +252,7 @@ export function DealPreview({
               <div className="pt-2 space-y-3">
                 {/* 1. Стадия */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Стадия</dt>
+                  <PreviewFieldLabel>Стадия</PreviewFieldLabel>
                   <dd className="mt-1">
                     <Badge variant="outline" className="text-xs font-normal">
                       {model.mainFields[0].value}
@@ -257,32 +262,36 @@ export function DealPreview({
 
                 {/* 2. Сумма */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Сумма</dt>
-                  <dd className="mt-1 font-mono text-sm font-semibold tabular-nums">
+                  <PreviewFieldLabel>Сумма</PreviewFieldLabel>
+                  <dd className="mt-1 text-sm font-semibold tabular-nums">
                     {model.mainFields[1].formattedAmount !== undefined && model.mainFields[1].formattedAmount !== "–" ? (
                       <>
-                        {model.mainFields[1].formattedAmount}{" "}
+                        <PreviewFieldValue className="tabular-nums">{model.mainFields[1].formattedAmount}</PreviewFieldValue>{" "}
                         <span className="text-muted-foreground text-xs font-normal">
                           {model.mainFields[1].currencyLabel}
                         </span>
                       </>
                     ) : (
-                      model.mainFields[1].value
+                      <PreviewFieldValue isEmpty={!model.mainFields[1].value || model.mainFields[1].value === "–"}>
+                        {model.mainFields[1].value}
+                      </PreviewFieldValue>
                     )}
                   </dd>
                 </div>
 
                 {/* 3. Ответственный */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Ответственный</dt>
-                  <dd className="mt-1 font-medium">
-                    {model.mainFields[2].value}
+                  <PreviewFieldLabel>Ответственный</PreviewFieldLabel>
+                  <dd className="mt-1">
+                    <PreviewFieldValue isEmpty={!model.mainFields[2].value || model.mainFields[2].value === "–"}>
+                      {model.mainFields[2].value}
+                    </PreviewFieldValue>
                   </dd>
                 </div>
 
                 {/* 4. Компания */}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Компания</dt>
+                  <PreviewFieldLabel>Компания</PreviewFieldLabel>
                   <dd className="mt-1">
                     {model.companyId ? (
                       <div className="flex flex-col gap-1">
@@ -331,7 +340,7 @@ export function DealPreview({
                         )}
                       </div>
                     ) : (
-                      <span className="text-muted-foreground">–</span>
+                      <PreviewFieldValue isEmpty>{PREVIEW_EMPTY_VALUE}</PreviewFieldValue>
                     )}
                   </dd>
                 </div>
@@ -341,9 +350,11 @@ export function DealPreview({
               <div className="pt-3 space-y-2">
                 {model.timelineFields.map((field) => (
                   <div key={field.id}>
-                    <dt className="text-xs text-muted-foreground">{field.label}</dt>
+                    <PreviewFieldLabel>{field.label}</PreviewFieldLabel>
                     <dd className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-                      {field.value}
+                      <PreviewFieldValue isEmpty={!field.value || field.value === "–" || field.value === "—"} className="font-normal text-muted-foreground">
+                        {field.value}
+                      </PreviewFieldValue>
                     </dd>
                   </div>
                 ))}
@@ -354,9 +365,11 @@ export function DealPreview({
               {model.activityField && (
                 <div className="pt-3 space-y-2">
                   <div>
-                    <dt className="text-xs text-muted-foreground">Последняя активность</dt>
+                    <PreviewFieldLabel>Последняя активность</PreviewFieldLabel>
                     <dd className="mt-0.5 text-xs">
-                      {model.activityField.value}
+                      <PreviewFieldValue isEmpty={!model.activityField.value || model.activityField.value === "–" || model.activityField.value === "—"}>
+                        {model.activityField.value}
+                      </PreviewFieldValue>
                     </dd>
                   </div>
                 </div>
@@ -373,9 +386,15 @@ export function DealPreview({
               <div className="pt-3 space-y-3">
                 {model.cardFields.map((field) => (
                   <div key={field.id}>
-                    <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                    <dd className="mt-1 whitespace-pre-wrap break-words text-xs">
-                      {field.value}
+                    <PreviewFieldLabel>{field.label}</PreviewFieldLabel>
+                    <dd className="mt-1">
+                      <PreviewFieldValue
+                        preserveWhitespace
+                        isEmpty={!field.value || field.value === "–" || field.value === "—"}
+                        className="text-xs"
+                      >
+                        {field.value}
+                      </PreviewFieldValue>
                     </dd>
                   </div>
                 ))}

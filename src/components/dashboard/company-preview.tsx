@@ -49,7 +49,12 @@ import { NORMALIZED_RESULT_LABELS } from "@/lib/samples/constants";
 import type { SampleSummary, SmartProcessItemViewLite } from "@/lib/samples/types";
 import { getDealStageDisplayLabel } from "@/lib/crm-constants";
 import { SmartProcessItemCard } from "@/components/dashboard/samples/smart-process-item-card";
-import { PreviewSectionHeading } from "@/components/dashboard/preview-primitives";
+import {
+  PreviewSectionHeading,
+  PreviewFieldLabel,
+  PreviewFieldValue,
+  PREVIEW_EMPTY_VALUE,
+} from "@/components/dashboard/preview-primitives";
 
 function formatPreviewValue(val: unknown, isBoolean?: boolean): string {
   if (val === null || val === undefined || val === "") return EMPTY_FIELD_PLACEHOLDER;
@@ -788,13 +793,11 @@ export function CompanyPreview({
                     const empty = field.value === EMPTY_FIELD_PLACEHOLDER;
                     return (
                       <div key={field.id} className={isLong ? "sm:col-span-2" : undefined} data-company-field={field.id}>
-                        <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                        <dd className="mt-0.5 whitespace-pre-wrap break-words font-medium">
-                          {empty ? (
-                            <span className="text-muted-foreground/70 font-normal">{EMPTY_FIELD_PLACEHOLDER}</span>
-                          ) : (
-                            <FieldValue field={field} />
-                          )}
+                        <PreviewFieldLabel>{field.label}</PreviewFieldLabel>
+                        <dd className="mt-0.5">
+                          <PreviewFieldValue isEmpty={empty} preserveWhitespace={isLong}>
+                            {empty ? PREVIEW_EMPTY_VALUE : <FieldValue field={field} />}
+                          </PreviewFieldValue>
                         </dd>
                       </div>
                     );
@@ -808,13 +811,13 @@ export function CompanyPreview({
                 {markerField ? (
                   <dl className="mt-3 text-sm" data-marker-field>
                     <div>
-                      <dt className="text-xs text-muted-foreground">{markerField.label}</dt>
-                      <dd className="mt-0.5 font-medium">
-                        {markerField.value === EMPTY_FIELD_PLACEHOLDER ? (
-                          <span className="text-muted-foreground/70 font-normal">{EMPTY_FIELD_PLACEHOLDER}</span>
-                        ) : (
-                          formatPreviewValue(markerField.value, markerField.type === "boolean" || markerField.type === "char")
-                        )}
+                      <PreviewFieldLabel>{markerField.label}</PreviewFieldLabel>
+                      <dd className="mt-0.5">
+                        <PreviewFieldValue isEmpty={markerField.value === EMPTY_FIELD_PLACEHOLDER}>
+                          {markerField.value === EMPTY_FIELD_PLACEHOLDER
+                            ? PREVIEW_EMPTY_VALUE
+                            : formatPreviewValue(markerField.value, markerField.type === "boolean" || markerField.type === "char")}
+                        </PreviewFieldValue>
                       </dd>
                     </div>
                   </dl>
@@ -892,13 +895,11 @@ export function CompanyPreview({
                 <dl className="mt-3 text-sm">
                   {systemFields.map((field) => (
                     <div key={field.id} data-system-field={field.id}>
-                      <dt className="text-xs text-muted-foreground">{field.label}</dt>
-                      <dd className="mt-0.5 font-medium">
-                        {field.value === EMPTY_FIELD_PLACEHOLDER ? (
-                          <span className="text-muted-foreground/70 font-normal">{EMPTY_FIELD_PLACEHOLDER}</span>
-                        ) : (
-                          field.value
-                        )}
+                      <PreviewFieldLabel>{field.label}</PreviewFieldLabel>
+                      <dd className="mt-0.5">
+                        <PreviewFieldValue isEmpty={field.value === EMPTY_FIELD_PLACEHOLDER}>
+                          {field.value === EMPTY_FIELD_PLACEHOLDER ? PREVIEW_EMPTY_VALUE : field.value}
+                        </PreviewFieldValue>
                       </dd>
                     </div>
                   ))}
@@ -1000,7 +1001,7 @@ function FieldValue({ field }: { field: { id: string; value: string; type?: stri
   if (field.id === "PHONE") {
     const tel = value.replace(/[^\d+]/g, "");
     return tel ? (
-      <a href={`tel:${tel}`} className="hover:underline">{value}</a>
+      <a href={`tel:${tel}`} className="text-primary hover:underline">{value}</a>
     ) : (
       <span>{value}</span>
     );
@@ -1008,7 +1009,7 @@ function FieldValue({ field }: { field: { id: string; value: string; type?: stri
 
   if (field.id === "EMAIL") {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? (
-      <a href={`mailto:${value}`} className="hover:underline break-all">{value}</a>
+      <a href={`mailto:${value}`} className="text-primary hover:underline break-all">{value}</a>
     ) : (
       <span className="break-all">{value}</span>
     );
@@ -1277,7 +1278,7 @@ function DealRows({
 
             <div className="flex items-center gap-2 shrink-0">
               {(opportunity !== undefined && !isNaN(opportunity)) && (
-                <span className="font-mono tabular-nums text-muted-foreground whitespace-nowrap">
+                <span className="tabular-nums text-muted-foreground whitespace-nowrap">
                   {opportunity.toLocaleString("ru-RU", {
                     minimumFractionDigits: 0,
                     maximumFractionDigits: 2,

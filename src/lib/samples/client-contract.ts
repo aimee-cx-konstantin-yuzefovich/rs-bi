@@ -151,6 +151,14 @@ function isValidSampleSummary(value: unknown): value is SampleSummary {
   if (!isStringArray(value.sentDates)) return false;
   if (!isStringArray(value.sampleIndicators)) return false;
   if (!isStringArray(value.processStatuses)) return false;
+  if (!isStringArray(value.currentStatusValues)) return false;
+  if (
+    value.currentStatusSource !== "SMART_PROCESS" &&
+    value.currentStatusSource !== "DEAL_LEGACY" &&
+    value.currentStatusSource !== "COMPANY_LEGACY" &&
+    value.currentStatusSource !== "NONE"
+  )
+    return false;
   if (!Array.isArray(value.grades) || !value.grades.every(isValidGrade)) return false;
   if (!Array.isArray(value.quantities) || !value.quantities.every(isValidQuantity)) return false;
   if (!Array.isArray(value.relatedDeals) || !value.relatedDeals.every(isValidRelatedDeal)) return false;

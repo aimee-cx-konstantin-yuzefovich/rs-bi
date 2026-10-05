@@ -27,15 +27,18 @@ describe("UI Typography Consistency (UI-TYPO-1 .. UI-TYPO-4)", () => {
     expect(css).toMatch(/--font-heading:\s*var\(--font-roboto\)/);
   });
 
-  it("UI-TYPO-2: Nunito override is fully unwired from the root architecture", () => {
+  it("UI-TYPO-2: Nunito and Roboto_Mono are fully unwired from the root architecture", () => {
     const css = readSrc("src/app/globals.css");
     expect(css).not.toMatch(/--font-nunito/);
+    expect(css).toMatch(/--font-mono:\s*var\(--font-roboto\)/);
 
     const layout = readSrc("src/app/layout.tsx");
     expect(layout).not.toMatch(/Nunito/);
     expect(layout).not.toMatch(/font-nunito/);
+    expect(layout).not.toMatch(/Roboto_Mono/);
+    expect(layout).not.toMatch(/font-roboto-mono/);
     // Roboto is loaded once via next/font with the --font-roboto variable.
-    expect(layout).toMatch(/import\s*\{\s*Roboto,\s*Roboto_Mono\s*\}\s*from\s*"next\/font\/google"/);
+    expect(layout).toMatch(/import\s*\{\s*Roboto\s*\}\s*from\s*"next\/font\/google"/);
     expect(layout).toMatch(/variable:\s*"--font-roboto"/);
     expect(layout).toMatch(/roboto\.variable/);
   });

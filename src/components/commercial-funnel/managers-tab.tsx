@@ -56,6 +56,7 @@ function SortableHead({
   onSort,
   className = "",
   title,
+  rowSpan,
 }: {
   label: string;
   field: ManagersSortField;
@@ -64,10 +65,15 @@ function SortableHead({
   onSort: (field: ManagersSortField) => void;
   className?: string;
   title?: string;
+  rowSpan?: number;
 }) {
   const isSorted = sortField === field && sortDirection !== null;
   return (
-    <TableHead className={className} aria-sort={ariaSortValue(sortDirection, sortField === field)}>
+    <TableHead
+      className={className}
+      rowSpan={rowSpan}
+      aria-sort={ariaSortValue(sortDirection, sortField === field)}
+    >
       <button
         type="button"
         onClick={() => onSort(field)}
@@ -287,7 +293,16 @@ export function CommercialManagersTab({
                 <TableHead colSpan={2} className="text-xs font-semibold text-center border-l border-border/60">Поток (за период)</TableHead>
                 <TableHead colSpan={5} className="text-xs font-semibold text-center border-l border-border/60">Результат</TableHead>
                 <TableHead colSpan={3} className="text-xs font-semibold text-center border-l border-border/60">Портфель (сейчас)</TableHead>
-                <TableHead className="text-xs font-semibold text-center border-l border-border/60" rowSpan={2} title="Записи, требующие внимания">Внимание</TableHead>
+                <SortableHead
+                  label="Внимание"
+                  field="bottlenecks"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  rowSpan={2}
+                  className="text-xs font-semibold text-center border-l border-border/60"
+                  title="Записи, требующие внимания"
+                />
               </TableRow>
               <TableRow className="bg-muted group">
                   <SortableHead label="Новые компании" field="newCompanies" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="text-xs font-semibold text-right border-l border-border/40" />

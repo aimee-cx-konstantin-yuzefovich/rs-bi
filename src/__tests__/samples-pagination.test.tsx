@@ -41,6 +41,8 @@ function createMockSummaries(count: number): SampleSummary[] {
     sentDates: ["2026-02-15"],
     sampleIndicators: ["Переданы"],
     processStatuses: ["В работе"],
+    currentStatusSource: "COMPANY_LEGACY",
+    currentStatusValues: ["В работе"],
     rawTestResult: "Соответствует",
     normalizedResult: "positive" as const,
     industry: "Химия",

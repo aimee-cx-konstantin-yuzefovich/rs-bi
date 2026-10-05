@@ -17,6 +17,8 @@ const mockSummary = (id: string, title: string): SampleSummary => ({
   sentDates: ["2026-09-01"],
   sampleIndicators: ["Переданы"],
   processStatuses: [],
+  currentStatusSource: "NONE",
+  currentStatusValues: [],
   normalizedResult: "positive",
   relatedDeals: [],
   sourceQuality: "structured",

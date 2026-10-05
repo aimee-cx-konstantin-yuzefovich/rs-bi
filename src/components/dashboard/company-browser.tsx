@@ -899,7 +899,7 @@ export function CompanyBrowser() {
                                 : "bg-card group-hover:bg-muted transition-colors"
                             }`}
                           >
-                            <span className="font-mono text-[11px] tabular-nums font-normal text-muted-foreground">
+                            <span className="text-[11px] tabular-nums font-normal text-muted-foreground">
                               {(currentPage - 1) * pageSize + idx + 1}
                             </span>
                           </td>

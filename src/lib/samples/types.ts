@@ -107,6 +107,19 @@ export interface SampleSummary {
   sampleIndicators: string[];
   processStatuses: string[];
 
+  /**
+   * Authoritative source of the CURRENT status projection, taken verbatim
+   * from `canonical.currentState.source`
+   * (SMART_PROCESS → DEAL_LEGACY → COMPANY_LEGACY → NONE).
+   */
+  currentStatusSource: "SMART_PROCESS" | "DEAL_LEGACY" | "COMPANY_LEGACY" | "NONE";
+  /**
+   * ONE current UI status projection (dropdown + filter predicate). Derived
+   * ONLY from `canonical.currentState`; historical legacy evidence
+   * (`sampleIndicators`, legacy `processStatuses`) never participates.
+   */
+  currentStatusValues: string[];
+
   /** Exact source value — never discarded or reworded. */
   rawTestResult?: string;
   normalizedResult: NormalizedResult;

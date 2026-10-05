@@ -27,6 +27,8 @@ function summary(overrides: Partial<SampleSummary> & { companyId: string; compan
     sentDates: [],
     sampleIndicators: [],
     processStatuses: [],
+    currentStatusSource: "NONE",
+    currentStatusValues: [],
     grades: [],
     quantities: [],
     relatedDeals: [],

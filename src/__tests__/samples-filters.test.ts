@@ -255,6 +255,8 @@ describe("Samples Filters & Normalization (SMP-FLT-1 .. SMP-FLT-10)", () => {
       sentDates: ["2026-03-10"],
       sampleIndicators: [],
       processStatuses: [],
+      currentStatusSource: "NONE",
+      currentStatusValues: [],
       normalizedResult: "unknown",
       relatedDeals: [],
       sourceQuality: "structured",
