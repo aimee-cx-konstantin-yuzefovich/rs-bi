@@ -219,8 +219,26 @@ export function SamplesRegistry({
         case "sentDates":
           return s.sentDates.length > 0 ? s.sentDates[0] : null;
         case "status": {
-          const statuses = [...s.sampleIndicators, ...s.processStatuses];
-          return statuses.length > 0 ? statuses[0] : null;
+          // ONE canonical current-status contract: the Status sort uses the
+          // SAME canonical CURRENT projection the Status cell displays
+          // (currentStatusValues) — never the historical union
+          // (sampleIndicators / processStatuses), which is legacy evidence
+          // reserved for KPI/provenance surfaces.
+          // Deterministic representative: the current value with the LOWEST
+          // canonical business rank (ties → first occurrence); empty current
+          // state stays empty and sorts last in both directions.
+          const currentStatuses = s.currentStatusValues;
+          if (currentStatuses.length === 0) return null;
+          let representative = currentStatuses[0];
+          let representativeRank = statusOrder(representative);
+          for (const label of currentStatuses) {
+            const rank = statusOrder(label);
+            if (rank < representativeRank) {
+              representative = label;
+              representativeRank = rank;
+            }
+          }
+          return representative;
         }
         case "currentStage":
           return s.currentActiveStageLabels && s.currentActiveStageLabels.length > 0
@@ -358,8 +376,8 @@ export function SamplesRegistry({
                       <span className="text-muted-foreground">–</span>
                     )}
                   </td>
-                  <td className="border-b border-border/60 py-1.5 px-2">
-                    <Badges items={[...s.sampleIndicators, ...s.processStatuses]} />
+                  <td className="border-b border-border/60 py-1.5 px-2" data-testid="samples-row-status">
+                    <Badges items={s.currentStatusValues} />
                   </td>
                   <td className="border-b border-border/60 py-1.5 px-2 text-xs text-muted-foreground">
                     {s.currentActiveStageLabels && s.currentActiveStageLabels.length > 0 ? (

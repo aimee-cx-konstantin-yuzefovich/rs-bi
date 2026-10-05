@@ -113,3 +113,156 @@ describe("Samples Registry Sorting (UI-SORT-1 .. UI-SORT-5)", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Canonical CURRENT-status contract (S1–S5 registry surfaces).
+//
+// The visible "Статус" cell and the Status sort must consume the canonical
+// current projection (currentStatusValues) — NOT the historical union
+// [...sampleIndicators, ...processStatuses]. Historical fields remain for
+// KPI/provenance purposes; they never appear as CURRENT status here.
+// ─────────────────────────────────────────────────────────────────────
+describe("Samples registry canonical current status (S1–S5)", () => {
+  it("S1: SP authoritative current status wins over historical legacy status in display", () => {
+    const rows = [
+      summary({
+        companyId: "1",
+        companyTitle: "Вега",
+        sampleIndicators: ["Требуются образцы"],
+        processStatuses: ["Требуются образцы"],
+        currentStatusSource: "SMART_PROCESS",
+        currentStatusValues: ["На испытании"],
+      }),
+    ];
+    render(<SamplesRegistry summaries={rows} onSelect={() => {}} />);
+    const cell = screen.getByTestId("samples-row-status");
+    expect(cell.textContent).toContain("На испытании");
+    expect(cell.textContent).not.toContain("Требуются образцы");
+  });
+
+  it("S2: terminal SP current status wins over historical legacy status", () => {
+    const rows = [
+      summary({
+        companyId: "1",
+        companyTitle: "Вега",
+        sampleIndicators: ["На испытании"],
+        processStatuses: ["На испытании"],
+        currentStatusSource: "SMART_PROCESS",
+        currentStatusValues: ["Подошли"],
+      }),
+    ];
+    render(<SamplesRegistry summaries={rows} onSelect={() => {}} />);
+    const cell = screen.getByTestId("samples-row-status");
+    expect(cell.textContent).toContain("Подошли");
+    expect(cell.textContent).not.toContain("На испытании");
+  });
+
+  it("S3: legitimate legacy fallback status is displayed from the canonical projection", () => {
+    const rows = [
+      summary({
+        companyId: "1",
+        companyTitle: "Вега",
+        sampleIndicators: ["Требуются образцы"],
+        processStatuses: [],
+        currentStatusSource: "COMPANY_LEGACY",
+        currentStatusValues: ["Требуются образцы"],
+      }),
+    ];
+    render(<SamplesRegistry summaries={rows} onSelect={() => {}} />);
+    const cell = screen.getByTestId("samples-row-status");
+    expect(cell.textContent).toContain("Требуются образцы");
+  });
+
+  it("S4: unknown current value shows «Не классифицировано», never raw IDs or DT1032 tokens", () => {
+    const rows = [
+      summary({
+        companyId: "1",
+        companyTitle: "Вега",
+        currentStatusSource: "DEAL_LEGACY",
+        currentStatusValues: ["Не классифицировано"],
+      }),
+    ];
+    render(<SamplesRegistry summaries={rows} onSelect={() => {}} />);
+    const cell = screen.getByTestId("samples-row-status");
+    expect(cell.textContent).toContain("Не классифицировано");
+    expect(cell.textContent).not.toMatch(/\d{3,}/);
+    expect(cell.textContent).not.toContain("DT1032_");
+  });
+
+  it("S5: empty current status renders the existing empty-value convention", () => {
+    const rows = [
+      summary({
+        companyId: "1",
+        companyTitle: "Вега",
+        currentStatusSource: "NONE",
+        currentStatusValues: [],
+      }),
+    ];
+    render(<SamplesRegistry summaries={rows} onSelect={() => {}} />);
+    const cell = screen.getByTestId("samples-row-status");
+    expect(cell.textContent).toBe("–");
+  });
+
+  it("S1-sort: Status sort uses canonical current status order, not historical values", () => {
+    const rows = [
+      summary({
+        companyId: "1",
+        companyTitle: "Альфа",
+        sampleIndicators: ["Не подошли"], // historical legacy evidence
+        processStatuses: [],
+        currentStatusSource: "SMART_PROCESS",
+        currentStatusValues: ["Образцы отправлены"],
+      }),
+      summary({
+        companyId: "2",
+        companyTitle: "Бета",
+        sampleIndicators: ["Образцы отправлены"], // historical legacy evidence
+        processStatuses: [],
+        currentStatusSource: "SMART_PROCESS",
+        currentStatusValues: ["На испытании"],
+      }),
+      summary({
+        companyId: "3",
+        companyTitle: "Вега",
+        currentStatusSource: "NONE",
+        currentStatusValues: [],
+      }),
+    ];
+    render(<SamplesRegistry summaries={rows} onSelect={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Статус/ }));
+    const ids = screen.getAllByTestId("samples-row-company-id").map((el) => el.getAttribute("data-company-id"));
+    // Canonical business order: «Образцы отправлены» (idx 1) before «На испытании» (idx 2);
+    // sorting by CURRENT values, NOT by the historical union (which would put
+    // «Не подошли» (idx 4) after «Образцы отправлены»). Empty always last.
+    expect(ids).toEqual(["1", "2", "3"]);
+    fireEvent.click(screen.getByRole("button", { name: /Статус/ }));
+    const idsDesc = screen.getAllByTestId("samples-row-company-id").map((el) => el.getAttribute("data-company-id"));
+    // Desc flips non-empty; empty remains last.
+    expect(idsDesc).toEqual(["2", "1", "3"]);
+  });
+
+  it("S1-sort-multi: multi-value current status sorts deterministically by lowest canonical rank", () => {
+    const rows = [
+      summary({
+        companyId: "1",
+        companyTitle: "Альфа",
+        currentStatusSource: "SMART_PROCESS",
+        currentStatusValues: ["Подошли", "На испытании"], // two active cycles
+      }),
+      summary({
+        companyId: "2",
+        companyTitle: "Бета",
+        currentStatusSource: "SMART_PROCESS",
+        currentStatusValues: ["На испытании"],
+      }),
+    ];
+    render(<SamplesRegistry summaries={rows} onSelect={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /Статус/ }));
+    const ids = screen.getAllByTestId("samples-row-company-id").map((el) => el.getAttribute("data-company-id"));
+    // Representative = lowest canonical rank among current values:
+    // «На испытании» (idx 2) < «Подошли» (idx 3) → both rows tie on the
+    // same rank; stable order preserves insertion order; ties broken by
+    // localeCompare of the representative label (equal) → original order.
+    expect(ids).toEqual(["1", "2"]);
+  });
+});

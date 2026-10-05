@@ -236,7 +236,10 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
     } else {
       expect(dateVal).toBe("15.02.2026");
     }
-    expect(row7.getCell(9).value).toBe("Переданы, В работе");
+    // Canonical CURRENT status (currentStatusValues), not the historical
+    // union: fixture 1 has currentStatusValues ["В работе"] while the
+    // historical sampleIndicators entry "Переданы" stays legacy-only.
+    expect(row7.getCell(9).value).toBe("В работе");
     // No active Smart Process stages in fixture 1 → empty stage cell + count 0
     expect(row7.getCell(10).value).toBeNull();
     expect(row7.getCell(11).value).toBe(0);
@@ -371,6 +374,98 @@ describe("Samples Excel Export (SMP-EXP-1 .. SMP-EXP-4)", () => {
       global.window = originalWindow;
     }
   });
+
+    // Date cell of the last fixture row (SMP-EXP-SP row) is asserted above.
+
+    // ─── Canonical CURRENT-status contract: Excel «Статус» column (col 9) ───
+    it("S1-Excel: SP authoritative current status wins over historical legacy status", async () => {
+      const rows: SampleSummary[] = [
+        {
+          ...MOCK_EXPORT_SAMPLES[0],
+          companyId: "910",
+          companyTitle: "ООО СпЗаЛегаси",
+          sampleIndicators: ["Требуются образцы"], // historical legacy evidence
+          processStatuses: ["Требуются образцы"],
+          currentStatusSource: "SMART_PROCESS",
+          currentStatusValues: ["На испытании"],
+        },
+      ];
+      const workbook = await buildSamplesWorkbook({ summaries: rows, userNames: MOCK_USER_NAMES });
+      const ws = workbook.getWorksheet("Образцы")!;
+      const row = ws.getRow(7);
+      expect(row.getCell(9).value).toBe("На испытании");
+      const allValues: string[] = [];
+      row.eachCell((cell) => allValues.push(String(cell.value ?? "")));
+      expect(allValues.join(" | ")).not.toContain("Требуются образцы");
+    });
+
+    it("S2-Excel: terminal SP current status wins over historical legacy status", async () => {
+      const rows: SampleSummary[] = [
+        {
+          ...MOCK_EXPORT_SAMPLES[0],
+          companyId: "911",
+          companyTitle: "ООО Терминальный",
+          sampleIndicators: ["На испытании"], // historical legacy evidence
+          processStatuses: ["На испытании"],
+          currentStatusSource: "SMART_PROCESS",
+          currentStatusValues: ["Подошли"],
+        },
+      ];
+      const workbook = await buildSamplesWorkbook({ summaries: rows, userNames: MOCK_USER_NAMES });
+      const ws = workbook.getWorksheet("Образцы")!;
+      expect(ws.getRow(7).getCell(9).value).toBe("Подошли");
+    });
+
+    it("S3-Excel: legacy fallback status exports the canonical projection value", async () => {
+      const rows: SampleSummary[] = [
+        {
+          ...MOCK_EXPORT_SAMPLES[0],
+          companyId: "912",
+          companyTitle: "ООО Легаси",
+          sampleIndicators: [],
+          processStatuses: [],
+          currentStatusSource: "COMPANY_LEGACY",
+          currentStatusValues: ["Требуются образцы"],
+        },
+      ];
+      const workbook = await buildSamplesWorkbook({ summaries: rows, userNames: MOCK_USER_NAMES });
+      const ws = workbook.getWorksheet("Образцы")!;
+      expect(ws.getRow(7).getCell(9).value).toBe("Требуются образцы");
+    });
+
+    it("S4-Excel: unknown current value exports «Не классифицировано», never raw tokens", async () => {
+      const rows: SampleSummary[] = [
+        {
+          ...MOCK_EXPORT_SAMPLES[0],
+          companyId: "913",
+          companyTitle: "ООО Сырое",
+          sampleIndicators: [],
+          processStatuses: ["DT1032_15:CLIENT", "2695"], // historical only
+          currentStatusSource: "DEAL_LEGACY",
+          currentStatusValues: ["Не классифицировано"],
+        },
+      ];
+      const workbook = await buildSamplesWorkbook({ summaries: rows, userNames: MOCK_USER_NAMES });
+      const ws = workbook.getWorksheet("Образцы")!;
+      expect(ws.getRow(7).getCell(9).value).toBe("Не классифицировано");
+    });
+
+    it("S5-Excel: empty current status exports the existing empty-cell convention", async () => {
+      const rows: SampleSummary[] = [
+        {
+          ...MOCK_EXPORT_SAMPLES[0],
+          companyId: "914",
+          companyTitle: "ООО Пусто",
+          sampleIndicators: [],
+          processStatuses: [],
+          currentStatusSource: "NONE",
+          currentStatusValues: [],
+        },
+      ];
+      const workbook = await buildSamplesWorkbook({ summaries: rows, userNames: MOCK_USER_NAMES });
+      const ws = workbook.getWorksheet("Образцы")!;
+      expect(ws.getRow(7).getCell(9).value).toBeNull();
+    });
 
   // ─── Phase C §31: Smart-Process-source reconciliation ───
 

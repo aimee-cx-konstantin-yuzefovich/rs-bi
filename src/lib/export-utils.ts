@@ -1567,7 +1567,13 @@ export async function buildSamplesWorkbook(
       s.sentDates.length > 0
         ? s.sentDates.map(formatIsoDateToRu).join(", ")
         : null;
-    const statusesList = [...s.sampleIndicators, ...s.processStatuses].map((st) => {
+    // ONE canonical current-status contract: the workbook «Статус» column
+    // exports the SAME canonical CURRENT projection the web registry Status
+    // cell displays (currentStatusValues) — never the historical union
+    // (sampleIndicators / processStatuses), which remains legacy evidence
+    // for KPI/provenance surfaces only. Raw enum IDs / DT1032_* transport
+    // tokens can never leak (neutral unclassified label instead).
+    const statusesList = s.currentStatusValues.map((st) => {
       if (/^\d+$/.test(st) || /^DT1032_/i.test(st)) {
         return UNCLASSIFIED_LABEL;
       }
