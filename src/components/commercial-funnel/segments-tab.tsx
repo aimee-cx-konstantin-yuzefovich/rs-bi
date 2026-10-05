@@ -2,19 +2,27 @@
 
 // src/components/commercial-funnel/segments-tab.tsx
 // Tab 3 — Сегменты: "В каких рынках / продуктах / направлениях результат и проблема?"
-// Local UI state: dimension selector only (Отрасли | Направления | Продукты).
+// Local UI state: dimension selector (Отрасли | Направления | Продукты | Регионы)
+// + sortable column headers (WP8: full row set sorted before render; numeric
+// columns numeric, label text; keyboard-accessible headers with aria-sort).
 // Matrix with grouped CURRENT / ЗА ПЕРИОД headers; missing values become
 // "Не указано"; Итого = union of unique company IDs (never row sums);
 // multi-value footnote for Product/Direction; cells drill down exactly.
 
 import { useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type {
   CountedPopulation,
   SegmentBreakdown,
   SegmentDimension,
   SegmentRow,
 } from "@/lib/commercial-funnel/types";
+import {
+  sortRows,
+  nextSortDirection,
+  ariaSortValue,
+  type SortDirection,
+} from "@/lib/table-sorting";
 
 interface SegmentsTabProps {
   industryBreakdown: SegmentBreakdown;
@@ -102,6 +110,21 @@ export function CommercialSegmentsTab({
   onOpenDrillDown,
 }: SegmentsTabProps) {
   const [dimension, setDimension] = useState<SegmentDimension>("industry");
+  const [sortField, setSortField] = useState<SegmentSortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+
+  type SegmentSortField = "label" | keyof SegmentRow["current"] | keyof SegmentRow["period"];
+
+  const handleSort = (field: SegmentSortField) => {
+    if (sortField !== field) {
+      setSortField(field);
+      setSortDirection("asc");
+    } else {
+      const next = nextSortDirection(sortDirection);
+      setSortDirection(next);
+      if (next === null) setSortField(null);
+    }
+  };
 
   const breakdown = useMemo(() => {
     if (dimension === "industry") return industryBreakdown;
@@ -110,11 +133,58 @@ export function CommercialSegmentsTab({
     return productBreakdown;
   }, [dimension, industryBreakdown, directionBreakdown, regionBreakdown, productBreakdown]);
 
+  // Sort the full row set before render (WP8). Numeric columns numeric;
+  // segment label text; empties always last.
+  const sortedRows = useMemo(() => {
+    if (!sortField || !sortDirection) return breakdown.rows;
+    return sortRows(
+      breakdown.rows,
+      (row): number | string | null => {
+        if (sortField === "label") return row.label;
+        const cur = (row.current as unknown as Record<string, CountedPopulation>)[sortField as string];
+        const per = (row.period as unknown as Record<string, CountedPopulation>)[sortField as string];
+        if (cur) return cur.count;
+        if (per) return per.count;
+        return null;
+      },
+      sortDirection
+    );
+  }, [breakdown, sortField, sortDirection]);
+
   const dimensionLabels: Record<SegmentDimension, string> = {
     industry: "Отрасли",
     direction: "Направления",
     region: "Регионы",
     product: "Продукты",
+  };
+
+  const renderSortableTh = (col: { key: string; label: string }, first: boolean) => {
+    const isSorted = sortField === col.key && sortDirection !== null;
+    return (
+      <th
+        key={col.key}
+        className={`font-medium text-muted-foreground px-2 py-1.5 whitespace-nowrap ${
+          first ? "border-l border-border/60" : ""
+        }`}
+        aria-sort={ariaSortValue(sortDirection, sortField === col.key)}
+        title={
+          col.key === "activeCompanies"
+            ? "Компании в текущем контуре: у компании есть текущее состояние по образцам и/или активная коммерческая сделка."
+            : undefined
+        }
+      >
+        <button
+          type="button"
+          onClick={() => handleSort(col.key as SegmentSortField)}
+          className="inline-flex items-center gap-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:text-foreground transition-colors cursor-pointer"
+        >
+          <span>{col.label}</span>
+          {isSorted && sortDirection === "asc" && <ArrowUp className="h-3 w-3 text-brand-blue" aria-hidden="true" />}
+          {isSorted && sortDirection === "desc" && <ArrowDown className="h-3 w-3 text-brand-blue" aria-hidden="true" />}
+          {!isSorted && <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-30 transition-opacity" aria-hidden="true" />}
+        </button>
+      </th>
+    );
   };
 
   return (
@@ -144,7 +214,7 @@ export function CommercialSegmentsTab({
         </p>
       )}
 
-      <div className="rounded-xl border bg-card/60 shadow-2xs overflow-x-auto">
+      <div className="rounded-xl border bg-card/60 shadow-2xs overflow-x-auto group">
         <table className="w-full text-xs" data-testid="segments-matrix">
           <thead>
             <tr className="border-b bg-muted/40">
@@ -165,35 +235,12 @@ export function CommercialSegmentsTab({
               </th>
             </tr>
             <tr className="border-b bg-muted/20">
-              {CURRENT_COLUMNS.map((col, i) => (
-                <th
-                  key={col.key}
-                  className={`font-medium text-muted-foreground px-2 py-1.5 whitespace-nowrap ${
-                    i === 0 ? "border-l border-border/60" : ""
-                  }`}
-                  title={
-                    col.key === "activeCompanies"
-                      ? "Компании в текущем контуре: у компании есть текущее состояние по образцам и/или активная коммерческая сделка."
-                      : undefined
-                  }
-                >
-                  {col.label}
-                </th>
-              ))}
-              {PERIOD_COLUMNS.map((col, i) => (
-                <th
-                  key={col.key}
-                  className={`font-medium text-muted-foreground px-2 py-1.5 whitespace-nowrap ${
-                    i === 0 ? "border-l border-border/60" : ""
-                  }`}
-                >
-                  {col.label}
-                </th>
-              ))}
+              {CURRENT_COLUMNS.map((col, i) => renderSortableTh(col, i === 0))}
+              {PERIOD_COLUMNS.map((col, i) => renderSortableTh(col, i === 0))}
             </tr>
           </thead>
           <tbody>
-            {breakdown.rows.map((row) => (
+            {sortedRows.map((row) => (
               <tr key={row.label} className="border-b border-border/40 hover:bg-accent/30">
                 <td
                   className={`sticky left-0 bg-card px-3 py-2 font-medium ${
