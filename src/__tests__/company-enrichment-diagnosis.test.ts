@@ -750,3 +750,255 @@ describe("Diagnostic Denominators & Scope Contract (Section 8)", () => {
     expect(xlWarnings.some((w) => w.includes(" 1 связанных компаний"))).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// No-request scope reconciliation (C1–C4).
+//
+// "Nothing needs fetching" is NOT the same as "the existing diagnostics
+// already describe the current scope": when the current Deal scope requires
+// zero network work (fresh cache, TTL-suppressed markers, or empty scope),
+// enrichment diagnostics and transport coverage must still be reconciled to
+// the CURRENT scope locally — with zero HTTP calls.
+// ─────────────────────────────────────────────────────────────────────
+describe("No-request scope reconciliation (C1–C4)", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("C1. scope shrink clears previous transport failure with zero network", async () => {
+    const now = Date.now();
+    // Current scope: company A only, fresh cached enrichment.
+    useDashboardStore.setState({
+      allDeals: [{ ID: "1", COMPANY_ID: "1001" }] as any,
+      companiesData: { "1001": { ID: "1001", TITLE: "Company A" } },
+      companiesDataFetchedAt: { "1001": now - 60_000 }, // fresh, inside TTL
+      companiesUnresolvedRefs: {},
+      // Stale diagnostics from the PREVIOUS scope A+B where B transport-failed.
+      companiesDataCoverage: {
+        status: "PARTIAL",
+        fetched: 1,
+        total: 2,
+        warning: "Не удалось получить данные 1 из 2 компаний из CRM.",
+      },
+      companiesEnrichmentDiagnostics: {
+        scopeCount: 2,
+        refreshRequestedCount: 2,
+        refreshResolvedCount: 1,
+        refreshFailedFetchCount: 1,
+        activeUnresolvedReferenceCount: 0,
+        requestedCount: 2,
+        resolvedCount: 1,
+        failedFetchCount: 1,
+        unresolvedReferenceCount: 0,
+        failedPrimaryBatchCount: 1,
+        failedRecoveryBatchCount: 0,
+        classification: "TRANSIENT_FETCH_FAILURE",
+      },
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    // ZERO network requests: A is already fresh.
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const s = useDashboardStore.getState();
+    const diag = s.companiesEnrichmentDiagnostics!;
+    expect(diag.scopeCount).toBe(1);
+    expect(diag.refreshRequestedCount).toBe(0);
+    expect(diag.refreshResolvedCount).toBe(0);
+    expect(diag.refreshFailedFetchCount).toBe(0);
+    expect(diag.activeUnresolvedReferenceCount).toBe(0);
+    expect(diag.failedPrimaryBatchCount).toBe(0);
+    expect(diag.failedRecoveryBatchCount).toBe(0);
+    expect(diag.classification).toBe("COMPLETE");
+    // Deprecated aliases agree with the canonical semantics.
+    expect(diag.requestedCount).toBe(0);
+    expect(diag.resolvedCount).toBe(0);
+    expect(diag.failedFetchCount).toBe(0);
+    expect(diag.unresolvedReferenceCount).toBe(0);
+    // Coverage describes the CURRENT transport scope (COMPLETE 1/1), not
+    // the historical A+B failure.
+    expect(s.companiesDataCoverage?.status).toBe("COMPLETE");
+    expect(s.companiesDataCoverage).toMatchObject({ fetched: 1, total: 1 });
+    // Valid cached enrichment preserved; no loading flag left behind.
+    expect(s.companiesData["1001"]?.TITLE).toBe("Company A");
+    expect(s.companiesDataLoading).toBe(false);
+  });
+
+  it("C2. unresolved refs shrink 202 → 1 with zero network; disclosure uses 1, not 202", async () => {
+    const now = Date.now();
+    const activeRefs: Record<string, number> = {};
+    for (let i = 1; i <= 202; i++) activeRefs[String(1000 + i)] = now;
+    // Previous scope held 202 active unresolved markers; the current scope
+    // contains only ONE of them (still inside TTL).
+    useDashboardStore.setState({
+      allDeals: [{ ID: "1", COMPANY_ID: "1001" }] as any,
+      companiesData: { "1001": { ID: "1001", TITLE: "Company A" } },
+      companiesDataFetchedAt: { "1001": now - 60_000 },
+      companiesUnresolvedRefs: activeRefs,
+      companiesDataCoverage: { status: "COMPLETE", fetched: 203, total: 203 },
+      companiesEnrichmentDiagnostics: {
+        scopeCount: 203,
+        refreshRequestedCount: 0,
+        refreshResolvedCount: 0,
+        refreshFailedFetchCount: 0,
+        activeUnresolvedReferenceCount: 202,
+        requestedCount: 0,
+        resolvedCount: 0,
+        failedFetchCount: 0,
+        unresolvedReferenceCount: 202,
+        failedPrimaryBatchCount: 0,
+        failedRecoveryBatchCount: 0,
+        classification: "UNRESOLVED_REFERENCES",
+      },
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    // ZERO network requests: TTL suppression must remain intact.
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const s = useDashboardStore.getState();
+    const diag = s.companiesEnrichmentDiagnostics!;
+    expect(diag.scopeCount).toBe(1);
+    expect(diag.refreshRequestedCount).toBe(0);
+    expect(diag.refreshResolvedCount).toBe(0);
+    expect(diag.refreshFailedFetchCount).toBe(0);
+    expect(diag.activeUnresolvedReferenceCount).toBe(1);
+    expect(diag.failedPrimaryBatchCount).toBe(0);
+    expect(diag.failedRecoveryBatchCount).toBe(0);
+    expect(diag.classification).toBe("UNRESOLVED_REFERENCES");
+    expect(diag.unresolvedReferenceCount).toBe(1);
+    // The in-scope marker survives; out-of-scope markers are pruned.
+    expect(s.companiesUnresolvedRefs["1001"]).toBe(now);
+    expect(Object.keys(s.companiesUnresolvedRefs)).toEqual(["1001"]);
+    // Coverage stays transport-only COMPLETE for the current scope.
+    expect(s.companiesDataCoverage?.status).toBe("COMPLETE");
+    expect(s.companiesDataCoverage).toMatchObject({ fetched: 1, total: 1 });
+
+    // The disclosure layer must operate on 1, not the historical 202.
+    const xl = buildEnrichmentExtraWarnings({
+      selectedColumns: ["COMPANY_TITLE"],
+      companiesDataCoverage: s.companiesDataCoverage,
+      companiesEnrichmentDiagnostics: s.companiesEnrichmentDiagnostics,
+    });
+    expect(xl.join(" ")).toContain("1 связанных компаний");
+    expect(xl.join(" ")).not.toContain("202");
+  });
+
+  it("C3. empty current Company scope clears stale diagnostics with zero network", async () => {
+    useDashboardStore.setState({
+      // Current scope contains zero valid Company IDs.
+      allDeals: [
+        { ID: "1", COMPANY_ID: "0" },
+        { ID: "2", COMPANY_ID: "" },
+      ] as any,
+      companiesData: { "1001": { ID: "1001", TITLE: "Leftover" } },
+      companiesDataFetchedAt: { "1001": Date.now() },
+      companiesUnresolvedRefs: { "1002": Date.now() },
+      // Stale previous-scope diagnostics: PARTIAL + TRANSIENT + unresolved.
+      companiesDataCoverage: {
+        status: "PARTIAL",
+        fetched: 1,
+        total: 2,
+        warning: "Не удалось получить данные 1 из 2 компаний из CRM.",
+      },
+      companiesEnrichmentDiagnostics: {
+        scopeCount: 2,
+        refreshRequestedCount: 2,
+        refreshResolvedCount: 1,
+        refreshFailedFetchCount: 1,
+        activeUnresolvedReferenceCount: 1,
+        requestedCount: 2,
+        resolvedCount: 1,
+        failedFetchCount: 1,
+        unresolvedReferenceCount: 1,
+        failedPrimaryBatchCount: 1,
+        failedRecoveryBatchCount: 0,
+        classification: "TRANSIENT_FETCH_FAILURE",
+      },
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const s = useDashboardStore.getState();
+    const diag = s.companiesEnrichmentDiagnostics!;
+    expect(diag.scopeCount).toBe(0);
+    expect(diag.refreshRequestedCount).toBe(0);
+    expect(diag.refreshResolvedCount).toBe(0);
+    expect(diag.refreshFailedFetchCount).toBe(0);
+    expect(diag.activeUnresolvedReferenceCount).toBe(0);
+    expect(diag.failedPrimaryBatchCount).toBe(0);
+    expect(diag.failedRecoveryBatchCount).toBe(0);
+    expect(diag.classification).toBe("COMPLETE");
+    expect(diag.unresolvedReferenceCount).toBe(0);
+    // Zero-scope DatasetCoverage convention: COMPLETE 0/0.
+    expect(s.companiesDataCoverage).toEqual({ status: "COMPLETE", fetched: 0, total: 0 });
+    // Out-of-scope unresolved marker must not survive.
+    expect(Object.keys(s.companiesUnresolvedRefs)).toEqual([]);
+    // No stale old-scope warning remains for the empty scope.
+    const ui = buildEnrichmentUiWarnings({
+      selectedColumns: ["COMPANY_TITLE"],
+      companiesDataCoverage: s.companiesDataCoverage,
+      companiesEnrichmentDiagnostics: s.companiesEnrichmentDiagnostics,
+    });
+    expect(ui).toEqual([]);
+  });
+
+  it("C4. active in-TTL unresolved reference still suppresses the request; reconciliation issues no CRM call", async () => {
+    const now = Date.now();
+    useDashboardStore.setState({
+      allDeals: [{ ID: "1", COMPANY_ID: "1001" }] as any,
+      companiesData: { "1001": { ID: "1001", TITLE: "Old Stale Company" } },
+      companiesDataFetchedAt: { "1001": now - 10 * 60 * 1000 }, // stale — only the marker suppresses the read
+      companiesUnresolvedRefs: { "1001": now },
+      companiesDataCoverage: null,
+      companiesEnrichmentDiagnostics: null,
+      companiesDataLoading: false,
+      selectedColumns: ["COMPANY_TITLE"],
+      isDemoMode: false,
+    });
+
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    await useDashboardStore.getState().fetchCompaniesData();
+
+    // Reconciliation of diagnostics must NOT create a CRM request.
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const s = useDashboardStore.getState();
+    const diag = s.companiesEnrichmentDiagnostics!;
+    expect(diag.scopeCount).toBe(1);
+    expect(diag.refreshRequestedCount).toBe(0);
+    expect(diag.refreshResolvedCount).toBe(0);
+    expect(diag.refreshFailedFetchCount).toBe(0);
+    expect(diag.activeUnresolvedReferenceCount).toBe(1);
+    expect(diag.failedPrimaryBatchCount).toBe(0);
+    expect(diag.failedRecoveryBatchCount).toBe(0);
+    expect(diag.classification).toBe("UNRESOLVED_REFERENCES");
+    expect(diag.unresolvedReferenceCount).toBe(1);
+    // Cached enrichment preserved.
+    expect(s.companiesData["1001"]?.TITLE).toBe("Old Stale Company");
+  });
+});

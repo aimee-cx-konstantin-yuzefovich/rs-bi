@@ -81,6 +81,74 @@ export function isUnresolvedRefActive(
   return now - timestamp <= ttlMs;
 }
 
+/**
+ * Result of a ZERO-REQUEST company-enrichment reconciliation: diagnostics and
+ * transport coverage recomputed for the CURRENT scope, plus the pruned
+ * unresolved-reference marker set (out-of-scope and expired markers removed).
+ */
+export interface NoRequestCompanyReconciliation {
+  diagnostics: CompanyEnrichmentDiagnostics;
+  coverage: DatasetCoverage;
+  prunedUnresolvedRefs: Record<string, number>;
+}
+
+/**
+ * Reconcile company-enrichment diagnostics for the CURRENT scope when NO
+ * network request is required (fresh cache, TTL suppression, or empty scope).
+ *
+ * "Nothing needs fetching" is NOT "the existing diagnostics already describe
+ * the current scope": stale previous-scope diagnostics (transport failures,
+ * unresolved-reference totals of companies that left the scope) must not
+ * survive a scope change.
+ *
+ * Semantics (zero HTTP):
+ * - unresolved markers are pruned to IDs still in the current scope AND
+ *   active within TTL (expired markers excluded; TTL suppression untouched);
+ * - current refresh counters are 0 (no request was made);
+ * - classification is UNRESOLVED_REFERENCES only when in-scope active
+ *   markers remain, otherwise COMPLETE;
+ * - coverage stays TRANSPORT-only: COMPLETE fetched/total = current scope
+ *   size, even when active unresolved references > 0 (unresolved references
+ *   are not transport failures).
+ */
+export function reconcileCompanyEnrichmentWithoutRequest(
+  scopeIds: readonly string[],
+  unresolvedRefs: Record<string, number>,
+  now: number
+): NoRequestCompanyReconciliation {
+  const prunedUnresolvedRefs: Record<string, number> = {};
+  for (const id of scopeIds) {
+    const ts = unresolvedRefs[id];
+    if (isUnresolvedRefActive(ts, now)) prunedUnresolvedRefs[id] = ts;
+  }
+  const activeUnresolvedReferenceCount = Object.keys(prunedUnresolvedRefs).length;
+
+  const diagnostics: CompanyEnrichmentDiagnostics = {
+    scopeCount: scopeIds.length,
+    refreshRequestedCount: 0,
+    refreshResolvedCount: 0,
+    refreshFailedFetchCount: 0,
+    activeUnresolvedReferenceCount,
+    failedPrimaryBatchCount: 0,
+    failedRecoveryBatchCount: 0,
+    classification:
+      activeUnresolvedReferenceCount > 0 ? "UNRESOLVED_REFERENCES" : "COMPLETE",
+    // Deprecated compatibility aliases agree with canonical semantics.
+    requestedCount: 0,
+    resolvedCount: 0,
+    failedFetchCount: 0,
+    unresolvedReferenceCount: activeUnresolvedReferenceCount,
+  };
+
+  const coverage: DatasetCoverage = {
+    status: "COMPLETE",
+    fetched: scopeIds.length,
+    total: scopeIds.length,
+  };
+
+  return { diagnostics, coverage, prunedUnresolvedRefs };
+}
+
 
 /**
  * Coverage for an ID-set-based enrichment request (activities, companies):

@@ -25,6 +25,7 @@ import {
   COMPANIES_FAILED_WARNING,
   type CompanyEnrichmentDiagnostics,
   isUnresolvedRefActive,
+  reconcileCompanyEnrichmentWithoutRequest,
   COMPANY_ENRICHMENT_TTL_MS,
 } from "@/lib/enrichment-coverage";
 import { USERS_DIRECTORY_CAP } from "@/lib/crm-constants";
@@ -1170,7 +1171,26 @@ export const useDashboardStore = create<DashboardState>()(
           allDeals.map((d) => String(d.COMPANY_ID || "")).filter((id) => id && id !== "0")
         )];
 
-        if (uniqueIds.length === 0) return;
+        // No-request CURRENT-scope reconciliation. Even when zero network
+        // work is required, diagnostics and transport coverage must describe
+        // the CURRENT Deal/Company scope — not a previous one. Stale
+        // out-of-scope/expired unresolved markers are pruned, in-TTL markers
+        // are preserved (TTL suppression stays intact), and no HTTP call is
+        // made. Canonical state owners keep diagnostics ephemeral.
+        const reconcileNoRequest = () => {
+          const { diagnostics, coverage, prunedUnresolvedRefs } =
+            reconcileCompanyEnrichmentWithoutRequest(uniqueIds, get().companiesUnresolvedRefs, Date.now());
+          set({
+            companiesEnrichmentDiagnostics: diagnostics,
+            companiesDataCoverage: coverage,
+            companiesUnresolvedRefs: prunedUnresolvedRefs,
+          });
+        };
+
+        if (uniqueIds.length === 0) {
+          reconcileNoRequest();
+          return;
+        }
 
         // Only fetch IDs we don't already have data for, OR if they are missing required fields, OR if data is older than 5 minutes
         const now = Date.now();
@@ -1192,7 +1212,10 @@ export const useDashboardStore = create<DashboardState>()(
           
           return false;
         });
-        if (missingIds.length === 0) return;
+        if (missingIds.length === 0) {
+          reconcileNoRequest();
+          return;
+        }
 
         set({ companiesDataLoading: true });
 
