@@ -144,8 +144,8 @@ export function buildEnrichmentExtraWarnings(
   // returned): separate data-quality note, only when a COMPANY_* column is
   // visible. Distinct from the transport-failure line above.
   const refCount =
-    input.companiesEnrichmentDiagnostics?.activeUnresolvedReferenceCount ??
-    input.companiesEnrichmentDiagnostics?.unresolvedReferenceCount ??
+    (input.companiesEnrichmentDiagnostics?.activeUnresolvedReferenceCount ||
+      input.companiesEnrichmentDiagnostics?.unresolvedReferenceCount) ??
     0;
   if (selectedColumnsNeedCompanies(selectedColumns) && refCount > 0) {
     warnings.push(

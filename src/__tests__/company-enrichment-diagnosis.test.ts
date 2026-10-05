@@ -229,21 +229,27 @@ describe("fetchCompaniesData coverage semantics", () => {
 });
 
 describe("warning semantics", () => {
-  const diag = (over: Partial<CompanyEnrichmentDiagnostics>): CompanyEnrichmentDiagnostics => ({
-    scopeCount: 527,
-    refreshRequestedCount: 527,
-    refreshResolvedCount: 325,
-    refreshFailedFetchCount: 0,
-    activeUnresolvedReferenceCount: 0,
-    requestedCount: 527,
-    resolvedCount: 325,
-    failedFetchCount: 0,
-    unresolvedReferenceCount: 0,
-    failedPrimaryBatchCount: 0,
-    failedRecoveryBatchCount: 0,
-    classification: "COMPLETE",
-    ...over,
-  });
+  const diag = (over: Partial<CompanyEnrichmentDiagnostics>): CompanyEnrichmentDiagnostics => {
+    const unref = over.activeUnresolvedReferenceCount ?? over.unresolvedReferenceCount ?? 0;
+    const failed = over.refreshFailedFetchCount ?? over.failedFetchCount ?? 0;
+    const req = over.refreshRequestedCount ?? over.requestedCount ?? 527;
+    const res = over.refreshResolvedCount ?? over.resolvedCount ?? 325;
+    return {
+      scopeCount: 527,
+      refreshRequestedCount: req,
+      refreshResolvedCount: res,
+      refreshFailedFetchCount: failed,
+      activeUnresolvedReferenceCount: unref,
+      requestedCount: req,
+      resolvedCount: res,
+      failedFetchCount: failed,
+      unresolvedReferenceCount: unref,
+      failedPrimaryBatchCount: 0,
+      failedRecoveryBatchCount: 0,
+      classification: "COMPLETE",
+      ...over,
+    };
+  };
   const complete = { status: "COMPLETE", fetched: 1647, total: 1647 } as const;
 
   it("complete activities and complete companies -> no warning", () => {
