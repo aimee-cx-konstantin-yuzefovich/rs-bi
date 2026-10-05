@@ -6,6 +6,7 @@ import {
   RESPONSIBLE_FIELD_ID,
   COMPANY_RESPONSIBLE_FIELD_ID,
 } from "@/lib/crm-constants";
+import { chunkDealIdsForActivities } from "@/lib/activities-request-chunks";
 import { parseStrictDate } from "@/lib/date-safety";
 import { splitDealTableColumns } from "@/lib/deal-table-columns";
 import {
@@ -45,6 +46,8 @@ function fetchWithTimeout(url: string, options?: RequestInit, timeoutMs: number 
 export const LARGE_DATASET_CLIENT_TIMEOUT_MS = 180_000;
 export const COMPANY_LIST_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
 export const COMPANY_ENRICHMENT_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
+/** Per-chunk timeout for activity enrichment (multi-chunk, large Deal sets). */
+export const ACTIVITIES_ENRICHMENT_FETCH_TIMEOUT_MS = LARGE_DATASET_CLIENT_TIMEOUT_MS;
 
 export interface FieldInfo {
   id: string;
@@ -1384,104 +1387,128 @@ export const useDashboardStore = create<DashboardState>()(
 
         inFlightActivitiesPromise = (async () => {
           // Snapshot the requested scope for truthful coverage: coverage is
-          // relative to the deal IDs actually requested in THIS request.
+          // relative to the deal IDs actually requested in THIS run.
           const requestedIds = missingIds;
-          try {
-            const response = await fetchWithTimeout("/api/bitrix/activities", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                dealIds: missingIds,
-              }),
+          // Bounded, size-aware chunks keep every request inside the
+          // /api/bitrix/activities contract (<=1000 IDs, body <10 KB).
+          const chunks = chunkDealIdsForActivities(requestedIds);
+          const confirmedIds = new Set<string>();
+          let anyChunkIncomplete = false;
+          let lastWarning: string | undefined;
+
+          const markChunkFailed = (chunk: string[]) => {
+            anyChunkIncomplete = true;
+            set((state) => {
+              const rs = { ...state.activitiesRequestState };
+              // Only unconfirmed IDs become retryable errors; never touch
+              // data/timestamps of IDs that previously succeeded.
+              for (const id of chunk) {
+                if (!confirmedIds.has(id)) rs[id] = "error";
+              }
+              return { activitiesRequestState: rs };
             });
+          };
 
-            if (!response.ok) {
-              console.warn("[Dashboard] Failed to fetch activities data: API returned", response.status);
-              set({
-                activitiesDataLoading: false,
-                // Failed refresh must not leave a stale COMPLETE provenance.
-                // "Request finished" never implies "activities complete".
-                activitiesCoverage: {
-                  status: "PARTIAL",
-                  fetched: 0,
-                  total: requestedIds.length,
-                  warning: ACTIVITIES_FAILED_WARNING,
-                },
-              });
-              return;
-            }
-            const data = await response.json();
-            if (data.success && data.activities) {
-              set((state) => {
-                const newActivitiesData = { ...state.activitiesData, ...data.activities };
-                const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
-                const newRequestState = { ...state.activitiesRequestState };
-                const fetchTimestamp = Date.now();
+          try {
+            for (const chunk of chunks) {
+              try {
+                const response = await fetchWithTimeout(
+                  "/api/bitrix/activities",
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ dealIds: chunk }),
+                  },
+                  ACTIVITIES_ENRICHMENT_FETCH_TIMEOUT_MS
+                );
 
-                // Only mark successfully fetched IDs as fetched (failed IDs remain UNKNOWN for retry)
-                const successfulIds: string[] = Array.isArray(data.fetchedDealIds)
+                if (!response.ok) {
+                  console.warn("[Dashboard] Failed to fetch activities chunk: API returned", response.status);
+                  markChunkFailed(chunk);
+                  continue;
+                }
+                const data = await response.json();
+                if (!(data.success && data.activities)) {
+                  markChunkFailed(chunk);
+                  continue;
+                }
+
+                const chunkSet = new Set(chunk);
+                // Only IDs inside this chunk and confirmed by the response.
+                const successfulIds: string[] = (Array.isArray(data.fetchedDealIds)
                   ? data.fetchedDealIds
-                  : Object.keys(data.activities);
+                  : Object.keys(data.activities)
+                ).map(String).filter((id: string) => chunkSet.has(id));
+                for (const id of successfulIds) confirmedIds.add(id);
+                if (data.partial || successfulIds.length < chunk.length) {
+                  anyChunkIncomplete = true;
+                  if (data.warning) lastWarning = data.warning;
+                }
 
-                for (const id of successfulIds) {
-                  newActivitiesDataFetchedAt[id] = fetchTimestamp;
-                  // Mirrors the scoped per-deal contract: a globally fetched
-                  // deal is also request-successful (truthful empty allowed).
-                  newRequestState[id] = "success";
-                }
-                // Requested but not successfully fetched → error (retryable).
-                for (const id of requestedIds) {
-                  if (!successfulIds.includes(id)) newRequestState[id] = "error";
-                }
-                // Prune cache to only keep deals present in allDeals
-                const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
-                for (const id in newActivitiesData) {
-                  if (!validDealIds.has(id)) {
-                    delete newActivitiesData[id];
-                    delete newActivitiesDataFetchedAt[id];
+                set((state) => {
+                  const newActivitiesData = { ...state.activitiesData };
+                  for (const id of successfulIds) {
+                    if (data.activities[id]) newActivitiesData[id] = data.activities[id];
                   }
-                }
-                return {
-                  activitiesData: newActivitiesData,
-                  activitiesDataFetchedAt: newActivitiesDataFetchedAt,
-                  activitiesRequestState: newRequestState,
-                  activitiesDataLoading: false,
-                  // Any failed/incomplete deal ID makes the enrichment PARTIAL
-                  // relative to the requested set — never COMPLETE.
-                  activitiesCoverage: resolveIdSetCoverage(
-                    requestedIds,
-                    successfulIds,
-                    { warning: data.warning }
-                  ),
-                };
-              });
-            } else {
-              set((state) => ({
-                activitiesDataLoading: false,
-                activitiesRequestState: Object.fromEntries(
-                  requestedIds.map((id) => [id, "error" as const])
-                ),
-                activitiesCoverage: {
-                  status: "PARTIAL",
-                  fetched: 0,
-                  total: requestedIds.length,
-                  warning: ACTIVITIES_FAILED_WARNING,
-                } as DatasetCoverage,
-              }));
+                  const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+                  const newRequestState = { ...state.activitiesRequestState };
+                  const fetchTimestamp = Date.now();
+                  for (const id of successfulIds) {
+                    newActivitiesDataFetchedAt[id] = fetchTimestamp;
+                    // Truthful empty is allowed: a confirmed deal is request-successful.
+                    newRequestState[id] = "success";
+                  }
+                  const successSet = new Set(successfulIds);
+                  for (const id of chunk) {
+                    if (!successSet.has(id)) newRequestState[id] = "error";
+                  }
+                  return {
+                    activitiesData: newActivitiesData,
+                    activitiesDataFetchedAt: newActivitiesDataFetchedAt,
+                    activitiesRequestState: newRequestState,
+                  };
+                });
+              } catch {
+                console.warn("[Dashboard] Failed to fetch activities chunk");
+                markChunkFailed(chunk);
+              }
             }
-          } catch {
-            console.warn("[Dashboard] Failed to fetch activities data");
-            set((state) => ({
-              activitiesDataLoading: false,
-              activitiesRequestState: { ...state.activitiesRequestState, ...Object.fromEntries(requestedIds.map((id) => [id, "error" as const])) },
-              activitiesCoverage: {
-                status: "PARTIAL",
-                fetched: 0,
-                total: requestedIds.length,
-                warning: ACTIVITIES_FAILED_WARNING,
-              },
-            }));
+
+            set((state) => {
+              // Prune cache to only keep deals present in allDeals
+              const validDealIds = new Set(state.allDeals.map(d => String(d.ID || d.id || "")).filter(Boolean));
+              const newActivitiesData = { ...state.activitiesData };
+              const newActivitiesDataFetchedAt = { ...state.activitiesDataFetchedAt };
+              for (const id in newActivitiesData) {
+                if (!validDealIds.has(id)) {
+                  delete newActivitiesData[id];
+                  delete newActivitiesDataFetchedAt[id];
+                }
+              }
+              const resolved = resolveIdSetCoverage(
+                requestedIds,
+                [...confirmedIds],
+                { warning: lastWarning ?? ACTIVITIES_FAILED_WARNING }
+              );
+              // A chunk that reported partial can never yield COMPLETE.
+              const coverage: DatasetCoverage =
+                resolved.status === "COMPLETE" && anyChunkIncomplete
+                  ? {
+                      status: "PARTIAL",
+                      fetched: confirmedIds.size,
+                      total: requestedIds.length,
+                      warning: lastWarning ?? ACTIVITIES_FAILED_WARNING,
+                    }
+                  : resolved;
+              return {
+                activitiesData: newActivitiesData,
+                activitiesDataFetchedAt: newActivitiesDataFetchedAt,
+                activitiesDataLoading: false,
+                activitiesCoverage: coverage,
+              };
+            });
           } finally {
+            set({ activitiesDataLoading: false });
             inFlightActivitiesPromise = null;
           }
         })();
