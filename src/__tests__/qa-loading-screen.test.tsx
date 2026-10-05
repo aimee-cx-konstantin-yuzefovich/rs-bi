@@ -214,7 +214,7 @@ describe('QA Suite: Dashboard Startup & Loading Screen', () => {
       // Brand typography
       expect(screen.getByText('RusSilica')).toHaveClass('text-[#93C5FD]');
       expect(screen.getByText('Аналитический терминал')).toBeInTheDocument();
-      expect(screen.getByText('v3.1')).toBeInTheDocument();
+      expect(screen.getByText('v3.9')).toBeInTheDocument();
       expect(screen.getByText('Корпоративная аналитическая система, объединяющая клиентов, сделки, образцы и коммерческие процессы в единую управленческую картину.')).toBeInTheDocument();
 
       // Blinking cursor present when step is running
