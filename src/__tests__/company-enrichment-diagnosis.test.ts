@@ -299,6 +299,64 @@ describe("warning semantics", () => {
     expect(buildEnrichmentUiWarnings(input)).toEqual([]);
     expect(buildEnrichmentExtraWarnings(input)).toEqual([]);
   });
+
+  it("critical regression: canonical zero wins over deprecated alias (activeUnresolvedReferenceCount = 0, unresolvedReferenceCount = 202)", () => {
+    const input = {
+      selectedColumns: ["COMPANY_TITLE"],
+      companiesDataCoverage: { status: "COMPLETE", fetched: 527, total: 527 } as const,
+      companiesEnrichmentDiagnostics: {
+        ...diag({ classification: "COMPLETE" }),
+        activeUnresolvedReferenceCount: 0,
+        unresolvedReferenceCount: 202,
+      },
+    };
+    expect(buildEnrichmentUiWarnings(input)).toEqual([]);
+    expect(buildEnrichmentExtraWarnings(input)).toEqual([]);
+  });
+
+  it("canonical non-zero wins over deprecated alias: activeUnresolvedReferenceCount = 202, legacy alias = 0", () => {
+    const input = {
+      selectedColumns: ["COMPANY_TITLE"],
+      companiesDataCoverage: { status: "COMPLETE", fetched: 527, total: 527 } as const,
+      companiesEnrichmentDiagnostics: {
+        ...diag({ classification: "UNRESOLVED_REFERENCES" }),
+        activeUnresolvedReferenceCount: 202,
+        unresolvedReferenceCount: 0,
+      },
+    };
+    expect(buildEnrichmentUiWarnings(input)).toEqual([WARNING_COMPANY_REFERENCES_UI]);
+    const xl = buildEnrichmentExtraWarnings(input).join(" ");
+    expect(xl).toContain("202");
+  });
+
+  it("backward compatibility: deprecated unresolvedReferenceCount used when activeUnresolvedReferenceCount is undefined", () => {
+    const input = {
+      selectedColumns: ["COMPANY_TITLE"],
+      companiesDataCoverage: { status: "COMPLETE", fetched: 527, total: 527 } as const,
+      companiesEnrichmentDiagnostics: {
+        ...diag({ classification: "UNRESOLVED_REFERENCES" }),
+        activeUnresolvedReferenceCount: undefined as any,
+        unresolvedReferenceCount: 202,
+      },
+    };
+    expect(buildEnrichmentUiWarnings(input)).toEqual([WARNING_COMPANY_REFERENCES_UI]);
+    const xl = buildEnrichmentExtraWarnings(input).join(" ");
+    expect(xl).toContain("202");
+  });
+
+  it("defaults to 0 when both activeUnresolvedReferenceCount and unresolvedReferenceCount are undefined", () => {
+    const input = {
+      selectedColumns: ["COMPANY_TITLE"],
+      companiesDataCoverage: { status: "COMPLETE", fetched: 527, total: 527 } as const,
+      companiesEnrichmentDiagnostics: {
+        ...diag({ classification: "COMPLETE" }),
+        activeUnresolvedReferenceCount: undefined as any,
+        unresolvedReferenceCount: undefined,
+      },
+    };
+    expect(buildEnrichmentUiWarnings(input)).toEqual([]);
+    expect(buildEnrichmentExtraWarnings(input)).toEqual([]);
+  });
 });
 
 describe("Regression Matrix: Stale Cache, TTL consistency, and Top-Level Failure", () => {
